@@ -1,0 +1,15 @@
+{
+  "info": {"name": "Cash Coach API Collection", "description": "Cash Coach education and goals endpoints", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Financial Tips","request": {"method": "GET","url": {"raw": "{{baseUrl}}/cash-coach/tips","host": ["{{baseUrl}}"],"path": ["cash-coach","tips"]}}},
+    {"name": "Get Education Content","request": {"method": "GET","url": {"raw": "{{baseUrl}}/cash-coach/education","host": ["{{baseUrl}}"],"path": ["cash-coach","education"]}}},
+    {"name": "Get Recommendations","request": {"method": "GET","url": {"raw": "{{baseUrl}}/cash-coach/recommendations","host": ["{{baseUrl}}"],"path": ["cash-coach","recommendations"]}}},
+    {"name": "Get Goals","request": {"method": "GET","url": {"raw": "{{baseUrl}}/cash-coach/goals","host": ["{{baseUrl}}"],"path": ["cash-coach","goals"]}}},
+    {"name": "Create Goal","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/cash-coach/goals","host": ["{{baseUrl}}"],"path": ["cash-coach","goals"]},"body": {"mode": "raw","raw": "{\n  \"name\": \"Emergency Fund\",\n  \"targetAmount\": 500,\n  \"deadline\": \"2025-12-31\"\n}"}}},
+    {"name": "Update Goal","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/cash-coach/goals/{{goalId}}","host": ["{{baseUrl}}"],"path": ["cash-coach","goals","{{goalId}}"]},"body": {"mode": "raw","raw": "{\n  \"name\": \"Emergency Fund\",\n  \"targetAmount\": 750\n}"}}},
+    {"name": "Add Contribution","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/cash-coach/goals/{{goalId}}/contribute","host": ["{{baseUrl}}"],"path": ["cash-coach","goals","{{goalId}}","contribute"]},"body": {"mode": "raw","raw": "{\n  \"amount\": 50\n}"}}},
+    {"name": "Get Goal Stats","request": {"method": "GET","url": {"raw": "{{baseUrl}}/cash-coach/goals/stats","host": ["{{baseUrl}}"],"path": ["cash-coach","goals","stats"]}}}
+  ]
+}

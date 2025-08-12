@@ -1,0 +1,17 @@
+{
+  "info": {"name": "Rewards & Challenges API Collection", "description": "Rewards and challenges endpoints", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Daily Challenges","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/challenges/daily","host": ["{{baseUrl}}"],"path": ["rewards","challenges","daily"]}}},
+    {"name": "Get Challenges","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/challenges","host": ["{{baseUrl}}"],"path": ["rewards","challenges"]}}},
+    {"name": "Get Challenge by ID","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/challenges/{{challengeId}}","host": ["{{baseUrl}}"],"path": ["rewards","challenges","{{challengeId}}"]}}},
+    {"name": "Complete Challenge","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/rewards/challenges/complete","host": ["{{baseUrl}}"],"path": ["rewards","challenges","complete"]},"body": {"mode": "raw","raw": "{\n  \"challengeId\": \"{{challengeId}}\",\n  \"result\": {\n    \"score\": 100\n  }\n}"}}},
+    {"name": "Get Rewards History","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/history","host": ["{{baseUrl}}"],"path": ["rewards","history"]}}},
+    {"name": "Get Leaderboard","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/leaderboard","host": ["{{baseUrl}}"],"path": ["rewards","leaderboard"]}}},
+    {"name": "Get Points Balance","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/points/balance","host": ["{{baseUrl}}"],"path": ["rewards","points","balance"]}}},
+    {"name": "Get Cashback Balance","request": {"method": "GET","url": {"raw": "{{baseUrl}}/rewards/cashback/balance","host": ["{{baseUrl}}"],"path": ["rewards","cashback","balance"]}}},
+    {"name": "Redeem Points","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/rewards/points/redeem","host": ["{{baseUrl}}"],"path": ["rewards","points","redeem"]},"body": {"mode": "raw","raw": "{\n  \"points\": 100\n}"}}},
+    {"name": "Redeem Cashback","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/rewards/cashback/redeem","host": ["{{baseUrl}}"],"path": ["rewards","cashback","redeem"]},"body": {"mode": "raw","raw": "{\n  \"amount\": 5.00\n}"}}}
+  ]
+}

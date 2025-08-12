@@ -1,0 +1,14 @@
+{
+  "info": {"name": "VIP API Collection", "description": "VIP membership endpoints", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Benefits","request": {"method": "GET","url": {"raw": "{{baseUrl}}/vip/benefits","host": ["{{baseUrl}}"],"path": ["vip","benefits"]}}},
+    {"name": "Get Plans","request": {"method": "GET","url": {"raw": "{{baseUrl}}/vip/plans","host": ["{{baseUrl}}"],"path": ["vip","plans"]}}},
+    {"name": "Get Status","request": {"method": "GET","url": {"raw": "{{baseUrl}}/vip/status","host": ["{{baseUrl}}"],"path": ["vip","status"]}}},
+    {"name": "Get Stats","request": {"method": "GET","url": {"raw": "{{baseUrl}}/vip/stats","host": ["{{baseUrl}}"],"path": ["vip","stats"]}}},
+    {"name": "Upgrade to VIP","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/vip/upgrade","host": ["{{baseUrl}}"],"path": ["vip","upgrade"]},"body": {"mode": "raw","raw": "{\n  \"planId\": \"PLAN_BASIC\"\n}"}}},
+    {"name": "Cancel VIP","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/vip/cancel","host": ["{{baseUrl}}"],"path": ["vip","cancel"]}}},
+    {"name": "Update VIP Settings","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/vip/settings","host": ["{{baseUrl}}"],"path": ["vip","settings"]},"body": {"mode": "raw","raw": "{\n  \"renewalReminder\": true\n}"}}}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "info": {"name": "Daily Reward API Collection", "description": "Endpoints for daily reward claim and status", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Today Reward","request": {"method": "GET","url": {"raw": "{{baseUrl}}/daily-reward/today","host": ["{{baseUrl}}"],"path": ["daily-reward","today"]}}},
+    {"name": "Claim Reward","request": {"method": "POST","url": {"raw": "{{baseUrl}}/daily-reward/claim","host": ["{{baseUrl}}"],"path": ["daily-reward","claim"]}}}
+  ]
+}

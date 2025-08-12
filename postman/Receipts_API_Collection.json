@@ -1,0 +1,13 @@
+{
+  "info": {"name": "Receipts API Collection", "description": "Receipt scanning and management endpoints", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Scan Receipt","request": {"method": "POST","header": [{"key": "Content-Type","value": "multipart/form-data"}],"url": {"raw": "{{baseUrl}}/receipts/scan","host": ["{{baseUrl}}"],"path": ["receipts","scan"]}}},
+    {"name": "Get Receipt History","request": {"method": "GET","url": {"raw": "{{baseUrl}}/receipts/history","host": ["{{baseUrl}}"],"path": ["receipts","history"]}}},
+    {"name": "Get Receipt Stats","request": {"method": "GET","url": {"raw": "{{baseUrl}}/receipts/stats","host": ["{{baseUrl}}"],"path": ["receipts","stats"]}}},
+    {"name": "Get Receipt by ID","request": {"method": "GET","url": {"raw": "{{baseUrl}}/receipts/{{receiptId}}","host": ["{{baseUrl}}"],"path": ["receipts","{{receiptId}}"]}}},
+    {"name": "Verify Receipt","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/receipts/{{receiptId}}/verify","host": ["{{baseUrl}}"],"path": ["receipts","{{receiptId}}","verify"]},"body": {"mode": "raw","raw": "{\n  \"status\": \"approved\",\n  \"notes\": \"Valid receipt\"\n}"}}},
+    {"name": "Delete Receipt","request": {"method": "DELETE","url": {"raw": "{{baseUrl}}/receipts/{{receiptId}}","host": ["{{baseUrl}}"],"path": ["receipts","{{receiptId}}"]}}}
+  ]
+}

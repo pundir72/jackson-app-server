@@ -1,0 +1,13 @@
+{
+  "info": {"name": "Wallet API Collection", "description": "Wallet endpoints for balance, transactions, and operations", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Balance","request": {"method": "GET","url": {"raw": "{{baseUrl}}/wallet/balance","host": ["{{baseUrl}}"],"path": ["wallet","balance"]}}},
+    {"name": "Get Transactions","request": {"method": "GET","url": {"raw": "{{baseUrl}}/wallet/transactions?type=all&status=all&page=1&limit=10","host": ["{{baseUrl}}"],"path": ["wallet","transactions"],"query": [{"key": "type","value": "all"},{"key": "status","value": "all"},{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}},
+    {"name": "Get Wallet Stats","request": {"method": "GET","url": {"raw": "{{baseUrl}}/wallet/stats","host": ["{{baseUrl}}"],"path": ["wallet","stats"]}}},
+    {"name": "Withdraw Funds","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/wallet/withdraw","host": ["{{baseUrl}}"],"path": ["wallet","withdraw"]},"body": {"mode": "raw","raw": "{\n  \"amount\": 10.00,\n  \"method\": \"bank_transfer\"\n}"}}},
+    {"name": "Add Funds","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/wallet/add-funds","host": ["{{baseUrl}}"],"path": ["wallet","add-funds"]},"body": {"mode": "raw","raw": "{\n  \"amount\": 25.00,\n  \"source\": \"card\"\n}"}}},
+    {"name": "Update Wallet Settings","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/wallet/settings","host": ["{{baseUrl}}"],"path": ["wallet","settings"]},"body": {"mode": "raw","raw": "{\n  \"autoWithdraw\": false,\n  \"withdrawThreshold\": 20.00\n}"}}}
+  ]
+}

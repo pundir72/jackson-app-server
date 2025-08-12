@@ -1,0 +1,19 @@
+{
+  "info": {"name": "Users API Collection", "description": "User profile and preferences endpoints", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Profile","request": {"method": "GET","url": {"raw": "{{baseUrl}}/users/profile","host": ["{{baseUrl}}"],"path": ["users","profile"]}}},
+    {"name": "Update Profile","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/users/profile","host": ["{{baseUrl}}"],"path": ["users","profile"]},"body": {"mode": "raw","raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"phone\": \"+1234567890\"\n}"}}},
+    {"name": "Upload Avatar","request": {"method": "POST","header": [{"key": "Content-Type","value": "multipart/form-data"}],"url": {"raw": "{{baseUrl}}/users/upload-avatar","host": ["{{baseUrl}}"],"path": ["users","upload-avatar"]}}},
+    {"name": "Get Preferences","request": {"method": "GET","url": {"raw": "{{baseUrl}}/users/preferences","host": ["{{baseUrl}}"],"path": ["users","preferences"]}}},
+    {"name": "Update Preferences","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/users/preferences","host": ["{{baseUrl}}"],"path": ["users","preferences"]},"body": {"mode": "raw","raw": "{\n  \"primaryGoal\": \"play_games\",\n  \"gameCategories\": [\"puzzle\", \"action\"],\n  \"gameStylePreferences\": [\"casual\", \"competitive\"]\n}"}}},
+    {"name": "Update Location","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/users/location","host": ["{{baseUrl}}"],"path": ["users","location"]},"body": {"mode": "raw","raw": "{\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"locationEnabled\": true\n}"}}},
+    {"name": "Update Notifications","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/users/notifications","host": ["{{baseUrl}}"],"path": ["users","notifications"]},"body": {"mode": "raw","raw": "{\n  \"pushNotifications\": true,\n  \"emailNotifications\": true,\n  \"smsNotifications\": false\n}"}}},
+    {"name": "Get Stats","request": {"method": "GET","url": {"raw": "{{baseUrl}}/users/stats","host": ["{{baseUrl}}"],"path": ["users","stats"]}}},
+    {"name": "Get Achievements","request": {"method": "GET","url": {"raw": "{{baseUrl}}/users/achievements","host": ["{{baseUrl}}"],"path": ["users","achievements"]}}},
+    {"name": "Get Referrals","request": {"method": "GET","url": {"raw": "{{baseUrl}}/users/referrals","host": ["{{baseUrl}}"],"path": ["users","referrals"]}}},
+    {"name": "Generate Referral Code","request": {"method": "POST","url": {"raw": "{{baseUrl}}/users/referral-code","host": ["{{baseUrl}}"],"path": ["users","referral-code"]}}},
+    {"name": "Delete Account","request": {"method": "DELETE","url": {"raw": "{{baseUrl}}/users/account","host": ["{{baseUrl}}"],"path": ["users","account"]}}}
+  ]
+}

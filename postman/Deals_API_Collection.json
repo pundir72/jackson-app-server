@@ -1,0 +1,20 @@
+{
+  "info": {"name": "Deals API Collection", "description": "Deals listing, detail, usage, and admin", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"}, {"key": "authToken", "value": "", "type": "string"}, {"key": "dealId", "value": "", "type": "string"}],
+  "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{authToken}}", "type": "string"}]},
+  "item": [
+    {"name": "Get Deals","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals?page=1&limit=10","host": ["{{baseUrl}}"],"path": ["deals"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}},
+    {"name": "Get Featured Deals","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals/featured","host": ["{{baseUrl}}"],"path": ["deals","featured"]}}},
+    {"name": "Get Deals by Category","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals/category/retail","host": ["{{baseUrl}}"],"path": ["deals","category","retail"]}}},
+    {"name": "Get Deals by Store","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals/store/Walmart","host": ["{{baseUrl}}"],"path": ["deals","store","Walmart"]}}},
+    {"name": "Get Nearby Deals","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals/nearby?latitude=40.7128&longitude=-74.0060&radius=10","host": ["{{baseUrl}}"],"path": ["deals","nearby"],"query": [{"key": "latitude","value": "40.7128"},{"key": "longitude","value": "-74.0060"},{"key": "radius","value": "10"}]}}},
+    {"name": "Get Deal by ID","request": {"method": "GET","url": {"raw": "{{baseUrl}}/deals/{{dealId}}","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}"]}}},
+    {"name": "Use Deal","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/deals/{{dealId}}/use","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}","use"]},"body": {"mode": "raw","raw": "{\n  \"purchaseAmount\": 50\n}"}}},
+
+    {"name": "Admin: Create Deal","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/deals","host": ["{{baseUrl}}"],"path": ["deals"]},"body": {"mode": "raw","raw": "{\n  \"title\": \"10% off at Walmart\",\n  \"description\": \"Save on your next purchase\",\n  \"type\": \"cashback\",\n  \"category\": \"retail\",\n  \"storeName\": \"Walmart\",\n  \"cashbackRate\": 0.1,\n  \"startDate\": \"2025-01-01\",\n  \"endDate\": \"2025-12-31\"\n}"}}},
+    {"name": "Admin: Update Deal","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"url": {"raw": "{{baseUrl}}/deals/{{dealId}}","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}"]},"body": {"mode": "raw","raw": "{\n  \"isFeatured\": true\n}"}}},
+    {"name": "Admin: Delete Deal","request": {"method": "DELETE","url": {"raw": "{{baseUrl}}/deals/{{dealId}}","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}"]}}},
+    {"name": "Admin: Toggle Featured","request": {"method": "PATCH","url": {"raw": "{{baseUrl}}/deals/{{dealId}}/toggle-featured","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}","toggle-featured"]}}},
+    {"name": "Admin: Toggle Active","request": {"method": "PATCH","url": {"raw": "{{baseUrl}}/deals/{{dealId}}/toggle-active","host": ["{{baseUrl}}"],"path": ["deals","{{dealId}}","toggle-active"]}}}
+  ]
+}

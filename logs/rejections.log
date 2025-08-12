@@ -1,0 +1,55 @@
+{
+  error: ReferenceError: logger is not defined
+      at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:157:5)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5),
+  level: 'error',
+  message: 'unhandledRejection: logger is not defined\n' +
+    'ReferenceError: logger is not defined\n' +
+    '    at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:157:5)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  stack: 'ReferenceError: logger is not defined\n' +
+    '    at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:157:5)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  rejection: true,
+  date: 'Mon Aug 11 2025 16:13:29 GMT+0530 (India Standard Time)',
+  process: {
+    pid: 135514,
+    uid: 1000,
+    gid: 1000,
+    cwd: '/home/deepak/Desktop/365/jackson-games/backend',
+    execPath: '/home/deepak/.nvm/versions/node/v20.19.4/bin/node',
+    version: 'v20.19.4',
+    argv: [
+      '/home/deepak/.nvm/versions/node/v20.19.4/bin/node',
+      '/home/deepak/Desktop/365/jackson-games/backend/src/server.js'
+    ],
+    memoryUsage: {
+      rss: 130822144,
+      heapTotal: 76296192,
+      heapUsed: 42704648,
+      external: 21708650,
+      arrayBuffers: 18348283
+    }
+  },
+  os: { loadavg: [ 1.06, 1.34, 1.52 ], uptime: 21884.23 },
+  trace: [
+    {
+      column: 5,
+      file: '/home/deepak/Desktop/365/jackson-games/backend/src/server.js',
+      function: 'startServer',
+      line: 157,
+      method: null,
+      native: false
+    },
+    {
+      column: 5,
+      file: 'node:internal/process/task_queues',
+      function: 'process.processTicksAndRejections',
+      line: 95,
+      method: 'processTicksAndRejections',
+      native: false
+    }
+  ],
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:13:29'
+}

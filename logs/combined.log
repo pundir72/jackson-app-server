@@ -1,0 +1,3137 @@
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:12:24'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:12:34'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:12:46'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:13:21'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:13:29'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:13:40'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:13:53'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:14:01'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:14:08'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:14:17'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:15:41'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:15:54'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:16:16'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:16:29'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:16:56'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:17:15'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:17:56'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:18:00'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:18:09'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:21:21'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:21:21'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:21:39'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:21:39'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:22:35'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:22:36'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:23:55'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:23:56'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:23:56'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:23:56'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:23:58'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:02'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:03'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:03'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:03'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:15'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:16'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:16'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:16'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:53'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:56'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:57'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:57'
+}
+{
+  message: 'Server running on port 4000 in production mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:24:57'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:27'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:30'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:31'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:31'
+}
+{
+  message: 'Server running on port 4000 in production mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:31'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:35'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:48'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:48'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:48'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:25:48'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:03'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:04'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:04'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:04'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:15'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:16'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:16'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:16'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:28'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:29'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:29'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:29'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:26:39'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:05'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:32'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:39'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:40'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:40'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:27:40'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:00'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:00'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:00'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:00'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:09'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:26'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:28:36'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:19'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:30'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:44'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:44'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:44'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:44'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:29:48'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:30:03'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:30:16'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:30:26'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:30:39'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:30:53'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:31:04'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:31:11'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:31:26'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:00'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:13'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:14'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:14'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:14'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:30'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:32:31'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:33:11'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:33:13'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:33:13'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:33:13'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:04'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:13'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:13'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:13'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:13'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:40:58'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:41:13'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:41:14'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:41:14'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:41:14'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:45:14'
+}
+{
+  message: 'MongoDB disconnected',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:45:24'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:45:24'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:286:9\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at compression (/home/deepak/Desktop/365/jackson-games/backend/node_modules/compression/index.js:243:5)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)',
+  timestamp: '2025-08-11 16:45:45'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:286:9\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at compression (/home/deepak/Desktop/365/jackson-games/backend/node_modules/compression/index.js:243:5)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)',
+  timestamp: '2025-08-11 16:45:45'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:286:9\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at compression (/home/deepak/Desktop/365/jackson-games/backend/node_modules/compression/index.js:243:5)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)',
+  timestamp: '2025-08-11 16:45:45'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:286:9\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at compression (/home/deepak/Desktop/365/jackson-games/backend/node_modules/compression/index.js:243:5)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at trim_prefix (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:328:13)',
+  timestamp: '2025-08-11 16:45:45'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:46:26'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:46:27'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:46:27'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:46:27'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:46:31'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:46:31'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:46:31'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:46:31'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:48:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:48:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:48:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 16:48:17'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:48:52'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:48:53'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:48:53'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 16:48:53'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at process.processTicksAndRejections (node:internal/process/task_queues:77:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:77:11)',
+  timestamp: '2025-08-11 16:56:17'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at process.processTicksAndRejections (node:internal/process/task_queues:77:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:77:11)',
+  timestamp: '2025-08-11 16:58:37'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at process.processTicksAndRejections (node:internal/process/task_queues:77:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:77:11)',
+  timestamp: '2025-08-11 16:59:10'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-11 17:00:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-11 17:00:17'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:29'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:30'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:30'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:30'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:44'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:45'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:45'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:00:45'
+}
+{
+  message: 'SIGTERM received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:01:38'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:03:36'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:03:37'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:03:37'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:03:37'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:06:27'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:06:28'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:06:28'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:06:28'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:09:20'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:10:56'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:10:57'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:10:57'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:10:57'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:11:40'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:04'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:10'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:15'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:16'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:17'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:18'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'onboarding.currentStep': ValidatorError: `player_type` is not a valid enum value for path `onboarding.currentStep`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`player_type` is not a valid enum value for path `onboarding.currentStep`.',
+        type: 'enum',
+        enumValues: [
+          'welcome',
+          'age_selection',
+          'gender_selection',
+          'primary_goal',
+          'improvement_areas',
+          'daily_earning_goal',
+          'game_preferences',
+          'game_style',
+          'location_permission',
+          'face_id_setup',
+          'disclosure_accepted'
+        ],
+        path: 'onboarding.currentStep',
+        fullPath: undefined,
+        value: 'player_type'
+      },
+      kind: 'enum',
+      path: 'onboarding.currentStep',
+      value: 'player_type',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required., onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required., onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:20'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    userId: ValidatorError: Path `userId` is required.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaObjectId.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: 'Path `userId` is required.',
+        type: 'required',
+        path: 'userId',
+        fullPath: undefined,
+        value: undefined
+      },
+      kind: 'required',
+      path: 'userId',
+      value: undefined,
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'onboarding.currentStep': ValidatorError: `player_type` is not a valid enum value for path `onboarding.currentStep`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`player_type` is not a valid enum value for path `onboarding.currentStep`.',
+        type: 'enum',
+        enumValues: [
+          'welcome',
+          'age_selection',
+          'gender_selection',
+          'primary_goal',
+          'improvement_areas',
+          'daily_earning_goal',
+          'game_preferences',
+          'game_style',
+          'location_permission',
+          'face_id_setup',
+          'disclosure_accepted'
+        ],
+        path: 'onboarding.currentStep',
+        fullPath: undefined,
+        value: 'player_type'
+      },
+      kind: 'enum',
+      path: 'onboarding.currentStep',
+      value: 'player_type',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: userId: Path `userId` is required., onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`.',
+  stack: 'ValidationError: UserPreference validation failed: userId: Path `userId` is required., onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 17:15:23'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:13'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:14'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:14'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:14'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:29'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:30'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:30'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:16:30'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:07'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:07'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:07'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:07'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:19'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:20'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:20'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:17:20'
+}
+{
+  message: 'SIGTERM received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:18:31'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:19:59'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:20:00'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:20:00'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:20:00'
+}
+{
+  service: 'jackson-app-backend',
+  stringValue: '"test-user-123"',
+  messageFormat: undefined,
+  kind: 'ObjectId',
+  value: 'test-user-123',
+  path: 'userId',
+  reason: BSONError: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/node_modules/bson/lib/bson.cjs:2538:23)
+      at castObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast/objectid.js:25:12)
+      at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:249:12)
+      at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)
+      at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)
+      at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)
+      at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)
+      at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)
+      at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)
+      at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80),
+  valueType: 'string',
+  level: 'error',
+  message: 'Get onboarding progress error: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"',
+  stack: 'CastError: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"\n' +
+    '    at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:251:11)\n' +
+    '    at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)\n' +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:81:29)',
+  timestamp: '2025-08-11 17:20:23'
+}
+{
+  service: 'jackson-app-backend',
+  stringValue: '"test-user-123"',
+  messageFormat: undefined,
+  kind: 'ObjectId',
+  value: 'test-user-123',
+  path: 'userId',
+  reason: BSONError: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/node_modules/bson/lib/bson.cjs:2538:23)
+      at castObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast/objectid.js:25:12)
+      at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:249:12)
+      at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)
+      at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)
+      at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)
+      at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)
+      at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)
+      at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)
+      at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80),
+  valueType: 'string',
+  level: 'error',
+  message: 'Get onboarding progress error: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"',
+  stack: 'CastError: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"\n' +
+    '    at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:251:11)\n' +
+    '    at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)\n' +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:81:29)',
+  timestamp: '2025-08-11 17:20:23'
+}
+{
+  service: 'jackson-app-backend',
+  stringValue: '"test-user-123"',
+  messageFormat: undefined,
+  kind: 'ObjectId',
+  value: 'test-user-123',
+  path: 'userId',
+  reason: BSONError: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/node_modules/bson/lib/bson.cjs:2538:23)
+      at castObjectId (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast/objectid.js:25:12)
+      at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:249:12)
+      at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)
+      at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)
+      at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)
+      at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)
+      at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)
+      at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)
+      at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80),
+  valueType: 'string',
+  level: 'error',
+  message: 'Get onboarding progress error: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"',
+  stack: 'CastError: Cast to ObjectId failed for value "test-user-123" (type string) at path "userId" for model "UserPreference"\n' +
+    '    at SchemaObjectId.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schema/objectId.js:251:11)\n' +
+    '    at SchemaObjectId.SchemaType.applySetters (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1258:12)\n' +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1680:17)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:390:32)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:81:29)',
+  timestamp: '2025-08-11 17:20:23'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:24:26'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:24:27'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:24:27'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:24:27'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:24:34'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:24:34'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:24:34'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:24:34'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:29:35'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:34:16'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:34:17'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:34:17'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:34:17'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Authentication error: Invalid token',
+  stack: 'Error: Invalid token\n' +
+    '    at verifyToken (/home/deepak/Desktop/365/jackson-games/backend/src/utils/helpers.js:30:11)\n' +
+    '    at authMiddleware (/home/deepak/Desktop/365/jackson-games/backend/src/middleware/auth.js:21:21)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:149:13)\n' +
+    '    at Route.dispatch (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/route.js:119:3)\n' +
+    '    at Layer.handle [as handle_request] (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/layer.js:95:5)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:284:15\n' +
+    '    at Function.process_params (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:346:12)\n' +
+    '    at next (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:280:10)\n' +
+    '    at Function.handle (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/router/index.js:175:3)',
+  timestamp: '2025-08-11 17:34:36'
+}
+{
+  message: 'User logged in: test@example.com',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:34:54'
+}
+{
+  message: 'Onboarding step completed: age_selection for user: 6899d448ce29f6864b4a5893',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:35:10'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:37:43'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:37:43'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:37:43'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:37:44'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:38:21'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:38:37'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:38:57'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:39:14'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:08'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:14'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:58'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:59'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:59'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:45:59'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: "Get onboarding progress error: Can't use $regex",
+  stack: "Error: Can't use $regex\n" +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1674:13)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:367:39)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:86:29)',
+  timestamp: '2025-08-11 17:46:04'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: "Get onboarding progress error: Can't use $regex",
+  stack: "Error: Can't use $regex\n" +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1674:13)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:367:39)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:86:29)',
+  timestamp: '2025-08-11 17:46:04'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: "Get onboarding progress error: Can't use $regex",
+  stack: "Error: Can't use $regex\n" +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1674:13)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:367:39)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:86:29)',
+  timestamp: '2025-08-11 17:46:04'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: "Get onboarding progress error: Can't use $regex",
+  stack: "Error: Can't use $regex\n" +
+    '    at SchemaObjectId.SchemaType.castForQuery (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1674:13)\n' +
+    '    at cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/cast.js:367:39)\n' +
+    '    at model.Query.Query.cast (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:5060:12)\n' +
+    '    at model.Query.Query._castConditions (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2374:10)\n' +
+    '    at model.Query._findOne (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:2697:8)\n' +
+    '    at model.Query.exec (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/query.js:4627:80)\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:96:5)\n' +
+    '    at async getOnboardingProgress (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/onboardingController.js:86:29)',
+  timestamp: '2025-08-11 17:46:04'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:52:04'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:52:42'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:52:43'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:52:43'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 17:52:43'
+}
+{
+  message: 'Onboarding step completed: age_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:15'
+}
+{
+  message: 'Onboarding step completed: gender_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:18'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:22'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:25'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:27'
+}
+{
+  message: 'Onboarding step completed: game_style for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:10:31'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'onboarding.currentStep': ValidatorError: `player_type` is not a valid enum value for path `onboarding.currentStep`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`player_type` is not a valid enum value for path `onboarding.currentStep`.',
+        type: 'enum',
+        enumValues: [
+          'welcome',
+          'age_selection',
+          'gender_selection',
+          'primary_goal',
+          'improvement_areas',
+          'daily_earning_goal',
+          'game_preferences',
+          'game_style',
+          'location_permission',
+          'face_id_setup',
+          'disclosure_accepted'
+        ],
+        path: 'onboarding.currentStep',
+        fullPath: undefined,
+        value: 'player_type'
+      },
+      kind: 'enum',
+      path: 'onboarding.currentStep',
+      value: 'player_type',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'onboarding.completedSteps.4.step': ValidatorError: `player_type` is not a valid enum value for path `step`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`player_type` is not a valid enum value for path `step`.',
+        type: 'enum',
+        enumValues: [
+          'welcome',
+          'age_selection',
+          'gender_selection',
+          'primary_goal',
+          'improvement_areas',
+          'daily_earning_goal',
+          'game_preferences',
+          'game_style',
+          'location_permission',
+          'face_id_setup',
+          'disclosure_accepted'
+        ],
+        path: 'step',
+        fullPath: undefined,
+        value: 'player_type'
+      },
+      kind: 'enum',
+      path: 'step',
+      value: 'player_type',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`., onboarding.completedSteps.4.step: `player_type` is not a valid enum value for path `step`.',
+  stack: 'ValidationError: UserPreference validation failed: onboarding.currentStep: `player_type` is not a valid enum value for path `onboarding.currentStep`., onboarding.completedSteps.4.step: `player_type` is not a valid enum value for path `step`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:10:33'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:11:50'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:15:53'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:15:54'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:15:54'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:15:54'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:20:44'
+}
+{
+  message: 'Onboarding step completed: age_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:07'
+}
+{
+  message: 'Onboarding step completed: gender_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:09'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:12'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:13'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:14'
+}
+{
+  message: 'Onboarding step completed: game_style for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:16'
+}
+{
+  message: 'Onboarding step completed: player_type for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:36:18'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:37:02'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:41:56'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:41:57'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:41:57'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:41:57'
+}
+{
+  message: 'Onboarding step completed: age_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:45:47'
+}
+{
+  message: 'Onboarding step completed: gender_selection for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:45:50'
+}
+{
+  message: 'Onboarding step completed: game_preferences for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:45:52'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'gaming.gamePreferences.1': ValidatorError: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.',
+        type: 'enum',
+        enumValues: [
+          'puzzle',      'strategy',
+          'action',      'arcade',
+          'educational', 'casino',
+          'trivia',      'simulation',
+          'card_games',  'word_games',
+          'math_games',  'memory_games'
+        ],
+        path: 'gaming.gamePreferences.1',
+        fullPath: undefined,
+        value: 'strategy_thinking'
+      },
+      kind: 'enum',
+      path: 'gaming.gamePreferences.1',
+      value: 'strategy_thinking',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: gaming.gamePreferences.1: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.',
+  stack: 'ValidationError: UserPreference validation failed: gaming.gamePreferences.1: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:45:53'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'gaming.gamePreferences.1': ValidatorError: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`.',
+        type: 'enum',
+        enumValues: [
+          'puzzle',      'strategy',
+          'action',      'arcade',
+          'educational', 'casino',
+          'trivia',      'simulation',
+          'card_games',  'word_games',
+          'math_games',  'memory_games'
+        ],
+        path: 'gaming.gamePreferences.1',
+        fullPath: undefined,
+        value: 'strategy_thinking'
+      },
+      kind: 'enum',
+      path: 'gaming.gamePreferences.1',
+      value: 'strategy_thinking',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'gaming.gamePreferences.2': ValidatorError: `arcade_classic` is not a valid enum value for path `gaming.gamePreferences.2`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`arcade_classic` is not a valid enum value for path `gaming.gamePreferences.2`.',
+        type: 'enum',
+        enumValues: [
+          'puzzle',      'strategy',
+          'action',      'arcade',
+          'educational', 'casino',
+          'trivia',      'simulation',
+          'card_games',  'word_games',
+          'math_games',  'memory_games'
+        ],
+        path: 'gaming.gamePreferences.2',
+        fullPath: undefined,
+        value: 'arcade_classic'
+      },
+      kind: 'enum',
+      path: 'gaming.gamePreferences.2',
+      value: 'arcade_classic',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: gaming.gamePreferences.1: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`., gaming.gamePreferences.2: `arcade_classic` is not a valid enum value for path `gaming.gamePreferences.2`.',
+  stack: 'ValidationError: UserPreference validation failed: gaming.gamePreferences.1: `strategy_thinking` is not a valid enum value for path `gaming.gamePreferences.1`., gaming.gamePreferences.2: `arcade_classic` is not a valid enum value for path `gaming.gamePreferences.2`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:45:55'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'gaming.gameStyle': ValidatorError: `short_sessions` is not a valid enum value for path `gaming.gameStyle`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`short_sessions` is not a valid enum value for path `gaming.gameStyle`.',
+        type: 'enum',
+        enumValues: [
+          'casual',
+          'competitive',
+          'social',
+          'educational',
+          'relaxing'
+        ],
+        path: 'gaming.gameStyle',
+        fullPath: undefined,
+        value: 'short_sessions'
+      },
+      kind: 'enum',
+      path: 'gaming.gameStyle',
+      value: 'short_sessions',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: gaming.gameStyle: `short_sessions` is not a valid enum value for path `gaming.gameStyle`.',
+  stack: 'ValidationError: UserPreference validation failed: gaming.gameStyle: `short_sessions` is not a valid enum value for path `gaming.gameStyle`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:46:01'
+}
+{
+  message: 'Onboarding step completed: player_type for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:46:03'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'personal.ageRange': ValidatorError: `Under 18` is not a valid enum value for path `personal.ageRange`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`Under 18` is not a valid enum value for path `personal.ageRange`.',
+        type: 'enum',
+        enumValues: [ 'under_18', '18_24', '25_34', '35_44', '45_54', '55_plus' ],
+        path: 'personal.ageRange',
+        fullPath: undefined,
+        value: 'Under 18'
+      },
+      kind: 'enum',
+      path: 'personal.ageRange',
+      value: 'Under 18',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Save onboarding preferences error: UserPreference validation failed: personal.ageRange: `Under 18` is not a valid enum value for path `personal.ageRange`.',
+  stack: 'ValidationError: UserPreference validation failed: personal.ageRange: `Under 18` is not a valid enum value for path `personal.ageRange`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:46:03'
+}
+{
+  message: 'Onboarding step completed: player_type for anonymous user',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:46:06'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'personal.ageRange': ValidatorError: `Under 18` is not a valid enum value for path `personal.ageRange`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`Under 18` is not a valid enum value for path `personal.ageRange`.',
+        type: 'enum',
+        enumValues: [ 'under_18', '18_24', '25_34', '35_44', '45_54', '55_plus' ],
+        path: 'personal.ageRange',
+        fullPath: undefined,
+        value: 'Under 18'
+      },
+      kind: 'enum',
+      path: 'personal.ageRange',
+      value: 'Under 18',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Save onboarding preferences error: UserPreference validation failed: personal.ageRange: `Under 18` is not a valid enum value for path `personal.ageRange`.',
+  stack: 'ValidationError: UserPreference validation failed: personal.ageRange: `Under 18` is not a valid enum value for path `personal.ageRange`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:46:06'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:46:35'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:51:57'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:51:58'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:51:58'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:51:58'
+}
+{
+  service: 'jackson-app-backend',
+  errors: {
+    'personal.ageRange': ValidatorError: `under_18` is not a valid enum value for path `personal.ageRange`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`under_18` is not a valid enum value for path `personal.ageRange`.',
+        type: 'enum',
+        enumValues: [ 'Under 18', '18-24', '25-34', '35-44', '45-54', '55+' ],
+        path: 'personal.ageRange',
+        fullPath: undefined,
+        value: 'under_18'
+      },
+      kind: 'enum',
+      path: 'personal.ageRange',
+      value: 'under_18',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'gaming.gameStyle': ValidatorError: `casual` is not a valid enum value for path `gaming.gameStyle`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`casual` is not a valid enum value for path `gaming.gameStyle`.',
+        type: 'enum',
+        enumValues: [
+          'short_sessions',
+          'medium_sessions',
+          'long_sessions',
+          'anytime_play'
+        ],
+        path: 'gaming.gameStyle',
+        fullPath: undefined,
+        value: 'casual'
+      },
+      kind: 'enum',
+      path: 'gaming.gameStyle',
+      value: 'casual',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    },
+    'gaming.gamePreferences.0': ValidatorError: `puzzle` is not a valid enum value for path `gaming.gamePreferences.0`.
+        at validate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1407:13)
+        at SchemaString.SchemaType.doValidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1391:7)
+        at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3111:18
+        at processTicksAndRejections (node:internal/process/task_queues:78:11) {
+      properties: {
+        validator: [Function (anonymous)],
+        message: '`puzzle` is not a valid enum value for path `gaming.gamePreferences.0`.',
+        type: 'enum',
+        enumValues: [
+          'puzzle_brain',
+          'strategy_thinking',
+          'action_fast',
+          'arcade_classic',
+          'educational_learning',
+          'casino_gambling',
+          'trivia_knowledge',
+          'simulation_realistic',
+          'card_games',
+          'word_games',
+          'math_games',
+          'memory_games'
+        ],
+        path: 'gaming.gamePreferences.0',
+        fullPath: undefined,
+        value: 'puzzle'
+      },
+      kind: 'enum',
+      path: 'gaming.gamePreferences.0',
+      value: 'puzzle',
+      reason: undefined,
+      [Symbol(mongoose#validatorError)]: true
+    }
+  },
+  _message: 'UserPreference validation failed',
+  level: 'error',
+  message: 'Complete onboarding step error: UserPreference validation failed: personal.ageRange: `under_18` is not a valid enum value for path `personal.ageRange`., gaming.gameStyle: `casual` is not a valid enum value for path `gaming.gameStyle`., gaming.gamePreferences.0: `puzzle` is not a valid enum value for path `gaming.gamePreferences.0`.',
+  stack: 'ValidationError: UserPreference validation failed: personal.ageRange: `under_18` is not a valid enum value for path `personal.ageRange`., gaming.gameStyle: `casual` is not a valid enum value for path `gaming.gameStyle`., gaming.gamePreferences.0: `puzzle` is not a valid enum value for path `gaming.gamePreferences.0`.\n' +
+    '    at model.Document.invalidate (/home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3358:32)\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/document.js:3119:17\n' +
+    '    at /home/deepak/Desktop/365/jackson-games/backend/node_modules/mongoose/lib/schemaType.js:1410:9\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
+  timestamp: '2025-08-11 18:56:47'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-11 18:58:42'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:04'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:05'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:05'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:05'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:30'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 12:39:31'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:04:59'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:00'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:15'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:17'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:18'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:18'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:18'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:23'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:23'
+}
+{
+  message: 'SIGINT received, shutting down gracefully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:42'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:47'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:47'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:47'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:05:47'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:06:41'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:06:48'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:06:49'
+}
+{
+  message: 'Onboarding options retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:07:21'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:08:18'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:08:18'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:08:32'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:08:32'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:08:32'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:10:23'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:10:24'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:10:56'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:10:57'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:11:16'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:13'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:13'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:13'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:27'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:27'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:23:28'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:24:43'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:24:44'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:24:44'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:24:58'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:25:02'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:25:48'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:25:48'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:25:49'
+}

@@ -1,0 +1,572 @@
+{
+  "info": {
+    "name": "Game API Collection",
+    "description": "Complete collection for testing all Game API endpoints in the rewards backend system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "YOUR_JWT_TOKEN_HERE",
+      "type": "string"
+    },
+    {
+      "key": "gameId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Game Listing",
+      "item": [
+        {
+          "name": "Get All Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games?page=1&limit=10&category=puzzle&difficulty=medium&featured=false&new=true&vipOnly=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["games"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "category",
+                  "value": "puzzle"
+                },
+                {
+                  "key": "difficulty",
+                  "value": "medium"
+                },
+                {
+                  "key": "featured",
+                  "value": "false"
+                },
+                {
+                  "key": "new",
+                  "value": "true"
+                },
+                {
+                  "key": "vipOnly",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Featured Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/featured",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "featured"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get New Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/new",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "new"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Popular Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/popular",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "popular"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Top Rated Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/top-rated",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "top-rated"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Games by Tags",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/tags?tags=puzzle,brain-teaser&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "tags"],
+              "query": [
+                {
+                  "key": "tags",
+                  "value": "puzzle,brain-teaser"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Location-Based Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/location-based",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "location-based"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get VIP Games",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/vip",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "vip"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Game Categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "categories"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Game Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "stats"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Game Details",
+      "item": [
+        {
+          "name": "Get Game by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Play Game",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location\": {\n    \"latitude\": 40.7128,\n    \"longitude\": -74.0060\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/play",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "play"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Game",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"score\": 1500,\n  \"timeSpent\": 300,\n  \"achievements\": [\"first_win\", \"high_score\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "complete"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rate Game",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 4.5,\n  \"comment\": \"Great game! Very challenging and fun.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/rate",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "rate"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Game Progress",
+      "item": [
+        {
+          "name": "Get User's Game Progress",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/progress",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "progress"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Game Progress by Game ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/progress/{{gameId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "progress", "{{gameId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Game Achievements",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/achievements",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "achievements"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Game Leaderboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/leaderboard?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "leaderboard"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin Endpoints",
+      "item": [
+        {
+          "name": "Toggle Game Featured Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/toggle-featured",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "toggle-featured"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Toggle Game Active Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "toggle-active"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Tag to Game",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tag\": \"new-tag\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/tags",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "tags"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Tag from Game",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/games/{{gameId}}/tags/new-tag",
+              "host": ["{{baseUrl}}"],
+              "path": ["games", "{{gameId}}", "tags", "new-tag"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Pre-request script to set up common headers and variables",
+          "pm.request.headers.add({",
+          "    key: 'Accept',",
+          "    value: 'application/json'",
+          "});",
+          "",
+          "// Set default timeout",
+          "pm.request.timeout = 10000;"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Test script to validate responses",
+          "pm.test('Status code is 200 or 201', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "});",
+          "",
+          "pm.test('Response has success property', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('success');",
+          "});",
+          "",
+          "pm.test('Response has message property', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('message');",
+          "});",
+          "",
+          "pm.test('Response has statusCode property', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('statusCode');",
+          "});",
+          "",
+          "// Store gameId from response if available",
+          "if (pm.response.code === 200 || pm.response.code === 201) {",
+          "    const jsonData = pm.response.json();",
+          "    if (jsonData.data && jsonData.data.game && jsonData.data.game._id) {",
+          "        pm.collectionVariables.set('gameId', jsonData.data.game._id);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+} 

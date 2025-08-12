@@ -1,0 +1,4 @@
+node_modules
+.env
+package-lock.json
+FIRST_MILESTONE_README.md

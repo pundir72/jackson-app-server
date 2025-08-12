@@ -3159,3 +3159,381 @@
   service: 'jackson-app-backend',
   timestamp: '2025-08-12 13:29:59'
 }
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:34:00'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:34:00'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:35:58'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:35:59'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:40:20'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:40:20'
+}
+{
+  message: 'MongoDB disconnected',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:40:30'
+}
+{
+  message: 'MongoDB reconnected',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:40:30'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:01:47'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:01:47'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:04:53'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:04:53'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:09:05'
+}
+{
+  message: 'Onboarding master data retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:09:06'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:52'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:53'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:53'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:53'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:54'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:55'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:55'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:18:55'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:19:09'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:19:10'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:19:10'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:19:10'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:20:46'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:20:46'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:20:46'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:21:39'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:21:40'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:21:40'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:21:40'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:23:29'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:23:29'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:23:29'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:26:40'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:26:40'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:26:40'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:41'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:41'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:42'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:42'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:42'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:42'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:56'
+}
+{
+  message: 'Email sent to john.doe@example.com: <a10f0d60-0183-5399-bcee-c91f766442d3@gmail.com>',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:59'
+}
+{
+  message: 'New user registered: john.doe@example.com',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:59'
+}
+{
+  message: 'User logged in: john.doe@example.com',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:29:18'
+}
+{
+  message: 'Redis not available, cache.get() returning null',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:29:39'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:07'
+}
+{
+  message: 'Email sent to dpundir72@gmail.com: <28c83315-aaca-a9bd-3bcb-765c24d25a20@gmail.com>',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:10'
+}
+{
+  message: 'New user registered: dpundir72@gmail.com',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:10'
+}
+{
+  message: 'Redis not available, cache.set() returning false',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:49'
+}
+{
+  message: 'Email sent to dpundir72@gmail.com: <5d150334-e053-1659-a001-fe1703394336@gmail.com>',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:53'
+}
+{
+  message: 'Password reset requested for: dpundir72@gmail.com',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:30:53'
+}
+{
+  message: 'Onboarding options retrieved successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:31:46'
+}
+{
+  message: 'Onboarding step completed: age_selection for session: anon_1754989335593',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:32:15'
+}

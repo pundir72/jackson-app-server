@@ -11784,3 +11784,108 @@
   service: 'jackson-app-backend',
   timestamp: '2025-08-11 17:45:14'
 }
+{
+  error: Error: listen EADDRINUSE: address already in use :::4000
+      at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+      at listenInCluster (node:net:1965:12)
+      at Server.listen (node:net:2067:7)
+      at Function.listen (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/application.js:635:24)
+      at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:134:24)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+    code: 'EADDRINUSE',
+    errno: -98,
+    syscall: 'listen',
+    address: '::',
+    port: 4000
+  },
+  level: 'error',
+  message: 'uncaughtException: listen EADDRINUSE: address already in use :::4000\n' +
+    'Error: listen EADDRINUSE: address already in use :::4000\n' +
+    '    at Server.setupListenHandle [as _listen2] (node:net:1908:16)\n' +
+    '    at listenInCluster (node:net:1965:12)\n' +
+    '    at Server.listen (node:net:2067:7)\n' +
+    '    at Function.listen (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/application.js:635:24)\n' +
+    '    at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:134:24)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  stack: 'Error: listen EADDRINUSE: address already in use :::4000\n' +
+    '    at Server.setupListenHandle [as _listen2] (node:net:1908:16)\n' +
+    '    at listenInCluster (node:net:1965:12)\n' +
+    '    at Server.listen (node:net:2067:7)\n' +
+    '    at Function.listen (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/application.js:635:24)\n' +
+    '    at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:134:24)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  exception: true,
+  date: 'Tue Aug 12 2025 14:28:42 GMT+0530 (India Standard Time)',
+  process: {
+    pid: 61029,
+    uid: 1000,
+    gid: 1000,
+    cwd: '/home/deepak/Desktop/365/jackson-games/backend',
+    execPath: '/home/deepak/.nvm/versions/node/v20.19.4/bin/node',
+    version: 'v20.19.4',
+    argv: [
+      '/home/deepak/.nvm/versions/node/v20.19.4/bin/node',
+      '/home/deepak/Desktop/365/jackson-games/backend/src/server.js'
+    ],
+    memoryUsage: {
+      rss: 129728512,
+      heapTotal: 74461184,
+      heapUsed: 40494144,
+      external: 21729526,
+      arrayBuffers: 18348267
+    }
+  },
+  os: { loadavg: [ 1.39, 1.81, 1.58 ], uptime: 15756.88 },
+  trace: [
+    {
+      column: 16,
+      file: 'node:net',
+      function: 'Server.setupListenHandle [as _listen2]',
+      line: 1908,
+      method: 'setupListenHandle [as _listen2]',
+      native: false
+    },
+    {
+      column: 12,
+      file: 'node:net',
+      function: 'listenInCluster',
+      line: 1965,
+      method: null,
+      native: false
+    },
+    {
+      column: 7,
+      file: 'node:net',
+      function: 'Server.listen',
+      line: 2067,
+      method: 'listen',
+      native: false
+    },
+    {
+      column: 24,
+      file: '/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/application.js',
+      function: 'Function.listen',
+      line: 635,
+      method: 'listen',
+      native: false
+    },
+    {
+      column: 24,
+      file: '/home/deepak/Desktop/365/jackson-games/backend/src/server.js',
+      function: 'startServer',
+      line: 134,
+      method: null,
+      native: false
+    },
+    {
+      column: 5,
+      file: 'node:internal/process/task_queues',
+      function: 'process.processTicksAndRejections',
+      line: 95,
+      method: 'processTicksAndRejections',
+      native: false
+    }
+  ],
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 14:28:42'
+}

@@ -1765,3 +1765,87 @@
     '    at processTicksAndRejections (node:internal/process/task_queues:78:11)',
   timestamp: '2025-08-11 18:56:47'
 }
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:20:46'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:20:46'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:23:29'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:23:29'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Email sending error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:26:40'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Registration error: nodemailer.createTransporter is not a function',
+  stack: 'TypeError: nodemailer.createTransporter is not a function\n' +
+    '    at createTransporter (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:6:21)\n' +
+    '    at sendEmail (/home/deepak/Desktop/365/jackson-games/backend/src/services/emailService.js:143:25)\n' +
+    '    at register (/home/deepak/Desktop/365/jackson-games/backend/src/controllers/authController.js:80:11)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:26:40'
+}
+{
+  service: 'jackson-app-backend',
+  code: 'EADDRINUSE',
+  errno: -98,
+  syscall: 'listen',
+  address: '::',
+  port: 4000,
+  level: 'error',
+  message: 'Uncaught Exception: listen EADDRINUSE: address already in use :::4000',
+  stack: 'Error: listen EADDRINUSE: address already in use :::4000\n' +
+    '    at Server.setupListenHandle [as _listen2] (node:net:1908:16)\n' +
+    '    at listenInCluster (node:net:1965:12)\n' +
+    '    at Server.listen (node:net:2067:7)\n' +
+    '    at Function.listen (/home/deepak/Desktop/365/jackson-games/backend/node_modules/express/lib/application.js:635:24)\n' +
+    '    at startServer (/home/deepak/Desktop/365/jackson-games/backend/src/server.js:134:24)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+  timestamp: '2025-08-12 14:28:42'
+}

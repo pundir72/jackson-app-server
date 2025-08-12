@@ -3135,3 +3135,27 @@
   service: 'jackson-app-backend',
   timestamp: '2025-08-12 13:25:49'
 }
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:29:58'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:29:59'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:29:59'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 13:29:59'
+}

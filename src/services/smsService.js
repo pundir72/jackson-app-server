@@ -1,11 +1,21 @@
 const twilio = require('twilio');
 const logger = require('../utils/logger');
 
-// Initialize Twilio client
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+// Initialize Twilio client only if credentials are available
+let client = null;
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+  try {
+    client = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+    logger.info('Twilio client initialized successfully');
+  } catch (error) {
+    logger.error('Failed to initialize Twilio client:', error);
+  }
+} else {
+  logger.warn('Twilio credentials not found. SMS functionality will be disabled.');
+}
 
 // SMS templates
 const smsTemplates = {
@@ -53,6 +63,11 @@ const smsTemplates = {
 // Send SMS
 const sendSMS = async ({ to, body, template, data }) => {
   try {
+    if (!client) {
+      logger.warn('SMS sending skipped: Twilio client not initialized');
+      return { sid: 'mock_sid', status: 'disabled', message: 'SMS disabled - no Twilio credentials' };
+    }
+
     let messageBody;
     if (template && smsTemplates[template]) {
       const templateData = smsTemplates[template](data);
@@ -100,6 +115,14 @@ const sendBulkSMS = async (messages) => {
 // Verify phone number
 const verifyPhoneNumber = async (phoneNumber) => {
   try {
+    if (!client) {
+      logger.warn('Phone verification skipped: Twilio client not initialized');
+      return {
+        valid: false,
+        error: 'Twilio client not available - phone verification disabled',
+      };
+    }
+
     const lookup = await client.lookups.v1.phoneNumbers(phoneNumber).fetch({
       type: ['carrier'],
     });

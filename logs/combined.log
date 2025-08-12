@@ -3537,3 +3537,144 @@
   service: 'jackson-app-backend',
   timestamp: '2025-08-12 14:32:15'
 }
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:43:47'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:44:13'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:48:53'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:06'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Failed to initialize Twilio client: accountSid must start with AC',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:8:14)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  timestamp: '2025-08-12 20:51:07'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:08'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:08'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:08'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:20'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Failed to initialize Twilio client: accountSid must start with AC',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:8:14)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  timestamp: '2025-08-12 20:51:20'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:23'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:23'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:23'
+}
+{
+  message: 'Redis disabled via REDIS_ENABLED=false, running without caching',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:34'
+}
+{
+  service: 'jackson-app-backend',
+  level: 'error',
+  message: 'Failed to initialize Twilio client: accountSid must start with AC',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:8:14)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  timestamp: '2025-08-12 20:51:34'
+}
+{
+  message: 'MongoDB connected successfully',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:37'
+}
+{
+  message: 'Redis not available, running without caching',
+  level: 'warn',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:37'
+}
+{
+  message: 'Server running on port 4000 in development mode',
+  level: 'info',
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:51:37'
+}

@@ -11889,3 +11889,432 @@
   service: 'jackson-app-backend',
   timestamp: '2025-08-12 14:28:42'
 }
+{
+  error: Error: accountSid must start with AC
+      at new Client (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\base\BaseTwilio.js:71:23)
+      at new Twilio (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\rest\Twilio.js:33:9)
+      at TwilioSDK (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\index.js:40:12)
+      at Object.<anonymous> (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\src\services\smsService.js:5:16)
+      at Module._compile (node:internal/modules/cjs/loader:1730:14)
+      at Object..js (node:internal/modules/cjs/loader:1895:10)
+      at Module.load (node:internal/modules/cjs/loader:1465:32)
+      at Function._load (node:internal/modules/cjs/loader:1282:12)
+      at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:235:24),
+  level: 'error',
+  message: 'uncaughtException: accountSid must start with AC\n' +
+    'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  exception: true,
+  date: 'Tue Aug 12 2025 20:43:47 GMT+0530 (India Standard Time)',
+  process: {
+    pid: 19160,
+    uid: null,
+    gid: null,
+    cwd: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server',
+    execPath: 'C:\\Program Files\\nodejs\\node.exe',
+    version: 'v22.16.0',
+    argv: [
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\server.js'
+    ],
+    memoryUsage: {
+      rss: 126779392,
+      heapTotal: 76750848,
+      heapUsed: 35987032,
+      external: 21718053,
+      arrayBuffers: 18313792
+    }
+  },
+  os: { loadavg: [ 0, 0, 0 ], uptime: 713145.171 },
+  trace: [
+    {
+      column: 23,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js',
+      function: 'new Client',
+      line: 71,
+      method: null,
+      native: false
+    },
+    {
+      column: 9,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js',
+      function: 'new Twilio',
+      line: 33,
+      method: null,
+      native: false
+    },
+    {
+      column: 12,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js',
+      function: 'TwilioSDK',
+      line: 40,
+      method: null,
+      native: false
+    },
+    {
+      column: 16,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js',
+      function: null,
+      line: 5,
+      method: null,
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module._compile',
+      line: 1730,
+      method: '_compile',
+      native: false
+    },
+    {
+      column: 10,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Object..js',
+      line: 1895,
+      method: '.js',
+      native: false
+    },
+    {
+      column: 32,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module.load',
+      line: 1465,
+      method: 'load',
+      native: false
+    },
+    {
+      column: 12,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Function._load',
+      line: 1282,
+      method: '_load',
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:diagnostics_channel',
+      function: 'TracingChannel.traceSync',
+      line: 322,
+      method: 'traceSync',
+      native: false
+    },
+    {
+      column: 24,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'wrapModuleLoad',
+      line: 235,
+      method: null,
+      native: false
+    }
+  ],
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:43:47'
+}
+{
+  error: Error: accountSid must start with AC
+      at new Client (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\base\BaseTwilio.js:71:23)
+      at new Twilio (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\rest\Twilio.js:33:9)
+      at TwilioSDK (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\index.js:40:12)
+      at Object.<anonymous> (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\src\services\smsService.js:5:16)
+      at Module._compile (node:internal/modules/cjs/loader:1730:14)
+      at Object..js (node:internal/modules/cjs/loader:1895:10)
+      at Module.load (node:internal/modules/cjs/loader:1465:32)
+      at Function._load (node:internal/modules/cjs/loader:1282:12)
+      at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:235:24),
+  level: 'error',
+  message: 'uncaughtException: accountSid must start with AC\n' +
+    'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  exception: true,
+  date: 'Tue Aug 12 2025 20:44:14 GMT+0530 (India Standard Time)',
+  process: {
+    pid: 9036,
+    uid: null,
+    gid: null,
+    cwd: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server',
+    execPath: 'C:\\Program Files\\nodejs\\node.exe',
+    version: 'v22.16.0',
+    argv: [
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\server.js'
+    ],
+    memoryUsage: {
+      rss: 132755456,
+      heapTotal: 85139456,
+      heapUsed: 40653912,
+      external: 21718052,
+      arrayBuffers: 18313793
+    }
+  },
+  os: { loadavg: [ 0, 0, 0 ], uptime: 713171.859 },
+  trace: [
+    {
+      column: 23,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js',
+      function: 'new Client',
+      line: 71,
+      method: null,
+      native: false
+    },
+    {
+      column: 9,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js',
+      function: 'new Twilio',
+      line: 33,
+      method: null,
+      native: false
+    },
+    {
+      column: 12,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js',
+      function: 'TwilioSDK',
+      line: 40,
+      method: null,
+      native: false
+    },
+    {
+      column: 16,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js',
+      function: null,
+      line: 5,
+      method: null,
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module._compile',
+      line: 1730,
+      method: '_compile',
+      native: false
+    },
+    {
+      column: 10,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Object..js',
+      line: 1895,
+      method: '.js',
+      native: false
+    },
+    {
+      column: 32,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module.load',
+      line: 1465,
+      method: 'load',
+      native: false
+    },
+    {
+      column: 12,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Function._load',
+      line: 1282,
+      method: '_load',
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:diagnostics_channel',
+      function: 'TracingChannel.traceSync',
+      line: 322,
+      method: 'traceSync',
+      native: false
+    },
+    {
+      column: 24,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'wrapModuleLoad',
+      line: 235,
+      method: null,
+      native: false
+    }
+  ],
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:44:14'
+}
+{
+  error: Error: accountSid must start with AC
+      at new Client (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\base\BaseTwilio.js:71:23)
+      at new Twilio (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\rest\Twilio.js:33:9)
+      at TwilioSDK (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\node_modules\twilio\lib\index.js:40:12)
+      at Object.<anonymous> (C:\Users\Nilesh Namdev\Desktop\jackson-app-server\src\services\smsService.js:5:16)
+      at Module._compile (node:internal/modules/cjs/loader:1730:14)
+      at Object..js (node:internal/modules/cjs/loader:1895:10)
+      at Module.load (node:internal/modules/cjs/loader:1465:32)
+      at Function._load (node:internal/modules/cjs/loader:1282:12)
+      at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:235:24),
+  level: 'error',
+  message: 'uncaughtException: accountSid must start with AC\n' +
+    'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  stack: 'Error: accountSid must start with AC\n' +
+    '    at new Client (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js:71:23)\n' +
+    '    at new Twilio (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js:33:9)\n' +
+    '    at TwilioSDK (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js:40:12)\n' +
+    '    at Object.<anonymous> (C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js:5:16)\n' +
+    '    at Module._compile (node:internal/modules/cjs/loader:1730:14)\n' +
+    '    at Object..js (node:internal/modules/cjs/loader:1895:10)\n' +
+    '    at Module.load (node:internal/modules/cjs/loader:1465:32)\n' +
+    '    at Function._load (node:internal/modules/cjs/loader:1282:12)\n' +
+    '    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)',
+  exception: true,
+  date: 'Tue Aug 12 2025 20:48:53 GMT+0530 (India Standard Time)',
+  process: {
+    pid: 17504,
+    uid: null,
+    gid: null,
+    cwd: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server',
+    execPath: 'C:\\Program Files\\nodejs\\node.exe',
+    version: 'v22.16.0',
+    argv: [
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\server.js'
+    ],
+    memoryUsage: {
+      rss: 133017600,
+      heapTotal: 85663744,
+      heapUsed: 41013104,
+      external: 21718052,
+      arrayBuffers: 18313793
+    }
+  },
+  os: { loadavg: [ 0, 0, 0 ], uptime: 713451.281 },
+  trace: [
+    {
+      column: 23,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\base\\BaseTwilio.js',
+      function: 'new Client',
+      line: 71,
+      method: null,
+      native: false
+    },
+    {
+      column: 9,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\rest\\Twilio.js',
+      function: 'new Twilio',
+      line: 33,
+      method: null,
+      native: false
+    },
+    {
+      column: 12,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\node_modules\\twilio\\lib\\index.js',
+      function: 'TwilioSDK',
+      line: 40,
+      method: null,
+      native: false
+    },
+    {
+      column: 16,
+      file: 'C:\\Users\\Nilesh Namdev\\Desktop\\jackson-app-server\\src\\services\\smsService.js',
+      function: null,
+      line: 5,
+      method: null,
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module._compile',
+      line: 1730,
+      method: '_compile',
+      native: false
+    },
+    {
+      column: 10,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Object..js',
+      line: 1895,
+      method: '.js',
+      native: false
+    },
+    {
+      column: 32,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Module.load',
+      line: 1465,
+      method: 'load',
+      native: false
+    },
+    {
+      column: 12,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'Function._load',
+      line: 1282,
+      method: '_load',
+      native: false
+    },
+    {
+      column: 14,
+      file: 'node:diagnostics_channel',
+      function: 'TracingChannel.traceSync',
+      line: 322,
+      method: 'traceSync',
+      native: false
+    },
+    {
+      column: 24,
+      file: 'node:internal/modules/cjs/loader',
+      function: 'wrapModuleLoad',
+      line: 235,
+      method: null,
+      native: false
+    }
+  ],
+  service: 'jackson-app-backend',
+  timestamp: '2025-08-12 20:48:53'
+}

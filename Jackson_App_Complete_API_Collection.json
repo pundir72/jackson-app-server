@@ -1,0 +1,991 @@
+{
+	"info": {
+		"_postman_id": "jackson-app-complete-api-collection",
+		"name": "Jackson App - Complete API Collection",
+		"description": "Complete API collection for Jackson App Backend - Financial Rewards & Gaming App",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Send OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/send-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "send-otp"]
+						}
+					}
+				},
+				{
+					"name": "Verify OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"otp\": \"1234\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/verify-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "verify-otp"]
+						}
+					}
+				},
+				{
+					"name": "User Signup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john.doe@example.com\",\n    \"mobile\": \"+916263573606\",\n    \"password\": \"password123\",\n    \"gender\": \"male\",\n    \"ageRange\": \"26-35\",\n    \"gamePreferences\": [\"puzzle\", \"strategy\"],\n    \"gameStyle\": \"casual\",\n    \"improvementArea\": \"budgeting\",\n    \"dailyEarningGoal\": 100\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/signup",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "signup"]
+						}
+					}
+				},
+				{
+					"name": "User Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"emailOrMobile\": \"john.doe@example.com\",\n    \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "User Onboarding",
+			"item": [
+				{
+					"name": "Get Onboarding Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/status?mobile=+916263573606",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "status"],
+							"query": [
+								{
+									"key": "mobile",
+									"value": "+916263573606"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Screen Options",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/options/primary_goal",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "options", "primary_goal"]
+						}
+					}
+				},
+				{
+					"name": "Update Primary Goal",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"goal\": \"earn\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/primary-goal",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "primary-goal"]
+						}
+					}
+				},
+				{
+					"name": "Update Gender",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"gender\": \"male\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/gender",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "gender"]
+						}
+					}
+				},
+				{
+					"name": "Update Age Range",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"ageRange\": \"26-35\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/age-range",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "age-range"]
+						}
+					}
+				},
+				{
+					"name": "Update Improvement Area",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"area\": \"budgeting\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/improvement-area",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "improvement-area"]
+						}
+					}
+				},
+				{
+					"name": "Update Daily Earning Goal",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\",\n    \"goal\": 100\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/daily-earning-goal",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "daily-earning-goal"]
+						}
+					}
+				},
+				{
+					"name": "Reset Onboarding",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"+916263573606\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/onboarding/reset",
+							"host": ["{{base_url}}"],
+							"path": ["api", "onboarding", "reset"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Wallet Management",
+			"item": [
+				{
+					"name": "Get Wallet Balance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/wallet/balance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallet", "balance"]
+						}
+					}
+				},
+				{
+					"name": "Get Wallet Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/wallet/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallet", "transactions"]
+						}
+					}
+				},
+				{
+					"name": "Add Funds to Wallet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/wallet/add-funds",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallet", "add-funds"]
+						}
+					}
+				},
+				{
+					"name": "Withdraw from Wallet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 25\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/wallet/withdraw",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallet", "withdraw"]
+						}
+					}
+				},
+				{
+					"name": "Transfer Funds",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 30,\n    \"recipientId\": \"64f8a1b2c3d4e5f6a7b8c9d0\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/wallet/transfer",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallet", "transfer"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "VIP System",
+			"item": [
+				{
+					"name": "Get VIP Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vip/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vip", "status"]
+						}
+					}
+				},
+				{
+					"name": "Upgrade VIP Tier",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tier\": \"GOLD\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vip/upgrade",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vip", "upgrade"]
+						}
+					}
+				},
+				{
+					"name": "Get VIP Benefits",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vip/benefits",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vip", "benefits"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Games",
+			"item": [
+				{
+					"name": "Get User Games",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/game",
+							"host": ["{{base_url}}"],
+							"path": ["api", "game"]
+						}
+					}
+				},
+				{
+					"name": "Start New Game",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"gameId\": \"puzzle_game_001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/game/start",
+							"host": ["{{base_url}}"],
+							"path": ["api", "game", "start"]
+						}
+					}
+				},
+				{
+					"name": "Update Game Score",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"gameId\": \"puzzle_game_001\",\n    \"score\": 850\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/game/score",
+							"host": ["{{base_url}}"],
+							"path": ["api", "game", "score"]
+						}
+					}
+				},
+				{
+					"name": "Complete Game",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"gameId\": \"puzzle_game_001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/game/complete",
+							"host": ["{{base_url}}"],
+							"path": ["api", "game", "complete"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "User Profile",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John Updated\",\n    \"lastName\": \"Doe Updated\",\n    \"status\": \"active\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Upload Profile Avatar",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "avatar",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/profile/avatar",
+							"host": ["{{base_url}}"],
+							"path": ["api", "profile", "avatar"]
+						}
+					}
+				},
+				{
+					"name": "Get User Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/profile/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "profile", "stats"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Cash Coach",
+			"item": [
+				{
+					"name": "Get Cash Coach Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/cash-coach/dashboard",
+							"host": ["{{base_url}}"],
+							"path": ["api", "cash-coach", "dashboard"]
+						}
+					}
+				},
+				{
+					"name": "Create New Goal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 1000,\n    \"startDate\": \"2024-01-01\",\n    \"endDate\": \"2024-12-31\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/cash-coach/goals",
+							"host": ["{{base_url}}"],
+							"path": ["api", "cash-coach", "goals"]
+						}
+					}
+				},
+				{
+					"name": "Update Goal Status",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"completed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/cash-coach/goals/12345",
+							"host": ["{{base_url}}"],
+							"path": ["api", "cash-coach", "goals", "12345"]
+						}
+					}
+				},
+				{
+					"name": "Upload Receipt",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 45.50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/cash-coach/receipts",
+							"host": ["{{base_url}}"],
+							"path": ["api", "cash-coach", "receipts"]
+						}
+					}
+				},
+				{
+					"name": "Update Revenue Goal",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 5000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/cash-coach/revenue-goal",
+							"host": ["{{base_url}}"],
+							"path": ["api", "cash-coach", "revenue-goal"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Home & Dashboard",
+			"item": [
+				{
+					"name": "Get Home Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/home/dashboard",
+							"host": ["{{base_url}}"],
+							"path": ["api", "home", "dashboard"]
+						}
+					}
+				},
+				{
+					"name": "Get Daily Challenges",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/home/daily-challenges",
+							"host": ["{{base_url}}"],
+							"path": ["api", "home", "daily-challenges"]
+						}
+					}
+				},
+				{
+					"name": "Get Daily Rewards",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/home/daily-rewards",
+							"host": ["{{base_url}}"],
+							"path": ["api", "home", "daily-rewards"]
+						}
+					}
+				},
+				{
+					"name": "Get Deals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/home/deals",
+							"host": ["{{base_url}}"],
+							"path": ["api", "home", "deals"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Biometric Authentication",
+			"item": [
+				{
+					"name": "Setup Biometric",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"biometricType\": \"fingerprint\",\n    \"enabled\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/biometric/setup",
+							"host": ["{{base_url}}"],
+							"path": ["api", "biometric", "setup"]
+						}
+					}
+				},
+				{
+					"name": "Verify Biometric",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"biometricToken\": \"abc123def456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/biometric/verify",
+							"host": ["{{base_url}}"],
+							"path": ["api", "biometric", "verify"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Location Services",
+			"item": [
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"latitude\": 40.7128,\n    \"longitude\": -74.0060,\n    \"city\": \"New York\",\n    \"country\": \"USA\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/location/update",
+							"host": ["{{base_url}}"],
+							"path": ["api", "location", "update"]
+						}
+					}
+				},
+				{
+					"name": "Get Location History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/location/history",
+							"host": ["{{base_url}}"],
+							"path": ["api", "location", "history"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Disclosures & Legal",
+			"item": [
+				{
+					"name": "Get Disclosures",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/disclosure/list",
+							"host": ["{{base_url}}"],
+							"path": ["api", "disclosure", "list"]
+						}
+					}
+				},
+				{
+					"name": "Accept Disclosure",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-auth-token",
+								"value": "{{auth_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"disclosureId\": \"disclosure_001\",\n    \"accepted\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/disclosure/accept",
+							"host": ["{{base_url}}"],
+							"path": ["api", "disclosure", "accept"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-set base URL if not set",
+					"if (!pm.environment.get('base_url')) {",
+					"    pm.environment.set('base_url', 'http://localhost:4001');",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:4001",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+} 

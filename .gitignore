@@ -1,17 +1,15 @@
 # Dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
+.npm
 
 # Environment variables
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+
+# Build output
+build/
+dist/
 
 # Logs
 logs/
@@ -19,118 +17,35 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
 
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
-
-# nyc test coverage
-.nyc_output
-
-# Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
-.grunt
-
-# Bower dependency directory (https://bower.io/)
-bower_components
-
-# node-waf configuration
-.lock-wscript
-
-# Compiled binary addons (https://nodejs.org/api/addons.html)
-build/Release
-
-# Dependency directories
-jspm_packages/
-
-# TypeScript cache
-*.tsbuildinfo
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional stylelint cache
-.stylelintcache
-
-# Microbundle cache
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-out
-
-# Nuxt.js build / generate output
-.nuxt
-dist
-
-# Gatsby files
-.cache/
-public
-
-# Vuepress build output
-.vuepress/dist
-
-# Serverless directories
-.serverless/
-
-# FuseBox cache
-.fusebox/
-
-# DynamoDB Local files
-.dynamodb/
-
-# TernJS port file
-.tern-port
-
-# Stores VSCode versions used for testing VSCode extensions
-.vscode-test
-
-# yarn v2
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
-.pnp.*
-
-# IDE and Editor files
-.vscode/
+# IDE specific
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
+.DS_Store
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Testing
+jest/
+jest.config.js
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Database
+*.sqlite3
+
+# Cache
+npm-cache/
+.cache/
+
+# Local development
+uploads/
 
 # OS generated files
 .DS_Store
@@ -141,91 +56,86 @@ public
 ehthumbs.db
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
-.tmp/
-.temp/
+# Testing
+coverage/
 
-# Build outputs
-dist/
-build/
+# Debug
+*.pem
+
+# Logs
+logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.*.local
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js
+.next/
 out/
 
-# Test coverage
-coverage/
-.nyc_output/
+# Production
+build
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# Upload directories
-uploads/
-public/uploads/
-
-# SSL certificates
+# Misc
+.DS_Store
 *.pem
-*.key
-*.crt
-*.csr
 
-# PM2 files
-.pm2/
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Docker
-.dockerignore
-Dockerfile
-docker-compose.yml
-docker-compose.*.yml
+# Local env files
+.env*.local
 
-# Kubernetes
-*.yaml
-*.yml
-!docker-compose.yml
+# Vercel
+.vercel
 
-# Terraform
-*.tfstate
-*.tfstate.*
-.terraform/
+# TypeScript
+*.tsbuildinfo
 
-# Backup files
-*.bak
-*.backup
-*.old
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
 
-# Archive files
-*.zip
-*.tar.gz
-*.rar
-
-# Local development
-.local/
-local/
-
-# Cache directories
-.cache/
-cache/
-
-# Session files
-*.session
-
-# Redis dump files
-dump.rdb
-
-# MongoDB data
-data/
-mongodb/
-
-# Elasticsearch data
-elasticsearch/
-
-# Log rotation
-*.log.*
-*.log.gz
-
-# Application specific
-# Add any other files specific to your application here 
-
+# Prettier
+.prettiercache
 requirment_docs
+data
+package-lock.json

@@ -1,0 +1,3263 @@
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const userSchema = new mongoose.Schema({
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        },
+        notifications: {
+            type: Boolean,
+            default: true
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            enum: ['earn', 'save', 'invest', 'learn'],
+            default: 'earn'
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other'],
+            default: null
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            default: null
+        },
+        improvementArea: {
+            type: String,
+            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            default: null
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastAttempt: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lockedUntil: {
+            type: Date
+        }
+    },
+
+    // VIP
+    vip: {
+        level: {
+            type: Number,
+            default: 0
+        },
+        expires: {
+            type: Date
+        },
+        benefits: [{
+            type: String
+        }]
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String
+        },
+        score: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        type: {
+            type: String,
+            enum: ['daily', 'weekly', 'monthly']
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        xpReward: {
+            type: Number
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        position: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'failed']
+            },
+            startDate: {
+                type: Date
+            },
+            endDate: {
+                type: Date
+            }
+        }],
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }],
+        revenueGoal: {
+            type: Number,
+            default: 0
+        }
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+
+const userSchema = new mongoose.Schema({
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        },
+        notifications: {
+            type: Boolean,
+            default: true
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            enum: ['earn', 'save', 'invest', 'learn'],
+            default: 'earn'
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other'],
+            default: null
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            default: null
+        },
+        improvementArea: {
+            type: String,
+            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            default: null
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastAttempt: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lockedUntil: {
+            type: Date
+        }
+    },
+
+    // VIP
+    vip: {
+        level: {
+            type: Number,
+            default: 0
+        },
+        expires: {
+            type: Date
+        },
+        benefits: [{
+            type: String
+        }]
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String
+        },
+        score: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        type: {
+            type: String,
+            enum: ['daily', 'weekly', 'monthly']
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        xpReward: {
+            type: Number
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        position: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'failed']
+            },
+            startDate: {
+                type: Date
+            },
+            endDate: {
+                type: Date
+            }
+        }],
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }],
+        revenueGoal: {
+            type: Number,
+            default: 0
+        }
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+
+const userSchema = new mongoose.Schema({
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        },
+        notifications: {
+            type: Boolean,
+            default: true
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            enum: ['earn', 'save', 'invest', 'learn'],
+            default: 'earn'
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other'],
+            default: null
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            default: null
+        },
+        improvementArea: {
+            type: String,
+            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            default: null
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastAttempt: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lockedUntil: {
+            type: Date
+        }
+    },
+
+    // VIP
+    vip: {
+        level: {
+            type: Number,
+            default: 0
+        },
+        expires: {
+            type: Date
+        },
+        benefits: [{
+            type: String
+        }]
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String
+        },
+        score: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        type: {
+            type: String,
+            enum: ['daily', 'weekly', 'monthly']
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        xpReward: {
+            type: Number
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        position: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'failed']
+            },
+            startDate: {
+                type: Date
+            },
+            endDate: {
+                type: Date
+            }
+        }],
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }],
+        revenueGoal: {
+            type: Number,
+            default: 0
+        }
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        },
+        notifications: {
+            type: Boolean,
+            default: true
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            enum: ['earn', 'save', 'invest', 'learn'],
+            default: 'earn'
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other'],
+            default: null
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            default: null
+        },
+        improvementArea: {
+            type: String,
+            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            default: null
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastAttempt: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lockedUntil: {
+            type: Date
+        }
+    },
+
+    // VIP
+    vip: {
+        level: {
+            type: Number,
+            default: 0
+        },
+        expires: {
+            type: Date
+        },
+        benefits: [{
+            type: String
+        }]
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String
+        },
+        score: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        type: {
+            type: String,
+            enum: ['daily', 'weekly', 'monthly']
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        xpReward: {
+            type: Number
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        position: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'failed']
+            },
+            startDate: {
+                type: Date
+            },
+            endDate: {
+                type: Date
+            }
+        }],
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }],
+        revenueGoal: {
+            type: Number,
+            default: 0
+        }
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            enum: ['earn', 'save', 'invest', 'learn'],
+            default: 'earn'
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other'],
+            default: null
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            default: null
+        },
+        improvementArea: {
+            type: String,
+            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            default: null
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastAttempt: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lockedUntil: {
+            type: Date
+        }
+    },
+
+    // VIP
+    vip: {
+        level: {
+            type: Number,
+            default: 0
+        },
+        expires: {
+            type: Date
+        },
+        benefits: [{
+            type: String
+        }]
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String
+        },
+        score: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        type: {
+            type: String,
+            enum: ['daily', 'weekly', 'monthly']
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        xpReward: {
+            type: Number
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        position: {
+            type: Number
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        date: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'failed']
+            },
+            startDate: {
+                type: Date
+            },
+            endDate: {
+                type: Date
+            }
+        }],
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }],
+        revenueGoal: {
+            type: Number,
+            default: 0
+        }
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+    // Basic Info
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: 'Please enter a valid email address'
+        }
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[0-9]{10}$/.test(v);
+            },
+            message: 'Please enter a valid 10-digit mobile number'
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 8
+    },
+    socialTag: {
+        type: String,
+        trim: true
+    },
+
+    // Profile
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        },
+        unreadMessages: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // Wallet
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            enum: ['coins', 'USD', 'INR'],
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+
+    // Preferences
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        },
+        notifications: {
+            type: Boolean,
+            default: true
+        }
+    },
+
+    // XP System
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1,
+            enum: [1, 2, 3] // Junior, Mid-level, Senior
+        },
+        streak: {
+            type: Number,
+            default: 0
+        },
+        lastUpdated: {
+            type: Date
+        }
+    },
+
+    // Onboarding
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String,
+            trim: true
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other']
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+        },
+        improvementArea: {
+            type: String,
+            trim: true
+        },
+        dailyEarningGoal: {
+            type: Number
+        }
+    },
+
+    // Biometric
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastVerification: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        }
+    },
+
+    // VIP
+    vip: {
+        status: {
+            type: Boolean,
+            default: false
+        },
+        expiresAt: {
+            type: Date
+        },
+        level: {
+            type: Number,
+            default: 0,
+            enum: [0, 1, 2, 3] // None, Bronze, Gold, Platinum
+        }
+    },
+
+    // Games
+    games: [{
+        gameId: {
+            type: String,
+            required: true
+        },
+        lastPlayed: {
+            type: Date
+        },
+        totalWins: {
+            type: Number,
+            default: 0
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0
+        },
+        currentLevel: {
+            type: Number,
+            default: 1
+        },
+        tasks: [{
+            taskId: {
+                type: String
+            },
+            completed: {
+                type: Boolean,
+                default: false
+            },
+            reward: {
+                type: Number,
+                default: 0
+            },
+            dueDate: {
+                type: Date
+            }
+        }]
+    }],
+
+    // Tasks
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        },
+        type: {
+            type: String,
+            enum: ['install', 'daily', 'goals', 'purchases', 'ad_views']
+        }
+    }],
+
+    // Surveys
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+
+    // Races
+    races: [{
+        raceId: {
+            type: String
+        },
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'failed']
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+
+    // Cash Coach
+    cashCoach: {
+        goals: {
+            salary: {
+                type: Number,
+                default: 0
+            },
+            expenses: {
+                type: Number,
+                default: 0
+            },
+            savings: {
+                type: Number,
+                default: 0
+            },
+            revenueGoal: {
+                type: Number,
+                default: 0
+            }
+        },
+        receipts: [{
+            id: {
+                type: String
+            },
+            amount: {
+                type: Number
+            },
+            status: {
+                type: String,
+                enum: ['processing', 'approved', 'rejected']
+            },
+            date: {
+                type: Date
+            }
+        }]
+    }
+}, {
+    timestamps: true,
+    toJSON: {
+        virtuals: true
+    }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Virtuals
+userSchema.virtual('totalEarnings').get(function() {
+    return this.wallet.balance;
+});
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other']
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+        },
+        improvementArea: {
+            type: String
+        },
+        dailyEarningGoal: {
+            type: Number
+        }
+    },
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastVerification: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        }
+    },
+    vip: {
+        status: {
+            type: Boolean,
+            default: false
+        },
+        expiresAt: {
+            type: Date
+        },
+        level: {
+            type: Number,
+            default: 0
+        }
+    },
+    games: [{
+        gameId: {
+            type: String
+        },
+        lastPlayed: {
+            type: Date
+        },
+        totalWins: {
+            type: Number,
+            default: 0
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0
+        }
+    }],
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    races: [{
+        raceId: {
+            type: String
+        },
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'failed']
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }]
+}, {
+    timestamps: true
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+
+const userSchema = new mongoose.Schema({
+    firstName: {
+        type: String,
+        required: true
+    },
+    lastName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    },
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other']
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+        },
+        improvementArea: {
+            type: String
+        },
+        dailyEarningGoal: {
+            type: Number
+        }
+    },
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastVerification: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        }
+    },
+    vip: {
+        status: {
+            type: Boolean,
+            default: false
+        },
+        expiresAt: {
+            type: Date
+        },
+        level: {
+            type: Number,
+            default: 0
+        }
+    },
+    games: [{
+        gameId: {
+            type: String
+        },
+        lastPlayed: {
+            type: Date
+        },
+        totalWins: {
+            type: Number,
+            default: 0
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0
+        }
+    }],
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    races: [{
+        raceId: {
+            type: String
+        },
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'failed']
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }]
+}, {
+    timestamps: true
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+    firstName: {
+        type: String,
+        required: true
+    },
+    lastName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    },
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        tier: {
+            type: Number,
+            default: 1
+        },
+        streak: {
+            type: Number,
+            default: 0
+        }
+    },
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        step: {
+            type: Number,
+            default: 0
+        },
+        primaryGoal: {
+            type: String
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other']
+        },
+        ageRange: {
+            type: String,
+            enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+        },
+        improvementArea: {
+            type: String
+        },
+        dailyEarningGoal: {
+            type: Number
+        }
+    },
+    biometric: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        lastVerification: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        }
+    },
+    vip: {
+        status: {
+            type: Boolean,
+            default: false
+        },
+        expiresAt: {
+            type: Date
+        },
+        level: {
+            type: Number,
+            default: 0
+        }
+    },
+    games: [{
+        gameId: {
+            type: String
+        },
+        lastPlayed: {
+            type: Date
+        },
+        totalWins: {
+            type: Number,
+            default: 0
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0
+        }
+    }],
+    tasks: [{
+        taskId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    surveys: [{
+        surveyId: {
+            type: String
+        },
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }],
+    races: [{
+        raceId: {
+            type: String
+        },
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'failed']
+        },
+        reward: {
+            type: Number,
+            default: 0
+        },
+        dueDate: {
+            type: Date
+        }
+    }]
+}, {
+    timestamps: true
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
+    firstName: {
+        type: String,
+        required: true
+    },
+    lastName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true
+});
+    firstName: {
+        type: String,
+        required: true
+    },
+    lastName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    profile: {
+        avatar: {
+            type: String,
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true
+});
+    firstName: {
+        type: String,
+        required: true
+    },
+    lastName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    profile: {
+        avatar: {
+            type: String, // URL to avatar image
+            default: 'default-avatar.png'
+        },
+        status: {
+            type: String,
+            enum: ['active', 'inactive', 'guest'],
+            default: 'active'
+        },
+        lastLogin: {
+            type: Date
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: 'coins'
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true
+});
+    // ... existing fields
+    xp: {
+        current: {
+            type: Number,
+            default: 0
+        },
+        total: {
+            type: Number,
+            default: 0
+        },
+        level: {
+            type: Number,
+            default: 1
+        },
+        tier: {
+            type: String,
+            enum: ['junior', 'mid', 'senior', 'master'],
+            default: 'junior'
+        },
+        lastEarnedAt: {
+            type: Date
+        },
+        streak: {
+            current: {
+                type: Number,
+                default: 0
+            },
+            best: {
+                type: Number,
+                default: 0
+            },
+            lastUpdated: {
+                type: Date
+            }
+        }
+    },
+    wallet: {
+        balance: {
+            type: Number,
+            default: 0
+        },
+        lastUpdated: {
+            type: Date
+        },
+        transactions: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Transaction'
+        }]
+    },
+    vip: {
+        status: {
+            type: Boolean,
+            default: false
+        },
+        tier: {
+            type: String,
+            enum: ['bronze', 'gold', 'platinum'],
+            default: 'bronze'
+        },
+        expiresAt: {
+            type: Date
+        },
+        benefits: {
+            type: [String],
+            default: []
+        }
+    },
+    games: [{
+        gameId: {
+            type: String,
+            required: true
+        },
+        name: String,
+        icon: String,
+        playCount: {
+            type: Number,
+            default: 0
+        },
+        lastPlayed: {
+            type: Date
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0
+        }
+    }],
+    tasks: [{
+        id: {
+            type: String,
+            required: true
+        },
+        type: {
+            type: String,
+            enum: ['game', 'survey', 'challenge'],
+            required: true
+        },
+        status: {
+            type: String,
+            enum: ['pending', 'in_progress', 'completed'],
+            default: 'pending'
+        },
+        reward: {
+            coins: Number,
+            xp: Number
+        },
+        expiresAt: {
+            type: Date
+        },
+        completedAt: {
+            type: Date
+        }
+    }],
+    surveys: [{
+        provider: {
+            type: String,
+            enum: ['bitlabs', 'cpx', 'ayet'],
+            required: true
+        },
+        status: {
+            type: String,
+            enum: ['available', 'in_progress', 'completed'],
+            default: 'available'
+        },
+        reward: {
+            coins: Number,
+            xp: Number
+        },
+        lastCompleted: {
+            type: Date
+        }
+    }],
+    races: [{
+        id: {
+            type: String,
+            required: true
+        },
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'upcoming'],
+            default: 'upcoming'
+        },
+        startTime: {
+            type: Date
+        },
+        endTime: {
+            type: Date
+        },
+        position: {
+            type: Number
+        },
+        rewards: {
+            coins: Number,
+            xp: Number
+        }
+    }],
+    preferences: {
+        language: {
+            type: String,
+            enum: ['en', 'hi', 'mr', 'ta', 'te'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark'],
+            default: 'light'
+        }
+    }
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    mobile: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 6
+    },
+    onboarding: {
+        completed: {
+            type: Boolean,
+            default: false
+        },
+        steps: {
+            primaryGoal: {
+                completed: Boolean,
+                value: {
+                    type: String,
+                    enum: ['anxiety_relief', 'earning', 'problem_solving', 'other']
+                }
+            },
+            gender: {
+                completed: Boolean,
+                value: {
+                    type: String,
+                    enum: ['male', 'female', 'other', 'prefer_not_to_say']
+                }
+            },
+            ageRange: {
+                completed: Boolean,
+                value: {
+                    type: String,
+                    enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+                }
+            },
+            improvementArea: {
+                completed: Boolean,
+                value: {
+                    type: String,
+                    enum: ['money', 'relax', 'problem_solving', 'other']
+                }
+            },
+            dailyEarningGoal: {
+                completed: Boolean,
+                value: Number
+            }
+        }
+    },
+    otp: {
+        code: String,
+        expiresAt: Date
+    },
+    disclosureAccepted: {
+        type: Boolean,
+        default: false
+    },
+    disclosureAcceptedAt: {
+        type: Date
+    },
+    disclosureVersion: {
+        type: String
+    },
+    biometric: {
+        setup: {
+            type: Boolean,
+            default: false
+        },
+        lastSetupAt: {
+            type: Date
+        },
+        type: {
+            type: String,
+            enum: ['face_id', 'fingerprint', 'none'],
+            default: 'none'
+        },
+        lastVerification: {
+            type: Date
+        },
+        token: {
+            type: String
+        },
+        tokenExpiresAt: {
+            type: Date
+        },
+        faceVerification: {
+            verified: {
+                type: Boolean,
+                default: false
+            },
+            faceVector: {
+                type: String
+            },
+            lastVerified: {
+                type: Date
+            },
+            confidenceScore: {
+                type: Number
+            },
+            verificationAttempts: {
+                type: Number,
+                default: 0
+            },
+            lastFailedAttempt: {
+                type: Date
+            }
+        },
+        livenessCheck: {
+            lastChecked: {
+                type: Date
+            },
+            lastScore: {
+                type: Number
+            },
+            lastDeviceId: {
+                type: String
+            },
+            lastScanType: {
+                type: String,
+                enum: ['os_face_id', 'third_party', 'camera'],
+                default: 'os_face_id'
+            }
+        }
+    },
+    locationSettings: {
+        status: {
+            type: String,
+            enum: ['granted', 'denied', 'not_asked'],
+            default: 'not_asked'
+        },
+        mode: {
+            type: String,
+            enum: ['always', 'while_using', 'once', 'never'],
+            default: 'never'
+        },
+        lastGrantedAt: {
+            type: Date
+        },
+        ipLocation: {
+            country: String,
+            city: String,
+            latitude: Number,
+            longitude: Number
+        },
+        fallbackLocation: {
+            enabled: {
+                type: Boolean,
+                default: false
+            },
+            lastUsed: Date,
+            reason: String
+        }
+    },
+    primaryGoal: {
+        type: String,
+        enum: ['overcome_anxiety', 'relax_earn_money', 'other']
+    },
+    gender: {
+        type: String,
+        enum: ['male', 'female', 'other']
+    },
+    ageRange: {
+        type: String,
+        enum: ['18-24', '25-34', '35-44', '45-54', '55+']
+    },
+    gamePreferences: [{
+        type: String,
+        enum: ['puzzle', 'arcade', 'strategy', 'action', 'adventure']
+    }],
+    gameStyle: {
+        type: String,
+        enum: ['easy', 'medium', 'hard']
+    },
+    improvementArea: {
+        type: String,
+        enum: ['money', 'skills', 'social', 'health']
+    },
+    dailyEarningGoal: {
+        type: Number,
+        min: 0
+    },
+    lastLogin: {
+        type: Date
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+    if (!this.isModified('password')) return next();
+    
+    try {
+        this.password = await bcrypt.hash(this.password, 10);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function(candidatePassword) {
+    try {
+        return await bcrypt.compare(candidatePassword, this.password);
+    } catch (error) {
+        throw error;
+    }
+};
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;

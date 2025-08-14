@@ -49,6 +49,15 @@ const app = express();
 // Middleware setup
 app.use(cors());
 app.use(helmet());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
+
+// Add security headers for static files
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    next();
+});
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -116,6 +125,7 @@ mongoose.connect(config.MONGODB_URI, {
     const vipRoutes = require('./routes/vip');
     const gameRoutes = require('./routes/game');
     const profileRoutes = require('./routes/profile');
+    const dashboardRoutes = require('./routes/dashboard');
     const cashCoachRoutes = require('./routes/cashCoach');
     const biometricRoutes = require('./routes/biometric');
     const locationRoutes = require('./routes/location');
@@ -130,6 +140,7 @@ mongoose.connect(config.MONGODB_URI, {
     app.use('/api/vip', vipRoutes);
     app.use('/api/game', gameRoutes);
     app.use('/api/profile', profileRoutes);
+    app.use('/api/dashboard', dashboardRoutes);
     app.use('/api/cash-coach', cashCoachRoutes);
     app.use('/api/biometric', biometricRoutes);
     app.use('/api/location', locationRoutes);

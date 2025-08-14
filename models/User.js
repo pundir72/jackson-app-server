@@ -2,6 +2,52 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
+    // Location
+    location: {
+        current: {
+            latitude: {
+                type: Number
+            },
+            longitude: {
+                type: Number
+            },
+            accuracy: {
+                type: Number,
+                default: 0
+            },
+            timestamp: {
+                type: Date,
+                default: Date.now
+            }
+        },
+        history: [{
+            latitude: Number,
+            longitude: Number,
+            accuracy: Number,
+            timestamp: { type: Date, default: Date.now }
+        }]
+    },
+    // VIP Status
+    vip: {
+        level: {
+            type: String,
+            enum: ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
+            default: 'BRONZE'
+        },
+        expires: {
+            type: Date
+        },
+        benefits: {
+            type: Object,
+            default: {
+                bonusPercentage: 0,
+                cashback: 0,
+                exclusiveAccess: false,
+                prioritySupport: false,
+                specialOffers: false
+            }
+        }
+    },
     // Basic Info
     firstName: {
         type: String,
@@ -175,19 +221,7 @@ const userSchema = new mongoose.Schema({
         }
     },
 
-    // VIP
-    vip: {
-        level: {
-            type: Number,
-            default: 0
-        },
-        expires: {
-            type: Date
-        },
-        benefits: [{
-            type: String
-        }]
-    },
+
 
     // Games
     games: [{

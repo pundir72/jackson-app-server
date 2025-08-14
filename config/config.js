@@ -74,5 +74,7 @@ module.exports = {
         NOT_FOUND: 404,
         VALIDATION_ERROR: 422,
         INTERNAL_ERROR: 500
-    }
+    },
+
+    IMAGE_BASE_URL: process.env.IMAGE_BASE_URL || 'http://localhost:4001'
 };

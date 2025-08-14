@@ -4,6 +4,7 @@ const protect = require('../middleware/auth');
 const User = require('../models/User');
 const multer = require('multer');
 const path = require('path');
+const config = require('../config/config');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -55,13 +56,14 @@ router.post('/avatar', [protect, upload.single('avatar')], async (req, res) => {
     try {
         const user = await User.findById(req.user.userId);
         
-        // Update avatar
-        user.profile.avatar = req.file.path;
+        // Update avatar with full URL
+        const avatarPath = req.file.path;
+        user.profile.avatar = `${config.IMAGE_BASE_URL}/${avatarPath}`;
         await user.save();
         
         res.json({
             message: 'Avatar uploaded successfully',
-            avatar: req.file.path
+            avatar: `${config.IMAGE_BASE_URL}/${avatarPath}`
         });
     } catch (error) {
         res.status(500).json({ message: 'Server error' });

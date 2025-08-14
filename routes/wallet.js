@@ -8,7 +8,7 @@ const User = require('../models/User');
 // Middleware to get user wallet
 const getUserWallet = async (req, res, next) => {
     try {
-        const user = await User.findById(req.user.userId).select('wallet');
+        const user = await User.findById(req.user.id).select('wallet');
         req.userWallet = user.wallet;
         next();
     } catch (error) {
@@ -17,7 +17,7 @@ const getUserWallet = async (req, res, next) => {
 };
 
 // Get wallet balance
-router.get('/balance', [protect, getUserWallet], (req, res, next) => {
+router.get('/balance', [protect, getUserWallet], async (req, res, next) => {
     try {
         res.json({ balance: req.userWallet.balance });
     } catch (error) {
@@ -29,7 +29,7 @@ router.get('/balance', [protect, getUserWallet], (req, res, next) => {
 router.get('/transactions', [protect], async (req, res, next) => {
     try {
         const transactions = await Transaction.find({
-            user: req.user.userId
+            user: req.user.id
         }).sort({ createdAt: -1 });
         res.json(transactions);
     } catch (error) {
@@ -44,14 +44,14 @@ router.post('/add-funds', [protect, validateTransaction], async (req, res, next)
         
         // Create transaction
         const transaction = new Transaction({
-            user: req.user.userId,
+            user: req.user.id,
             type: 'credit',
             amount,
             description: 'Added funds to wallet'
         });
         
         // Update user wallet
-        const user = await User.findById(req.user.userId);
+        const user = await User.findById(req.user.id);
         user.wallet.balance += amount;
         user.wallet.lastUpdated = new Date();
         
@@ -74,7 +74,7 @@ router.post('/add-funds', [protect, validateTransaction], async (req, res, next)
 router.post('/withdraw', [protect, validateTransaction], async (req, res, next) => {
     try {
         const { amount } = req.body;
-        const user = await User.findById(req.user.userId);
+        const user = await User.findById(req.user.id);
         
         if (user.wallet.balance < amount) {
             return res.status(400).json({ message: 'Insufficient balance' });
@@ -82,7 +82,7 @@ router.post('/withdraw', [protect, validateTransaction], async (req, res, next) 
         
         // Create transaction
         const transaction = new Transaction({
-            user: req.user.userId,
+            user: req.user.id,
             type: 'debit',
             amount,
             description: 'Withdrawal from wallet'
@@ -119,14 +119,14 @@ router.post('/transfer', [protect, validateTransaction], async (req, res, next) 
         }
         
         // Validate sender balance
-        const sender = await User.findById(req.user.userId);
+        const sender = await User.findById(req.user.id);
         if (sender.wallet.balance < amount) {
             return res.status(400).json({ message: 'Insufficient balance' });
         }
         
         // Create transactions
         const senderTransaction = new Transaction({
-            user: req.user.userId,
+            user: req.user.id,
             type: 'debit',
             amount,
             description: `Transfer to ${recipient.firstName}`

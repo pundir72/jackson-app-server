@@ -27,16 +27,27 @@ router.post('/upgrade', protect, async (req, res) => {
         }
         
         // Update VIP status
-        user.vip.level = tier;
-        user.vip.expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.userId,
+            {
+                $set: {
+                    'vip.level': tier,
+                    'vip.expires': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                }
+            },
+            { new: true }
+        );
         
-        await user.save();
+        if (!updatedUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
         
         res.json({
             message: 'VIP tier upgraded successfully',
-            vip: user.vip
+            vip: updatedUser.vip
         });
     } catch (error) {
+        console.log(error)
         res.status(500).json({ message: 'Server error' });
     }
 });

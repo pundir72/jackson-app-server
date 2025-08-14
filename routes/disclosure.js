@@ -3,6 +3,8 @@ const router = express.Router();
 const Disclosure = require('../models/Disclosure');
 const User = require('../models/User');
 const { body, validationResult } = require('express-validator');
+const protect = require('../middleware/auth');
+
 
 // Get disclosure content
 router.get('/', async (req, res) => {
@@ -21,12 +23,9 @@ router.get('/', async (req, res) => {
 });
 
 // Record disclosure acceptance
-router.post('/accept', async (req, res) => {
+router.post('/accept', protect, async (req, res) => {
   try {
-    const { mobile } = req.body;
-    if (!mobile) {
-      return res.status(400).json({ error: 'Mobile number is required' });
-    }
+    const userId = req.user.userId;
 
     // Get the latest disclosure version
     const latestDisclosure = await Disclosure.findOne({ active: true })
@@ -37,18 +36,27 @@ router.post('/accept', async (req, res) => {
     }
 
     // Update user's disclosure acceptance
-    const user = await User.findOneAndUpdate(
-      { mobile },
+    const user = await User.findByIdAndUpdate(
+      userId,
       {
         disclosureAccepted: true,
         disclosureAcceptedAt: new Date(),
         disclosureVersion: latestDisclosure.version
       },
-      { upsert: true, new: true }
+      { new: true }
     );
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    user.disclosureAccepted = true;
+    user.disclosureAcceptedAt = new Date();
+    user.disclosureVersion = latestDisclosure.version;
+    await user.save();
 
     // Log the event
-    console.log(`Disclosure accepted by user ${mobile} at ${new Date()}`);
+    console.log(`Disclosure accepted by user ${user.mobile} at ${new Date()}`);
 
     res.status(200).json({ 
       message: 'Disclosure accepted successfully',
@@ -77,6 +85,18 @@ router.get('/required/:mobile', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Failed to check disclosure requirement' });
   }
+});
+
+// Get all disclosures
+router.get('/list', async (req, res) => {
+    try {
+        const disclosures = await Disclosure.find()
+            .sort({ createdAt: -1 });
+        
+        res.status(200).json(disclosures);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch disclosures' });
+    }
 });
 
 module.exports = router;

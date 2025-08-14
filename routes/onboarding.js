@@ -3,6 +3,25 @@ const router = express.Router();
 const User = require('../models/User');
 const MasterData = require('../models/MasterData');
 const { body, validationResult } = require('express-validator');
+const analytics = require('../utils/analytics');
+const logOnboardingEvent = require('../utils/onboardingEvents');
+
+// Helper function to get next onboarding step
+function getNextOnboardingStep(user) {
+    const onboarding = user.onboarding || {};
+    
+    if (!onboarding.completed) {
+        if (!onboarding.primaryGoal) return 'primary_goal';
+        if (!onboarding.gender) return 'gender';
+        if (!onboarding.ageRange) return 'age_range';
+        if (!onboarding.gamePreferences?.length) return 'game_preferences';
+        if (!onboarding.gameStyle) return 'game_style';
+        if (!onboarding.improvementArea) return 'improvement_area';
+        if (!onboarding.dailyEarningGoal) return 'daily_goal';
+    }
+    
+    return 'completed';
+}
 
 // Get onboarding status
 router.get('/status', async (req, res) => {
@@ -31,18 +50,25 @@ router.get('/status', async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    const onboardingStatus = {
       completed: {
-        primaryGoal: !!user.primaryGoal,
-        gender: !!user.gender,
-        ageRange: !!user.ageRange,
-        gamePreferences: user.gamePreferences.length > 0,
-        gameStyle: !!user.gameStyle,
-        improvementArea: !!user.improvementArea,
-        dailyGoal: !!user.dailyEarningGoal
-      },
-      nextStep: getNextOnboardingStep(user)
-    });
+        primaryGoal: !!user.onboarding?.primaryGoal,
+        gender: !!user.onboarding?.gender,
+        ageRange: !!user.onboarding?.ageRange,
+        gamePreferences: user.onboarding?.gamePreferences?.length > 0,
+        gameStyle: !!user.onboarding?.gameStyle,
+        improvementArea: !!user.onboarding?.improvementArea,
+        dailyGoal: !!user.onboarding?.dailyEarningGoal
+      }
+    };
+
+    try {
+      onboardingStatus.nextStep = getNextOnboardingStep(user);
+      res.status(200).json(onboardingStatus);
+    } catch (error) {
+      console.error('Error getting next onboarding step:', error);
+      res.status(500).json({ error: 'Failed to get onboarding status' });
+    }
   } catch (error) {
     res.status(500).json({ error: 'Failed to get onboarding status' });
   }

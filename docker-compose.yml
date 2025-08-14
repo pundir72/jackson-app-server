@@ -10,3 +10,12 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: jackson-redis
+    restart: always
+    ports:
+      - "6379:6379"

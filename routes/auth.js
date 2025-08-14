@@ -9,10 +9,10 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 
 // Twilio client initialization
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+// const client = twilio(
+//   process.env.TWILIO_ACCOUNT_SID,
+//   process.env.TWILIO_AUTH_TOKEN
+// );
 
 
 
@@ -87,11 +87,11 @@ router.post('/send-otp', async (req, res) => {
     );
     
     // Send OTP via Twilio
-    await client.messages.create({
-      body: `Your Jackson App OTP is: ${otp}. Valid for 5 minutes.`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: mobile
-    });
+    // await client.messages.create({
+    //   body: `Your Jackson App OTP is: ${otp}. Valid for 5 minutes.`,
+    //   from: process.env.TWILIO_PHONE_NUMBER,
+    //   to: mobile
+    // });
     
     res.status(200).json({ message: 'OTP sent successfully' });
   } catch (error) {

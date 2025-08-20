@@ -72,13 +72,48 @@ router.post('/send-otp', async (req, res) => {
   try {
     const { mobile } = req.body;
     
+    if (!mobile) {
+      return res.status(400).json({ 
+        error: 'Mobile number required',
+        message: 'Please provide a mobile number'
+      });
+    }
+    
+    // Normalize mobile number
+    const cleanNumber = mobile.replace(/\D/g, '');
+    let normalizedMobile = mobile;
+    
+    if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
+      normalizedMobile = cleanNumber.substring(2);
+    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
+      normalizedMobile = cleanNumber.substring(2);
+    } else if (cleanNumber.length === 10) {
+      normalizedMobile = cleanNumber;
+    } else {
+      return res.status(400).json({ 
+        error: 'Invalid mobile number',
+        message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+      });
+    }
+    
+    // Check if user with this mobile already exists and is verified
+    const existingUser = await User.findOne({ mobile: normalizedMobile });
+    if (existingUser && existingUser.isVerified) {
+      return res.status(400).json({ 
+        error: 'Mobile number already registered',
+        message: 'An account with this mobile number already exists. Please try logging in instead.',
+        field: 'mobile'
+      });
+    }
+    
     // Generate 4-digit OTP
     const otp = Math.floor(1000 + Math.random() * 9000);
     
-    // Save OTP to user
+    // Save OTP to user (create new or update existing)
     const user = await User.findOneAndUpdate(
-      { mobile },
+      { mobile: normalizedMobile },
       { 
+        mobile: normalizedMobile,
         otp: {
           code: otp.toString(),
           expiresAt: new Date(Date.now() + 300000) // 5 minutes
@@ -91,12 +126,19 @@ router.post('/send-otp', async (req, res) => {
     // await client.messages.create({
     //   body: `Your Jackson App OTP is: ${otp}. Valid for 5 minutes.`,
     //   from: process.env.TWILIO_PHONE_NUMBER,
-    //   to: mobile
+    //   to: normalizedMobile
     // });
     
-    res.status(200).json({ message: 'OTP sent successfully' });
+    res.status(200).json({ 
+      message: 'OTP sent successfully',
+      mobile: normalizedMobile
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to send OTP' });
+    console.error('Send OTP error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send OTP',
+      message: 'Unable to send OTP. Please try again later.'
+    });
   }
 });
 
@@ -104,31 +146,78 @@ router.post('/send-otp', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
   try {
     const { mobile, otp } = req.body;
-    const user = await User.findOne({ mobile });
+    
+    if (!mobile || !otp) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        message: 'Mobile number and OTP are required'
+      });
+    }
+    
+    // Normalize mobile number
+    const cleanNumber = mobile.replace(/\D/g, '');
+    let normalizedMobile = mobile;
+    
+    if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
+      normalizedMobile = cleanNumber.substring(2);
+    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
+      normalizedMobile = cleanNumber.substring(2);
+    } else if (cleanNumber.length === 10) {
+      normalizedMobile = cleanNumber;
+    } else {
+      return res.status(400).json({ 
+        error: 'Invalid mobile number',
+        message: 'Please enter a valid mobile number'
+      });
+    }
+    
+    const user = await User.findOne({ mobile: normalizedMobile });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ 
+        error: 'User not found',
+        message: 'No user found with this mobile number. Please send OTP first.'
+      });
     }
     
-    if (user?.otp?.expiresAt < new Date()) {
-      return res.status(400).json({ error: 'OTP expired' });
+    if (!user.otp || !user.otp.code) {
+      return res.status(400).json({ 
+        error: 'No OTP found',
+        message: 'Please request an OTP first before verification.'
+      });
     }
     
-    if ("8078" !== otp) {
-      return res.status(400).json({ error: 'Invalid OTP' });
+    if (user.otp.expiresAt < new Date()) {
+      return res.status(400).json({ 
+        error: 'OTP expired',
+        message: 'OTP has expired. Please request a new OTP.'
+      });
+    }
+    
+    if (user.otp.code !== otp) {
+      return res.status(400).json({ 
+        error: 'Invalid OTP',
+        message: 'The OTP you entered is incorrect. Please try again.'
+      });
     }
     
     await User.findOneAndUpdate(
-      { mobile },
+      { mobile: normalizedMobile },
       { 
         isVerified: true,
         otp: null
       }
     );
     
-    res.status(200).json({ message: 'OTP verified successfully' });
+    res.status(200).json({ 
+      message: 'OTP verified successfully',
+      mobile: normalizedMobile
+    });
   } catch (error) {
-    console.log(error)
-    res.status(500).json({ error: 'Failed to verify OTP' });
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ 
+      error: 'Verification failed',
+      message: 'Failed to verify OTP. Please try again later.'
+    });
   }
 });
 
@@ -160,11 +249,42 @@ router.post('/signup',
         dailyEarningGoal
       } = req.body;
 
+      // Check if email already exists
+      const existingEmail = await User.findOne({ email: email.toLowerCase() });
+      if (existingEmail) {
+        return res.status(400).json({ 
+          error: 'Email already exists',
+          message: 'An account with this email address already exists. Please use a different email or try logging in.',
+          field: 'email'
+        });
+      }
+
+      // Check if mobile number already exists
+      const existingMobile = await User.findOne({ mobile: mobile });
+      if (existingMobile) {
+        return res.status(400).json({ 
+          error: 'Mobile number already exists',
+          message: 'An account with this mobile number already exists. Please use a different mobile number or try logging in.',
+          field: 'mobile'
+        });
+      }
+
+      // Normalize mobile number (remove country code if present)
+      let normalizedMobile = mobile;
+      const cleanNumber = mobile.replace(/\D/g, '');
+      if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
+        normalizedMobile = cleanNumber.substring(2);
+      } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
+        normalizedMobile = cleanNumber.substring(2);
+      } else if (cleanNumber.length === 10) {
+        normalizedMobile = cleanNumber;
+      }
+
       const user = new User({
         firstName,
         lastName,
-        email,
-        mobile,
+        email: email.toLowerCase(),
+        mobile: normalizedMobile,
         password,
         gender,
         ageRange,
@@ -202,8 +322,40 @@ router.post('/signup',
         }
       });
     } catch (error) {
-      console.log(error);
-      res.status(500).json({ error: 'Failed to register user' });
+      console.error('User registration error:', error);
+      
+      // Handle specific MongoDB duplicate key errors
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern)[0];
+        if (field === 'email') {
+          return res.status(400).json({ 
+            error: 'Email already exists',
+            message: 'An account with this email address already exists. Please use a different email or try logging in.',
+            field: 'email'
+          });
+        } else if (field === 'mobile') {
+          return res.status(400).json({ 
+            error: 'Mobile number already exists',
+            message: 'An account with this mobile number already exists. Please use a different mobile number or try logging in.',
+            field: 'mobile'
+          });
+        }
+      }
+      
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.values(error.errors).map(err => err.message);
+        return res.status(400).json({ 
+          error: 'Validation failed',
+          message: validationErrors.join(', '),
+          details: validationErrors
+        });
+      }
+      
+      res.status(500).json({ 
+        error: 'Registration failed',
+        message: 'Failed to register user. Please try again later.'
+      });
     }
   }
 );

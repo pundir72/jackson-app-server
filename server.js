@@ -9,6 +9,7 @@ const config = require('./config/config');
 const winston = require('winston');
 const socketIo = require('socket.io');
 const Redis = require('ioredis');
+const passport = require('./config/passport');
 
 // Initialize Redis client
 let redis;
@@ -70,6 +71,9 @@ const apiLimiter = rateLimit({
 
 // Apply rate limiting to all routes
 app.use(apiLimiter);
+
+// Initialize Passport
+app.use(passport.initialize());
 
 // MongoDB connection
 mongoose.connect(config.MONGODB_URI, {

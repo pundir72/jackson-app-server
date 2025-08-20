@@ -109,6 +109,29 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    
+    // Social Login
+    social: {
+        googleId: {
+            type: String,
+            sparse: true
+        },
+        facebookId: {
+            type: String,
+            sparse: true
+        },
+        googleAccessToken: {
+            type: String
+        },
+        facebookAccessToken: {
+            type: String
+        },
+        provider: {
+            type: String,
+            enum: ['local', 'google', 'facebook'],
+            default: 'local'
+        }
+    },
 
     // Profile
     profile: {

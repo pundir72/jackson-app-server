@@ -7,6 +7,7 @@ const { body, validationResult } = require('express-validator');
 const twilio = require('twilio');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const passport = require('passport');
 
 // Twilio client initialization
 // const client = twilio(
@@ -284,5 +285,132 @@ router.post('/login',
     }
   }
 );
+
+// ========================================
+// SOCIAL LOGIN ROUTES
+// ========================================
+
+// Google OAuth Routes
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+router.get('/google/callback', 
+  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
+  async (req, res) => {
+    try {
+      console.log('Google OAuth callback route hit');
+
+      const user = req.user;
+      
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      // Redirect to frontend with token
+      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?token=${token}&provider=google&userId=${user._id}`;
+      res.redirect(redirectUrl);
+    } catch (error) {
+      console.error('Google OAuth callback error:', error);
+      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/error?message=Google authentication failed`);
+    }
+  }
+);
+
+// Facebook OAuth Routes
+router.get('/facebook', passport.authenticate('facebook', { scope: ['email'] }));
+
+router.get('/facebook/callback',
+  passport.authenticate('facebook', { session: false, failureRedirect: '/login' }),
+  async (req, res) => {
+    try {
+      const user = req.user;
+      
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      // Redirect to frontend with token
+      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
+      res.redirect(redirectUrl);
+    } catch (error) {
+      console.error('Facebook OAuth callback error:', error);
+      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/error?message=Facebook authentication failed`);
+    }
+  }
+);
+
+// Social login status check
+router.get('/social/status', async (req, res) => {
+  try {
+    const { email, provider } = req.query;
+    
+    if (!email || !provider) {
+      return res.status(400).json({ error: 'Email and provider are required' });
+    }
+
+    const user = await User.findOne({ 
+      email,
+      [`social.${provider}Id`]: { $exists: true }
+    });
+
+    if (user) {
+      res.json({ 
+        connected: true, 
+        provider,
+        userId: user._id 
+      });
+    } else {
+      res.json({ 
+        connected: false, 
+        provider 
+      });
+    }
+  } catch (error) {
+    console.error('Social status check error:', error);
+    res.status(500).json({ error: 'Failed to check social login status' });
+  }
+});
+
+// Disconnect social account
+router.post('/social/disconnect', async (req, res) => {
+  try {
+    const { userId, provider } = req.body;
+    
+    if (!userId || !provider) {
+      return res.status(400).json({ error: 'User ID and provider are required' });
+    }
+
+    const updateField = {};
+    updateField[`social.${provider}Id`] = undefined;
+    updateField[`social.${provider}AccessToken`] = undefined;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $unset: updateField },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      message: `${provider} account disconnected successfully`,
+      user: {
+        _id: user._id,
+        email: user.email,
+        social: user.social
+      }
+    });
+  } catch (error) {
+    console.error('Social disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect social account' });
+  }
+});
 
 module.exports = router;

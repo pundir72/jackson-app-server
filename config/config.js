@@ -25,6 +25,16 @@ module.exports = {
     // Google Pay
     GOOGLE_PAY_CLIENT_ID: process.env.GOOGLE_PAY_CLIENT_ID,
     
+    // Google OAuth
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:4001/api/auth/google/callback',
+    
+    // Facebook OAuth
+    FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
+    FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
+    FACEBOOK_CALLBACK_URL: process.env.FACEBOOK_CALLBACK_URL || 'http://localhost:4001/api/auth/facebook/callback',
+    
     // Firebase
     FIREBASE_CONFIG: {
         projectId: process.env.FIREBASE_PROJECT_ID,

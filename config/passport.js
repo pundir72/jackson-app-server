@@ -19,6 +19,10 @@ passport.deserializeUser(async (id, done) => {
     }
 });
 
+function generateRandomMobile() {
+    return '9' + Math.floor(100000000 + Math.random() * 900000000).toString();
+}
+
 // Google OAuth 2.0 Strategy
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID || config.GOOGLE_CLIENT_ID,
@@ -27,9 +31,9 @@ passport.use(new GoogleStrategy({
     scope: ['profile', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
     try {
-        console.log(profile,"----------profile");
+        console.log(profile, "----------profile");
         // Check if user already exists
-        let user = await User.findOne({ 
+        let user = await User.findOne({
             $or: [
                 { email: profile.emails[0].value },
                 { 'social.googleId': profile.id }
@@ -51,7 +55,7 @@ passport.use(new GoogleStrategy({
             firstName: profile.name.givenName,
             lastName: profile.name.familyName,
             email: profile.emails[0].value,
-            mobile: '9639973580', // Will be filled during onboarding
+            mobile: generateRandomMobile(), // Will be filled during onboarding
             password: 'google_oauth_' + Math.random().toString(36).substring(7), // Random password for OAuth users
             profile: {
                 avatar: profile.photos[0]?.value || 'default-avatar.png',
@@ -108,7 +112,7 @@ passport.use(new FacebookStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
     try {
         // Check if user already exists
-        let user = await User.findOne({ 
+        let user = await User.findOne({
             $or: [
                 { email: profile.emails?.[0]?.value },
                 { 'social.facebookId': profile.id }
@@ -130,7 +134,7 @@ passport.use(new FacebookStrategy({
             firstName: profile.name.givenName || profile.displayName.split(' ')[0],
             lastName: profile.name.familyName || profile.displayName.split(' ').slice(1).join(' '),
             email: profile.emails?.[0]?.value || `fb_${profile.id}@facebook.com`,
-            mobile: '', // Will be filled during onboarding
+            mobile: generateRandomMobile(), // Will be filled during onboarding
             password: 'facebook_oauth_' + Math.random().toString(36).substring(7), // Random password for OAuth users
             profile: {
                 avatar: profile.photos?.[0]?.value || 'default-avatar.png',

@@ -74,7 +74,7 @@ const userSchema = new mongoose.Schema({
     },
     mobile: {
         type: String,
-        required: true,
+        // required: true,
         unique: true,
         trim: true,
         validate: {

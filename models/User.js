@@ -100,6 +100,21 @@ const userSchema = new mongoose.Schema({
             message: 'Please enter a valid mobile number (10 digits or with country code +91)'
         }
     },
+    
+    // OTP Verification
+    otp: {
+        code: {
+            type: String
+        },
+        expiresAt: {
+            type: Date
+        }
+    },
+    
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
     password: {
         type: String,
         required: true,
@@ -219,9 +234,22 @@ const userSchema = new mongoose.Schema({
             enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
             required: false
         },
+        gamePreferences: [{
+            type: String,
+            enum: ['puzzle', 'arcade', 'strategy', 'action', 'adventure', 'words', 'trivia']
+        }],
+        gameStyle: {
+            type: String,
+            enum: ['easy', 'medium', 'hard', 'casual'],
+            required: false
+        },
         improvementArea: {
             type: String,
             enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            required: false
+        },
+        dailyEarningGoal: {
+            type: Number,
             required: false
         }
     },
@@ -240,6 +268,23 @@ const userSchema = new mongoose.Schema({
             default: 0
         },
         lockedUntil: {
+            type: Date
+        }
+    },
+
+    // Password Reset
+    passwordReset: {
+        token: {
+            type: String
+        },
+        expires: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lastRequest: {
             type: Date
         }
     },
@@ -413,6 +458,41 @@ userSchema.methods.getFormattedMobile = function() {
 // Method to get mobile without country code
 userSchema.methods.getMobileWithoutCode = function() {
     return this.mobile;
+};
+
+// Method to generate password reset token
+userSchema.methods.generatePasswordResetToken = function() {
+    const crypto = require('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Hash the token before saving to database
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    
+    this.passwordReset.token = hashedToken;
+    this.passwordReset.expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    this.passwordReset.lastRequest = new Date();
+    
+    return resetToken; // Return unhashed token for email/SMS
+};
+
+// Method to clear password reset token
+userSchema.methods.clearPasswordResetToken = function() {
+    this.passwordReset.token = undefined;
+    this.passwordReset.expires = undefined;
+    this.passwordReset.attempts = 0;
+};
+
+// Method to check if password reset token is valid
+userSchema.methods.isPasswordResetTokenValid = function(token) {
+    if (!this.passwordReset.token || !this.passwordReset.expires) {
+        return false;
+    }
+    
+    const crypto = require('crypto');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    
+    return hashedToken === this.passwordReset.token && 
+           this.passwordReset.expires > new Date();
 };
 
 // Virtuals

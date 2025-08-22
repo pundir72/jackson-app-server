@@ -5,9 +5,15 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const twilio = require('twilio');
+const otpConfig = require('../config/otp-config');
+
+// 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
+// This bypasses Twilio SMS and uses a fixed OTP code for testing
+// REMOVE THIS IN PRODUCTION AND ENABLE REAL SMS OTP
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const passport = require('passport');
+const { sendPasswordResetEmail } = require('../utils/email');
 
 // Twilio client initialization
 // const client = twilio(
@@ -106,8 +112,9 @@ router.post('/send-otp', async (req, res) => {
       });
     }
     
-    // Generate 4-digit OTP
-    const otp = Math.floor(1000 + Math.random() * 9000);
+    // Get OTP code based on configuration (hardcoded for development, random for production)
+    const otpCode = otpConfig.getOTPCode();
+    const otpExpiry = otpConfig.getOTPExpiry();
     
     // Save OTP to user (create new or update existing)
     const user = await User.findOneAndUpdate(
@@ -115,24 +122,25 @@ router.post('/send-otp', async (req, res) => {
       { 
         mobile: normalizedMobile,
         otp: {
-          code: otp.toString(),
-          expiresAt: new Date(Date.now() + 300000) // 5 minutes
+          code: otpCode,
+          expiresAt: otpExpiry
         }
       },
       { new: true, upsert: true }
     );
-    
-    // Send OTP via Twilio
-    // await client.messages.create({
-    //   body: `Your Jackson App OTP is: ${otp}. Valid for 5 minutes.`,
-    //   from: process.env.TWILIO_PHONE_NUMBER,
-    //   to: normalizedMobile
-    // });
-    
-    res.status(200).json({ 
+    // Prepare response
+    const response = {
       message: 'OTP sent successfully',
       mobile: normalizedMobile
-    });
+    };
+    
+    // Add OTP to response only in development mode
+    if (otpConfig.shouldReturnOTPInResponse()) {
+      response.otp = otpCode;
+      response.note = otpConfig.getCurrentConfig().note;
+    }
+    
+    res.status(200).json(response);
   } catch (error) {
     console.error('Send OTP error:', error);
     res.status(500).json({ 
@@ -564,5 +572,254 @@ router.post('/social/disconnect', async (req, res) => {
     res.status(500).json({ error: 'Failed to disconnect social account' });
   }
 });
+
+// ==================== PASSWORD RESET ROUTES ====================
+
+// Rate limiting for password reset requests
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 3, // limit each IP to 3 requests per windowMs
+  message: {
+    error: 'Too many password reset requests',
+    message: 'Please wait 15 minutes before trying again'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Forgot Password - Request password reset
+router.post('/forgot-password', 
+  passwordResetLimiter,
+  [
+    body('identifier')
+      .notEmpty()
+      .withMessage('Email or mobile number is required')
+      .isLength({ min: 3 })
+      .withMessage('Identifier must be at least 3 characters long')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+          error: 'Validation failed',
+          details: errors.array() 
+        });
+      }
+
+      const { identifier } = req.body;
+      
+      // Determine if identifier is email or mobile
+      const isEmail = identifier.includes('@');
+      let user;
+      
+      if (isEmail) {
+        user = await User.findOne({ email: identifier.toLowerCase() });
+      } else {
+        // Normalize mobile number
+        const cleanNumber = identifier.replace(/\D/g, '');
+        let normalizedMobile = identifier;
+        
+        if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
+          normalizedMobile = cleanNumber.substring(2);
+        } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
+          normalizedMobile = cleanNumber.substring(2);
+        } else if (cleanNumber.length === 10) {
+          normalizedMobile = cleanNumber;
+        } else {
+          return res.status(400).json({ 
+            error: 'Invalid mobile number format',
+            message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+          });
+        }
+        
+        user = await User.findOne({ mobile: normalizedMobile });
+      }
+
+      if (!user) {
+        // Don't reveal if user exists or not for security
+        return res.status(200).json({ 
+          message: 'If an account with this information exists, you will receive a password reset link shortly'
+        });
+      }
+
+      // Check if user has made too many reset attempts recently
+      if (user.passwordReset.attempts >= 5) {
+        const timeSinceLastRequest = Date.now() - user.passwordReset.lastRequest.getTime();
+        if (timeSinceLastRequest < 60 * 60 * 1000) { // 1 hour
+          return res.status(429).json({ 
+            error: 'Too many reset attempts',
+            message: 'Please wait 1 hour before requesting another password reset'
+          });
+        }
+        // Reset attempts if more than 1 hour has passed
+        user.passwordReset.attempts = 0;
+      }
+
+      // Generate reset token
+      const resetToken = user.generatePasswordResetToken();
+      user.passwordReset.attempts += 1;
+      
+      await user.save();
+
+      // Send reset instructions based on identifier type
+      if (isEmail) {
+        // Send email with reset link
+        try {
+          const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+          
+          // Send password reset email
+          await sendPasswordResetEmail(user.email, resetUrl, user.firstName || 'User');
+          
+          res.json({ 
+            message: 'Password reset instructions have been sent to your email address',
+            resetUrl: process.env.NODE_ENV === 'development' ? resetUrl : undefined
+          });
+        } catch (emailError) {
+          console.error('Email sending error:', emailError);
+          // Clear the token if email fails
+          user.clearPasswordResetToken();
+          await user.save();
+          
+          res.status(500).json({ 
+            error: 'Failed to send reset email',
+            message: 'Please try again later or contact support'
+          });
+        }
+      } else {
+        // Send SMS with reset code (simplified version)
+        try {
+          // In production, integrate with Twilio or similar service
+          console.log('Password reset SMS would be sent to:', user.mobile);
+          console.log('Reset token:', resetToken);
+          
+          res.json({ 
+            message: 'Password reset code has been sent to your mobile number',
+            resetToken: process.env.NODE_ENV === 'development' ? resetToken : undefined
+          });
+        } catch (smsError) {
+          console.error('SMS sending error:', smsError);
+          // Clear the token if SMS fails
+          user.clearPasswordResetToken();
+          await user.save();
+          
+          res.status(500).json({ 
+            error: 'Failed to send reset SMS',
+            message: 'Please try again later or contact support'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ 
+        error: 'Server error',
+        message: 'Failed to process password reset request. Please try again later.'
+      });
+    }
+  }
+);
+
+// Verify Reset Token
+router.get('/verify-reset-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    if (!token) {
+      return res.status(400).json({ 
+        error: 'Reset token is required' 
+      });
+    }
+
+    // Find user with this reset token
+    const crypto = require('crypto');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    
+    const user = await User.findOne({
+      'passwordReset.token': hashedToken,
+      'passwordReset.expires': { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ 
+        error: 'Invalid or expired reset token',
+        message: 'The password reset link has expired or is invalid. Please request a new one.'
+      });
+    }
+
+    res.json({ 
+      message: 'Reset token is valid',
+      valid: true
+    });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.status(500).json({ 
+      error: 'Server error',
+      message: 'Failed to verify reset token'
+    });
+  }
+});
+
+// Reset Password
+router.post('/reset-password', 
+  [
+    body('token')
+      .notEmpty()
+      .withMessage('Reset token is required'),
+    body('newPassword')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters long')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+          error: 'Validation failed',
+          details: errors.array() 
+        });
+      }
+
+      const { token, newPassword } = req.body;
+      
+      // Find user with this reset token
+      const crypto = require('crypto');
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+      
+      const user = await User.findOne({
+        'passwordReset.token': hashedToken,
+        'passwordReset.expires': { $gt: new Date() }
+      });
+
+      if (!user) {
+        return res.status(400).json({ 
+          error: 'Invalid or expired reset token',
+          message: 'The password reset link has expired or is invalid. Please request a new one.'
+        });
+      }
+
+      // Update password
+      user.password = newPassword;
+      user.clearPasswordResetToken();
+      
+      await user.save();
+
+      // Log the password change for security
+      console.log(`Password reset completed for user: ${user.email || user.mobile}`);
+
+      res.json({ 
+        message: 'Password has been reset successfully. You can now login with your new password.',
+        success: true
+      });
+    } catch (error) {
+      console.error('Password reset error:', error);
+      res.status(500).json({ 
+        error: 'Server error',
+        message: 'Failed to reset password. Please try again later.'
+      });
+    }
+  }
+);
 
 module.exports = router;

@@ -69,7 +69,7 @@ router.get('/', protect, async (req, res) => {
 // Update profile
 router.put('/', protect, async (req, res) => {
     try {
-        const { firstName, lastName, status, mobile, bio, theme } = req.body;
+        const { firstName, lastName, status, mobile, bio, theme, email } = req.body;
         
         const user = await User.findById(req.user.userId);
         if (!user) {
@@ -83,6 +83,33 @@ router.put('/', protect, async (req, res) => {
         if (bio) user.profile.bio = bio;
         if (theme && ['light', 'dark'].includes(theme)) {
             user.profile.theme = theme;
+        }
+        
+        // Update email with validation
+        if (email) {
+            // Check if email is already taken by another user
+            const existingUser = await User.findOne({ 
+                email: email.toLowerCase(), 
+                _id: { $ne: user._id } 
+            });
+            
+            if (existingUser) {
+                return res.status(400).json({ 
+                    error: 'Email already exists',
+                    message: 'This email address is already registered with another account'
+                });
+            }
+            
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.status(400).json({ 
+                    error: 'Invalid email format',
+                    message: 'Please enter a valid email address'
+                });
+            }
+            
+            user.email = email.toLowerCase();
         }
         
         // Update mobile number with validation
@@ -138,6 +165,7 @@ router.put('/', protect, async (req, res) => {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 mobile: user.mobile,
+                email: user.email,
                 profile: user.profile
             }
         });

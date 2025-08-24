@@ -245,26 +245,6 @@ router.post('/signup',
         dailyEarningGoal
       } = req.body;
 
-      // Check if email already exists
-      const existingEmail = await User.findOne({ email: email.toLowerCase() });
-      if (existingEmail) {
-        return res.status(400).json({ 
-          error: 'Email already exists',
-          message: 'An account with this email address already exists. Please use a different email or try logging in.',
-          field: 'email'
-        });
-      }
-
-      // Check if mobile number already exists
-      const existingMobile = await User.findOne({ mobile: mobile });
-      if (existingMobile) {
-        return res.status(400).json({ 
-          error: 'Mobile number already exists',
-          message: 'An account with this mobile number already exists. Please use a different mobile number or try logging in.',
-          field: 'mobile'
-        });
-      }
-
       // Normalize mobile number (preserve country code for international support)
       let normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
       
@@ -274,6 +254,95 @@ router.post('/signup',
           error: 'Invalid mobile number',
           message: 'Please enter a valid mobile number (7-15 digits)'
         });
+      }
+
+      // Check if user already exists with this email or mobile
+      const existingUser = await User.findOne({
+        $or: [
+          { email: email.toLowerCase() },
+          { mobile: normalizedMobile }
+        ]
+      });
+
+      if (existingUser) {
+        // If user exists and is verified, allow them to complete registration
+        if (existingUser.isVerified) {
+          // User is verified - allow them to complete their profile
+          // Update the existing user with new information
+          existingUser.firstName = firstName;
+          existingUser.lastName = lastName;
+          existingUser.email = email.toLowerCase();
+          existingUser.password = password; // This will be hashed by pre-save middleware
+          existingUser.gender = gender;
+          existingUser.ageRange = ageRange;
+          existingUser.gamePreferences = gamePreferences;
+          existingUser.gameStyle = gameStyle;
+          existingUser.improvementArea = improvementArea;
+          existingUser.dailyEarningGoal = dailyEarningGoal;
+
+          await existingUser.save();
+
+          // Generate JWT token since user is now complete
+          const token = jwt.sign(
+            { userId: existingUser._id },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+          );
+
+          return res.status(200).json({
+            message: 'Registration completed successfully! Your account is now fully set up.',
+            token,
+            user: {
+              id: existingUser._id,
+              firstName: existingUser.firstName,
+              lastName: existingUser.lastName,
+              email: existingUser.email,
+              mobile: existingUser.mobile,
+              gender: existingUser.gender,
+              ageRange: existingUser.ageRange,
+              gamePreferences: existingUser.gamePreferences,
+              gameStyle: existingUser.gameStyle,
+              improvementArea: existingUser.improvementArea,
+              dailyEarningGoal: existingUser.dailyEarningGoal
+            },
+            note: 'Your mobile number was already verified. Welcome to the app!'
+          });
+        } else {
+          // User exists but is not verified - allow them to complete registration
+          // Update the existing user with new information
+          existingUser.firstName = firstName;
+          existingUser.lastName = lastName;
+          existingUser.email = email.toLowerCase();
+          existingUser.password = password; // This will be hashed by pre-save middleware
+          existingUser.gender = gender;
+          existingUser.ageRange = ageRange;
+          existingUser.gamePreferences = gamePreferences;
+          existingUser.gameStyle = gameStyle;
+          existingUser.improvementArea = improvementArea;
+          existingUser.dailyEarningGoal = dailyEarningGoal;
+
+          await existingUser.save();
+
+          // No JWT token - user still needs to verify OTP
+          return res.status(200).json({
+            message: 'Profile updated. Please complete OTP verification to access the app.',
+            user: {
+              id: existingUser._id,
+              firstName: existingUser.firstName,
+              lastName: existingUser.lastName,
+              email: existingUser.email,
+              mobile: existingUser.mobile,
+              gender: existingUser.gender,
+              ageRange: existingUser.ageRange,
+              gamePreferences: existingUser.gamePreferences,
+              gameStyle: existingUser.gameStyle,
+              improvementArea: existingUser.improvementArea,
+              dailyEarningGoal: existingUser.dailyEarningGoal
+            },
+            nextStep: 'verify-otp',
+            note: 'Please complete OTP verification to access the app'
+          });
+        }
       }
 
       const user = new User({

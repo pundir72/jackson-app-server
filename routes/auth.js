@@ -85,20 +85,14 @@ router.post('/send-otp', async (req, res) => {
       });
     }
     
-    // Normalize mobile number
-    const cleanNumber = mobile.replace(/\D/g, '');
-    let normalizedMobile = mobile;
+    // Normalize mobile number (preserve country code for international support)
+    let normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
     
-    if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-      normalizedMobile = cleanNumber.substring(2);
-    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-      normalizedMobile = cleanNumber.substring(2);
-    } else if (cleanNumber.length === 10) {
-      normalizedMobile = cleanNumber;
-    } else {
+    // Validate mobile number length
+    if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
       return res.status(400).json({ 
         error: 'Invalid mobile number',
-        message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+        message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
       });
     }
     
@@ -162,20 +156,14 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
     
-    // Normalize mobile number
-    const cleanNumber = mobile.replace(/\D/g, '');
-    let normalizedMobile = mobile;
+    // Normalize mobile number (preserve country code for international support)
+    const normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
     
-    if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-      normalizedMobile = cleanNumber.substring(2);
-    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-      normalizedMobile = cleanNumber.substring(2);
-    } else if (cleanNumber.length === 10) {
-      normalizedMobile = cleanNumber;
-    } else {
+    // Validate mobile number length
+    if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
       return res.status(400).json({ 
         error: 'Invalid mobile number',
-        message: 'Please enter a valid mobile number'
+        message: 'Please enter a valid mobile number (7-15 digits)'
       });
     }
     
@@ -277,15 +265,15 @@ router.post('/signup',
         });
       }
 
-      // Normalize mobile number (remove country code if present)
-      let normalizedMobile = mobile;
-      const cleanNumber = mobile.replace(/\D/g, '');
-      if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-        normalizedMobile = cleanNumber.substring(2);
-      } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-        normalizedMobile = cleanNumber.substring(2);
-      } else if (cleanNumber.length === 10) {
-        normalizedMobile = cleanNumber;
+      // Normalize mobile number (preserve country code for international support)
+      let normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
+      
+      // Validate mobile number length
+      if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
+        return res.status(400).json({ 
+          error: 'Invalid mobile number',
+          message: 'Please enter a valid mobile number (7-15 digits)'
+        });
       }
 
       const user = new User({
@@ -300,21 +288,14 @@ router.post('/signup',
         gameStyle,
         improvementArea,
         dailyEarningGoal,
-        isVerified: true // OTP already verified
+        isVerified: false // User must verify OTP first
       });
 
       await user.save();
 
-      // Generate JWT token
-      const token = jwt.sign(
-        { userId: user._id },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-      );
-
+      // Don't generate JWT token - user must verify OTP first
       res.status(201).json({
-        message: 'User registered successfully',
-        token,
+        message: 'User registered successfully. Please verify your mobile number with OTP to complete registration.',
         user: {
           id: user._id,
           firstName: user.firstName,
@@ -327,7 +308,9 @@ router.post('/signup',
           gameStyle: user.gameStyle,
           improvementArea: user.improvementArea,
           dailyEarningGoal: user.dailyEarningGoal
-        }
+        },
+        nextStep: 'verify-otp',
+        note: 'Please request OTP and verify your mobile number to complete registration'
       });
     } catch (error) {
       console.error('User registration error:', error);
@@ -409,6 +392,16 @@ router.post('/login',
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
+      // Check if user is verified
+      if (!user.isVerified) {
+        return res.status(401).json({ 
+          error: 'Account not verified',
+          message: 'Please verify your mobile number with OTP before logging in',
+          requiresVerification: true,
+          mobile: user.mobile
+        });
+      }
+
       // Check biometric requirement
       const shouldRequireBiometric = await checkBiometricRequirement(user);
       if (shouldRequireBiometric) {
@@ -469,11 +462,11 @@ router.get('/google/callback',
       );
 
       // Redirect to frontend with token
-      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?token=${token}&provider=google&userId=${user._id}`;
+      const redirectUrl = `com.jackson.app/auth/callback?token=${token}&provider=google&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('Google OAuth callback error:', error);
-      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/error?message=Google authentication failed`);
+      res.redirect(`com.jackson.app/auth/error?message=Google authentication failed`);
     }
   }
 );
@@ -495,11 +488,11 @@ router.get('/facebook/callback',
       );
 
       // Redirect to frontend with token
-      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
+      const redirectUrl = `com.jackson.app/auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('Facebook OAuth callback error:', error);
-      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/error?message=Facebook authentication failed`);
+      res.redirect(`com.jackson.app/auth/error?message=Facebook authentication failed`);
     }
   }
 );
@@ -616,20 +609,14 @@ router.post('/forgot-password',
       if (isEmail) {
         user = await User.findOne({ email: identifier.toLowerCase() });
       } else {
-        // Normalize mobile number
-        const cleanNumber = identifier.replace(/\D/g, '');
-        let normalizedMobile = identifier;
+        // Normalize mobile number (preserve country code for international support)
+        let normalizedMobile = identifier.replace(/\D/g, ''); // Remove non-digits, keep country code
         
-        if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-          normalizedMobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-          normalizedMobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 10) {
-          normalizedMobile = cleanNumber;
-        } else {
+        // Validate mobile number length
+        if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
           return res.status(400).json({ 
             error: 'Invalid mobile number format',
-            message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+            message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
           });
         }
         
@@ -666,7 +653,7 @@ router.post('/forgot-password',
       if (isEmail) {
         // Send email with reset link
         try {
-          const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+          const resetUrl = `com.jackson.app/reset-password?token=${resetToken}`;
           
           // Send password reset email
           await sendPasswordResetEmail(user.email, resetUrl, user.firstName || 'User');

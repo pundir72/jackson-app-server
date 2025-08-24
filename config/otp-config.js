@@ -32,7 +32,7 @@ module.exports = {
   
   // Get current configuration based on environment
   getCurrentConfig: function() {
-    const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+    const isDevelopment = process.env.ENVIRONMENT === 'development' || !process.env.ENVIRONMENT;
     return isDevelopment ? this.development : this.production;
   },
   

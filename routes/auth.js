@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const twilio = require('twilio');
 const otpConfig = require('../config/otp-config');
+const { standardizePhone, findUserByPhone, findOTPByPhone, findVerifiedOTPByPhone } = require('../utils/phoneUtils');
 
 // 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
@@ -85,19 +86,19 @@ router.post('/send-otp', async (req, res) => {
       });
     }
     
-    // Normalize mobile number (preserve country code for international support)
-    let normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
+    // Standardize mobile number format
+    const standardizedMobile = standardizePhone(mobile);
     
     // Validate mobile number length
-    if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
+    if (standardizedMobile.length < 10 || standardizedMobile.length > 15) {
       return res.status(400).json({ 
         error: 'Invalid mobile number',
-        message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
+        message: 'Please enter a valid mobile number (10-15 digits, with or without country code)'
       });
     }
     
-    // Check if user with this mobile already exists
-    const existingUser = await User.findOne({ mobile: normalizedMobile });
+    // Check if user with this mobile already exists (using phone utilities)
+    const existingUser = await findUserByPhone(User, standardizedMobile);
     
     if (existingUser) {
       return res.status(400).json({ 
@@ -109,7 +110,7 @@ router.post('/send-otp', async (req, res) => {
     // Check if there's already a pending OTP verification
     const OTPVerification = require('../models/OTPVerification');
     const pendingVerification = await OTPVerification.findOne({
-      mobile: normalizedMobile,
+      mobile: standardizedMobile,
       isVerified: false,
       expiresAt: { $gt: new Date() }
     });
@@ -129,7 +130,7 @@ router.post('/send-otp', async (req, res) => {
     
     // Create OTP verification record
     const otpVerification = new OTPVerification({
-      mobile: normalizedMobile,
+      mobile: standardizedMobile,
       otp: otp,
       expiresAt: expiresAt
     });
@@ -139,16 +140,15 @@ router.post('/send-otp', async (req, res) => {
     // In production, send SMS here
     // const message = await client.messages.create({
     //   body: `Your Jackson App verification code is: ${otp}`,
-    //   body: `Your Jackson App verification code is: ${otp}`,
     //   from: process.env.TWILIO_PHONE_NUMBER,
-    //   to: `+${normalizedMobile}`
+    //   to: `+${standardizedMobile}`
     // });
     
     res.json({
       message: 'OTP sent successfully',
-      mobile: normalizedMobile,
+      mobile: standardizedMobile,
       expiresIn: '10 minutes',
-      note: 'Development mode: OTP is 1234'
+      note: 'Development mode: OTP is 8078'
     });
     
   } catch (error) {
@@ -172,39 +172,27 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
     
-    // Normalize mobile number (preserve country code for international support)
-    const normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
+    // Standardize mobile number format
+    const standardizedMobile = standardizePhone(mobile);
     
     // Validate mobile number length
-    if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
+    if (standardizedMobile.length < 10 || standardizedMobile.length > 15) {
       return res.status(400).json({ 
         error: 'Invalid mobile number',
-        message: 'Please enter a valid mobile number (7-15 digits)'
+        message: 'Please enter a valid mobile number (10-15 digits, with or without country code)'
       });
     }
     
-    // Find OTP verification record
+    // Find OTP verification record using phone utilities
     const OTPVerification = require('../models/OTPVerification');
-    const otpVerification = await OTPVerification.findOne({
-      mobile: normalizedMobile,
-      otp: otp,
-      isVerified: false,
-      expiresAt: { $gt: new Date() }
-    });
-    
-    if (!otpVerification) {
-      return res.status(400).json({ 
-        error: 'Invalid OTP',
-        message: 'Invalid or expired OTP. Please request a new OTP.'
-      });
-    }
+    const otpVerification = await findOTPByPhone(OTPVerification, standardizedMobile);
     
     // Mark OTP as verified
     await otpVerification.markVerified();
     
     res.status(200).json({ 
       message: 'OTP verified successfully',
-      mobile: normalizedMobile,
+      mobile: standardizedMobile,
       verified: true,
       note: 'You can now proceed with signup'
     });
@@ -246,42 +234,48 @@ router.post('/signup',
         socialTag
       } = req.body;
 
-      // Normalize mobile number (preserve country code for international support)
-      let normalizedMobile = mobile.replace(/\D/g, ''); // Remove non-digits, keep country code
+      // Standardize mobile number format
+      const standardizedMobile = standardizePhone(mobile);
       
       // Validate mobile number length
-      if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
+      if (standardizedMobile.length < 10 || standardizedMobile.length > 15) {
         return res.status(400).json({ 
           error: 'Invalid mobile number',
-          message: 'Please enter a valid mobile number (7-15 digits)'
+          message: 'Please enter a valid mobile number (10-15 digits, with or without country code)'
         });
       }
 
       // Check if user already exists with this email or mobile
-      const existingUser = await User.findOne({
-        $or: [
-          { email: email.toLowerCase() },
-          { mobile: normalizedMobile }
-        ]
-      });
-
-      if (existingUser) {
+      const existingUser = await findUserByPhone(User, standardizedMobile);
+      if (!existingUser) {
+        // Also check by email
+        const existingEmailUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingEmailUser) {
+          return res.status(400).json({ 
+            error: 'Email already exists',
+            message: 'An account with this email address already exists. Please use a different email or try logging in.'
+          });
+        }
+      } else {
         return res.status(400).json({ 
           error: 'User already exists',
-          message: 'An account with this email or mobile number already exists. Please login instead.'
+          message: 'An account with this mobile number already exists. Please login instead.'
         });
       }
 
+
+
       // Check if OTP is verified for this mobile number
       const OTPVerification = require('../models/OTPVerification');
-      const verifiedOTP = await OTPVerification.findValidVerification(normalizedMobile);
+      const verifiedOTP = await findVerifiedOTPByPhone(OTPVerification, standardizedMobile);
       
       if (!verifiedOTP) {
         return res.status(400).json({ 
           error: 'OTP not verified',
-          message: 'Please verify your mobile number with OTP before completing registration.',
+          message: 'Please verify your mobile number with OTP before completing registration. You must complete OTP verification first.',
           requiresOTPVerification: true,
-          mobile: normalizedMobile
+          mobile: standardizedMobile,
+          note: 'Send OTP and verify it before attempting signup'
         });
       }
 
@@ -290,7 +284,7 @@ router.post('/signup',
         firstName,
         lastName,
         email: email.toLowerCase(),
-        mobile: normalizedMobile,
+        mobile: standardizedMobile,
         password, // Will be hashed by pre-save middleware
         gender,
         ageRange,
@@ -388,12 +382,13 @@ router.post('/login',
       }
 
       const { emailOrMobile, password } = req.body;
-      const user = await User.findOne({
-        $or: [
-          { email: emailOrMobile },
-          { mobile: emailOrMobile }
-        ]
-      });
+      // Try to find user by email first
+      let user = await User.findOne({ email: emailOrMobile });
+      
+      // If not found by email, try by phone number
+      if (!user) {
+        user = await findUserByPhone(User, emailOrMobile);
+      }
       console.log(user)
       if (!user) {
         return res.status(401).json({ error: 'Invalid credentials' });
@@ -630,18 +625,8 @@ router.post('/forgot-password',
       if (isEmail) {
         user = await User.findOne({ email: identifier.toLowerCase() });
       } else {
-        // Normalize mobile number (preserve country code for international support)
-        let normalizedMobile = identifier.replace(/\D/g, ''); // Remove non-digits, keep country code
-        
-        // Validate mobile number length
-        if (normalizedMobile.length < 7 || normalizedMobile.length > 15) {
-          return res.status(400).json({ 
-            error: 'Invalid mobile number format',
-            message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
-          });
-        }
-        
-        user = await User.findOne({ mobile: normalizedMobile });
+        // Use phone utilities for mobile number lookup
+        user = await findUserByPhone(User, identifier);
       }
 
       if (!user) {

@@ -115,7 +115,7 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-        required: true,
+        required: true, // Required again - users must complete full signup
         minlength: 8
     },
     socialTag: {

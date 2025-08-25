@@ -173,93 +173,83 @@ function phonesMatch(phone1, phone2) {
 }
 
 /**
- * Find user by phone number (considering all variations)
+ * Find user by phone number (SIMPLE & SECURE - last 10 digits)
  * @param {Object} User - User model
  * @param {string} phone - Phone number to search for
  * @returns {Object|null} - User object or null
  */
 async function findUserByPhone(User, phone) {
-    const variations = generatePhoneVariations(phone);
+    // Clean the phone number (remove spaces, +, etc.)
+    const cleanPhone = phone.replace(/\D/g, '');
     
-    // Try exact matches first
-    for (const variation of variations) {
-        const user = await User.findOne({ mobile: variation });
-        if (user) return user;
+    // For login, we need at least 10 digits to be secure
+    if (cleanPhone.length < 10) {
+        return null; // Too short, reject for security
     }
     
-    // If no exact match, try partial matching for local numbers
-    const localNumber = getLocalNumber(phone);
-    if (localNumber && localNumber.length >= 7) {
-        // Find users whose mobile ends with this local number
-        const user = await User.findOne({
-            mobile: { $regex: localNumber + '$' }
-        });
-        if (user) return user;
-    }
+    // Get last 10 digits (most common mobile number length)
+    const last10Digits = cleanPhone.slice(-10);
     
-    return null;
+    // Find user whose mobile ends with these 10 digits
+    const user = await User.findOne({
+        mobile: { $regex: last10Digits + '$' }
+    });
+    
+    return user;
 }
 
 /**
- * Find OTP verification by phone number (considering all variations)
+ * Find OTP verification by phone number (SIMPLE & SECURE - last 10 digits)
  * @param {Object} OTPVerification - OTPVerification model
  * @param {string} phone - Phone number to search for
  * @returns {Object|null} - OTPVerification object or null
  */
 async function findOTPByPhone(OTPVerification, phone) {
-    const variations = generatePhoneVariations(phone);
+    // Clean the phone number (remove spaces, +, etc.)
+    const cleanPhone = phone.replace(/\D/g, '');
     
-    // Try exact matches first
-    for (const variation of variations) {
-        const otp = await OTPVerification.findOne({ mobile: variation });
-        if (otp) return otp;
+    // For OTP, we need at least 10 digits to be secure
+    if (cleanPhone.length < 10) {
+        return null; // Too short, reject for security
     }
     
-    // If no exact match, try partial matching for local numbers
-    const localNumber = getLocalNumber(phone);
-    if (localNumber && localNumber.length >= 7) {
-        // Find OTPs whose mobile ends with this local number
-        const otp = await OTPVerification.findOne({
-            mobile: { $regex: localNumber + '$' }
-        });
-        if (otp) return otp;
-    }
+    // Get last 10 digits (most common mobile number length)
+    const last10Digits = cleanPhone.slice(-10);
     
-    return null;
+    // Find OTP whose mobile ends with these 10 digits
+    const otp = await OTPVerification.findOne({
+        mobile: { $regex: last10Digits + '$' }
+    });
+    
+    return otp;
 }
 
 /**
- * Find VERIFIED OTP verification by phone number (considering all variations)
+ * Find VERIFIED OTP verification by phone number (SIMPLE & SECURE - last 10 digits)
  * @param {Object} OTPVerification - OTPVerification model
  * @param {string} phone - Phone number to search for
  * @returns {Object|null} - VERIFIED OTPVerification object or null
  */
 async function findVerifiedOTPByPhone(OTPVerification, phone) {
-    const variations = generatePhoneVariations(phone);
+    // Clean the phone number (remove spaces, +, etc.)
+    const cleanPhone = phone.replace(/\D/g, '');
     
-    // Try exact matches first for VERIFIED OTPs
-    for (const variation of variations) {
-        const otp = await OTPVerification.findOne({ 
-            mobile: variation,
-            isVerified: true,
-            expiresAt: { $gt: new Date() }
-        });
-        if (otp) return otp;
+    // For OTP verification, we need at least 10 digits to be secure
+    if (cleanPhone.length < 10) {
+        return null; // Too short, reject for security
     }
     
-    // If no exact match, try partial matching for local numbers
-    const localNumber = getLocalNumber(phone);
-    if (localNumber && localNumber.length >= 7) {
-        // Find VERIFIED OTPs whose mobile ends with this local number
-        const otp = await OTPVerification.findOne({
-            mobile: { $regex: localNumber + '$' },
-            isVerified: true,
-            expiresAt: { $gt: new Date() }
-        });
-        if (otp) return otp;
-    }
+    // Get last 10 digits (most common mobile number length)
+    const last10Digits = cleanPhone.slice(-10);
     
-    return null;
+    // Find VERIFIED OTP whose mobile ends with these 10 digits
+    const otp = await OTPVerification.findOne({
+        mobile: { $regex: last10Digits + '$' },
+        isVerified: true,
+        expiresAt: { $gt: new Date() }
+    });
+    
+    return otp;
 }
 
 /**

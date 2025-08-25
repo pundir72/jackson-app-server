@@ -531,11 +531,11 @@ router.get('/google/callback',
       );
 
       // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app/auth/callback?token=${token}&provider=google&userId=${user._id}`;
+      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=google&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('Google OAuth callback error:', error);
-      res.redirect(`com.jackson.app/auth/error?message=Google authentication failed`);
+      res.redirect(`com.jackson.app://auth/error?message=Google authentication failed`);
     }
   }
 );
@@ -557,11 +557,11 @@ router.get('/facebook/callback',
       );
 
       // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app/auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
+      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('Facebook OAuth callback error:', error);
-      res.redirect(`com.jackson.app/auth/error?message=Facebook authentication failed`);
+      res.redirect(`com.jackson.app://auth/error?message=Facebook authentication failed`);
     }
   }
 );
@@ -722,7 +722,7 @@ router.post('/forgot-password',
       if (isEmail) {
         // Send email with reset link
         try {
-          const resetUrl = `com.jackson.app/reset-password?token=${resetToken}`;
+          const resetUrl = `com.jackson.app://reset-password?token=${resetToken}`;
           
           // Send password reset email
           await sendPasswordResetEmail(user.email, resetUrl, user.firstName || 'User');

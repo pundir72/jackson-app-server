@@ -69,7 +69,7 @@ router.get('/', protect, async (req, res) => {
 // Update profile
 router.put('/', protect, async (req, res) => {
     try {
-        const { firstName, lastName, status, mobile, bio, theme } = req.body;
+        const { firstName, lastName, status, mobile, bio, theme, email } = req.body;
         
         const user = await User.findById(req.user.userId);
         if (!user) {
@@ -83,6 +83,33 @@ router.put('/', protect, async (req, res) => {
         if (bio) user.profile.bio = bio;
         if (theme && ['light', 'dark'].includes(theme)) {
             user.profile.theme = theme;
+        }
+        
+        // Update email with validation
+        if (email) {
+            // Check if email is already taken by another user
+            const existingUser = await User.findOne({ 
+                email: email.toLowerCase(), 
+                _id: { $ne: user._id } 
+            });
+            
+            if (existingUser) {
+                return res.status(400).json({ 
+                    error: 'Email already exists',
+                    message: 'This email address is already registered with another account'
+                });
+            }
+            
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.status(400).json({ 
+                    error: 'Invalid email format',
+                    message: 'Please enter a valid email address'
+                });
+            }
+            
+            user.email = email.toLowerCase();
         }
         
         // Update mobile number with validation
@@ -100,33 +127,19 @@ router.put('/', protect, async (req, res) => {
                 });
             }
             
-            // Validate mobile number format (using the same validation from User model)
+            // Validate mobile number format (international support)
             const cleanNumber = mobile.replace(/\D/g, '');
-            let isValidMobile = false;
             
-            if (cleanNumber.length === 10) {
-                isValidMobile = /^[6-9][0-9]{9}$/.test(cleanNumber);
-            } else if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-                isValidMobile = /^91[6-9][0-9]{9}$/.test(cleanNumber);
-            } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-                isValidMobile = /^91[6-9][0-9]{9}$/.test(cleanNumber);
-            }
-            
-            if (!isValidMobile) {
+            // Check if mobile number length is valid (7-15 digits)
+            if (cleanNumber.length < 7 || cleanNumber.length > 15) {
                 return res.status(400).json({ 
                     error: 'Invalid mobile number',
-                    message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+                    message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
                 });
             }
             
-            // Normalize mobile number (remove country code if present)
-            if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-                user.mobile = cleanNumber.substring(2);
-            } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-                user.mobile = cleanNumber.substring(2);
-            } else if (cleanNumber.length === 10) {
-                user.mobile = cleanNumber;
-            }
+            // Store the normalized mobile number (with country code)
+            user.mobile = cleanNumber;
         }
         
         await user.save();
@@ -138,6 +151,7 @@ router.put('/', protect, async (req, res) => {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 mobile: user.mobile,
+                email: user.email,
                 profile: user.profile
             }
         });
@@ -190,33 +204,19 @@ router.put('/mobile', protect, async (req, res) => {
             });
         }
         
-        // Validate mobile number format
+        // Validate mobile number format (international support)
         const cleanNumber = mobile.replace(/\D/g, '');
-        let isValidMobile = false;
         
-        if (cleanNumber.length === 10) {
-            isValidMobile = /^[6-9][0-9]{9}$/.test(cleanNumber);
-        } else if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-            isValidMobile = /^91[6-9][0-9]{9}$/.test(cleanNumber);
-        } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-            isValidMobile = /^91[6-9][0-9]{9}$/.test(cleanNumber);
-        }
-        
-        if (!isValidMobile) {
+        // Check if mobile number length is valid (7-15 digits)
+        if (cleanNumber.length < 7 || cleanNumber.length > 15) {
             return res.status(400).json({ 
                 error: 'Invalid mobile number',
-                message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+                message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
             });
         }
         
-        // Normalize mobile number
-        if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-            user.mobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-            user.mobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 10) {
-            user.mobile = cleanNumber;
-        }
+        // Store the normalized mobile number (with country code)
+        user.mobile = cleanNumber;
         
         await user.save();
         

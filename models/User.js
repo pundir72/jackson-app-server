@@ -61,12 +61,14 @@ const userSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        required: true,
-        unique: true,
+        required: false,
+        unique: false,
         lowercase: true,
         trim: true,
         validate: {
             validator: function(v) {
+                // Allow null/undefined values
+                if (!v) return true;
                 return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
             },
             message: 'Please enter a valid email address'
@@ -82,23 +84,34 @@ const userSchema = new mongoose.Schema({
                 // Remove any non-digit characters first
                 const cleanNumber = v.replace(/\D/g, '');
                 
-                // Check if it's a valid mobile number with or without country code
-                // Supports formats like: 916263573606, +916263573606, 6263573606
-                if (cleanNumber.length === 10) {
-                    // 10-digit number (without country code)
-                    return /^[6-9][0-9]{9}$/.test(cleanNumber);
-                } else if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-                    // 12-digit number with India country code (91)
-                    return /^91[6-9][0-9]{9}$/.test(cleanNumber);
-                } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-                    // 13-digit number with India country code (91) - handles +91 format
-                    return /^91[6-9][0-9]{9}$/.test(cleanNumber);
+                // International mobile number validation
+                // Supports formats like: +1234567890, +44123456789, 6263573606
+                
+                // Check if it's a valid mobile number
+                if (cleanNumber.length >= 7 && cleanNumber.length <= 15) {
+                    // Valid international mobile number length
+                    return true;
                 }
                 
                 return false;
             },
-            message: 'Please enter a valid mobile number (10 digits or with country code +91)'
+            message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
         }
+    },
+    
+    // OTP Verification
+    otp: {
+        code: {
+            type: String
+        },
+        expiresAt: {
+            type: Date
+        }
+    },
+    
+    isVerified: {
+        type: Boolean,
+        default: false
     },
     password: {
         type: String,
@@ -219,9 +232,22 @@ const userSchema = new mongoose.Schema({
             enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
             required: false
         },
+        gamePreferences: [{
+            type: String,
+            enum: ['puzzle', 'arcade', 'strategy', 'action', 'adventure', 'words', 'trivia']
+        }],
+        gameStyle: {
+            type: String,
+            enum: ['easy', 'medium', 'hard', 'casual'],
+            required: false
+        },
         improvementArea: {
             type: String,
             enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            required: false
+        },
+        dailyEarningGoal: {
+            type: Number,
             required: false
         }
     },
@@ -240,6 +266,23 @@ const userSchema = new mongoose.Schema({
             default: 0
         },
         lockedUntil: {
+            type: Date
+        }
+    },
+
+    // Password Reset
+    passwordReset: {
+        token: {
+            type: String
+        },
+        expires: {
+            type: Date
+        },
+        attempts: {
+            type: Number,
+            default: 0
+        },
+        lastRequest: {
             type: Date
         }
     },
@@ -365,19 +408,12 @@ const userSchema = new mongoose.Schema({
 // Normalize mobile number before saving
 userSchema.pre('save', function(next) {
     if (this.isModified('mobile')) {
-        // Remove all non-digit characters and normalize to standard format
+        // Remove all non-digit characters
         const cleanNumber = this.mobile.replace(/\D/g, '');
         
-        if (cleanNumber.length === 12 && cleanNumber.startsWith('91')) {
-            // Store as 10-digit number (remove country code)
-            this.mobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 13 && cleanNumber.startsWith('91')) {
-            // Store as 10-digit number (remove country code)
-            this.mobile = cleanNumber.substring(2);
-        } else if (cleanNumber.length === 10) {
-            // Already 10 digits, store as is
-            this.mobile = cleanNumber;
-        }
+        // Store the full international number (with country code)
+        // This preserves the country code for international support
+        this.mobile = cleanNumber;
     }
     next();
 });
@@ -405,14 +441,74 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
     return result;
 };
 
-// Method to get formatted mobile number
+// Method to get formatted mobile number with + prefix
 userSchema.methods.getFormattedMobile = function() {
-    return `+91${this.mobile}`;
+    return `+${this.mobile}`;
+};
+
+// Method to get mobile without country code (for backward compatibility)
+userSchema.methods.getMobileWithoutCode = function() {
+    // If it's a 10-digit number (likely Indian), return as is
+    if (this.mobile.length === 10) {
+        return this.mobile;
+    }
+    // For international numbers, this method might not be applicable
+    return this.mobile;
+};
+
+// Method to get country code
+userSchema.methods.getCountryCode = function() {
+    if (this.mobile.length > 10) {
+        // Extract country code (first 1-3 digits)
+        const countryCodeLength = this.mobile.length - 10;
+        return this.mobile.substring(0, countryCodeLength);
+    }
+    return '91'; // Default to India for 10-digit numbers
 };
 
 // Method to get mobile without country code
-userSchema.methods.getMobileWithoutCode = function() {
-    return this.mobile;
+userSchema.methods.getMobileWithoutCountryCode = function() {
+    if (this.mobile.length > 10) {
+        // Remove country code
+        const countryCodeLength = this.mobile.length - 10;
+        return this.mobile.substring(countryCodeLength);
+    }
+    return this.mobile; // Already without country code
+};
+
+// Method to generate password reset token
+userSchema.methods.generatePasswordResetToken = function() {
+    const crypto = require('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Hash the token before saving to database
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    
+    this.passwordReset.token = hashedToken;
+    this.passwordReset.expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    this.passwordReset.lastRequest = new Date();
+    
+    return resetToken; // Return unhashed token for email/SMS
+};
+
+// Method to clear password reset token
+userSchema.methods.clearPasswordResetToken = function() {
+    this.passwordReset.token = undefined;
+    this.passwordReset.expires = undefined;
+    this.passwordReset.attempts = 0;
+};
+
+// Method to check if password reset token is valid
+userSchema.methods.isPasswordResetTokenValid = function(token) {
+    if (!this.passwordReset.token || !this.passwordReset.expires) {
+        return false;
+    }
+    
+    const crypto = require('crypto');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    
+    return hashedToken === this.passwordReset.token && 
+           this.passwordReset.expires > new Date();
 };
 
 // Virtuals

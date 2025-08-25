@@ -8,9 +8,14 @@
     "dev": "nodemon --config nodemon.json server.js",
     "dev:clean": "pkill -f 'node.*server.js' && sleep 2 && npm run dev",
     "test": "jest",
+    "test:password-reset": "jest tests/password-reset.test.js",
     "lint": "eslint .",
     "seed": "node data/seedMasterData.js",
-    "seed:home": "node scripts/seedHomeData.js"
+    "seed:home": "node scripts/seedHomeData.js",
+    "update:game-prefs": "node scripts/updateGamePreferences.js",
+    "verify:game-prefs": "node scripts/verifyGamePreferences.js",
+    "fix:game-prefs": "node scripts/fixGamePreferences.js",
+    "test:otp": "node scripts/testOTP.js"
   },
   "dependencies": {
     "axios": "^1.6.5",
@@ -34,7 +39,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.5.0",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^6.9.7",
+    "nodemailer": "^6.10.1",
     "openai": "^4.24.1",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",

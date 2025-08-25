@@ -118,6 +118,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+
 # Local env files
 .env*.local
 
@@ -139,3 +140,7 @@ yarn-error.log*
 requirment_docs
 data
 package-lock.json
+docs
+Jackson_App_Complete_API_Collection_Updated.json
+scripts/
+Jackson_App_Complete_API_Collection_Final.json

@@ -86,5 +86,8 @@ module.exports = {
         INTERNAL_ERROR: 500
     },
 
-    IMAGE_BASE_URL: process.env.IMAGE_BASE_URL || 'http://localhost:4001'
+    IMAGE_BASE_URL: process.env.IMAGE_BASE_URL || 'http://localhost:4001',
+
+    EMAIL: process.env.EMAIL,
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
 };

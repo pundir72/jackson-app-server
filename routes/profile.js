@@ -44,7 +44,7 @@ const upload = multer({
 // Get user profile
 router.get('/', protect, async (req, res) => {
     try {
-        const user = await User.findById(req.user.userId).select('firstName lastName mobile profile email');
+        const user = await User.findById(req.user.userId).select('firstName lastName mobile profile email socialTag');
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }

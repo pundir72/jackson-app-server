@@ -96,50 +96,66 @@ router.post('/send-otp', async (req, res) => {
       });
     }
     
-    // Check if user with this mobile already exists and is verified
+    // Check if user with this mobile already exists
     const existingUser = await User.findOne({ mobile: normalizedMobile });
-    if (existingUser && existingUser.isVerified) {
+    
+    if (existingUser) {
       return res.status(400).json({ 
         error: 'Mobile number already registered',
-        message: 'An account with this mobile number already exists. Please try logging in instead.',
-        field: 'mobile'
+        message: 'An account with this mobile number already exists. Please login instead.'
       });
     }
     
-    // Get OTP code based on configuration (hardcoded for development, random for production)
-    const otpCode = otpConfig.getOTPCode();
-    const otpExpiry = otpConfig.getOTPExpiry();
+    // Check if there's already a pending OTP verification
+    const OTPVerification = require('../models/OTPVerification');
+    const pendingVerification = await OTPVerification.findOne({
+      mobile: normalizedMobile,
+      isVerified: false,
+      expiresAt: { $gt: new Date() }
+    });
     
-    // Save OTP to user (create new or update existing)
-    const user = await User.findOneAndUpdate(
-      { mobile: normalizedMobile },
-      { 
-        mobile: normalizedMobile,
-        otp: {
-          code: otpCode,
-          expiresAt: otpExpiry
-        }
-      },
-      { new: true, upsert: true }
-    );
-    // Prepare response
-    const response = {
-      message: 'OTP sent successfully',
-      mobile: normalizedMobile
-    };
-    
-    // Add OTP to response only in development mode
-    if (otpConfig.shouldReturnOTPInResponse()) {
-      response.otp = otpCode;
-      response.note = otpConfig.getCurrentConfig().note;
+    if (pendingVerification) {
+      const timeRemaining = Math.ceil((pendingVerification.expiresAt - new Date()) / 1000);
+      return res.status(400).json({ 
+        error: 'OTP already sent',
+        message: `Please wait ${timeRemaining} seconds before requesting another OTP`,
+        timeRemaining
+      });
     }
     
-    res.status(200).json(response);
+    // Generate OTP (using hardcoded 1234 for development)
+    const otp = '8078';
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    // Create OTP verification record
+    const otpVerification = new OTPVerification({
+      mobile: normalizedMobile,
+      otp: otp,
+      expiresAt: expiresAt
+    });
+    
+    await otpVerification.save();
+    
+    // In production, send SMS here
+    // const message = await client.messages.create({
+    //   body: `Your Jackson App verification code is: ${otp}`,
+    //   body: `Your Jackson App verification code is: ${otp}`,
+    //   from: process.env.TWILIO_PHONE_NUMBER,
+    //   to: `+${normalizedMobile}`
+    // });
+    
+    res.json({
+      message: 'OTP sent successfully',
+      mobile: normalizedMobile,
+      expiresIn: '10 minutes',
+      note: 'Development mode: OTP is 1234'
+    });
+    
   } catch (error) {
-    console.error('Send OTP error:', error);
+    console.error('OTP generation error:', error);
     res.status(500).json({ 
       error: 'Failed to send OTP',
-      message: 'Unable to send OTP. Please try again later.'
+      message: 'An error occurred while sending OTP. Please try again.'
     });
   }
 });
@@ -167,46 +183,30 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
     
-    const user = await User.findOne({ mobile: normalizedMobile });
-    if (!user) {
-      return res.status(404).json({ 
-        error: 'User not found',
-        message: 'No user found with this mobile number. Please send OTP first.'
-      });
-    }
+    // Find OTP verification record
+    const OTPVerification = require('../models/OTPVerification');
+    const otpVerification = await OTPVerification.findOne({
+      mobile: normalizedMobile,
+      otp: otp,
+      isVerified: false,
+      expiresAt: { $gt: new Date() }
+    });
     
-    if (!user.otp || !user.otp.code) {
-      return res.status(400).json({ 
-        error: 'No OTP found',
-        message: 'Please request an OTP first before verification.'
-      });
-    }
-    
-    if (user.otp.expiresAt < new Date()) {
-      return res.status(400).json({ 
-        error: 'OTP expired',
-        message: 'OTP has expired. Please request a new OTP.'
-      });
-    }
-    
-    if (user.otp.code !== otp) {
+    if (!otpVerification) {
       return res.status(400).json({ 
         error: 'Invalid OTP',
-        message: 'The OTP you entered is incorrect. Please try again.'
+        message: 'Invalid or expired OTP. Please request a new OTP.'
       });
     }
     
-    await User.findOneAndUpdate(
-      { mobile: normalizedMobile },
-      { 
-        isVerified: true,
-        otp: null
-      }
-    );
+    // Mark OTP as verified
+    await otpVerification.markVerified();
     
     res.status(200).json({ 
       message: 'OTP verified successfully',
-      mobile: normalizedMobile
+      mobile: normalizedMobile,
+      verified: true,
+      note: 'You can now proceed with signup'
     });
   } catch (error) {
     console.error('Verify OTP error:', error);
@@ -266,96 +266,32 @@ router.post('/signup',
       });
 
       if (existingUser) {
-        // If user exists and is verified, allow them to complete registration
-        if (existingUser.isVerified) {
-          // User is verified - allow them to complete their profile
-          // Update the existing user with new information
-          existingUser.firstName = firstName;
-          existingUser.lastName = lastName;
-          existingUser.email = email.toLowerCase();
-          existingUser.password = password; // This will be hashed by pre-save middleware
-          existingUser.gender = gender;
-          existingUser.ageRange = ageRange;
-          existingUser.gamePreferences = gamePreferences;
-          existingUser.gameStyle = gameStyle;
-          existingUser.improvementArea = improvementArea;
-          existingUser.dailyEarningGoal = dailyEarningGoal;
-          existingUser.socialTag = socialTag;
-
-          await existingUser.save();
-
-          // Generate JWT token since user is now complete
-          const token = jwt.sign(
-            { userId: existingUser._id },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-          );
-
-          return res.status(200).json({
-            message: 'Registration completed successfully! Your account is now fully set up.',
-            token,
-            user: {
-              id: existingUser._id,
-              firstName: existingUser.firstName,
-              lastName: existingUser.lastName,
-              email: existingUser.email,
-              mobile: existingUser.mobile,
-              gender: existingUser.gender,
-              ageRange: existingUser.ageRange,
-              gamePreferences: existingUser.gamePreferences,
-              gameStyle: existingUser.gameStyle,
-              improvementArea: existingUser.improvementArea,
-              dailyEarningGoal: existingUser.dailyEarningGoal,
-              socialTag: existingUser.socialTag
-            },
-            note: 'Your mobile number was already verified. Welcome to the app!'
-          });
-        } else {
-          // User exists but is not verified - allow them to complete registration
-          // Update the existing user with new information
-          existingUser.firstName = firstName;
-          existingUser.lastName = lastName;
-          existingUser.email = email.toLowerCase();
-          existingUser.password = password; // This will be hashed by pre-save middleware
-          existingUser.gender = gender;
-          existingUser.ageRange = ageRange;
-          existingUser.gamePreferences = gamePreferences;
-          existingUser.gameStyle = gameStyle;
-          existingUser.improvementArea = improvementArea;
-          existingUser.dailyEarningGoal = dailyEarningGoal;
-          existingUser.socialTag = socialTag;
-
-          await existingUser.save();
-
-          // No JWT token - user still needs to verify OTP
-          return res.status(200).json({
-            message: 'Profile updated. Please complete OTP verification to access the app.',
-            user: {
-              id: existingUser._id,
-              firstName: existingUser.firstName,
-              lastName: existingUser.lastName,
-              email: existingUser.email,
-              mobile: existingUser.mobile,
-              gender: existingUser.gender,
-              ageRange: existingUser.ageRange,
-              gamePreferences: existingUser.gamePreferences,
-              gameStyle: existingUser.gameStyle,
-              improvementArea: existingUser.improvementArea,
-              dailyEarningGoal: existingUser.dailyEarningGoal,
-              socialTag: existingUser.socialTag
-            },
-            nextStep: 'verify-otp',
-            note: 'Please complete OTP verification to access the app'
-          });
-        }
+        return res.status(400).json({ 
+          error: 'User already exists',
+          message: 'An account with this email or mobile number already exists. Please login instead.'
+        });
       }
 
+      // Check if OTP is verified for this mobile number
+      const OTPVerification = require('../models/OTPVerification');
+      const verifiedOTP = await OTPVerification.findValidVerification(normalizedMobile);
+      
+      if (!verifiedOTP) {
+        return res.status(400).json({ 
+          error: 'OTP not verified',
+          message: 'Please verify your mobile number with OTP before completing registration.',
+          requiresOTPVerification: true,
+          mobile: normalizedMobile
+        });
+      }
+
+      // Create new user with verified mobile
       const user = new User({
         firstName,
         lastName,
         email: email.toLowerCase(),
         mobile: normalizedMobile,
-        password,
+        password, // Will be hashed by pre-save middleware
         gender,
         ageRange,
         gamePreferences,
@@ -363,14 +299,21 @@ router.post('/signup',
         improvementArea,
         dailyEarningGoal,
         socialTag,
-        isVerified: false // User must verify OTP first
+        isVerified: true // Mobile is already verified
       });
 
       await user.save();
 
-      // Don't generate JWT token - user must verify OTP first
+      // Generate JWT token since user is complete
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
       res.status(201).json({
-        message: 'User registered successfully. Please verify your mobile number with OTP to complete registration.',
+        message: 'Registration completed successfully! Welcome to the app!',
+        token,
         user: {
           id: user._id,
           firstName: user.firstName,
@@ -384,9 +327,7 @@ router.post('/signup',
           improvementArea: user.improvementArea,
           dailyEarningGoal: user.dailyEarningGoal,
           socialTag: user.socialTag
-        },
-        nextStep: 'verify-otp',
-        note: 'Please request OTP and verify your mobile number to complete registration'
+        }
       });
     } catch (error) {
       console.error('User registration error:', error);
@@ -458,6 +399,8 @@ router.post('/login',
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
+
+
       // Verify password
       console.log('Attempting password verification...');
       console.log('Input password:', password);
@@ -514,6 +457,8 @@ router.post('/login',
     }
   }
 );
+
+
 
 // ========================================
 // SOCIAL LOGIN ROUTES

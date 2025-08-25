@@ -55,7 +55,8 @@ router.get('/', protect, async (req, res) => {
             lastName: user.lastName,
             mobile: user.mobile,
             email: user.email,
-            profile: user.profile
+            profile: user.profile,
+            socialTag: user.socialTag
         });
     } catch (error) {
         console.error('Profile fetch error:', error);
@@ -69,7 +70,7 @@ router.get('/', protect, async (req, res) => {
 // Update profile
 router.put('/', protect, async (req, res) => {
     try {
-        const { firstName, lastName, status, mobile, bio, theme, email } = req.body;
+        const { firstName, lastName, status, mobile, bio, theme, email, socialTag } = req.body;
         
         const user = await User.findById(req.user.userId);
         if (!user) {
@@ -84,6 +85,7 @@ router.put('/', protect, async (req, res) => {
         if (theme && ['light', 'dark'].includes(theme)) {
             user.profile.theme = theme;
         }
+        if (socialTag !== undefined) user.socialTag = socialTag;
         
         // Update email with validation
         if (email) {
@@ -152,7 +154,8 @@ router.put('/', protect, async (req, res) => {
                 lastName: user.lastName,
                 mobile: user.mobile,
                 email: user.email,
-                profile: user.profile
+                profile: user.profile,
+                socialTag: user.socialTag
             }
         });
     } catch (error) {

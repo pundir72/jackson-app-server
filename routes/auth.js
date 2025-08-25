@@ -242,7 +242,8 @@ router.post('/signup',
         gamePreferences,
         gameStyle,
         improvementArea,
-        dailyEarningGoal
+        dailyEarningGoal,
+        socialTag
       } = req.body;
 
       // Normalize mobile number (preserve country code for international support)
@@ -279,6 +280,7 @@ router.post('/signup',
           existingUser.gameStyle = gameStyle;
           existingUser.improvementArea = improvementArea;
           existingUser.dailyEarningGoal = dailyEarningGoal;
+          existingUser.socialTag = socialTag;
 
           await existingUser.save();
 
@@ -303,7 +305,8 @@ router.post('/signup',
               gamePreferences: existingUser.gamePreferences,
               gameStyle: existingUser.gameStyle,
               improvementArea: existingUser.improvementArea,
-              dailyEarningGoal: existingUser.dailyEarningGoal
+              dailyEarningGoal: existingUser.dailyEarningGoal,
+              socialTag: existingUser.socialTag
             },
             note: 'Your mobile number was already verified. Welcome to the app!'
           });
@@ -320,6 +323,7 @@ router.post('/signup',
           existingUser.gameStyle = gameStyle;
           existingUser.improvementArea = improvementArea;
           existingUser.dailyEarningGoal = dailyEarningGoal;
+          existingUser.socialTag = socialTag;
 
           await existingUser.save();
 
@@ -337,7 +341,8 @@ router.post('/signup',
               gamePreferences: existingUser.gamePreferences,
               gameStyle: existingUser.gameStyle,
               improvementArea: existingUser.improvementArea,
-              dailyEarningGoal: existingUser.dailyEarningGoal
+              dailyEarningGoal: existingUser.dailyEarningGoal,
+              socialTag: existingUser.socialTag
             },
             nextStep: 'verify-otp',
             note: 'Please complete OTP verification to access the app'
@@ -357,6 +362,7 @@ router.post('/signup',
         gameStyle,
         improvementArea,
         dailyEarningGoal,
+        socialTag,
         isVerified: false // User must verify OTP first
       });
 
@@ -376,7 +382,8 @@ router.post('/signup',
           gamePreferences: user.gamePreferences,
           gameStyle: user.gameStyle,
           improvementArea: user.improvementArea,
-          dailyEarningGoal: user.dailyEarningGoal
+          dailyEarningGoal: user.dailyEarningGoal,
+          socialTag: user.socialTag
         },
         nextStep: 'verify-otp',
         note: 'Please request OTP and verify your mobile number to complete registration'

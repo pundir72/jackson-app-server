@@ -397,9 +397,6 @@ router.post('/login',
 
 
       // Verify password
-      console.log('Attempting password verification...');
-      console.log('Input password:', password);
-      console.log('Stored password hash:', user.password);
       const isValidPassword = await user.comparePassword(password);
       console.log('Password verification result:', isValidPassword);
       if (!isValidPassword) {
@@ -442,7 +439,83 @@ router.post('/login',
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
+          mobile: user.mobile,
+          role: user.role
+        }
+      });
+
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ error: 'Failed to login' });
+    }
+  }
+);
+
+// Login
+router.post('/admin-login',
+  loginLimiter,
+  body('email').trim().notEmpty(),
+  body('password').trim().notEmpty(),
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email, password } = req.body;
+      // Try to find user by email first
+      let user = await User.findOne({ email: email, role:"ADMIN" });
+      
+      // If not found by email, try by phone number
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Verify password
+      const isValidPassword = await user.comparePassword(password);
+      if (!isValidPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Check if user is verified
+      if (!user.isVerified) {
+        return res.status(401).json({ 
+          error: 'Account not verified',
+          message: 'Please verify your mobile number with OTP before logging in',
+          requiresVerification: true,
           mobile: user.mobile
+        });
+      }
+
+      // Check biometric requirement
+      const shouldRequireBiometric = await checkBiometricRequirement(user);
+      if (shouldRequireBiometric) {
+        const biometricToken = await generateBiometricToken(user);
+        return res.status(200).json({
+          biometricRequired: true,
+          biometricToken,
+          message: 'Please complete biometric verification'
+        });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      res.status(200).json({
+        token,
+        biometricRequired: false,
+        user: {
+          _id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          mobile: user.mobile,
+          role: user.role
         }
       });
 

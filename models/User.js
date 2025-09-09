@@ -122,6 +122,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    role:{
+        type: String,
+        default: "USER",
+    },
     
     // Social Login
     social: {

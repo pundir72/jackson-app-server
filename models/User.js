@@ -536,7 +536,6 @@ const userSchema = new mongoose.Schema({
             },
             category: {
                 type: String,
-                enum: ['rent', 'food', 'utilities', 'transport', 'entertainment', 'other'],
                 default: 'other'
             },
             description: {

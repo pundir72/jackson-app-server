@@ -67,6 +67,34 @@ router.get('/', protect, async (req, res) => {
     }
 });
 
+// Get user profile for greeting (first name and avatar only)
+router.get('/greeting', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.userId).select('firstName profile');
+        if (!user) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'User not found' 
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: {
+                first_name: user.firstName || 'there',
+                avatar_url: user.profile?.avatar || 'default-avatar.png'
+            }
+        });
+    } catch (error) {
+        console.error('Profile greeting fetch error:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to fetch profile data',
+            message: 'Please try again later.'
+        });
+    }
+});
+
 // Update profile
 router.put('/', protect, async (req, res) => {
     try {

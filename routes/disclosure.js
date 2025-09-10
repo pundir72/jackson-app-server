@@ -13,12 +13,34 @@ router.get('/', async (req, res) => {
       .sort({ category: 1 });
     
     if (!disclosures || disclosures.length === 0) {
-      return res.status(404).json({ error: 'Disclosure content not found' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Disclosure content not found' 
+      });
     }
 
-    res.status(200).json(disclosures);
+    // Format response to match frontend requirements
+    const formattedDisclosures = disclosures.map(disclosure => ({
+      id: disclosure._id,
+      title: disclosure.title,
+      description: disclosure.description,
+      category: disclosure.category,
+      version: disclosure.version
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        title: 'Prominent Disclosure',
+        disclosures: formattedDisclosures,
+        version: disclosures[0]?.version || '1.0'
+      }
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch disclosure content' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch disclosure content' 
+    });
   }
 });
 
@@ -55,12 +77,30 @@ router.post('/accept', protect, async (req, res) => {
     user.disclosureVersion = latestDisclosure.version;
     await user.save();
 
-    // Log the event
+    // Log the event and analytics
     console.log(`Disclosure accepted by user ${user.mobile} at ${new Date()}`);
+    
+    // Analytics event (if analytics service is available)
+    try {
+      // This would integrate with your analytics service
+      console.log('Analytics Event: disclosure_acknowledged', {
+        userId: user._id,
+        mobile: user.mobile,
+        timestamp: new Date(),
+        version: latestDisclosure.version
+      });
+    } catch (analyticsError) {
+      console.warn('Analytics tracking failed:', analyticsError.message);
+    }
 
     res.status(200).json({ 
+      success: true,
       message: 'Disclosure accepted successfully',
-      user
+      data: {
+        disclosureAccepted: true,
+        disclosureAcceptedAt: user.disclosureAcceptedAt,
+        disclosureVersion: user.disclosureVersion
+      }
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to record disclosure acceptance' });
@@ -76,14 +116,29 @@ router.get('/required/:mobile', async (req, res) => {
     // If user doesn't exist or hasn't accepted disclosure, show it
     if (!user || !user.disclosureAccepted) {
       return res.status(200).json({ 
-        required: true,
-        message: 'Disclosure must be accepted before proceeding' 
+        success: true,
+        data: {
+          required: true,
+          message: 'Disclosure must be accepted before proceeding',
+          canProceed: false
+        }
       });
     }
 
-    res.status(200).json({ required: false });
+    res.status(200).json({ 
+      success: true,
+      data: {
+        required: false,
+        canProceed: true,
+        disclosureAcceptedAt: user.disclosureAcceptedAt,
+        disclosureVersion: user.disclosureVersion
+      }
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to check disclosure requirement' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check disclosure requirement' 
+    });
   }
 });
 

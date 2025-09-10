@@ -136,6 +136,11 @@ mongoose.connect(config.MONGODB_URI, {
     const biometricRoutes = require('./routes/biometric');
     const locationRoutes = require('./routes/location');
     const disclosureRoutes = require('./routes/disclosure');
+    const greetingRoutes = require('./routes/greeting');
+    const spinRoutes = require('./routes/spin');
+    const conversionRoutes = require('./routes/conversion');
+    const withdrawalRoutes = require('./routes/withdrawal');
+    const walletScreenRoutes = require('./routes/wallet-screen');
     const testRoutes = require('./routes/test');
 
     // API Routes
@@ -153,6 +158,11 @@ mongoose.connect(config.MONGODB_URI, {
     app.use('/api/biometric', biometricRoutes);
     app.use('/api/location', locationRoutes);
     app.use('/api/disclosure', disclosureRoutes);
+    app.use('/api/greeting', greetingRoutes);
+    app.use('/api/spin', spinRoutes);
+    app.use('/api/conversion', conversionRoutes);
+    app.use('/api/withdrawal', withdrawalRoutes);
+    app.use('/api/wallet-screen', walletScreenRoutes);
     app.use('/api/test', testRoutes);
 
     // Error handling middleware

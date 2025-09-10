@@ -187,8 +187,41 @@ router.post('/verify-otp', async (req, res) => {
     const OTPVerification = require('../models/OTPVerification');
     const otpVerification = await findOTPByPhone(OTPVerification, standardizedMobile);
     
+    if (!otpVerification) {
+      return res.status(400).json({ 
+        error: 'OTP not found',
+        message: 'No OTP found for this mobile number. Please send OTP first.'
+      });
+    }
+    
+    // Check if OTP is expired
+    if (otpVerification.isExpired()) {
+      return res.status(400).json({ 
+        error: 'OTP expired',
+        message: 'OTP has expired. Please request a new OTP.'
+      });
+    }
+    
+    // Check if max attempts exceeded
+    if (otpVerification.maxAttemptsExceeded()) {
+      return res.status(400).json({ 
+        error: 'Max attempts exceeded',
+        message: 'Too many failed attempts. Please request a new OTP.'
+      });
+    }
+    
+    // Verify OTP code
+    if (otpVerification.otp !== otp) {
+      // Increment attempts
+      await otpVerification.incrementAttempts();
+      return res.status(400).json({ 
+        error: 'Invalid OTP',
+        message: 'Invalid OTP code. Please try again.'
+      });
+    }
+    
     // Mark OTP as verified
-    // await otpVerification.markVerified();
+    await otpVerification.markVerified();
     
     res.status(200).json({ 
       message: 'OTP verified successfully',

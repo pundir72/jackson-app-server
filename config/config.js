@@ -58,15 +58,15 @@ module.exports = {
     
     // VIP System
     VIP_TIERS: {
-        BRONZE: {
+        bronze: {
             price: parseInt(process.env.VIP_BRONZE_PRICE) || 4.99,
             benefits: ['No Ads', 'Bonus XP', 'Exclusive Offers']
         },
-        GOLD: {
+        gold: {
             price: parseInt(process.env.VIP_GOLD_PRICE) || 9.99,
             benefits: ['All Bronze', 'Double XP', 'Special Rewards']
         },
-        PLATINUM: {
+        platinum: {
             price: parseInt(process.env.VIP_PLATINUM_PRICE) || 19.99,
             benefits: ['All Gold', 'Triple XP', 'VIP Support']
         }

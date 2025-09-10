@@ -21,7 +21,7 @@ router.get('/', protect, async (req, res) => {
             streak: user.xp?.streak || 0,
 
             // VIP status
-            vipLevel: user.vip?.level || 'BRONZE',
+            vipLevel: user.vip?.level || 'free',
             vipExpires: user.vip?.expires,
 
             // Progress stats

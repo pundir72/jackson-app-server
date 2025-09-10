@@ -82,7 +82,7 @@ passport.use(new GoogleStrategy({
                 streak: 0
             },
             vip: {
-                level: 'BRONZE',
+                level: 'free',
                 expires: null,
                 benefits: {
                     bonusPercentage: 0,
@@ -161,7 +161,7 @@ passport.use(new FacebookStrategy({
                 streak: 0
             },
             vip: {
-                level: 'BRONZE',
+                level: 'free',
                 expires: null,
                 benefits: {
                     bonusPercentage: 0,

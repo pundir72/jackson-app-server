@@ -188,7 +188,7 @@ router.post('/verify-otp', async (req, res) => {
     const otpVerification = await findOTPByPhone(OTPVerification, standardizedMobile);
     
     // Mark OTP as verified
-    await otpVerification.markVerified();
+    // await otpVerification.markVerified();
     
     res.status(200).json({ 
       message: 'OTP verified successfully',
@@ -371,7 +371,7 @@ const loginLimiter = rateLimit({
 
 // Login
 router.post('/login',
-  loginLimiter,
+  // loginLimiter,
   body('emailOrMobile').trim().notEmpty(),
   body('password').trim().notEmpty(),
   async (req, res) => {
@@ -383,7 +383,7 @@ router.post('/login',
 
       const { emailOrMobile, password } = req.body;
       // Try to find user by email first
-      let user = await User.findOne({ email: emailOrMobile });
+      let user = await User.findOne({ email: emailOrMobile, role:"USER" });
       
       // If not found by email, try by phone number
       if (!user) {

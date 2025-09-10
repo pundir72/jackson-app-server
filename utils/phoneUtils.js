@@ -20,7 +20,7 @@ function normalizePhone(phone) {
  */
 function extractCountryCode(phone) {
     const normalized = normalizePhone(phone);
-    
+
     // Common country code patterns
     if (normalized.startsWith('1') && normalized.length === 11) {
         return '1'; // US/Canada
@@ -85,13 +85,13 @@ function extractCountryCode(phone) {
     } else if (normalized.startsWith('91') && normalized.length === 12) {
         return '91'; // India (already covered above)
     }
-    
+
     // Default: assume first 1-3 digits are country code
     if (normalized.length > 10) {
         const countryCodeLength = normalized.length - 10;
         return normalized.substring(0, countryCodeLength);
     }
-    
+
     return ''; // No country code detected
 }
 
@@ -103,11 +103,11 @@ function extractCountryCode(phone) {
 function getLocalNumber(phone) {
     const normalized = normalizePhone(phone);
     const countryCode = extractCountryCode(phone);
-    
+
     if (countryCode) {
         return normalized.substring(countryCode.length);
     }
-    
+
     return normalized; // Already local number
 }
 
@@ -120,32 +120,32 @@ function generatePhoneVariations(phone) {
     const normalized = normalizePhone(phone);
     const countryCode = extractCountryCode(phone);
     const localNumber = getLocalNumber(phone);
-    
+
     const variations = [];
-    
+
     // Add the normalized version
     variations.push(normalized);
-    
+
     // Add local number (without country code)
     if (countryCode) {
         variations.push(localNumber);
     }
-    
+
     // Add with + prefix
     variations.push(`+${normalized}`);
-    
+
     // Add common country code variations
     if (countryCode) {
         // With + and country code
         variations.push(`+${countryCode}${localNumber}`);
-        
+
         // With 00 and country code (international format)
         variations.push(`00${countryCode}${localNumber}`);
-        
+
         // With country code only
         variations.push(`${countryCode}${localNumber}`);
     }
-    
+
     // Remove duplicates and return
     return [...new Set(variations)];
 }
@@ -158,17 +158,17 @@ function generatePhoneVariations(phone) {
  */
 function phonesMatch(phone1, phone2) {
     if (!phone1 || !phone2) return false;
-    
+
     const variations1 = generatePhoneVariations(phone1);
     const variations2 = generatePhoneVariations(phone2);
-    
+
     // Check if any variations match
     for (const v1 of variations1) {
         for (const v2 of variations2) {
             if (v1 === v2) return true;
         }
     }
-    
+
     return false;
 }
 
@@ -181,20 +181,20 @@ function phonesMatch(phone1, phone2) {
 async function findUserByPhone(User, phone) {
     // Clean the phone number (remove spaces, +, etc.)
     const cleanPhone = phone.replace(/\D/g, '');
-    
+
     // For login, we need at least 10 digits to be secure
     if (cleanPhone.length < 10) {
         return null; // Too short, reject for security
     }
-    
+
     // Get last 10 digits (most common mobile number length)
     const last10Digits = cleanPhone.slice(-10);
-    
+
     // Find user whose mobile ends with these 10 digits
     const user = await User.findOne({
-        mobile: { $regex: last10Digits + '$' }
+        mobile: { $regex: last10Digits + '$' }, role: "USER"
     });
-    
+
     return user;
 }
 
@@ -207,20 +207,20 @@ async function findUserByPhone(User, phone) {
 async function findOTPByPhone(OTPVerification, phone) {
     // Clean the phone number (remove spaces, +, etc.)
     const cleanPhone = phone.replace(/\D/g, '');
-    
+
     // For OTP, we need at least 10 digits to be secure
     if (cleanPhone.length < 10) {
         return null; // Too short, reject for security
     }
-    
+
     // Get last 10 digits (most common mobile number length)
     const last10Digits = cleanPhone.slice(-10);
-    
+
     // Find OTP whose mobile ends with these 10 digits
     const otp = await OTPVerification.findOne({
         mobile: { $regex: last10Digits + '$' }
     });
-    
+
     return otp;
 }
 
@@ -233,22 +233,22 @@ async function findOTPByPhone(OTPVerification, phone) {
 async function findVerifiedOTPByPhone(OTPVerification, phone) {
     // Clean the phone number (remove spaces, +, etc.)
     const cleanPhone = phone.replace(/\D/g, '');
-    
+
     // For OTP verification, we need at least 10 digits to be secure
     if (cleanPhone.length < 10) {
         return null; // Too short, reject for security
     }
-    
+
     // Get last 10 digits (most common mobile number length)
     const last10Digits = cleanPhone.slice(-10);
-    
+
     // Find VERIFIED OTP whose mobile ends with these 10 digits
     const otp = await OTPVerification.findOne({
         mobile: { $regex: last10Digits + '$' },
         isVerified: true,
         expiresAt: { $gt: new Date() }
     });
-    
+
     return otp;
 }
 
@@ -261,17 +261,17 @@ function standardizePhone(phone) {
     const normalized = normalizePhone(phone);
     const countryCode = extractCountryCode(phone);
     const localNumber = getLocalNumber(phone);
-    
+
     if (countryCode) {
         return `${countryCode}${localNumber}`;
     }
-    
+
     // If no country code detected, assume it's a local number
     // Default to India (+91) for 10-digit numbers
     if (normalized.length === 10) {
         return `91${normalized}`;
     }
-    
+
     return normalized;
 }
 

@@ -131,6 +131,7 @@ mongoose.connect(config.MONGODB_URI, {
     const profileRoutes = require('./routes/profile');
     const dashboardRoutes = require('./routes/dashboard');
     const cashCoachRoutes = require('./routes/cashCoach');
+    const adminCashCoachRoutes = require('./routes/admin-cash-coach');
     const biometricRoutes = require('./routes/biometric');
     const locationRoutes = require('./routes/location');
     const disclosureRoutes = require('./routes/disclosure');
@@ -146,6 +147,7 @@ mongoose.connect(config.MONGODB_URI, {
     app.use('/api/profile', profileRoutes);
     app.use('/api/dashboard', dashboardRoutes);
     app.use('/api/cash-coach', cashCoachRoutes);
+    app.use('/api/admin/cash-coach', adminCashCoachRoutes);
     app.use('/api/biometric', biometricRoutes);
     app.use('/api/location', locationRoutes);
     app.use('/api/disclosure', disclosureRoutes);

@@ -31,21 +31,19 @@ const userSchema = new mongoose.Schema({
     vip: {
         level: {
             type: String,
-            enum: ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
-            default: 'BRONZE'
+            enum: ['free', 'bronze', 'gold', 'platinum'],
+            default: 'free'
         },
         expires: {
             type: Date
         },
         benefits: {
-            type: Object,
-            default: {
-                bonusPercentage: 0,
-                cashback: 0,
-                exclusiveAccess: false,
-                prioritySupport: false,
-                specialOffers: false
-            }
+            type: Array,
+            default: []
+        },
+        isActive: {
+            type: Boolean,
+            default: false
         }
     },
     // Basic Info
@@ -362,44 +360,314 @@ const userSchema = new mongoose.Schema({
         }
     }],
 
-    // Cash Coach
+    // Cash Coach - Enhanced Financial Planning System
     cashCoach: {
-        goals: [{
-            id: {
-                type: String
+        // Financial Goals (Slider Values)
+        financialGoals: {
+            salary: {
+                type: Number,
+                default: 0,
+                min: 0,
+                max: 9999
             },
-            amount: {
-                type: Number
+            rent: {
+                type: Number,
+                default: 0,
+                min: 0,
+                max: 9999
             },
-            status: {
-                type: String,
-                enum: ['active', 'completed', 'failed']
+            food: {
+                type: Number,
+                default: 0,
+                min: 0,
+                max: 9999
             },
-            startDate: {
+            savings: {
+                type: Number,
+                default: 0,
+                min: 0,
+                max: 9999
+            },
+            revenueGoal: {
+                type: Number,
+                default: 0,
+                min: 0,
+                max: 9999
+            }
+        },
+        
+        // Monthly Summary (Calculated Values)
+        monthlySummary: {
+            totalIncome: {
+                type: Number,
+                default: 0
+            },
+            totalExpenses: {
+                type: Number,
+                default: 0
+            },
+            netSavings: {
+                type: Number,
+                default: 0
+            },
+            jacksonContribution: {
+                type: Number,
+                default: 0
+            },
+            lastCalculated: {
+                type: Date,
+                default: Date.now
+            }
+        },
+        
+        // Task Progress Tracking for "Achieve Your Goal"
+        taskProgress: {
+            steps: [{
+                id: {
+                    type: String,
+                    required: true
+                },
+                title: {
+                    type: String,
+                    required: true
+                },
+                description: {
+                    type: String,
+                    required: true
+                },
+                type: {
+                    type: String,
+                    enum: ['game', 'survey', 'challenge', 'milestone', 'receipt'],
+                    required: true
+                },
+                completed: {
+                    type: Boolean,
+                    default: false
+                },
+                reward: {
+                    coins: {
+                        type: Number,
+                        default: 0
+                    },
+                    xp: {
+                        type: Number,
+                        default: 0
+                    }
+                },
+                completedAt: {
+                    type: Date
+                },
+                order: {
+                    type: Number,
+                    required: true
+                }
+            }],
+            currentStep: {
+                type: Number,
+                default: 0
+            },
+            totalSteps: {
+                type: Number,
+                default: 5
+            },
+            totalReward: {
+                coins: {
+                    type: Number,
+                    default: 0
+                },
+                xp: {
+                    type: Number,
+                    default: 0
+                }
+            },
+            isActive: {
+                type: Boolean,
+                default: false
+            },
+            startedAt: {
                 type: Date
             },
-            endDate: {
+            completedAt: {
+                type: Date
+            }
+        },
+        
+        // Linked Accounts for Payout Methods
+        linkedAccounts: [{
+            provider: {
+                type: String,
+                enum: ['paypal', 'gpay', 'revolut', 'bank', 'crypto'],
+                required: true
+            },
+            accountId: {
+                type: String,
+                required: true
+            },
+            accountName: {
+                type: String,
+                required: true
+            },
+            isActive: {
+                type: Boolean,
+                default: true
+            },
+            isVerified: {
+                type: Boolean,
+                default: false
+            },
+            linkedAt: {
+                type: Date,
+                default: Date.now
+            },
+            lastUsed: {
                 type: Date
             }
         }],
+        
+        // Receipt Management
         receipts: [{
             id: {
-                type: String
+                type: String,
+                required: true
             },
             amount: {
-                type: Number
+                type: Number,
+                required: true
+            },
+            category: {
+                type: String,
+                enum: ['rent', 'food', 'utilities', 'transport', 'entertainment', 'other'],
+                default: 'other'
+            },
+            description: {
+                type: String
+            },
+            imageUrl: {
+                type: String
             },
             status: {
                 type: String,
-                enum: ['processing', 'approved', 'rejected']
+                enum: ['processing', 'approved', 'rejected'],
+                default: 'processing'
             },
-            date: {
+            reward: {
+                coins: {
+                    type: Number,
+                    default: 0
+                },
+                xp: {
+                    type: Number,
+                    default: 0
+                }
+            },
+            uploadedAt: {
+                type: Date,
+                default: Date.now
+            },
+            processedAt: {
                 type: Date
             }
         }],
-        revenueGoal: {
-            type: Number,
-            default: 0
+        
+        // Custom Goals (Named Goals)
+        customGoals: [{
+            id: {
+                type: String,
+                required: true
+            },
+            name: {
+                type: String,
+                required: true
+            },
+            description: {
+                type: String
+            },
+            targetAmount: {
+                type: Number,
+                required: true
+            },
+            currentAmount: {
+                type: Number,
+                default: 0
+            },
+            category: {
+                type: String,
+                enum: ['vacation', 'rent_deposit', 'emergency', 'purchase', 'savings', 'other'],
+                default: 'other'
+            },
+            priority: {
+                type: String,
+                enum: ['low', 'medium', 'high'],
+                default: 'medium'
+            },
+            status: {
+                type: String,
+                enum: ['active', 'completed', 'paused', 'cancelled'],
+                default: 'active'
+            },
+            targetDate: {
+                type: Date
+            },
+            createdAt: {
+                type: Date,
+                default: Date.now
+            },
+            completedAt: {
+                type: Date
+            }
+        }],
+        
+        // Earning History
+        earningHistory: [{
+            date: {
+                type: Date,
+                required: true
+            },
+            source: {
+                type: String,
+                enum: ['game', 'survey', 'challenge', 'receipt', 'bonus', 'referral'],
+                required: true
+            },
+            amount: {
+                type: Number,
+                required: true
+            },
+            description: {
+                type: String
+            },
+            taskId: {
+                type: String
+            }
+        }],
+        
+        // Settings and Preferences
+        settings: {
+            autoCalculate: {
+                type: Boolean,
+                default: true
+            },
+            notifications: {
+                goalReminders: {
+                    type: Boolean,
+                    default: true
+                },
+                earningUpdates: {
+                    type: Boolean,
+                    default: true
+                },
+                milestoneReached: {
+                    type: Boolean,
+                    default: true
+                }
+            },
+            currency: {
+                type: String,
+                default: 'USD'
+            },
+            timezone: {
+                type: String,
+                default: 'UTC'
+            }
         }
     }
 }, {

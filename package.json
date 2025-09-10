@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "seed": "node data/seedMasterData.js",
     "seed:home": "node scripts/seedHomeData.js",
+    "seed:cash-coach": "node scripts/seedCashCoach.js",
     "update:game-prefs": "node scripts/updateGamePreferences.js",
     "verify:game-prefs": "node scripts/verifyGamePreferences.js",
     "fix:game-prefs": "node scripts/fixGamePreferences.js",

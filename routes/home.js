@@ -364,7 +364,7 @@ router.get('/deals', auth, async (req, res) => {
         // Filter deals based on user's VIP status
         const filteredDeals = deals.filter(deal => {
             if (!deal.vipOnly) return true;
-            return user.vip?.level && user.vip.level !== 'BRONZE';
+            return user.vip?.level && user.vip.level !== 'free';
         });
 
         res.status(200).json({
@@ -417,7 +417,7 @@ router.get('/daily-rewards', auth, async (req, res) => {
         // Filter rewards based on VIP status
         const filteredRewards = rewards.filter(reward => {
             if (!reward.vipOnly) return true;
-            return user.vip?.level && user.vip.level !== 'BRONZE';
+            return user.vip?.level && user.vip.level !== 'free';
         });
 
         res.status(200).json({

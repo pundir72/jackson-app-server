@@ -723,7 +723,98 @@ const userSchema = new mongoose.Schema({
             default: Date.now
         },
         processedAt: Date
-    }]
+    }],
+    // Welcome Offer tracking
+    welcomeOffer: {
+        started: { type: Boolean, default: false },
+        startedAt: Date,
+        expiresAt: Date,
+        completed: { type: Boolean, default: false },
+        completedAt: Date,
+        gamesCompleted: { type: Number, default: 0 },
+        totalMinutesPlayed: { type: Number, default: 0 },
+        rewardClaimed: { type: Boolean, default: false },
+        tasks: [{
+            id: String,
+            title: String,
+            description: String,
+            type: String,
+            required: Number,
+            completed: Number,
+            reward: {
+                coins: Number,
+                xp: Number
+            }
+        }]
+    },
+    // Survey sessions
+    surveys: [{
+        id: String,
+        provider: String,
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'incomplete', 'expired']
+        },
+        startedAt: Date,
+        expiresAt: Date,
+        completedAt: Date,
+        reward: Number,
+        surveyId: String,
+        userToken: String,
+        callbackUrl: String
+    }],
+    // Race participation
+    races: [{
+        raceId: String,
+        gameId: String,
+        status: {
+            type: String,
+            enum: ['active', 'completed', 'expired', 'cancelled']
+        },
+        startedAt: Date,
+        expiresAt: Date,
+        completedAt: Date,
+        currentLevel: { type: Number, default: 0 },
+        completedLevels: [Number],
+        bots: [{
+            id: String,
+            name: String,
+            currentLevel: Number,
+            speed: Number,
+            avatar: String,
+            isActive: Boolean
+        }],
+        position: Number,
+        totalReward: {
+            coins: Number,
+            xp: Number
+        }
+    }],
+    // Streak tracking
+    streak: {
+        current: { type: Number, default: 0 },
+        lastUpdated: Date,
+        completedTasks: [String],
+        lastTaskType: String,
+        lastTaskId: String,
+        resetAt: Date,
+        resetReason: String
+    },
+    // User badges
+    badges: [String],
+    // User preferences
+    preferences: {
+        lastActiveTab: String,
+        lastTabSwitch: Date,
+        lastChallengeCheck: Date,
+        lastGameCheck: Date,
+        lastRewardCheck: Date,
+        lastDealCheck: Date,
+        lastInsightCheck: Date,
+        theme: { type: String, default: 'light' },
+        notifications: { type: Boolean, default: true },
+        language: { type: String, default: 'en' }
+    }
 }, {
     timestamps: true,
     toJSON: {

@@ -141,6 +141,13 @@ mongoose.connect(config.MONGODB_URI, {
     const conversionRoutes = require('./routes/conversion');
     const withdrawalRoutes = require('./routes/withdrawal');
     const walletScreenRoutes = require('./routes/wallet-screen');
+    const xpTierRoutes = require('./routes/xp-tier');
+    const mostPlayedGamesRoutes = require('./routes/most-played-games');
+    const welcomeOfferRoutes = require('./routes/welcome-offer');
+    const raceRoutes = require('./routes/race');
+    const surveyRoutes = require('./routes/surveys');
+    const streakRoutes = require('./routes/streak');
+    const navigationRoutes = require('./routes/navigation');
     const testRoutes = require('./routes/test');
 
     // API Routes
@@ -163,6 +170,13 @@ mongoose.connect(config.MONGODB_URI, {
     app.use('/api/conversion', conversionRoutes);
     app.use('/api/withdrawal', withdrawalRoutes);
     app.use('/api/wallet-screen', walletScreenRoutes);
+    app.use('/api/xp-tier', xpTierRoutes);
+    app.use('/api/most-played-games', mostPlayedGamesRoutes);
+    app.use('/api/welcome-offer', welcomeOfferRoutes);
+    app.use('/api/race', raceRoutes);
+    app.use('/api/surveys', surveyRoutes);
+    app.use('/api/streak', streakRoutes);
+    app.use('/api/navigation', navigationRoutes);
     app.use('/api/test', testRoutes);
 
     // Error handling middleware

@@ -19,7 +19,13 @@ const getUserWallet = async (req, res, next) => {
 // Get wallet balance
 router.get('/balance', [protect, getUserWallet], async (req, res, next) => {
     try {
-        res.json({ balance: req.userWallet.balance });
+        res.json({ 
+            success: true,
+            data: {
+                balance: req.userWallet.balance || 0,
+                currency: req.userWallet.currency || 'coins'
+            }
+        });
     } catch (error) {
         next(error);
     }

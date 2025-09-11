@@ -536,7 +536,6 @@ const userSchema = new mongoose.Schema({
             },
             category: {
                 type: String,
-                enum: ['rent', 'food', 'utilities', 'transport', 'entertainment', 'other'],
                 default: 'other'
             },
             description: {
@@ -669,7 +668,62 @@ const userSchema = new mongoose.Schema({
                 default: 'UTC'
             }
         }
-    }
+    },
+    // Disclosure tracking
+    disclosureAccepted: {
+        type: Boolean,
+        default: false
+    },
+    disclosureAcceptedAt: {
+        type: Date
+    },
+    disclosureVersion: {
+        type: String,
+        default: '1.0'
+    },
+    // Conversion sessions
+    conversionSessions: [{
+        id: String,
+        coins: Number,
+        currency: String,
+        type: {
+            type: String,
+            enum: ['task', 'ad']
+        },
+        status: {
+            type: String,
+            enum: ['pending', 'task_completed', 'ad_completed', 'claimed', 'expired']
+        },
+        expiresAt: Date,
+        taskId: String,
+        taskCompletedAt: Date,
+        adCompletedAt: Date,
+        claimedAt: Date,
+        conversionAmount: Number,
+        createdAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
+    // Withdrawal requests
+    withdrawals: [{
+        id: String,
+        method: String,
+        amount: Number,
+        netAmount: Number,
+        processingFee: Number,
+        requiredCoins: Number,
+        paymentDetails: Object,
+        status: {
+            type: String,
+            enum: ['pending', 'approved', 'rejected', 'completed', 'failed']
+        },
+        createdAt: {
+            type: Date,
+            default: Date.now
+        },
+        processedAt: Date
+    }]
 }, {
     timestamps: true,
     toJSON: {

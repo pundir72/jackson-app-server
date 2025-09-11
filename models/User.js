@@ -152,7 +152,7 @@ const userSchema = new mongoose.Schema({
     profile: {
         avatar: {
             type: String,
-            default: 'default-avatar.png'
+            default: 'https://rewardsapi.hireagent.co/uploads/avatars/1757567700196-89285370.jpg'
         },
         bio: {
             type: String,

@@ -115,3 +115,4 @@ vipTierSchema.methods.getBenefitsSummary = function() {
 module.exports = mongoose.model('VIPTier', vipTierSchema);
 
 
+

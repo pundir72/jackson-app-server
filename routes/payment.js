@@ -526,3 +526,4 @@ router.get('/status/:paymentIntentId', protect, async (req, res) => {
 module.exports = router;
 
 
+

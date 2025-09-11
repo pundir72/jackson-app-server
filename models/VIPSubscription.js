@@ -180,3 +180,4 @@ vipSubscriptionSchema.methods.getSummary = function() {
 module.exports = mongoose.model('VIPSubscription', vipSubscriptionSchema);
 
 
+

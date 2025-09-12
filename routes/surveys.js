@@ -3,6 +3,8 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const bitlabs = require('../utils/bitlabs');
+const verisoul = require('../utils/verisoul');
 
 // Survey SDK configuration
 const SURVEY_CONFIG = {
@@ -37,7 +39,7 @@ const SURVEY_CONFIG = {
 // Get available survey providers
 router.get('/providers', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('xp vip');
+    const user = await User.findById(req.user.userId).select('xp vip profile location');
     
     if (!user) {
       return res.status(404).json({
@@ -50,19 +52,36 @@ router.get('/providers', protect, async (req, res) => {
     const currentTier = getCurrentTier(currentXP);
     const vipMultiplier = await getVIPMultiplier(user);
     
-    const providers = Object.entries(SURVEY_CONFIG.providers)
-      .filter(([key, provider]) => provider.enabled)
-      .map(([key, provider]) => ({
-        id: key,
-        name: provider.name,
-        icon: provider.icon,
-        baseUrl: provider.baseUrl,
-        isAvailable: true,
+    // Get Bitlabs surveys
+    const bitlabsResult = await bitlabs.getSurveys({
+      userId: user._id.toString(),
+      userProfile: {
+        age: user.profile?.age || 25,
+        gender: user.profile?.gender || 'other',
+        country: user.location?.country || 'US',
+        language: user.preferences?.language || 'en',
+        interests: user.preferences?.interests || [],
+        platform: 'mobile',
+        osVersion: 'iOS 15.0',
+        appVersion: '1.0.0'
+      }
+    });
+
+    const providers = [
+      {
+        id: 'bitlabs',
+        name: 'BitLabs',
+        icon: '🧪',
+        baseUrl: 'https://survey.bitlabs.ai',
+        isAvailable: bitlabsResult.success,
         estimatedReward: {
           min: Math.round(SURVEY_CONFIG.minReward * vipMultiplier),
           max: Math.round(SURVEY_CONFIG.maxReward * vipMultiplier)
-        }
-      }));
+        },
+        surveys: bitlabsResult.success ? bitlabsResult.surveys : [],
+        totalSurveys: bitlabsResult.success ? bitlabsResult.totalSurveys : 0
+      }
+    ];
 
     res.json({
       success: true,
@@ -85,21 +104,13 @@ router.get('/providers', protect, async (req, res) => {
 // Initialize survey session
 router.post('/start', protect, async (req, res) => {
   try {
-    const { providerId } = req.body;
-    const user = await User.findById(req.user.userId).select('xp vip surveys');
+    const { providerId, surveyId } = req.body;
+    const user = await User.findById(req.user.userId).select('xp vip surveys profile location');
     
     if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
-      });
-    }
-
-    const provider = SURVEY_CONFIG.providers[providerId];
-    if (!provider || !provider.enabled) {
-      return res.status(400).json({
-        success: false,
-        error: 'Survey provider not available'
       });
     }
 
@@ -112,32 +123,87 @@ router.post('/start', protect, async (req, res) => {
       });
     }
 
-    // Create survey session
-    const surveySession = {
-      id: `SURVEY-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
-      provider: providerId,
-      status: 'active',
-      startedAt: new Date(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
-      estimatedReward: {
-        min: Math.round(SURVEY_CONFIG.minReward * (await getVIPMultiplier(user))),
-        max: Math.round(SURVEY_CONFIG.maxReward * (await getVIPMultiplier(user)))
-      },
-      callbackUrl: `${process.env.API_BASE_URL}/api/surveys/callback/${providerId}`,
-      userToken: generateUserToken(user._id, providerId)
-    };
+    let surveySession;
 
-    user.surveys.push(surveySession);
-    await user.save();
+    if (providerId === 'bitlabs') {
+      // Use Bitlabs SDK
+      const bitlabsResult = await bitlabs.startSurvey({
+        userId: user._id.toString(),
+        surveyId: surveyId,
+        deviceInfo: {
+          platform: 'mobile',
+          osVersion: 'iOS 15.0',
+          appVersion: '1.0.0',
+          userAgent: req.headers['user-agent']
+        }
+      });
 
-    res.json({
-      success: true,
-      data: {
-        session: surveySession,
-        surveyUrl: `${provider.baseUrl}/survey?token=${surveySession.userToken}&callback=${encodeURIComponent(surveySession.callbackUrl)}`,
-        message: 'Survey session started! Complete the survey to earn rewards.'
+      if (!bitlabsResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: bitlabsResult.error || 'Failed to start survey'
+        });
       }
-    });
+
+      surveySession = {
+        id: bitlabsResult.sessionId,
+        provider: providerId,
+        surveyId: surveyId,
+        status: 'active',
+        startedAt: new Date(),
+        expiresAt: new Date(bitlabsResult.expiresAt),
+        estimatedReward: bitlabsResult.reward,
+        callbackUrl: `${process.env.API_BASE_URL}/api/surveys/callback/${providerId}`,
+        userToken: bitlabsResult.sessionId
+      };
+
+      user.surveys.push(surveySession);
+      await user.save();
+
+      res.json({
+        success: true,
+        data: {
+          session: surveySession,
+          surveyUrl: bitlabsResult.surveyUrl,
+          message: 'Survey session started! Complete the survey to earn rewards.'
+        }
+      });
+    } else {
+      // Fallback to generic provider
+      const provider = SURVEY_CONFIG.providers[providerId];
+      if (!provider || !provider.enabled) {
+        return res.status(400).json({
+          success: false,
+          error: 'Survey provider not available'
+        });
+      }
+
+      surveySession = {
+        id: `SURVEY-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        provider: providerId,
+        status: 'active',
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+        estimatedReward: {
+          min: Math.round(SURVEY_CONFIG.minReward * (await getVIPMultiplier(user))),
+          max: Math.round(SURVEY_CONFIG.maxReward * (await getVIPMultiplier(user)))
+        },
+        callbackUrl: `${process.env.API_BASE_URL}/api/surveys/callback/${providerId}`,
+        userToken: generateUserToken(user._id, providerId)
+      };
+
+      user.surveys.push(surveySession);
+      await user.save();
+
+      res.json({
+        success: true,
+        data: {
+          session: surveySession,
+          surveyUrl: `${provider.baseUrl}/survey?token=${surveySession.userToken}&callback=${encodeURIComponent(surveySession.callbackUrl)}`,
+          message: 'Survey session started! Complete the survey to earn rewards.'
+        }
+      });
+    }
   } catch (error) {
     console.error('Error starting survey:', error);
     res.status(500).json({
@@ -151,7 +217,7 @@ router.post('/start', protect, async (req, res) => {
 router.post('/callback/:providerId', async (req, res) => {
   try {
     const { providerId } = req.params;
-    const { userToken, reward, surveyId, completed } = req.body;
+    const { userToken, reward, surveyId, completed, signature } = req.body;
     
     // Validate callback
     if (!validateSurveyCallback(providerId, req.body)) {
@@ -197,9 +263,32 @@ router.post('/callback/:providerId', async (req, res) => {
     }
 
     if (completed) {
-      // Calculate final reward
+      let finalReward = reward || SURVEY_CONFIG.minReward;
+      let isValidCallback = true;
+
+      // Verify callback with provider if it's Bitlabs
+      if (providerId === 'bitlabs') {
+        const verification = await bitlabs.verifyCallback({
+          sessionId: userToken,
+          userId: user._id.toString(),
+          surveyId: surveyId,
+          reward: reward,
+          signature: signature
+        });
+
+        if (!verification.success || !verification.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid survey completion callback'
+          });
+        }
+
+        finalReward = verification.reward || reward;
+      }
+
+      // Calculate final reward with VIP multiplier
       const vipMultiplier = await getVIPMultiplier(user);
-      const finalReward = Math.round((reward || SURVEY_CONFIG.minReward) * vipMultiplier);
+      finalReward = Math.round(finalReward * vipMultiplier);
       
       // Update survey status
       survey.status = 'completed';
@@ -218,7 +307,7 @@ router.post('/callback/:providerId', async (req, res) => {
         user: user._id,
         type: 'credit',
         amount: finalReward,
-        description: `Survey completed - ${SURVEY_CONFIG.providers[providerId].name}`,
+        description: `Survey completed - ${providerId === 'bitlabs' ? 'BitLabs' : 'Survey Provider'}`,
         status: 'completed',
         referenceId: survey.id
       });

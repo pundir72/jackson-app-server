@@ -14,7 +14,6 @@ module.exports = (req, res, next) => {
         token = token.replace('Bearer ', '');
       }
     }
-    
     // Also try to get token from query params or body as fallback
     if (!token) {
       token = req.query.token || req.body.token;

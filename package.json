@@ -19,7 +19,7 @@
     "test:otp": "node scripts/testOTP.js"
   },
   "dependencies": {
-    "axios": "^1.6.5",
+    "axios": "^1.11.0",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^2.4.3",
     "bull": "^4.16.0",

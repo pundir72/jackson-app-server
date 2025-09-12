@@ -80,182 +80,188 @@ mongoose.connect(config.MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
 })
-.then(() => {
-    console.log('Connected to MongoDB');
-    
-    // Create server
-    const server = app.listen(config.PORT, () => {
-        console.log(`Server is running on port ${config.PORT}`);
-    }).on('error', (error) => {
-        if (error.code === 'EADDRINUSE') {
-            console.error(`Port ${config.PORT} is already in use. Please try a different port or kill the process using this port.`);
-            process.exit(1);
-        } else {
-            console.error('Server error:', error);
-            process.exit(1);
-        }
-    });
+    .then(() => {
+        console.log('Connected to MongoDB');
 
-    // Initialize Socket.io
-    const io = socketIo(server, {
-        cors: {
-            origin: process.env.FRONTEND_URL || '*',
-            methods: ['GET', 'POST']
-        }
-    });
-
-    // Socket.io event handlers
-    io.on('connection', (socket) => {
-        console.log('New client connected');
-        
-        socket.on('join-room', (roomId) => {
-            socket.join(roomId);
-        });
-        
-        socket.on('leave-room', (roomId) => {
-            socket.leave(roomId);
-        });
-        
-        socket.on('disconnect', () => {
-            console.log('Client disconnected');
-        });
-    });
-
-    // Routes setup
-    const authRoutes = require('./routes/auth');
-    const onboardingRoutes = require('./routes/onboarding');
-    const homeRoutes = require('./routes/home');
-    const walletRoutes = require('./routes/wallet');
-    const vipRoutes = require('./routes/vip');
-    const gameRoutes = require('./routes/game');
-    const profileRoutes = require('./routes/profile');
-    const dashboardRoutes = require('./routes/dashboard');
-    const cashCoachRoutes = require('./routes/cashCoach');
-    const adminCashCoachRoutes = require('./routes/admin-cash-coach');
-    const receiptsRoutes = require('./routes/receipts');
-    const biometricRoutes = require('./routes/biometric');
-    const locationRoutes = require('./routes/location');
-    const disclosureRoutes = require('./routes/disclosure');
-    const greetingRoutes = require('./routes/greeting');
-    const spinRoutes = require('./routes/spin');
-    const conversionRoutes = require('./routes/conversion');
-    const withdrawalRoutes = require('./routes/withdrawal');
-    const walletScreenRoutes = require('./routes/wallet-screen');
-    const xpTierRoutes = require('./routes/xp-tier');
-    const mostPlayedGamesRoutes = require('./routes/most-played-games');
-    const welcomeOfferRoutes = require('./routes/welcome-offer');
-    const raceRoutes = require('./routes/race');
-    const surveyRoutes = require('./routes/surveys');
-    const streakRoutes = require('./routes/streak');
-    const navigationRoutes = require('./routes/navigation');
-    const testRoutes = require('./routes/test');
-
-    // API Routes
-    app.use('/api/auth', authRoutes);
-    app.use('/api/onboarding', onboardingRoutes);
-    app.use('/api/home', homeRoutes);
-    app.use('/api/wallet', walletRoutes);
-    app.use('/api/vip', vipRoutes);
-    app.use('/api/game', gameRoutes);
-    app.use('/api/profile', profileRoutes);
-    app.use('/api/dashboard', dashboardRoutes);
-    app.use('/api/cash-coach', cashCoachRoutes);
-    app.use('/api/admin/cash-coach', adminCashCoachRoutes);
-    app.use('/api/v1/receipts', receiptsRoutes);
-    app.use('/api/biometric', biometricRoutes);
-    app.use('/api/location', locationRoutes);
-    app.use('/api/disclosure', disclosureRoutes);
-    app.use('/api/greeting', greetingRoutes);
-    app.use('/api/spin', spinRoutes);
-    app.use('/api/conversion', conversionRoutes);
-    app.use('/api/withdrawal', withdrawalRoutes);
-    app.use('/api/wallet-screen', walletScreenRoutes);
-    app.use('/api/xp-tier', xpTierRoutes);
-    app.use('/api/most-played-games', mostPlayedGamesRoutes);
-    app.use('/api/welcome-offer', welcomeOfferRoutes);
-    app.use('/api/race', raceRoutes);
-    app.use('/api/surveys', surveyRoutes);
-    app.use('/api/streak', streakRoutes);
-    app.use('/api/navigation', navigationRoutes);
-    app.use('/api/test', testRoutes);
-
-    // Error handling middleware
-    app.use((err, req, res, next) => {
-        logger.error(err.stack);
-        
-        // Check if error has a status code
-        const statusCode = err.statusCode || 500;
-        
-        // Check if error has a message
-        const message = err.message || 'Internal Server Error';
-        
-        // Send error response
-        res.status(statusCode).json({
-            success: false,
-            error: {
-                message,
-                statusCode,
-                ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        // Create server
+        const server = app.listen(config.PORT, () => {
+            console.log(`Server is running on port ${config.PORT}`);
+        }).on('error', (error) => {
+            if (error.code === 'EADDRINUSE') {
+                console.error(`Port ${config.PORT} is already in use. Please try a different port or kill the process using this port.`);
+                process.exit(1);
+            } else {
+                console.error('Server error:', error);
+                process.exit(1);
             }
         });
-    });
 
-    // Graceful shutdown handling
-    process.on('SIGTERM', () => {
-        console.log('SIGTERM received, shutting down gracefully');
-        server.close(() => {
-            console.log('Server closed');
-            mongoose.connection.close(() => {
-                console.log('MongoDB connection closed');
-                process.exit(0);
+        // Initialize Socket.io
+        const io = socketIo(server, {
+            cors: {
+                origin: process.env.FRONTEND_URL || '*',
+                methods: ['GET', 'POST']
+            }
+        });
+
+        // Socket.io event handlers
+        io.on('connection', (socket) => {
+            console.log('New client connected');
+
+            socket.on('join-room', (roomId) => {
+                socket.join(roomId);
+            });
+
+            socket.on('leave-room', (roomId) => {
+                socket.leave(roomId);
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Client disconnected');
             });
         });
-    });
 
-    process.on('SIGINT', () => {
-        console.log('SIGINT received, shutting down gracefully');
-        server.close(() => {
-            console.log('Server closed');
-            mongoose.connection.close(() => {
-                console.log('MongoDB connection closed');
-                process.exit(0);
+        // Routes setup
+        const authRoutes = require('./routes/auth');
+        const onboardingRoutes = require('./routes/onboarding');
+        const homeRoutes = require('./routes/home');
+        const walletRoutes = require('./routes/wallet');
+        const vipRoutes = require('./routes/vip');
+        const gameRoutes = require('./routes/game');
+        const profileRoutes = require('./routes/profile');
+        const dashboardRoutes = require('./routes/dashboard');
+        const cashCoachRoutes = require('./routes/cashCoach');
+        const adminCashCoachRoutes = require('./routes/admin-cash-coach');
+        const receiptsRoutes = require('./routes/receipts');
+        const biometricRoutes = require('./routes/biometric');
+        const locationRoutes = require('./routes/location');
+        const disclosureRoutes = require('./routes/disclosure');
+        const greetingRoutes = require('./routes/greeting');
+        const spinRoutes = require('./routes/spin');
+        const conversionRoutes = require('./routes/conversion');
+        const withdrawalRoutes = require('./routes/withdrawal');
+        const walletScreenRoutes = require('./routes/wallet-screen');
+        const xpTierRoutes = require('./routes/xp-tier');
+        const mostPlayedGamesRoutes = require('./routes/most-played-games');
+        const welcomeOfferRoutes = require('./routes/welcome-offer');
+        const raceRoutes = require('./routes/race');
+        const surveyRoutes = require('./routes/surveys');
+        const streakRoutes = require('./routes/streak');
+        const navigationRoutes = require('./routes/navigation');
+        const gameOffersRoutes = require('./routes/game-offers');
+        const payoutsRoutes = require('./routes/payouts');
+        const fraudPreventionRoutes = require('./routes/fraud-prevention');
+        const testRoutes = require('./routes/test');
+
+        // API Routes
+        app.use('/api/auth', authRoutes);
+        app.use('/api/onboarding', onboardingRoutes);
+        app.use('/api/home', homeRoutes);
+        app.use('/api/wallet', walletRoutes);
+        app.use('/api/vip', vipRoutes);
+        app.use('/api/game', gameRoutes);
+        app.use('/api/profile', profileRoutes);
+        app.use('/api/dashboard', dashboardRoutes);
+        app.use('/api/cash-coach', cashCoachRoutes);
+        app.use('/api/admin/cash-coach', adminCashCoachRoutes);
+        app.use('/api/v1/receipts', receiptsRoutes);
+        app.use('/api/biometric', biometricRoutes);
+        app.use('/api/location', locationRoutes);
+        app.use('/api/disclosure', disclosureRoutes);
+        app.use('/api/greeting', greetingRoutes);
+        app.use('/api/spin', spinRoutes);
+        app.use('/api/conversion', conversionRoutes);
+        app.use('/api/withdrawal', withdrawalRoutes);
+        app.use('/api/wallet-screen', walletScreenRoutes);
+        app.use('/api/xp-tier', xpTierRoutes);
+        app.use('/api/most-played-games', mostPlayedGamesRoutes);
+        app.use('/api/welcome-offer', welcomeOfferRoutes);
+        app.use('/api/race', raceRoutes);
+        app.use('/api/surveys', surveyRoutes);
+        app.use('/api/streak', streakRoutes);
+        app.use('/api/navigation', navigationRoutes);
+        app.use('/api/game-offers', gameOffersRoutes);
+        app.use('/api/payouts', payoutsRoutes);
+        app.use('/api/fraud-prevention', fraudPreventionRoutes);
+        app.use('/api/test', testRoutes);
+
+        // Error handling middleware
+        app.use((err, req, res, next) => {
+            logger.error(err.stack);
+
+            // Check if error has a status code
+            const statusCode = err.statusCode || 500;
+
+            // Check if error has a message
+            const message = err.message || 'Internal Server Error';
+
+            // Send error response
+            res.status(statusCode).json({
+                success: false,
+                error: {
+                    message,
+                    statusCode,
+                    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+                }
             });
         });
-    });
 
-    // Export for testing
-    module.exports = {
-        app,
-        server,
-        io,
-        redis,
-        logger
-    };
+        // Graceful shutdown handling
+        process.on('SIGTERM', () => {
+            console.log('SIGTERM received, shutting down gracefully');
+            server.close(() => {
+                console.log('Server closed');
+                mongoose.connection.close(() => {
+                    console.log('MongoDB connection closed');
+                    process.exit(0);
+                });
+            });
+        });
 
-    // Server error handling
-    server.on('error', (error) => {
-        if (error.syscall !== 'listen') {
-            throw error;
-        }
+        process.on('SIGINT', () => {
+            console.log('SIGINT received, shutting down gracefully');
+            server.close(() => {
+                console.log('Server closed');
+                mongoose.connection.close(() => {
+                    console.log('MongoDB connection closed');
+                    process.exit(0);
+                });
+            });
+        });
 
-        const bind = typeof config.PORT === 'string' ? `Pipe ${config.PORT}` : `Port ${config.PORT}`;
+        // Export for testing
+        module.exports = {
+            app,
+            server,
+            io,
+            redis,
+            logger
+        };
 
-        // Handle specific listen errors with friendly messages
-        switch (error.code) {
-            case 'EACCES':
-                console.error(`${bind} requires elevated privileges`);
-                process.exit(1);
-                break;
-            case 'EADDRINUSE':
-                console.error(`${bind} is already in use`);
-                process.exit(1);
-                break;
-            default:
+        // Server error handling
+        server.on('error', (error) => {
+            if (error.syscall !== 'listen') {
                 throw error;
-        }
+            }
+
+            const bind = typeof config.PORT === 'string' ? `Pipe ${config.PORT}` : `Port ${config.PORT}`;
+
+            // Handle specific listen errors with friendly messages
+            switch (error.code) {
+                case 'EACCES':
+                    console.error(`${bind} requires elevated privileges`);
+                    process.exit(1);
+                    break;
+                case 'EADDRINUSE':
+                    console.error(`${bind} is already in use`);
+                    process.exit(1);
+                    break;
+                default:
+                    throw error;
+            }
+        });
+    })
+    .catch((err) => {
+        console.error('MongoDB connection error:', err);
+        process.exit(1);
     });
-})
-.catch((err) => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-});

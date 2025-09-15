@@ -14,7 +14,7 @@ const vipSubscriptionSchema = new mongoose.Schema({
   plan: { 
     type: String, 
     required: true,
-    enum: ['monthly', 'yearly']
+    enum: ['weekly', 'monthly', 'yearly']
   },
   status: { 
     type: String, 
@@ -178,6 +178,8 @@ vipSubscriptionSchema.methods.getSummary = function() {
 };
 
 module.exports = mongoose.model('VIPSubscription', vipSubscriptionSchema);
+
+
 
 
 

@@ -6,6 +6,7 @@ const User = require('../models/User');
 const VIPTier = require('../models/VIPTier');
 const VIPSubscription = require('../models/VIPSubscription');
 const { getVIPPricing, calculateSubscriptionCost, getTierComparison, validatePricing } = require('../utils/pricing');
+const { applyWeeklyVIPBenefits, getWeeklyBenefitsStatus, manuallyApplyWeeklyBenefits } = require('../utils/weeklyBenefits');
 
 // Get all VIP tiers with pricing
 router.get('/tiers', async (req, res) => {
@@ -203,7 +204,7 @@ router.get('/subscriptions', protect, async (req, res) => {
 // Calculate subscription cost
 router.post('/calculate-cost', [
     body('tierId').isIn(['bronze', 'gold', 'platinum']).withMessage('Invalid tier ID'),
-    body('plan').isIn(['monthly', 'yearly']).withMessage('Invalid plan'),
+    body('plan').isIn(['weekly', 'monthly', 'yearly']).withMessage('Invalid plan'),
     body('region').optional().isString().withMessage('Invalid region')
 ], async (req, res) => {
     try {
@@ -238,7 +239,7 @@ router.post('/calculate-cost', [
 // Initiate VIP upgrade (create pending subscription)
 router.post('/upgrade', protect, [
     body('tierId').isIn(['bronze', 'gold', 'platinum']).withMessage('Invalid tier ID'),
-    body('plan').isIn(['monthly', 'yearly']).withMessage('Invalid plan'),
+    body('plan').isIn(['weekly', 'monthly', 'yearly']).withMessage('Invalid plan'),
     body('region').optional().isString().withMessage('Invalid region')
 ], async (req, res) => {
     try {
@@ -276,7 +277,13 @@ router.post('/upgrade', protect, [
             amount: cost.amount,
             currency: cost.currency,
             startDate: new Date(),
-            endDate: new Date(Date.now() + (plan === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000)
+            endDate: new Date(Date.now() + (plan === 'yearly' ? 365 : plan === 'monthly' ? 30 : 7) * 24 * 60 * 60 * 1000),
+            metadata: {
+                region: region,
+                source: 'app',
+                campaign: null,
+                referrer: null
+            }
         });
         
         await subscription.save();
@@ -373,6 +380,180 @@ router.get('/benefits', protect, async (req, res) => {
         res.status(500).json({ 
             success: false, 
             message: 'Failed to get VIP benefits',
+            error: error.message 
+        });
+    }
+});
+
+// Get VIP plans for "Check Plans" button (wallet screen integration)
+router.get('/plans', protect, async (req, res) => {
+    try {
+        const { region = 'US' } = req.query;
+        const userId = req.user.userId;
+        
+        // Get current user's VIP status
+        const user = await User.findById(userId).select('vip');
+        const activeSubscription = await VIPSubscription.getActiveSubscription(userId);
+        
+        // Get pricing and tiers
+        const pricing = await getVIPPricing(region, userId);
+        const tiers = await VIPTier.getActiveTiers();
+        
+        // Format plans data for wallet screen
+        const plans = tiers.map(tier => ({
+            id: tier.tierId,
+            name: tier.name,
+            description: tier.description,
+            benefits: tier.getBenefitsSummary(),
+            pricing: pricing.pricing[tier.tierId],
+            features: tier.features,
+            order: tier.order,
+            isPopular: pricing.pricing[tier.tierId]?.trending === 'yearly'
+        }));
+        
+        res.json({
+            success: true,
+            data: {
+                currentTier: user.vip?.level || 'free',
+                isActive: user.vip?.isActive || false,
+                hasActiveSubscription: !!activeSubscription,
+                region: pricing.region,
+                currency: pricing.currency,
+                symbol: pricing.symbol,
+                plans: plans.sort((a, b) => a.order - b.order),
+                billingDisclosure: {
+                    text: "Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your account settings on the App Store or Google Play Store.",
+                    autoRenew: true,
+                    cancellationPolicy: "You can cancel anytime from your account settings"
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error getting VIP plans:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to get VIP plans',
+            error: error.message 
+        });
+    }
+});
+
+// Get billing disclosure
+router.get('/billing-disclosure', async (req, res) => {
+    try {
+        const { region = 'US' } = req.query;
+        
+        const disclosures = {
+            US: {
+                text: "Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your account settings on the App Store or Google Play Store.",
+                autoRenew: true,
+                cancellationPolicy: "You can cancel anytime from your account settings",
+                refundPolicy: "Refunds are handled by Apple or Google according to their policies"
+            },
+            EU: {
+                text: "Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your account settings on the App Store or Google Play Store.",
+                autoRenew: true,
+                cancellationPolicy: "You can cancel anytime from your account settings",
+                refundPolicy: "Refunds are handled by Apple or Google according to their policies"
+            },
+            UK: {
+                text: "Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your account settings on the App Store or Google Play Store.",
+                autoRenew: true,
+                cancellationPolicy: "You can cancel anytime from your account settings",
+                refundPolicy: "Refunds are handled by Apple or Google according to their policies"
+            },
+            IN: {
+                text: "Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your account settings on the App Store or Google Play Store.",
+                autoRenew: true,
+                cancellationPolicy: "You can cancel anytime from your account settings",
+                refundPolicy: "Refunds are handled by Apple or Google according to their policies"
+            }
+        };
+        
+        const disclosure = disclosures[region] || disclosures.US;
+        
+        res.json({
+            success: true,
+            data: {
+                region,
+                ...disclosure
+            }
+        });
+    } catch (error) {
+        console.error('Error getting billing disclosure:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to get billing disclosure',
+            error: error.message 
+        });
+    }
+});
+
+// Get weekly benefits status for current user
+router.get('/weekly-benefits/status', protect, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const status = await getWeeklyBenefitsStatus(userId);
+        
+        res.json({
+            success: true,
+            data: status
+        });
+    } catch (error) {
+        console.error('Error getting weekly benefits status:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to get weekly benefits status',
+            error: error.message 
+        });
+    }
+});
+
+// Manually apply weekly benefits (for testing or manual triggers)
+router.post('/weekly-benefits/apply', protect, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await manuallyApplyWeeklyBenefits(userId);
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                message: 'Weekly benefits applied successfully',
+                data: result
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: 'Failed to apply weekly benefits',
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('Error applying weekly benefits:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to apply weekly benefits',
+            error: error.message 
+        });
+    }
+});
+
+// Admin endpoint to apply weekly benefits to all users (for cron job)
+router.post('/admin/weekly-benefits/apply-all', protect, async (req, res) => {
+    try {
+        // Note: In production, this should be protected with admin authentication
+        const result = await applyWeeklyVIPBenefits();
+        
+        res.json({
+            success: true,
+            message: 'Weekly benefits application completed',
+            data: result
+        });
+    } catch (error) {
+        console.error('Error applying weekly benefits to all users:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to apply weekly benefits to all users',
             error: error.message 
         });
     }

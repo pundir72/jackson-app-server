@@ -5,30 +5,30 @@ const REGIONAL_PRICING = {
   US: {
     currency: 'USD',
     symbol: '$',
-    bronze: { monthly: 5.00, yearly: 50.00 },
-    gold: { monthly: 10.00, yearly: 100.00 },
-    platinum: { monthly: 20.00, yearly: 200.00 }
+    bronze: { weekly: 2.00, monthly: 5.00, yearly: 50.00 },
+    gold: { weekly: 4.00, monthly: 10.00, yearly: 100.00 },
+    platinum: { weekly: 8.00, monthly: 20.00, yearly: 200.00 }
   },
   EU: {
     currency: 'EUR',
     symbol: '€',
-    bronze: { monthly: 4.50, yearly: 45.00 },
-    gold: { monthly: 9.00, yearly: 90.00 },
-    platinum: { monthly: 18.00, yearly: 180.00 }
+    bronze: { weekly: 1.80, monthly: 4.50, yearly: 45.00 },
+    gold: { weekly: 3.60, monthly: 9.00, yearly: 90.00 },
+    platinum: { weekly: 7.20, monthly: 18.00, yearly: 180.00 }
   },
   UK: {
     currency: 'GBP',
     symbol: '£',
-    bronze: { monthly: 4.00, yearly: 40.00 },
-    gold: { monthly: 8.00, yearly: 80.00 },
-    platinum: { monthly: 16.00, yearly: 160.00 }
+    bronze: { weekly: 1.60, monthly: 4.00, yearly: 40.00 },
+    gold: { weekly: 3.20, monthly: 8.00, yearly: 80.00 },
+    platinum: { weekly: 6.40, monthly: 16.00, yearly: 160.00 }
   },
   IN: {
     currency: 'INR',
     symbol: '₹',
-    bronze: { monthly: 299, yearly: 2999 },
-    gold: { monthly: 599, yearly: 5999 },
-    platinum: { monthly: 1199, yearly: 11999 }
+    bronze: { weekly: 120, monthly: 299, yearly: 2999 },
+    gold: { weekly: 240, monthly: 599, yearly: 5999 },
+    platinum: { weekly: 480, monthly: 1199, yearly: 11999 }
   }
 };
 
@@ -42,14 +42,14 @@ const TRENDING_PLANS = {
 // Discount configurations
 const DISCOUNTS = {
   first_time: {
-    bronze: { monthly: 0.1, yearly: 0.15 }, // 10% monthly, 15% yearly
-    gold: { monthly: 0.1, yearly: 0.15 },
-    platinum: { monthly: 0.1, yearly: 0.15 }
+    bronze: { weekly: 0.05, monthly: 0.1, yearly: 0.15 }, // 5% weekly, 10% monthly, 15% yearly
+    gold: { weekly: 0.05, monthly: 0.1, yearly: 0.15 },
+    platinum: { weekly: 0.05, monthly: 0.1, yearly: 0.15 }
   },
   limited_time: {
-    bronze: { monthly: 0.2, yearly: 0.25 }, // 20% monthly, 25% yearly
-    gold: { monthly: 0.2, yearly: 0.25 },
-    platinum: { monthly: 0.2, yearly: 0.25 }
+    bronze: { weekly: 0.1, monthly: 0.2, yearly: 0.25 }, // 10% weekly, 20% monthly, 25% yearly
+    gold: { weekly: 0.1, monthly: 0.2, yearly: 0.25 },
+    platinum: { weekly: 0.1, monthly: 0.2, yearly: 0.25 }
   }
 };
 
@@ -57,23 +57,34 @@ const DISCOUNTS = {
  * Get VIP pricing for a specific region
  * @param {string} region - Region code (US, EU, UK, IN)
  * @param {string} userId - User ID for personalized pricing
+ * @param {boolean} excludePendingSubscription - Exclude pending subscriptions when checking first-time status
  * @returns {Object} Pricing information
  */
-const getVIPPricing = async (region = 'US', userId = null) => {
+const getVIPPricing = async (region = 'US', userId = null, excludePendingSubscription = false) => {
   try {
     const regionConfig = REGIONAL_PRICING[region] || REGIONAL_PRICING.US;
     const tiers = await VIPTier.getActiveTiers();
-    
+
     const pricing = {};
-    
+
     for (const tier of tiers) {
       const basePricing = regionConfig[tier.tierId];
       if (!basePricing) continue;
-      
+
       // Check for discounts
-      const discounts = await getApplicableDiscounts(tier.tierId, userId);
-      
+      const discounts = await getApplicableDiscounts(tier.tierId, userId, excludePendingSubscription);
+
       pricing[tier.tierId] = {
+        weekly: {
+          amount: basePricing.weekly,
+          currency: regionConfig.currency,
+          symbol: regionConfig.symbol,
+          formatted: `${regionConfig.symbol}${basePricing.weekly.toFixed(2)}`,
+          originalAmount: basePricing.weekly,
+          discount: discounts.weekly,
+          discountedAmount: basePricing.weekly * (1 - discounts.weekly),
+          isDiscounted: discounts.weekly > 0
+        },
         monthly: {
           amount: basePricing.monthly,
           currency: regionConfig.currency,
@@ -96,12 +107,16 @@ const getVIPPricing = async (region = 'US', userId = null) => {
         },
         trending: TRENDING_PLANS[tier.tierId] || 'monthly',
         savings: {
+          weekly: basePricing.monthly / 4 - basePricing.weekly,
           monthly: basePricing.yearly / 12 - basePricing.monthly,
-          percentage: Math.round(((basePricing.yearly / 12 - basePricing.monthly) / basePricing.monthly) * 100)
+          yearly: basePricing.monthly * 12 - basePricing.yearly,
+          weeklyPercentage: Math.round(((basePricing.monthly / 4 - basePricing.weekly) / basePricing.weekly) * 100),
+          monthlyPercentage: Math.round(((basePricing.yearly / 12 - basePricing.monthly) / basePricing.monthly) * 100),
+          yearlyPercentage: Math.round(((basePricing.monthly * 12 - basePricing.yearly) / basePricing.yearly) * 100)
         }
       };
     }
-    
+
     return {
       region,
       currency: regionConfig.currency,
@@ -109,7 +124,7 @@ const getVIPPricing = async (region = 'US', userId = null) => {
       pricing,
       lastUpdated: new Date()
     };
-    
+
   } catch (error) {
     console.error('Error getting VIP pricing:', error);
     throw new Error('Failed to get VIP pricing');
@@ -122,34 +137,35 @@ const getVIPPricing = async (region = 'US', userId = null) => {
  * @param {string} userId - User ID
  * @returns {Object} Discount percentages
  */
-const getApplicableDiscounts = async (tierId, userId) => {
+const getApplicableDiscounts = async (tierId, userId, excludePendingSubscription = false) => {
   try {
     // Check if user is first-time subscriber
-    const isFirstTime = await checkFirstTimeSubscriber(userId);
-    
+    const isFirstTime = await checkFirstTimeSubscriber(userId, excludePendingSubscription);
+
     // Check for limited-time offers
     const hasLimitedTimeOffer = await checkLimitedTimeOffer();
-    
-    let discounts = { monthly: 0, yearly: 0 };
-    
+
+    let discounts = { weekly: 0, monthly: 0, yearly: 0 };
+
     if (isFirstTime) {
-      discounts = DISCOUNTS.first_time[tierId] || { monthly: 0, yearly: 0 };
+      discounts = DISCOUNTS.first_time[tierId] || { weekly: 0, monthly: 0, yearly: 0 };
     }
-    
+
     if (hasLimitedTimeOffer) {
-      const limitedTimeDiscounts = DISCOUNTS.limited_time[tierId] || { monthly: 0, yearly: 0 };
+      const limitedTimeDiscounts = DISCOUNTS.limited_time[tierId] || { weekly: 0, monthly: 0, yearly: 0 };
       // Use the higher discount
       discounts = {
+        weekly: Math.max(discounts.weekly, limitedTimeDiscounts.weekly),
         monthly: Math.max(discounts.monthly, limitedTimeDiscounts.monthly),
         yearly: Math.max(discounts.yearly, limitedTimeDiscounts.yearly)
       };
     }
-    
+
     return discounts;
-    
+
   } catch (error) {
     console.error('Error getting applicable discounts:', error);
-    return { monthly: 0, yearly: 0 };
+    return { weekly: 0, monthly: 0, yearly: 0 };
   }
 };
 
@@ -158,12 +174,19 @@ const getApplicableDiscounts = async (tierId, userId) => {
  * @param {string} userId - User ID
  * @returns {boolean} True if first-time subscriber
  */
-const checkFirstTimeSubscriber = async (userId) => {
+const checkFirstTimeSubscriber = async (userId, excludePendingSubscription = false) => {
   if (!userId) return false;
   
   try {
     const VIPSubscription = require('../models/VIPSubscription');
-    const existingSubscriptions = await VIPSubscription.find({ userId });
+    let query = { userId };
+    
+    if (excludePendingSubscription) {
+      // Exclude pending subscriptions when checking for first-time status
+      query.status = { $ne: 'pending' };
+    }
+    
+    const existingSubscriptions = await VIPSubscription.find(query);
     return existingSubscriptions.length === 0;
   } catch (error) {
     console.error('Error checking first-time subscriber:', error);
@@ -184,14 +207,15 @@ const checkLimitedTimeOffer = async () => {
 /**
  * Calculate subscription cost
  * @param {string} tierId - VIP tier ID
- * @param {string} plan - Plan type (monthly/yearly)
+ * @param {string} plan - Plan type (weekly/monthly/yearly)
  * @param {string} region - Region code
  * @param {string} userId - User ID for discounts
+ * @param {boolean} excludePendingSubscription - Exclude pending subscriptions when checking first-time status
  * @returns {Object} Cost calculation
  */
-const calculateSubscriptionCost = async (tierId, plan, region = 'US', userId = null) => {
+const calculateSubscriptionCost = async (tierId, plan, region = 'US', userId = null, excludePendingSubscription = false) => {
   try {
-    const pricing = await getVIPPricing(region, userId);
+    const pricing = await getVIPPricing(region, userId, excludePendingSubscription);
     const tierPricing = pricing.pricing[tierId];
     
     if (!tierPricing) {
@@ -230,7 +254,7 @@ const getTierComparison = async (region = 'US') => {
   try {
     const pricing = await getVIPPricing(region);
     const tiers = await VIPTier.getActiveTiers();
-    
+
     const comparison = tiers.map(tier => {
       const tierPricing = pricing.pricing[tier.tierId];
       return {
@@ -244,7 +268,7 @@ const getTierComparison = async (region = 'US') => {
         features: tier.features
       };
     });
-    
+
     return {
       region,
       currency: pricing.currency,
@@ -252,7 +276,7 @@ const getTierComparison = async (region = 'US') => {
       tiers: comparison,
       lastUpdated: new Date()
     };
-    
+
   } catch (error) {
     console.error('Error getting tier comparison:', error);
     throw error;
@@ -265,13 +289,26 @@ const getTierComparison = async (region = 'US') => {
  * @param {string} plan - Plan type
  * @param {number} amount - Expected amount
  * @param {string} region - Region code
+ * @param {string} userId - User ID for discount calculation
+ * @param {boolean} excludePendingSubscription - Exclude pending subscriptions when checking first-time status
  * @returns {boolean} True if pricing is valid
  */
-const validatePricing = async (tierId, plan, amount, region = 'US') => {
+const validatePricing = async (tierId, plan, amount, region = 'US', userId = null, excludePendingSubscription = false) => {
   try {
-    const cost = await calculateSubscriptionCost(tierId, plan, region);
+    const cost = await calculateSubscriptionCost(tierId, plan, region, userId, excludePendingSubscription);
     const expectedAmount = Math.round(cost.amount * 100); // Convert to cents
     const actualAmount = Math.round(amount * 100);
+    
+    console.log('Pricing validation:', {
+      tierId,
+      plan,
+      region,
+      userId,
+      excludePendingSubscription,
+      expectedAmount,
+      actualAmount,
+      difference: Math.abs(expectedAmount - actualAmount)
+    });
     
     return Math.abs(expectedAmount - actualAmount) < 1; // Allow 1 cent difference
   } catch (error) {
@@ -290,6 +327,8 @@ module.exports = {
   TRENDING_PLANS,
   DISCOUNTS
 };
+
+
 
 
 

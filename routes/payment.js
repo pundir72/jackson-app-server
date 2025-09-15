@@ -97,17 +97,36 @@ router.post('/initiate', protect, [
     }
 
     // Validate pricing
+    const region = subscription.metadata?.region || 'US';
     const isValidPricing = await validatePricing(
       subscription.tier,
       subscription.plan,
       subscription.amount,
-      'US' // Default region
+      region,
+      userId, // Pass userId for discount calculation
+      true // Exclude pending subscription when checking first-time status
     );
 
     if (!isValidPricing) {
+      // Get the expected pricing for debugging
+      const expectedCost = await calculateSubscriptionCost(
+        subscription.tier,
+        subscription.plan,
+        region,
+        userId
+      );
+      
       return res.status(400).json({
         success: false,
-        message: 'Invalid pricing detected'
+        message: 'Invalid pricing detected',
+        details: {
+          expectedAmount: expectedCost.amount,
+          actualAmount: subscription.amount,
+          tier: subscription.tier,
+          plan: subscription.plan,
+          region: region,
+          expectedFormatted: expectedCost.formatted
+        }
       });
     }
 
@@ -260,6 +279,132 @@ router.post('/confirm', protect, [
       success: false,
       message: 'Failed to confirm payment',
       error: error.message
+    });
+  }
+});
+
+// Handle Google Play Billing webhooks
+router.post('/webhook/google-play', express.json(), async (req, res) => {
+  try {
+    const { notificationType, purchaseToken, subscriptionId } = req.body;
+    
+    console.log('Google Play webhook received:', { notificationType, purchaseToken, subscriptionId });
+    
+    switch (notificationType) {
+      case 1: // SUBSCRIPTION_RECOVERED
+        await handleGooglePlaySubscriptionRecovered(purchaseToken, subscriptionId);
+        break;
+      case 2: // SUBSCRIPTION_RENEWED
+        await handleGooglePlaySubscriptionRenewed(purchaseToken, subscriptionId);
+        break;
+      case 3: // SUBSCRIPTION_CANCELED
+        await handleGooglePlaySubscriptionCanceled(purchaseToken, subscriptionId);
+        break;
+      case 4: // SUBSCRIPTION_PURCHASED
+        await handleGooglePlaySubscriptionPurchased(purchaseToken, subscriptionId);
+        break;
+      case 5: // SUBSCRIPTION_ON_HOLD
+        await handleGooglePlaySubscriptionOnHold(purchaseToken, subscriptionId);
+        break;
+      case 6: // SUBSCRIPTION_IN_GRACE_PERIOD
+        await handleGooglePlaySubscriptionInGracePeriod(purchaseToken, subscriptionId);
+        break;
+      case 7: // SUBSCRIPTION_RESTARTED
+        await handleGooglePlaySubscriptionRestarted(purchaseToken, subscriptionId);
+        break;
+      case 8: // SUBSCRIPTION_PRICE_CHANGE_CONFIRMED
+        await handleGooglePlayPriceChangeConfirmed(purchaseToken, subscriptionId);
+        break;
+      case 9: // SUBSCRIPTION_DEFERRED
+        await handleGooglePlaySubscriptionDeferred(purchaseToken, subscriptionId);
+        break;
+      case 10: // SUBSCRIPTION_PAUSED
+        await handleGooglePlaySubscriptionPaused(purchaseToken, subscriptionId);
+        break;
+      case 11: // SUBSCRIPTION_PAUSE_SCHEDULE_CHANGED
+        await handleGooglePlayPauseScheduleChanged(purchaseToken, subscriptionId);
+        break;
+      case 12: // SUBSCRIPTION_REVOKED
+        await handleGooglePlaySubscriptionRevoked(purchaseToken, subscriptionId);
+        break;
+      case 13: // SUBSCRIPTION_EXPIRED
+        await handleGooglePlaySubscriptionExpired(purchaseToken, subscriptionId);
+        break;
+      default:
+        console.log(`Unhandled Google Play notification type: ${notificationType}`);
+    }
+    
+    res.status(200).json({ received: true });
+    
+  } catch (error) {
+    console.error('Google Play webhook error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Google Play webhook processing failed',
+      error: error.message 
+    });
+  }
+});
+
+// Handle Apple Store webhooks
+router.post('/webhook/apple-store', express.json(), async (req, res) => {
+  try {
+    const { notification_type, unified_receipt } = req.body;
+    
+    console.log('Apple Store webhook received:', { notification_type });
+    
+    switch (notification_type) {
+      case 'INITIAL_BUY':
+        await handleAppleStoreInitialBuy(unified_receipt);
+        break;
+      case 'DID_RENEW':
+        await handleAppleStoreDidRenew(unified_receipt);
+        break;
+      case 'DID_FAIL_TO_RENEW':
+        await handleAppleStoreDidFailToRenew(unified_receipt);
+        break;
+      case 'DID_CHANGE_RENEWAL_PREF':
+        await handleAppleStoreDidChangeRenewalPref(unified_receipt);
+        break;
+      case 'DID_CHANGE_RENEWAL_STATUS':
+        await handleAppleStoreDidChangeRenewalStatus(unified_receipt);
+        break;
+      case 'DID_INTERACT':
+        await handleAppleStoreDidInteract(unified_receipt);
+        break;
+      case 'DID_CANCEL':
+        await handleAppleStoreDidCancel(unified_receipt);
+        break;
+      case 'DID_RECOVER':
+        await handleAppleStoreDidRecover(unified_receipt);
+        break;
+      case 'EXPIRED':
+        await handleAppleStoreExpired(unified_receipt);
+        break;
+      case 'GRACE_PERIOD_EXPIRED':
+        await handleAppleStoreGracePeriodExpired(unified_receipt);
+        break;
+      case 'PRICE_INCREASE':
+        await handleAppleStorePriceIncrease(unified_receipt);
+        break;
+      case 'REFUND':
+        await handleAppleStoreRefund(unified_receipt);
+        break;
+      case 'REVOKE':
+        await handleAppleStoreRevoke(unified_receipt);
+        break;
+      default:
+        console.log(`Unhandled Apple Store notification type: ${notification_type}`);
+    }
+    
+    res.status(200).json({ received: true });
+    
+  } catch (error) {
+    console.error('Apple Store webhook error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Apple Store webhook processing failed',
+      error: error.message 
     });
   }
 });
@@ -523,7 +668,230 @@ router.get('/status/:paymentIntentId', protect, async (req, res) => {
   }
 });
 
+// Google Play webhook handlers
+async function handleGooglePlaySubscriptionPurchased(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription purchased: ${subscriptionId}`);
+    // In real implementation, verify purchase with Google Play API
+    // For now, just log the event
+  } catch (error) {
+    console.error('Error handling Google Play subscription purchased:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionRenewed(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription renewed: ${subscriptionId}`);
+    // In real implementation, extend subscription in database
+  } catch (error) {
+    console.error('Error handling Google Play subscription renewed:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionCanceled(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription canceled: ${subscriptionId}`);
+    // In real implementation, cancel subscription in database
+  } catch (error) {
+    console.error('Error handling Google Play subscription canceled:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionRecovered(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription recovered: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription recovered:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionOnHold(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription on hold: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription on hold:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionInGracePeriod(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription in grace period: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription in grace period:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionRestarted(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription restarted: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription restarted:', error);
+  }
+}
+
+async function handleGooglePlayPriceChangeConfirmed(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play price change confirmed: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play price change confirmed:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionDeferred(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription deferred: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription deferred:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionPaused(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription paused: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription paused:', error);
+  }
+}
+
+async function handleGooglePlayPauseScheduleChanged(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play pause schedule changed: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play pause schedule changed:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionRevoked(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription revoked: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription revoked:', error);
+  }
+}
+
+async function handleGooglePlaySubscriptionExpired(purchaseToken, subscriptionId) {
+  try {
+    console.log(`Google Play subscription expired: ${subscriptionId}`);
+  } catch (error) {
+    console.error('Error handling Google Play subscription expired:', error);
+  }
+}
+
+// Apple Store webhook handlers
+async function handleAppleStoreInitialBuy(unifiedReceipt) {
+  try {
+    console.log('Apple Store initial buy:', unifiedReceipt);
+    // In real implementation, verify receipt with Apple and create subscription
+  } catch (error) {
+    console.error('Error handling Apple Store initial buy:', error);
+  }
+}
+
+async function handleAppleStoreDidRenew(unifiedReceipt) {
+  try {
+    console.log('Apple Store did renew:', unifiedReceipt);
+    // In real implementation, extend subscription in database
+  } catch (error) {
+    console.error('Error handling Apple Store did renew:', error);
+  }
+}
+
+async function handleAppleStoreDidFailToRenew(unifiedReceipt) {
+  try {
+    console.log('Apple Store did fail to renew:', unifiedReceipt);
+    // In real implementation, handle failed renewal
+  } catch (error) {
+    console.error('Error handling Apple Store did fail to renew:', error);
+  }
+}
+
+async function handleAppleStoreDidChangeRenewalPref(unifiedReceipt) {
+  try {
+    console.log('Apple Store did change renewal preference:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store did change renewal preference:', error);
+  }
+}
+
+async function handleAppleStoreDidChangeRenewalStatus(unifiedReceipt) {
+  try {
+    console.log('Apple Store did change renewal status:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store did change renewal status:', error);
+  }
+}
+
+async function handleAppleStoreDidInteract(unifiedReceipt) {
+  try {
+    console.log('Apple Store did interact:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store did interact:', error);
+  }
+}
+
+async function handleAppleStoreDidCancel(unifiedReceipt) {
+  try {
+    console.log('Apple Store did cancel:', unifiedReceipt);
+    // In real implementation, cancel subscription in database
+  } catch (error) {
+    console.error('Error handling Apple Store did cancel:', error);
+  }
+}
+
+async function handleAppleStoreDidRecover(unifiedReceipt) {
+  try {
+    console.log('Apple Store did recover:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store did recover:', error);
+  }
+}
+
+async function handleAppleStoreExpired(unifiedReceipt) {
+  try {
+    console.log('Apple Store expired:', unifiedReceipt);
+    // In real implementation, mark subscription as expired
+  } catch (error) {
+    console.error('Error handling Apple Store expired:', error);
+  }
+}
+
+async function handleAppleStoreGracePeriodExpired(unifiedReceipt) {
+  try {
+    console.log('Apple Store grace period expired:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store grace period expired:', error);
+  }
+}
+
+async function handleAppleStorePriceIncrease(unifiedReceipt) {
+  try {
+    console.log('Apple Store price increase:', unifiedReceipt);
+  } catch (error) {
+    console.error('Error handling Apple Store price increase:', error);
+  }
+}
+
+async function handleAppleStoreRefund(unifiedReceipt) {
+  try {
+    console.log('Apple Store refund:', unifiedReceipt);
+    // In real implementation, handle refund and potentially revoke benefits
+  } catch (error) {
+    console.error('Error handling Apple Store refund:', error);
+  }
+}
+
+async function handleAppleStoreRevoke(unifiedReceipt) {
+  try {
+    console.log('Apple Store revoke:', unifiedReceipt);
+    // In real implementation, revoke subscription and benefits
+  } catch (error) {
+    console.error('Error handling Apple Store revoke:', error);
+  }
+}
+
 module.exports = router;
+
+
 
 
 

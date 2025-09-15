@@ -127,6 +127,7 @@ mongoose.connect(config.MONGODB_URI, {
         const homeRoutes = require('./routes/home');
         const walletRoutes = require('./routes/wallet');
         const vipRoutes = require('./routes/vip');
+        const payment = require('./routes/payment');
         const gameRoutes = require('./routes/game');
         const profileRoutes = require('./routes/profile');
         const dashboardRoutes = require('./routes/dashboard');
@@ -159,6 +160,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/home', homeRoutes);
         app.use('/api/wallet', walletRoutes);
         app.use('/api/vip', vipRoutes);
+        app.use('/api/payment', payment);
         app.use('/api/game', gameRoutes);
         app.use('/api/profile', profileRoutes);
         app.use('/api/dashboard', dashboardRoutes);

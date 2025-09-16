@@ -8,7 +8,6 @@ const transactionSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['credit', 'debit'],
         required: true
     },
     amount: {
@@ -21,12 +20,26 @@ const transactionSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'completed', 'failed'],
         default: 'completed'
     },
     referenceId: {
         type: String,
-        unique: true
+    },
+    
+    // Tremendous integration fields
+    tremendousOrderId: {
+        type: String,
+        index: true
+    },
+    paymentProvider: {
+        type: String,
+        default: 'internal'
+    },
+    
+    // Additional metadata
+    metadata: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     }
 }, {
     timestamps: true

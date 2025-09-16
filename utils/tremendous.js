@@ -2,111 +2,166 @@ const axios = require('axios');
 
 // Tremendous configuration
 const TREMENDOUS_CONFIG = {
-  baseUrl: process.env.TREMENDOUS_BASE_URL || 'https://api.tremendous.com',
+  baseUrl: process.env.TREMENDOUS_BASE_URL || 'https://testflight.tremendous.com/api/v2',
   apiKey: process.env.TREMENDOUS_API_KEY,
-  appId: process.env.TREMENDOUS_APP_ID,
   timeout: 30000 // 30 seconds
 };
 
 /**
- * Tremendous SDK for global payouts and rewards
+ * Tremendous SDK for global payouts and rewards (API v2)
  */
 class TremendousSDK {
   constructor() {
     this.apiKey = TREMENDOUS_CONFIG.apiKey;
-    this.appId = TREMENDOUS_CONFIG.appId;
     this.baseUrl = TREMENDOUS_CONFIG.baseUrl;
     
-    if (!this.apiKey || !this.appId) {
-      console.warn('Tremendous credentials not configured. Payout system will be disabled.');
+    if (!this.apiKey) {
+      console.warn('Tremendous API key not configured. Payout system will be disabled.');
     }
   }
 
   /**
-   * Create a payout/reward
-   * @param {Object} params - Payout parameters
-   * @param {string} params.userId - User ID
-   * @param {number} params.amount - Amount in cents
-   * @param {string} params.currency - Currency code
-   * @param {Object} params.recipient - Recipient information
-   * @param {string} params.rewardType - Type of reward (gift_card, cash, etc.)
-   * @returns {Object} Payout result
+   * Get default headers for API requests
+   * @returns {Object} Headers object
    */
-  async createPayout(params) {
+  getHeaders() {
+    return {
+      'Authorization': `Bearer ${this.apiKey}`,
+      'accept': 'application/json',
+      'content-type': 'application/json'
+    };
+  }
+
+  /**
+   * Create an order (payout/reward)
+   * @param {Object} params - Order parameters
+   * @param {string} params.externalId - External ID for tracking
+   * @param {string} params.fundingSourceId - Funding source ID
+   * @param {Object} params.reward - Reward details
+   * @param {Object} params.reward.value - Reward value
+   * @param {number} params.reward.value.denomination - Amount
+   * @param {string} params.reward.value.currency_code - Currency code
+   * @param {Object} params.reward.delivery - Delivery method
+   * @param {string} params.reward.delivery.method - Delivery method (LINK, EMAIL, etc.)
+   * @param {Object} params.reward.recipient - Recipient information
+   * @param {string} params.reward.recipient.name - Recipient name
+   * @param {string} params.reward.recipient.email - Recipient email
+   * @param {Array} params.reward.products - Product IDs
+   * @returns {Object} Order result
+   */
+  async createOrder(params) {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
         return {
           success: false,
           error: 'Tremendous not configured'
         };
       }
 
-      const { userId, amount, currency, recipient, rewardType = 'gift_card' } = params;
-
-      const requestData = {
-        app_id: this.appId,
-        user_id: userId,
-        amount: amount, // Amount in cents
-        currency: currency,
-        reward_type: rewardType,
-        recipient: {
-          email: recipient.email,
-          name: recipient.name,
-          phone: recipient.phone || null,
-          address: recipient.address || null
-        },
-        metadata: {
-          source: 'jackson_rewards',
-          user_id: userId,
-          created_at: new Date().toISOString()
-        },
-        delivery: {
-          method: 'email',
-          send_email: true
-        }
-      };
+      // Handle both old and new parameter structures
+      let requestData;
+      
+      if (params.external_id && params.payment && params.reward) {
+        // New Tremendous API v2 structure - pass through directly
+        requestData = params;
+      } else {
+        // Old structure for backward compatibility
+        const { external_id, funding_source_id, reward } = params;
+        requestData = {
+          payment: {
+            funding_source_id: funding_source_id
+          },
+          external_id: external_id,
+          reward: {
+            value: {
+              denomination: reward.value.denomination,
+              currency_code: reward.value.currency_code
+            },
+            delivery: {
+              method: reward.delivery.method
+            },
+            recipient: {
+              name: reward.recipient.name,
+              email: reward.recipient.email
+            },
+            products: reward.products
+          }
+        };
+      }
 
       const response = await axios.post(
-        `${this.baseUrl}/v1/payouts/create`,
+        `${this.baseUrl}/orders`,
         requestData,
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: this.getHeaders(),
           timeout: TREMENDOUS_CONFIG.timeout
         }
       );
-
       return {
         success: true,
-        payoutId: response.data.payout_id,
-        status: response.data.status,
-        amount: response.data.amount,
-        currency: response.data.currency,
-        rewardType: response.data.reward_type,
-        deliveryMethod: response.data.delivery_method,
-        estimatedDelivery: response.data.estimated_delivery,
-        trackingUrl: response.data.tracking_url
+        data: response.data
       };
 
     } catch (error) {
-      console.error('Tremendous create payout error:', error.message);
+      console.error('Tremendous create order error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.error || error.message
       };
     }
   }
 
   /**
-   * Get payout status
-   * @param {string} payoutId - Payout ID
-   * @returns {Object} Payout status
+   * Get all orders
+   * @param {Object} options - Query options
+   * @returns {Object} Orders list
    */
-  async getPayoutStatus(payoutId) {
+  async getOrders(options = {}) {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const queryParams = new URLSearchParams();
+      if (options.external_id) queryParams.append('external_id', options.external_id);
+      if (options.status) queryParams.append('status', options.status);
+      if (options.limit) queryParams.append('limit', options.limit);
+      if (options.offset) queryParams.append('offset', options.offset);
+
+      const url = queryParams.toString() ? 
+        `${this.baseUrl}/orders?${queryParams}` : 
+        `${this.baseUrl}/orders`;
+
+      const response = await axios.get(url, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout
+      });
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get orders error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific order by ID
+   * @param {string} orderId - Order ID
+   * @returns {Object} Order details
+   */
+  async getOrder(orderId) {
+    try {
+      if (!this.apiKey) {
         return {
           success: false,
           error: 'Tremendous not configured'
@@ -114,220 +169,194 @@ class TremendousSDK {
       }
 
       const response = await axios.get(
-        `${this.baseUrl}/v1/payouts/${payoutId}/status`,
+        `${this.baseUrl}/orders/${orderId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
+          headers: this.getHeaders(),
           timeout: TREMENDOUS_CONFIG.timeout
         }
       );
 
       return {
         success: true,
-        payoutId: response.data.payout_id,
-        status: response.data.status,
-        amount: response.data.amount,
-        currency: response.data.currency,
-        rewardType: response.data.reward_type,
-        deliveredAt: response.data.delivered_at,
-        claimedAt: response.data.claimed_at,
-        expiresAt: response.data.expires_at,
-        trackingUrl: response.data.tracking_url
+        data: response.data
       };
 
     } catch (error) {
-      console.error('Tremendous get payout status error:', error.message);
+      console.error('Tremendous get order error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.error || error.message
       };
     }
   }
 
   /**
-   * Get user payout history
-   * @param {string} userId - User ID
-   * @param {Object} options - Query options
-   * @returns {Object} Payout history
+   * Get funding sources
+   * @returns {Object} Funding sources list
    */
-  async getUserPayouts(userId, options = {}) {
+  async getFundingSources() {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
         return {
           success: false,
-          error: 'Tremendous not configured',
-          payouts: []
-        };
-      }
-
-      const { page = 1, limit = 20, startDate, endDate, status } = options;
-
-      const queryParams = new URLSearchParams({
-        app_id: this.appId,
-        user_id: userId,
-        page: page.toString(),
-        limit: limit.toString()
-      });
-
-      if (startDate) queryParams.append('start_date', startDate);
-      if (endDate) queryParams.append('end_date', endDate);
-      if (status) queryParams.append('status', status);
-
-      const response = await axios.get(
-        `${this.baseUrl}/v1/payouts/history?${queryParams}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
-
-      return {
-        success: true,
-        payouts: response.data.payouts.map(payout => ({
-          id: payout.payout_id,
-          amount: payout.amount,
-          currency: payout.currency,
-          rewardType: payout.reward_type,
-          status: payout.status,
-          createdAt: payout.created_at,
-          deliveredAt: payout.delivered_at,
-          claimedAt: payout.claimed_at,
-          expiresAt: payout.expires_at,
-          trackingUrl: payout.tracking_url
-        })),
-        pagination: {
-          page: response.data.page,
-          limit: response.data.limit,
-          total: response.data.total,
-          pages: response.data.pages
-        },
-        totalAmount: response.data.total_amount
-      };
-
-    } catch (error) {
-      console.error('Tremendous get user payouts error:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        payouts: []
-      };
-    }
-  }
-
-  /**
-   * Get available reward types
-   * @param {string} country - Country code
-   * @returns {Object} Available reward types
-   */
-  async getRewardTypes(country = 'US') {
-    try {
-      if (!this.apiKey || !this.appId) {
-        return {
-          success: false,
-          error: 'Tremendous not configured',
-          rewardTypes: []
+          error: 'Tremendous not configured'
         };
       }
 
       const response = await axios.get(
-        `${this.baseUrl}/v1/rewards/types`,
+        `${this.baseUrl}/funding_sources`,
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          params: {
-            app_id: this.appId,
-            country: country
-          },
+          headers: this.getHeaders(),
           timeout: TREMENDOUS_CONFIG.timeout
         }
       );
 
       return {
         success: true,
-        rewardTypes: response.data.reward_types.map(type => ({
-          id: type.type_id,
-          name: type.name,
-          description: type.description,
-          minAmount: type.min_amount,
-          maxAmount: type.max_amount,
-          currency: type.currency,
-          isAvailable: type.is_available,
-          deliveryTime: type.delivery_time_hours,
-          fees: type.fees || 0
-        }))
+        data: response.data
       };
 
     } catch (error) {
-      console.error('Tremendous get reward types error:', error.message);
+      console.error('Tremendous get funding sources error:', error.response?.data || error.message);
+      
+      // Handle 502 Bad Gateway or server errors
+      if (error.response?.status === 502 || error.code === 'ECONNREFUSED') {
+        return {
+          success: false,
+          error: 'Tremendous service temporarily unavailable (502 Bad Gateway). Please try again later.',
+          fallback: {
+            funding_sources: [
+              {
+                id: 'fallback-funding-source',
+                name: 'Default Funding Source',
+                type: 'credit_card',
+                status: 'active'
+              }
+            ]
+          }
+        };
+      }
+      
       return {
         success: false,
-        error: error.message,
-        rewardTypes: []
+        error: error.response?.data?.error || error.message
       };
     }
   }
 
   /**
-   * Get supported currencies
-   * @returns {Object} Supported currencies
+   * Get all products
+   * @returns {Object} Products list
    */
-  async getSupportedCurrencies() {
+  async getProducts() {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
         return {
           success: false,
-          error: 'Tremendous not configured',
-          currencies: []
+          error: 'Tremendous not configured'
         };
       }
 
       const response = await axios.get(
-        `${this.baseUrl}/v1/currencies/supported`,
+        `${this.baseUrl}/products`,
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          params: {
-            app_id: this.appId
-          },
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get products error:', error.response?.data || error.message);
+      
+      // Handle 502 Bad Gateway or server errors
+      if (error.response?.status === 502 || error.code === 'ECONNREFUSED') {
+        return {
+          success: false,
+          error: 'Tremendous service temporarily unavailable (502 Bad Gateway). Please try again later.',
+          fallback: {
+            products: [
+              {
+                id: 'fallback-product-1',
+                name: 'Amazon Gift Card',
+                description: 'Digital gift card for Amazon',
+                category: 'gift_cards',
+                brand: 'Amazon',
+                currency_code: 'USD',
+                min_value: { denomination: 5, currency_code: 'USD' },
+                max_value: { denomination: 100, currency_code: 'USD' },
+                status: 'active'
+              },
+              {
+                id: 'fallback-product-2',
+                name: 'PayPal Cash',
+                description: 'Direct PayPal transfer',
+                category: 'cash',
+                brand: 'PayPal',
+                currency_code: 'USD',
+                min_value: { denomination: 10, currency_code: 'USD' },
+                max_value: { denomination: 500, currency_code: 'USD' },
+                status: 'active'
+              }
+            ]
+          }
+        };
+      }
+      
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific product by ID
+   * @param {string} productId - Product ID
+   * @returns {Object} Product details
+   */
+  async getProduct(productId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/products/${productId}`,
+        {
+          headers: this.getHeaders(),
           timeout: TREMENDOUS_CONFIG.timeout
         }
       );
 
       return {
         success: true,
-        currencies: response.data.currencies.map(currency => ({
-          code: currency.code,
-          name: currency.name,
-          symbol: currency.symbol,
-          isSupported: currency.is_supported,
-          minAmount: currency.min_amount,
-          maxAmount: currency.max_amount
-        }))
+        data: response.data
       };
 
     } catch (error) {
-      console.error('Tremendous get currencies error:', error.message);
+      console.error('Tremendous get product error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message,
-        currencies: []
+        error: error.response?.data?.error || error.message
       };
     }
   }
 
   /**
-   * Cancel a payout
-   * @param {string} payoutId - Payout ID
-   * @returns {Object} Cancellation result
+   * Approve an order
+   * @param {string} orderId - Order ID
+   * @returns {Object} Approval result
    */
-  async cancelPayout(payoutId) {
+  async approveOrder(orderId) {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
         return {
           success: false,
           error: 'Tremendous not configured'
@@ -335,126 +364,640 @@ class TremendousSDK {
       }
 
       const response = await axios.post(
-        `${this.baseUrl}/v1/payouts/${payoutId}/cancel`,
+        `${this.baseUrl}/order_approvals/${orderId}/approve`,
         {},
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: this.getHeaders(),
           timeout: TREMENDOUS_CONFIG.timeout
         }
       );
 
       return {
         success: true,
-        payoutId: response.data.payout_id,
-        status: response.data.status,
-        cancelledAt: response.data.cancelled_at
+        data: response.data
       };
 
     } catch (error) {
-      console.error('Tremendous cancel payout error:', error.message);
+      console.error('Tremendous approve order error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.error || error.message
       };
     }
   }
 
   /**
-   * Get payout analytics
-   * @param {Object} options - Analytics options
-   * @returns {Object} Payout analytics
+   * Reject an order
+   * @param {string} orderId - Order ID
+   * @returns {Object} Rejection result
    */
-  async getPayoutAnalytics(options = {}) {
+  async rejectOrder(orderId) {
     try {
-      if (!this.apiKey || !this.appId) {
+      if (!this.apiKey) {
         return {
           success: false,
-          error: 'Tremendous not configured',
-          analytics: null
+          error: 'Tremendous not configured'
         };
       }
-
-      const { startDate, endDate, groupBy = 'day' } = options;
-
-      const queryParams = new URLSearchParams({
-        app_id: this.appId,
-        group_by: groupBy
-      });
-
-      if (startDate) queryParams.append('start_date', startDate);
-      if (endDate) queryParams.append('end_date', endDate);
-
-      const response = await axios.get(
-        `${this.baseUrl}/v1/analytics/payouts?${queryParams}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
-
-      return {
-        success: true,
-        analytics: {
-          totalPayouts: response.data.total_payouts,
-          totalAmount: response.data.total_amount,
-          averageAmount: response.data.average_amount,
-          successRate: response.data.success_rate,
-          topRewardTypes: response.data.top_reward_types,
-          payoutsByDay: response.data.payouts_by_day || [],
-          payoutsByCountry: response.data.payouts_by_country || []
-        }
-      };
-
-    } catch (error) {
-      console.error('Tremendous get analytics error:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        analytics: null
-      };
-    }
-  }
-
-  /**
-   * Verify payout callback
-   * @param {Object} params - Callback parameters
-   * @param {string} params.payoutId - Payout ID
-   * @param {string} params.status - Payout status
-   * @param {string} params.signature - Callback signature
-   * @returns {Object} Verification result
-   */
-  async verifyCallback(params) {
-    try {
-      if (!this.apiKey || !this.appId) {
-        return {
-          success: false,
-          error: 'Tremendous not configured',
-          isValid: false
-        };
-      }
-
-      const { payoutId, status, signature } = params;
-
-      const requestData = {
-        app_id: this.appId,
-        payout_id: payoutId,
-        status: status,
-        signature: signature,
-        timestamp: new Date().toISOString()
-      };
 
       const response = await axios.post(
-        `${this.baseUrl}/v1/payouts/verify-callback`,
-        requestData,
+        `${this.baseUrl}/order_approvals/${orderId}/reject`,
+        {},
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous reject order error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get rewards
+   * @returns {Object} Rewards list
+   */
+  async getRewards() {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/rewards`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get rewards error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific reward by ID
+   * @param {string} rewardId - Reward ID
+   * @returns {Object} Reward details
+   */
+  async getReward(rewardId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/rewards/${rewardId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get reward error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Generate link for a reward
+   * @param {string} rewardId - Reward ID
+   * @returns {Object} Generated link result
+   */
+  async generateRewardLink(rewardId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/rewards/${rewardId}/generate_link`,
+        {},
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous generate reward link error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Resend a reward
+   * @param {string} rewardId - Reward ID
+   * @returns {Object} Resend result
+   */
+  async resendReward(rewardId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/rewards/${rewardId}/resend`,
+        {},
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous resend reward error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Cancel a reward
+   * @param {string} rewardId - Reward ID
+   * @returns {Object} Cancel result
+   */
+  async cancelReward(rewardId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/rewards/${rewardId}/cancel`,
+        {},
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous cancel reward error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get all campaigns
+   * @returns {Object} Campaigns list
+   */
+  async getCampaigns() {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/campaigns`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get campaigns error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Create a campaign
+   * @param {Object} campaignData - Campaign data
+   * @returns {Object} Campaign creation result
+   */
+  async createCampaign(campaignData) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/campaigns`,
+        campaignData,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous create campaign error:', error.response?.data?.errors?.payload || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific campaign by ID
+   * @param {string} campaignId - Campaign ID
+   * @returns {Object} Campaign details
+   */
+  async getCampaign(campaignId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/campaigns/${campaignId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get campaign error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Update a campaign
+   * @param {string} campaignId - Campaign ID
+   * @param {Object} campaignData - Updated campaign data
+   * @returns {Object} Campaign update result
+   */
+  async updateCampaign(campaignId, campaignData) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.put(
+        `${this.baseUrl}/campaigns/${campaignId}`,
+        campaignData,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous update campaign error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific funding source by ID
+   * @param {string} fundingSourceId - Funding source ID
+   * @returns {Object} Funding source details
+   */
+  async getFundingSource(fundingSourceId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/funding_sources/${fundingSourceId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get funding source error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get all invoices
+   * @param {Object} options - Query options
+   * @returns {Object} Invoices list
+   */
+  async getInvoices(options = {}) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const queryParams = new URLSearchParams();
+      if (options.offset) queryParams.append('offset', options.offset);
+      if (options.limit) queryParams.append('limit', options.limit);
+
+      const url = queryParams.toString() ? 
+        `${this.baseUrl}/invoices?${queryParams}` : 
+        `${this.baseUrl}/invoices`;
+
+      const response = await axios.get(url, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout
+      });
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get invoices error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Create an invoice
+   * @param {Object} invoiceData - Invoice data
+   * @returns {Object} Invoice creation result
+   */
+  async createInvoice(invoiceData) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/invoices`,
+        invoiceData,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous create invoice error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific invoice by ID
+   * @param {string} invoiceId - Invoice ID
+   * @returns {Object} Invoice details
+   */
+  async getInvoice(invoiceId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/invoices/${invoiceId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get invoice error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Delete an invoice
+   * @param {string} invoiceId - Invoice ID
+   * @returns {Object} Invoice deletion result
+   */
+  async deleteInvoice(invoiceId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.delete(
+        `${this.baseUrl}/invoices/${invoiceId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous delete invoice error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get invoice PDF
+   * @param {string} invoiceId - Invoice ID
+   * @returns {Object} Invoice PDF result
+   */
+  async getInvoicePDF(invoiceId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/invoices/${invoiceId}/pdf`,
         {
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
+            ...this.getHeaders(),
+            'accept': 'application/pdf'
+          },
+          timeout: TREMENDOUS_CONFIG.timeout,
+          responseType: 'arraybuffer'
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data,
+        contentType: 'application/pdf'
+      };
+
+    } catch (error) {
+      console.error('Tremendous get invoice PDF error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get invoice CSV
+   * @param {string} invoiceId - Invoice ID
+   * @returns {Object} Invoice CSV result
+   */
+  async getInvoiceCSV(invoiceId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/invoices/${invoiceId}/csv`,
+        {
+          headers: {
+            ...this.getHeaders(),
+            'accept': 'text/csv'
           },
           timeout: TREMENDOUS_CONFIG.timeout
         }
@@ -462,21 +1005,198 @@ class TremendousSDK {
 
       return {
         success: true,
-        isValid: response.data.is_valid,
-        payoutId: response.data.payout_id,
-        status: response.data.status,
-        updatedAt: response.data.updated_at
+        data: response.data,
+        contentType: 'text/csv'
       };
 
     } catch (error) {
-      console.error('Tremendous verify callback error:', error.message);
+      console.error('Tremendous get invoice CSV error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message,
-        isValid: false
+        error: error.response?.data?.error || error.message
       };
     }
   }
+
+  /**
+   * Get balance transactions
+   * @returns {Object} Balance transactions result
+   */
+  async getBalanceTransactions() {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/balance_transactions`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get balance transactions error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get all organizations
+   * @returns {Object} Organizations list
+   */
+  async getOrganizations() {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/organizations`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get organizations error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Create an organization
+   * @param {Object} organizationData - Organization data
+   * @returns {Object} Organization creation result
+   */
+  async createOrganization(organizationData) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/organizations`,
+        organizationData,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous create organization error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Get specific organization by ID
+   * @param {string} organizationId - Organization ID
+   * @returns {Object} Organization details
+   */
+  async getOrganization(organizationId) {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseUrl}/organizations/${organizationId}`,
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous get organization error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
+   * Create API key for organization
+   * @returns {Object} API key creation result
+   */
+  async createOrganizationAPIKey() {
+    try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'Tremendous not configured'
+        };
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/organizations/create_api_key`,
+        {},
+        {
+          headers: this.getHeaders(),
+          timeout: TREMENDOUS_CONFIG.timeout
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+
+    } catch (error) {
+      console.error('Tremendous create organization API key error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message
+      };
+    }
+  }
+
 }
 
 // Create singleton instance

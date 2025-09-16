@@ -3,6 +3,9 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const TremendousOrder = require('../models/TremendousOrder');
+const TremendousCampaign = require('../models/TremendousCampaign');
+const TremendousOrganization = require('../models/TremendousOrganization');
 const tremendous = require('../utils/tremendous');
 const verisoul = require('../utils/verisoul');
 
@@ -18,58 +21,72 @@ router.get('/methods', protect, async (req, res) => {
       });
     }
 
-    const country = user.location?.country || 'US';
-    
-    // Get supported currencies and reward types
-    const [currenciesResult, rewardTypesResult] = await Promise.all([
-      tremendous.getSupportedCurrencies(),
-      tremendous.getRewardTypes(country)
+    // Get products and funding sources from Tremendous
+    const [productsResult, fundingSourcesResult] = await Promise.all([
+      tremendous.getProducts(),
+      tremendous.getFundingSources()
     ]);
 
-    const methods = [];
+    // Handle fallback data for 502 errors
+    let products = [];
+    let fundingSources = [];
+    let serviceStatus = 'online';
+    let warningMessage = null;
 
-    if (currenciesResult.success) {
-      methods.push({
-        id: 'gift_card',
-        name: 'Gift Card',
-        description: 'Digital gift cards for popular retailers',
-        icon: '🎁',
-        isAvailable: true,
-        currencies: currenciesResult.currencies.filter(c => c.isSupported),
-        minAmount: 500, // $5.00
-        maxAmount: 10000, // $100.00
-        processingTime: 'Instant',
-        fees: 0
+    if (productsResult.success) {
+      products = productsResult.data.products;
+    } else if (productsResult.fallback) {
+      products = productsResult.fallback.products;
+      serviceStatus = 'degraded';
+      warningMessage = 'Using fallback data - Tremendous service temporarily unavailable';
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: productsResult.error || 'Failed to load payout methods'
       });
     }
 
-    if (rewardTypesResult.success) {
-      rewardTypesResult.rewardTypes.forEach(type => {
-        if (type.isAvailable) {
-          methods.push({
-            id: type.id,
-            name: type.name,
-            description: type.description,
-            icon: '💰',
-            isAvailable: true,
-            currencies: [{ code: type.currency, symbol: '$' }],
-            minAmount: type.minAmount,
-            maxAmount: type.maxAmount,
-            processingTime: `${type.deliveryTime} hours`,
-            fees: type.fees
-          });
-        }
+    if (fundingSourcesResult.success) {
+      fundingSources = fundingSourcesResult.data.funding_sources;
+    } else if (fundingSourcesResult.fallback) {
+      fundingSources = fundingSourcesResult.fallback.funding_sources;
+      serviceStatus = 'degraded';
+      warningMessage = 'Using fallback data - Tremendous service temporarily unavailable';
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: fundingSourcesResult.error || 'Failed to load funding sources'
       });
     }
 
-    res.json({
+    const methods = products.map(product => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      icon: '🎁',
+      isAvailable: true,
+      minAmount: product.min_value ? product.min_value.denomination : 5,
+      maxAmount: product.max_value ? product.max_value.denomination : 100,
+      currency: product.currency_code || 'USD',
+      processingTime: '1-24 hours',
+      fees: 0,
+      category: product.category,
+      brand: product.brand
+    }));
+
+    const response = {
       success: true,
       data: {
         methods,
-        userCountry: country,
-        message: 'Choose your preferred payout method'
+        fundingSources,
+        userCountry: user.location?.country || 'US',
+        message: 'Choose your preferred payout method',
+        serviceStatus,
+        warning: warningMessage
       }
-    });
+    };
+
+    res.json(response);
   } catch (error) {
     console.error('Error getting payout methods:', error);
     res.status(500).json({
@@ -82,7 +99,15 @@ router.get('/methods', protect, async (req, res) => {
 // Create payout request
 router.post('/create', protect, async (req, res) => {
   try {
-    const { amount, currency, method, recipient } = req.body;
+    // Extract all fields from request body (all optional)
+    const {
+      payment = {},
+      external_id,
+      campaign_id,
+      invoice_id,
+      reward = {}
+    } = req.body;
+
     const user = await User.findById(req.user.userId).select('xp vip wallet location profile');
     
     if (!user) {
@@ -92,21 +117,104 @@ router.post('/create', protect, async (req, res) => {
       });
     }
 
-    // Validate amount
-    const minAmount = 500; // $5.00 minimum
-    const maxAmount = 10000; // $100.00 maximum
-    const amountInCents = Math.round(amount * 100);
+    // Use external_id from request or default to user ID
+    const externalId = external_id || user._id.toString();
 
-    if (amountInCents < minAmount || amountInCents > maxAmount) {
+    // Extract payment details
+    const {
+      subtotal,
+      total,
+      fees,
+      funding_source_id,
+      refund = {},
+      channel
+    } = payment;
+
+    // Extract reward details
+    const {
+      id: rewardId,
+      order_id: orderId,
+      created_at: createdAt,
+      campaign_id: rewardCampaignId,
+      products = [],
+      value = {},
+      recipient = {},
+      custom_fields = [],
+      delivery = {}
+    } = reward;
+
+    // Extract value details
+    const {
+      denomination,
+      currency_code
+    } = value;
+
+    // Extract recipient details
+    const {
+      name: recipientName,
+      email: recipientEmail,
+      phone: recipientPhone
+    } = recipient;
+
+    // Extract delivery details
+    const {
+      method: deliveryMethod = 'LINK',
+      status: deliveryStatus
+    } = delivery;
+
+    // Extract refund details
+    const {
+      total: refundTotal
+    } = refund;
+
+    // Validate required fields for Tremendous API
+    if (!funding_source_id) {
       return res.status(400).json({
         success: false,
-        error: `Amount must be between $${minAmount/100} and $${maxAmount/100}`
+        error: 'payment.funding_source_id is required',
+        details: {
+          field: 'payment.funding_source_id',
+          received: funding_source_id,
+          expected: 'A valid Tremendous funding source ID (e.g., "OR7EFVES9AG2")'
+        }
       });
     }
 
-    // Check user balance
+    if (!denomination || !currency_code) {
+      return res.status(400).json({
+        success: false,
+        error: 'reward.value.denomination and reward.value.currency_code are required'
+      });
+    }
+
+    if (!recipientName || !recipientEmail) {
+      return res.status(400).json({
+        success: false,
+        error: 'reward.recipient.name and reward.recipient.email are required'
+      });
+    }
+
+    if (!products || products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'reward.products array is required and cannot be empty'
+      });
+    }
+
+    // Validate amount
+    const minAmount = 1; // $1.00 minimum
+    const maxAmount = 10000; // $10,000.00 maximum
+
+    if (denomination < minAmount || denomination > maxAmount) {
+      return res.status(400).json({
+        success: false,
+        error: `Amount must be between $${minAmount} and $${maxAmount}`
+      });
+    }
+
+    // Check user balance (if using internal wallet)
     const userBalance = user.wallet.balance || 0;
-    const requiredCoins = Math.round(amountInCents * 10); // 10 coins per $1
+    const requiredCoins = Math.round(denomination * 10); // 10 coins per $1
 
     if (userBalance < requiredCoins) {
       return res.status(400).json({
@@ -117,50 +225,67 @@ router.post('/create', protect, async (req, res) => {
       });
     }
 
-    // Verify user identity with verisoul.ai
-    const verification = await verisoul.verifyUserIdentity({
-      userId: user._id.toString(),
-      faceImage: req.body.faceImage, // Base64 encoded image
-      location: {
-        lat: user.location?.lat || 0,
-        lng: user.location?.lng || 0,
-        country: user.location?.country || 'US',
-        city: user.location?.city || 'Unknown'
-      },
-      deviceInfo: {
-        fingerprint: req.headers['x-device-fingerprint'] || 'unknown',
-        platform: 'mobile',
-        version: '1.0.0',
-        model: 'iPhone 13',
-        ipAddress: req.ip
+    // Build Tremendous order payload
+    const tremendousOrderPayload = {
+      external_id: externalId,
+      funding_source_id: funding_source_id,
+      reward: {
+        value: {
+          denomination: denomination,
+          currency_code: currency_code
+        },
+        delivery: {
+          method: deliveryMethod
+        },
+        recipient: {
+          name: recipientName,
+          email: recipientEmail
+        },
+        products: products
       }
-    });
+    };
 
-    if (!verification.success || !verification.verified) {
-      return res.status(400).json({
-        success: false,
-        error: 'Identity verification required for payouts',
-        verificationRequired: true
-      });
+    // Add optional fields if provided
+    if (campaign_id) {
+      tremendousOrderPayload.campaign_id = campaign_id;
     }
 
-    // Create payout with Tremendous
-    const payoutResult = await tremendous.createPayout({
-      userId: user._id.toString(),
-      amount: amountInCents,
-      currency: currency,
-      recipient: {
-        email: recipient.email,
-        name: recipient.name,
-        phone: recipient.phone
-      },
-      rewardType: method
-    });
+    if (invoice_id) {
+      tremendousOrderPayload.invoice_id = invoice_id;
+    }
 
-    if (!payoutResult.success) {
+    if (recipientPhone) {
+      tremendousOrderPayload.reward.recipient.phone = recipientPhone;
+    }
+
+    if (custom_fields && custom_fields.length > 0) {
+      tremendousOrderPayload.reward.custom_fields = custom_fields;
+    }
+
+    if (deliveryStatus) {
+      tremendousOrderPayload.reward.delivery.status = deliveryStatus;
+    }
+
+    // Add payment details if provided
+    if (subtotal !== undefined || total !== undefined || fees !== undefined || channel) {
+      tremendousOrderPayload.payment = {};
+      
+      if (subtotal !== undefined) tremendousOrderPayload.payment.subtotal = subtotal;
+      if (total !== undefined) tremendousOrderPayload.payment.total = total;
+      if (fees !== undefined) tremendousOrderPayload.payment.fees = fees;
+      if (channel) tremendousOrderPayload.payment.channel = channel;
+      
+      if (refundTotal !== undefined) {
+        tremendousOrderPayload.payment.refund = { total: refundTotal };
+      }
+    }
+    // Create order with Tremendous
+    const orderResult = await tremendous.createOrder(tremendousOrderPayload);
+    
+    if (!orderResult.success) {
       return res.status(400).json({
         success: false,
-        error: payoutResult.error || 'Failed to create payout'
+        error: orderResult.error || 'Failed to create order'
       });
     }
 
@@ -168,25 +293,82 @@ router.post('/create', protect, async (req, res) => {
     user.wallet.balance = userBalance - requiredCoins;
     user.wallet.lastUpdated = new Date();
 
+    // Create Tremendous order record
+    const tremendousOrder = new TremendousOrder({
+      tremendousOrderId: orderResult.data.order.id,
+      externalId: externalId,
+      userId: user._id,
+      status: orderResult.data.order.status || 'PENDING',
+      payment: {
+        fundingSourceId: funding_source_id,
+        amount: denomination,
+        currency: currency_code,
+        subtotal: subtotal,
+        total: total,
+        fees: fees,
+        channel: channel,
+        refund: refundTotal ? { total: refundTotal } : undefined
+      },
+      reward: {
+        value: {
+          denomination: denomination,
+          currency_code: currency_code
+        },
+        delivery: {
+          method: deliveryMethod,
+          status: deliveryStatus
+        },
+        recipient: {
+          name: recipientName,
+          email: recipientEmail,
+          phone: recipientPhone
+        },
+        products: products,
+        custom_fields: custom_fields
+      },
+      tremendousData: orderResult.data,
+      metadata: {
+        source: 'app',
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+        campaignId: campaign_id,
+        invoiceId: invoice_id,
+        rewardId: rewardId,
+        orderId: orderId,
+        createdAt: createdAt
+      }
+    });
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'debit',
       amount: requiredCoins,
-      description: `Payout request - $${amount} ${currency}`,
+      description: `Payout request - $${denomination} ${currency_code}`,
       status: 'pending',
-      referenceId: payoutResult.payoutId,
+      referenceId: orderResult.data.order.id,
+      tremendousOrderId: orderResult.data.order.id,
+      paymentProvider: 'tremendous',
       metadata: {
-        payoutId: payoutResult.payoutId,
-        method: method,
-        amount: amount,
-        currency: currency,
-        recipient: recipient
+        orderId: orderResult.data.order.id,
+        products: products,
+        amount: denomination,
+        currency: currency_code,
+        recipient: {
+          name: recipientName,
+          email: recipientEmail,
+          phone: recipientPhone
+        },
+        fundingSourceId: funding_source_id,
+        campaignId: campaign_id,
+        invoiceId: invoice_id,
+        customFields: custom_fields
       }
     });
 
     await Promise.all([
       user.save(),
+      tremendousOrder.save(),
       transaction.save()
     ]);
 
@@ -194,14 +376,38 @@ router.post('/create', protect, async (req, res) => {
       success: true,
       data: {
         message: 'Payout request created successfully!',
-        payoutId: payoutResult.payoutId,
-        status: payoutResult.status,
-        amount: amount,
-        currency: currency,
-        method: method,
-        estimatedDelivery: payoutResult.estimatedDelivery,
-        trackingUrl: payoutResult.trackingUrl,
-        newBalance: user.wallet.balance
+        orderId: orderResult.data.order.id,
+        tremendousOrderId: orderResult.data.order.id,
+        status: orderResult.data.order.status,
+        payment: {
+          fundingSourceId: funding_source_id,
+          amount: denomination,
+          currency: currency_code,
+          subtotal: subtotal,
+          total: total,
+          fees: fees,
+          channel: channel,
+          refund: refundTotal ? { total: refundTotal } : undefined
+        },
+        reward: {
+          value: {
+            denomination: denomination,
+            currency_code: currency_code
+          },
+          delivery: {
+            method: deliveryMethod,
+            status: deliveryStatus
+          },
+          recipient: {
+            name: recipientName,
+            email: recipientEmail,
+            phone: recipientPhone
+          },
+          products: products,
+          custom_fields: custom_fields
+        },
+        newBalance: user.wallet.balance,
+        tremendousData: orderResult.data
       }
     });
   } catch (error) {
@@ -213,10 +419,10 @@ router.post('/create', protect, async (req, res) => {
   }
 });
 
-// Get payout status
-router.get('/:payoutId/status', protect, async (req, res) => {
+// Get order status
+router.get('/:orderId/status', protect, async (req, res) => {
   try {
-    const { payoutId } = req.params;
+    const { orderId } = req.params;
     const user = await User.findById(req.user.userId).select('_id');
     
     if (!user) {
@@ -226,40 +432,30 @@ router.get('/:payoutId/status', protect, async (req, res) => {
       });
     }
 
-    // Get payout status from Tremendous
-    const statusResult = await tremendous.getPayoutStatus(payoutId);
+    // Get order status from Tremendous
+    const statusResult = await tremendous.getOrder(orderId);
 
     if (!statusResult.success) {
       return res.status(400).json({
         success: false,
-        error: statusResult.error || 'Failed to get payout status'
+        error: statusResult.error || 'Failed to get order status'
       });
     }
 
     res.json({
       success: true,
-      data: {
-        payoutId: statusResult.payoutId,
-        status: statusResult.status,
-        amount: statusResult.amount,
-        currency: statusResult.currency,
-        rewardType: statusResult.rewardType,
-        deliveredAt: statusResult.deliveredAt,
-        claimedAt: statusResult.claimedAt,
-        expiresAt: statusResult.expiresAt,
-        trackingUrl: statusResult.trackingUrl
-      }
+      data: statusResult.data
     });
   } catch (error) {
-    console.error('Error getting payout status:', error);
+    console.error('Error getting order status:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to get payout status'
+      error: 'Failed to get order status'
     });
   }
 });
 
-// Get user payout history
+// Get user order history
 router.get('/history', protect, async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
@@ -272,41 +468,38 @@ router.get('/history', protect, async (req, res) => {
       });
     }
 
-    // Get payout history from Tremendous
-    const historyResult = await tremendous.getUserPayouts(user._id.toString(), {
-      page: parseInt(page),
+    // Get order history from Tremendous
+    const historyResult = await tremendous.getOrders({
+      external_id: user._id.toString(),
+      status: status,
       limit: parseInt(limit),
-      status: status
+      offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
     if (!historyResult.success) {
       return res.status(500).json({
         success: false,
-        error: historyResult.error || 'Failed to get payout history'
+        error: historyResult.error || 'Failed to get order history'
       });
     }
 
     res.json({
       success: true,
-      data: {
-        payouts: historyResult.payouts,
-        pagination: historyResult.pagination,
-        totalAmount: historyResult.totalAmount
-      }
+      data: historyResult.data
     });
   } catch (error) {
-    console.error('Error getting payout history:', error);
+    console.error('Error getting order history:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to get payout history'
+      error: 'Failed to get order history'
     });
   }
 });
 
-// Cancel payout
-router.post('/:payoutId/cancel', protect, async (req, res) => {
+// Approve order
+router.post('/:orderId/approve', protect, async (req, res) => {
   try {
-    const { payoutId } = req.params;
+    const { orderId } = req.params;
     const user = await User.findById(req.user.userId).select('_id');
     
     if (!user) {
@@ -316,44 +509,43 @@ router.post('/:payoutId/cancel', protect, async (req, res) => {
       });
     }
 
-    // Cancel payout with Tremendous
-    const cancelResult = await tremendous.cancelPayout(payoutId);
+    // Approve order with Tremendous
+    const approveResult = await tremendous.approveOrder(orderId);
 
-    if (!cancelResult.success) {
+    if (!approveResult.success) {
       return res.status(400).json({
         success: false,
-        error: cancelResult.error || 'Failed to cancel payout'
+        error: approveResult.error || 'Failed to approve order'
       });
     }
 
     // Update transaction status
     await Transaction.findOneAndUpdate(
-      { referenceId: payoutId, user: user._id },
-      { status: 'cancelled' }
+      { referenceId: orderId, user: user._id },
+      { status: 'approved' }
     );
 
     res.json({
       success: true,
       data: {
-        message: 'Payout cancelled successfully',
-        payoutId: cancelResult.payoutId,
-        status: cancelResult.status,
-        cancelledAt: cancelResult.cancelledAt
+        message: 'Order approved successfully',
+        orderId: orderId,
+        status: 'approved'
       }
     });
   } catch (error) {
-    console.error('Error cancelling payout:', error);
+    console.error('Error approving order:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to cancel payout'
+      error: 'Failed to approve order'
     });
   }
 });
 
-// Get payout analytics
-router.get('/analytics', protect, async (req, res) => {
+// Reject order
+router.post('/:orderId/reject', protect, async (req, res) => {
   try {
-    const { startDate, endDate, groupBy = 'day' } = req.query;
+    const { orderId } = req.params;
     const user = await User.findById(req.user.userId).select('_id');
     
     if (!user) {
@@ -363,189 +555,750 @@ router.get('/analytics', protect, async (req, res) => {
       });
     }
 
-    // Get payout analytics from Tremendous
-    const analyticsResult = await tremendous.getPayoutAnalytics({
-      startDate: startDate,
-      endDate: endDate,
-      groupBy: groupBy
+    // Reject order with Tremendous
+    const rejectResult = await tremendous.rejectOrder(orderId);
+
+    if (!rejectResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: rejectResult.error || 'Failed to reject order'
+      });
+    }
+
+    // Update transaction status
+    await Transaction.findOneAndUpdate(
+      { referenceId: orderId, user: user._id },
+      { status: 'rejected' }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Order rejected successfully',
+        orderId: orderId,
+        status: 'rejected'
+      }
+    });
+  } catch (error) {
+    console.error('Error rejecting order:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reject order'
+    });
+  }
+});
+
+// Get all orders (admin)
+router.get('/orders', protect, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status, external_id } = req.query;
+    
+    // Get orders from Tremendous
+    const ordersResult = await tremendous.getOrders({
+      external_id: external_id,
+      status: status,
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    if (!analyticsResult.success) {
+    if (!ordersResult.success) {
       return res.status(500).json({
         success: false,
-        error: analyticsResult.error || 'Failed to get payout analytics'
+        error: ordersResult.error || 'Failed to get orders'
       });
     }
 
     res.json({
       success: true,
-      data: {
-        analytics: analyticsResult.analytics
-      }
+      data: ordersResult.data
     });
   } catch (error) {
-    console.error('Error getting payout analytics:', error);
+    console.error('Error getting orders:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to get payout analytics'
+      error: 'Failed to get orders'
     });
   }
 });
 
-// Payout completion callback (called by Tremendous)
-router.post('/callback/tremendous', async (req, res) => {
+// Get all rewards
+router.get('/rewards', protect, async (req, res) => {
   try {
-    const { payoutId, status, signature } = req.body;
+    const { page = 1, limit = 20, status } = req.query;
     
-    // Verify callback with Tremendous
-    const verification = await tremendous.verifyCallback({
-      payoutId: payoutId,
-      status: status,
-      signature: signature
-    });
-
-    if (!verification.success || !verification.isValid) {
+    const rewardsResult = await tremendous.getRewards();
+    
+    if (!rewardsResult.success) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid callback data'
+        error: rewardsResult.error || 'Failed to get rewards'
       });
     }
 
-    // Update transaction status
-    const transaction = await Transaction.findOne({ referenceId: payoutId });
+    let rewards = rewardsResult.data.rewards || [];
+    
+    // Filter by status if provided
+    if (status) {
+      rewards = rewards.filter(reward => reward.status === status);
+    }
+
+    // Simple pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedRewards = rewards.slice(startIndex, endIndex);
+
+    res.json({
+      success: true,
+      data: {
+        rewards: paginatedRewards,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: rewards.length,
+          totalPages: Math.ceil(rewards.length / limit)
+        },
+        message: 'Rewards retrieved successfully'
+      }
+    });
+  } catch (error) {
+    console.error('Error getting rewards:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get rewards'
+    });
+  }
+});
+
+// Get specific reward by ID
+router.get('/rewards/:rewardId', protect, async (req, res) => {
+  try {
+    const { rewardId } = req.params;
+    
+    const rewardResult = await tremendous.getReward(rewardId);
+
+    if (!rewardResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: rewardResult.error || 'Failed to get reward'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: rewardResult.data
+    });
+  } catch (error) {
+    console.error('Error getting reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get reward'
+    });
+  }
+});
+
+// Generate reward link
+router.post('/rewards/:rewardId/generate-link', protect, async (req, res) => {
+  try {
+    const { rewardId } = req.params;
+    
+    const linkResult = await tremendous.generateRewardLink(rewardId);
+
+    if (!linkResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: linkResult.error || 'Failed to generate reward link'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: linkResult.data
+    });
+  } catch (error) {
+    console.error('Error generating reward link:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate reward link'
+    });
+  }
+});
+
+// Resend reward
+router.post('/rewards/:rewardId/resend', protect, async (req, res) => {
+  try {
+    const { rewardId } = req.params;
+    
+    const resendResult = await tremendous.resendReward(rewardId);
+
+    if (!resendResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: resendResult.error || 'Failed to resend reward'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: resendResult.data
+    });
+  } catch (error) {
+    console.error('Error resending reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to resend reward'
+    });
+  }
+});
+
+// Cancel reward
+router.post('/rewards/:rewardId/cancel', protect, async (req, res) => {
+  try {
+    const { rewardId } = req.params;
+    
+    const cancelResult = await tremendous.cancelReward(rewardId);
+
+    if (!cancelResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: cancelResult.error || 'Failed to cancel reward'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: cancelResult.data
+    });
+  } catch (error) {
+    console.error('Error canceling reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel reward'
+    });
+  }
+});
+
+// Get all campaigns
+router.get('/campaigns', protect, async (req, res) => {
+  try {
+    const campaignsResult = await tremendous.getCampaigns();
+
+    if (!campaignsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: campaignsResult.error || 'Failed to get campaigns'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: campaignsResult.data
+    });
+  } catch (error) {
+    console.error('Error getting campaigns:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get campaigns'
+    });
+  }
+});
+
+// Create campaign
+router.post('/campaigns', protect, async (req, res) => {
+  try {
+    const campaignData = req.body;
+    
+    const campaignResult = await tremendous.createCampaign(campaignData);
+
+    if (!campaignResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: campaignResult.error || 'Failed to create campaign'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: campaignResult.data
+    });
+  } catch (error) {
+    console.error('Error creating campaign:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create campaign'
+    });
+  }
+});
+
+// Get specific campaign by ID
+router.get('/campaigns/:campaignId', protect, async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    
+    const campaignResult = await tremendous.getCampaign(campaignId);
+
+    if (!campaignResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: campaignResult.error || 'Failed to get campaign'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: campaignResult.data
+    });
+  } catch (error) {
+    console.error('Error getting campaign:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get campaign'
+    });
+  }
+});
+
+// Update campaign
+router.put('/campaigns/:campaignId', protect, async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const campaignData = req.body;
+    
+    const campaignResult = await tremendous.updateCampaign(campaignId, campaignData);
+
+    if (!campaignResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: campaignResult.error || 'Failed to update campaign'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: campaignResult.data
+    });
+  } catch (error) {
+    console.error('Error updating campaign:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update campaign'
+    });
+  }
+});
+
+// Get all funding sources
+router.get('/funding-sources', protect, async (req, res) => {
+  try {
+    const fundingSourcesResult = await tremendous.getFundingSources();
+    
+    if (!fundingSourcesResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: fundingSourcesResult.error || 'Failed to get funding sources'
+      });
+    }
+
+    const fundingSources = fundingSourcesResult.data.funding_sources || fundingSourcesResult.fallback?.funding_sources || [];
+
+    res.json({
+      success: true,
+      data: {
+        funding_sources: fundingSources,
+        total: fundingSources.length,
+        message: 'Funding sources retrieved successfully'
+      }
+    });
+  } catch (error) {
+    console.error('Error getting funding sources:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get funding sources'
+    });
+  }
+});
+
+// Get specific funding source by ID
+router.get('/funding-sources/:fundingSourceId', protect, async (req, res) => {
+  try {
+    const { fundingSourceId } = req.params;
+    
+    const fundingResult = await tremendous.getFundingSource(fundingSourceId);
+
+    if (!fundingResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: fundingResult.error || 'Failed to get funding source'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: fundingResult.data
+    });
+  } catch (error) {
+    console.error('Error getting funding source:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get funding source'
+    });
+  }
+});
+
+// Get all invoices
+router.get('/invoices', protect, async (req, res) => {
+  try {
+    const { offset = 0, limit = 10 } = req.query;
+    
+    const invoicesResult = await tremendous.getInvoices({
+      offset: parseInt(offset),
+      limit: parseInt(limit)
+    });
+
+    if (!invoicesResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: invoicesResult.error || 'Failed to get invoices'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: invoicesResult.data
+    });
+  } catch (error) {
+    console.error('Error getting invoices:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get invoices'
+    });
+  }
+});
+
+// Create invoice
+router.post('/invoices', protect, async (req, res) => {
+  try {
+    const invoiceData = req.body;
+    
+    const invoiceResult = await tremendous.createInvoice(invoiceData);
+
+    if (!invoiceResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: invoiceResult.error || 'Failed to create invoice'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: invoiceResult.data
+    });
+  } catch (error) {
+    console.error('Error creating invoice:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create invoice'
+    });
+  }
+});
+
+// Get specific invoice by ID
+router.get('/invoices/:invoiceId', protect, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    
+    const invoiceResult = await tremendous.getInvoice(invoiceId);
+
+    if (!invoiceResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: invoiceResult.error || 'Failed to get invoice'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: invoiceResult.data
+    });
+  } catch (error) {
+    console.error('Error getting invoice:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get invoice'
+    });
+  }
+});
+
+// Delete invoice
+router.delete('/invoices/:invoiceId', protect, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    
+    const deleteResult = await tremendous.deleteInvoice(invoiceId);
+
+    if (!deleteResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: deleteResult.error || 'Failed to delete invoice'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: deleteResult.data
+    });
+  } catch (error) {
+    console.error('Error deleting invoice:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete invoice'
+    });
+  }
+});
+
+// Get invoice PDF
+router.get('/invoices/:invoiceId/pdf', protect, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    
+    const pdfResult = await tremendous.getInvoicePDF(invoiceId);
+
+    if (!pdfResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: pdfResult.error || 'Failed to get invoice PDF'
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoiceId}.pdf"`);
+    res.send(pdfResult.data);
+  } catch (error) {
+    console.error('Error getting invoice PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get invoice PDF'
+    });
+  }
+});
+
+// Get invoice CSV
+router.get('/invoices/:invoiceId/csv', protect, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    
+    const csvResult = await tremendous.getInvoiceCSV(invoiceId);
+
+    if (!csvResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: csvResult.error || 'Failed to get invoice CSV'
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoiceId}.csv"`);
+    res.send(csvResult.data);
+  } catch (error) {
+    console.error('Error getting invoice CSV:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get invoice CSV'
+    });
+  }
+});
+
+// Get balance transactions
+router.get('/balance-transactions', protect, async (req, res) => {
+  try {
+    const balanceResult = await tremendous.getBalanceTransactions();
+
+    if (!balanceResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: balanceResult.error || 'Failed to get balance transactions'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: balanceResult.data
+    });
+  } catch (error) {
+    console.error('Error getting balance transactions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get balance transactions'
+    });
+  }
+});
+
+// Get all organizations
+router.get('/organizations', protect, async (req, res) => {
+  try {
+    const organizationsResult = await tremendous.getOrganizations();
+
+    if (!organizationsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: organizationsResult.error || 'Failed to get organizations'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: organizationsResult.data
+    });
+  } catch (error) {
+    console.error('Error getting organizations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get organizations'
+    });
+  }
+});
+
+// Create organization
+router.post('/organizations', protect, async (req, res) => {
+  try {
+    const organizationData = req.body;
+    
+    const organizationResult = await tremendous.createOrganization(organizationData);
+
+    if (!organizationResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: organizationResult.error || 'Failed to create organization'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: organizationResult.data
+    });
+  } catch (error) {
+    console.error('Error creating organization:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create organization'
+    });
+  }
+});
+
+// Get specific organization by ID
+router.get('/organizations/:organizationId', protect, async (req, res) => {
+  try {
+    const { organizationId } = req.params;
+    
+    const organizationResult = await tremendous.getOrganization(organizationId);
+
+    if (!organizationResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: organizationResult.error || 'Failed to get organization'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: organizationResult.data
+    });
+  } catch (error) {
+    console.error('Error getting organization:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get organization'
+    });
+  }
+});
+
+// Create organization API key
+router.post('/organizations/create-api-key', protect, async (req, res) => {
+  try {
+    const apiKeyResult = await tremendous.createOrganizationAPIKey();
+
+    if (!apiKeyResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: apiKeyResult.error || 'Failed to create organization API key'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: apiKeyResult.data
+    });
+  } catch (error) {
+    console.error('Error creating organization API key:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create organization API key'
+    });
+  }
+});
+
+// Tremendous webhook callback
+router.post('/webhook/tremendous', async (req, res) => {
+  try {
+    const { order_id, status, event_type } = req.body;
+    
+    console.log('Tremendous webhook received:', { order_id, status, event_type });
+
+    // Update Tremendous order status
+    const tremendousOrder = await TremendousOrder.findByTremendousOrderId(order_id);
+    if (tremendousOrder) {
+      await tremendousOrder.updateStatus(status, {
+        webhookEvent: event_type,
+        webhookReceivedAt: new Date()
+      });
+    }
+
+    // Update transaction status based on webhook
+    const transaction = await Transaction.findOne({ tremendousOrderId: order_id });
     if (transaction) {
-      transaction.status = status === 'delivered' ? 'completed' : status;
+      let newStatus = 'pending';
+      
+      switch (status) {
+        case 'APPROVED':
+          newStatus = 'approved';
+          break;
+        case 'REJECTED':
+          newStatus = 'rejected';
+          break;
+        case 'SENT':
+          newStatus = 'sent';
+          break;
+        case 'DELIVERED':
+          newStatus = 'delivered';
+          break;
+        case 'CLAIMED':
+          newStatus = 'claimed';
+          break;
+        case 'EXPIRED':
+          newStatus = 'expired';
+          break;
+        default:
+          newStatus = status.toLowerCase();
+      }
+      
+      transaction.status = newStatus;
       await transaction.save();
     }
 
     res.json({
       success: true,
       data: {
-        message: 'Payout status updated successfully',
-        payoutId: payoutId,
+        message: 'Webhook processed successfully',
+        order_id: order_id,
         status: status
       }
     });
   } catch (error) {
-    console.error('Error processing payout callback:', error);
+    console.error('Error processing Tremendous webhook:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to process payout callback'
+      error: 'Failed to process webhook'
     });
   }
 });
 
-// Get payout limits and requirements
-router.get('/limits', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).select('xp vip location');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-
-    const currentXP = user.xp.current || 0;
-    const currentTier = getCurrentTier(currentXP);
-    const vipLevel = user.vip?.level || 'free';
-    const country = user.location?.country || 'US';
-
-    // Define limits based on user tier and VIP status
-    const limits = {
-      minAmount: 5.00, // $5.00
-      maxAmount: getMaxAmount(currentTier, vipLevel),
-      dailyLimit: getDailyLimit(currentTier, vipLevel),
-      monthlyLimit: getMonthlyLimit(currentTier, vipLevel),
-      requiredCoins: 10, // 10 coins per $1
-      processingTime: '1-24 hours',
-      fees: 0,
-      verificationRequired: true,
-      supportedCountries: ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'ES', 'IT'],
-      supportedCurrencies: ['USD', 'CAD', 'GBP', 'AUD', 'EUR']
-    };
-
-    res.json({
-      success: true,
-      data: {
-        limits,
-        userTier: currentTier.id,
-        vipLevel: vipLevel,
-        country: country,
-        isEligible: limits.supportedCountries.includes(country)
-      }
-    });
-  } catch (error) {
-    console.error('Error getting payout limits:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get payout limits'
-    });
-  }
-});
-
-// Helper functions
-function getCurrentTier(xp) {
-  if (xp >= 10000) return { id: 'expert', name: 'Expert' };
-  if (xp >= 5000) return { id: 'senior', name: 'Senior' };
-  if (xp >= 1000) return { id: 'mid', name: 'Mid-Level' };
-  return { id: 'junior', name: 'Junior' };
-}
-
-function getMaxAmount(tier, vipLevel) {
-  const baseAmounts = {
-    'junior': 50.00,
-    'mid': 100.00,
-    'senior': 250.00,
-    'expert': 500.00
-  };
-
-  const vipMultipliers = {
-    'free': 1.0,
-    'bronze': 1.5,
-    'gold': 2.0,
-    'platinum': 3.0
-  };
-
-  return baseAmounts[tier.id] * vipMultipliers[vipLevel];
-}
-
-function getDailyLimit(tier, vipLevel) {
-  const baseLimits = {
-    'junior': 2,
-    'mid': 3,
-    'senior': 5,
-    'expert': 10
-  };
-
-  const vipMultipliers = {
-    'free': 1.0,
-    'bronze': 1.5,
-    'gold': 2.0,
-    'platinum': 3.0
-  };
-
-  return Math.round(baseLimits[tier.id] * vipMultipliers[vipLevel]);
-}
-
-function getMonthlyLimit(tier, vipLevel) {
-  const baseLimits = {
-    'junior': 10,
-    'mid': 20,
-    'senior': 50,
-    'expert': 100
-  };
-
-  const vipMultipliers = {
-    'free': 1.0,
-    'bronze': 1.5,
-    'gold': 2.0,
-    'platinum': 3.0
-  };
-
-  return Math.round(baseLimits[tier.id] * vipMultipliers[vipLevel]);
-}
 
 module.exports = router;
 

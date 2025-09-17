@@ -41,23 +41,18 @@ const upload = multer({
     }
 });
 
-// Get user profile
+// Get user profile (optimized)
 router.get('/', protect, async (req, res) => {
     try {
-        const user = await User.findById(req.user.userId).select('firstName lastName mobile profile email socialTag');
-        if (!user) {
+        const { getOptimizedProfile } = require('../utils/optimizedProfile');
+        
+        const profileData = await getOptimizedProfile(req.user.userId);
+        
+        if (!profileData) {
             return res.status(404).json({ error: 'User not found' });
         }
         
-        res.json({
-            _id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            mobile: user.mobile,
-            email: user.email,
-            profile: user.profile,
-            socialTag: user.socialTag
-        });
+        res.json(profileData);
     } catch (error) {
         console.error('Profile fetch error:', error);
         res.status(500).json({ 
@@ -145,6 +140,10 @@ router.put('/', protect, async (req, res) => {
         }
         
         await user.save();
+        
+        // Invalidate user caches
+        const { invalidateUserCaches } = require('../utils/optimizedProfile');
+        invalidateUserCaches(req.user.userId);
         
         res.json({
             message: 'Profile updated successfully',
@@ -302,21 +301,20 @@ router.post('/avatar', [protect, upload.single('avatar')], async (req, res) => {
     }
 });
 
-// Get user stats
+// Get user stats (optimized)
 router.get('/stats', protect, async (req, res) => {
     try {
-        const user = await User.findById(req.user.userId).select('xp wallet games surveys races');
+        const { getOptimizedStats } = require('../utils/optimizedProfile');
         
-        const stats = {
-            xp: user.xp.current,
-            balance: user.wallet.balance,
-            gamesPlayed: user.games.length,
-            surveysCompleted: user.surveys.filter(s => s.completed).length,
-            racesCompleted: user.races.filter(r => r.completed).length
-        };
+        const stats = await getOptimizedStats(req.user.userId);
+        
+        if (!stats) {
+            return res.status(404).json({ error: 'User not found' });
+        }
         
         res.json(stats);
     } catch (error) {
+        console.error('Error getting user stats:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -339,5 +337,111 @@ router.get('/avatar/:filename', (req, res) => {
         res.status(500).json({ error: 'Failed to retrieve avatar' });
     }
 });
+
+// Get user achievements (optimized with pagination)
+router.get('/achievements', protect, async (req, res) => {
+    try {
+        const { category, status, page = 1, limit = 10 } = req.query;
+        const { getOptimizedAchievements } = require('../utils/optimizedProfile');
+        
+        const options = {
+            category: category || null,
+            status: status || null,
+            page: parseInt(page),
+            limit: parseInt(limit)
+        };
+        
+        const result = await getOptimizedAchievements(req.user.userId, options);
+        
+        res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        console.error('Error getting user achievements:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get achievements'
+        });
+    }
+});
+
+// Get user leadership data (optimized)
+router.get('/leadership', protect, async (req, res) => {
+    try {
+        const { getCachedUserRanks } = require('../utils/optimizedProfile');
+        
+        const ranks = await getCachedUserRanks(req.user.userId);
+        
+        res.json({
+            success: true,
+            data: {
+                ranks
+            }
+        });
+    } catch (error) {
+        console.error('Error getting leadership data:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get leadership data'
+        });
+    }
+});
+
+// Get user dashboard (optimized)
+router.get('/dashboard', protect, async (req, res) => {
+    try {
+        const { getOptimizedProfile, getOptimizedStats } = require('../utils/optimizedProfile');
+        
+        const [profileData, stats] = await Promise.all([
+            getOptimizedProfile(req.user.userId),
+            getOptimizedStats(req.user.userId)
+        ]);
+        
+        if (!profileData || !stats) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        res.json({
+            success: true,
+            data: {
+                user: {
+                    name: profileData.firstName || 'Anonymous',
+                    avatar: profileData.profile?.avatar,
+                    tier: getTierFromXP(profileData.xp?.current || 0),
+                    vipLevel: profileData.vip?.level || 'free'
+                },
+                progress: {
+                    gamesPlayed: stats.gamesPlayed,
+                    surveysCompleted: stats.surveysCompleted,
+                    racesCompleted: stats.racesCompleted,
+                    currentStreak: stats.streak,
+                    totalXP: stats.xp,
+                    walletBalance: stats.balance,
+                    badgesEarned: stats.badges,
+                    titlesEarned: stats.titles
+                },
+                achievements: profileData.achievements,
+                leadership: profileData.leadership,
+                badges: profileData.badges,
+                titles: profileData.titles
+            }
+        });
+    } catch (error) {
+        console.error('Error getting user dashboard:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get dashboard data'
+        });
+    }
+});
+
+// Helper function to get tier from XP
+function getTierFromXP(xp) {
+    if (xp >= 10000) return 'expert';
+    if (xp >= 5000) return 'senior';
+    if (xp >= 1000) return 'mid';
+    return 'junior';
+}
 
 module.exports = router;

@@ -70,7 +70,7 @@ const apiLimiter = rateLimit({
 });
 
 // Apply rate limiting to all routes
-app.use(apiLimiter);
+// app.use(apiLimiter);
 
 // Initialize Passport
 app.use(passport.initialize());
@@ -152,6 +152,9 @@ mongoose.connect(config.MONGODB_URI, {
         const gameOffersRoutes = require('./routes/game-offers');
         const payoutsRoutes = require('./routes/payouts');
         const fraudPreventionRoutes = require('./routes/fraud-prevention');
+        const achievementRoutes = require('./routes/achievements');
+        const leaderboardRoutes = require('./routes/leaderboard');
+        const performanceRoutes = require('./routes/performance');
         const testRoutes = require('./routes/test');
 
         // API Routes
@@ -185,6 +188,9 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/game-offers', gameOffersRoutes);
         app.use('/api/payouts', payoutsRoutes);
         app.use('/api/fraud-prevention', fraudPreventionRoutes);
+        app.use('/api/achievements', achievementRoutes);
+        app.use('/api/leaderboard', leaderboardRoutes);
+        app.use('/api/performance', performanceRoutes);
         app.use('/api/test', testRoutes);
 
         // Error handling middleware

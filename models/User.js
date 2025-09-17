@@ -802,6 +802,8 @@ const userSchema = new mongoose.Schema({
     },
     // User badges
     badges: [String],
+    // User titles
+    titles: [String],
     // User preferences
     preferences: {
         lastActiveTab: String,

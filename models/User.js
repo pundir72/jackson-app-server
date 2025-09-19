@@ -8,12 +8,23 @@ const userSchema = new mongoose.Schema({
             latitude: {
                 type: Number
             },
+  // Last seen IP
+  lastIp: { type: String },
             longitude: {
                 type: Number
             },
             accuracy: {
                 type: Number,
                 default: 0
+            },
+            country: {
+                type: String
+            },
+            city: {
+                type: String
+            },
+            ip: {
+                type: String
             },
             timestamp: {
                 type: Date,
@@ -24,6 +35,9 @@ const userSchema = new mongoose.Schema({
             latitude: Number,
             longitude: Number,
             accuracy: Number,
+            country: String,
+            city: String,
+            ip: String,
             timestamp: { type: Date, default: Date.now }
         }]
     },

@@ -260,6 +260,7 @@ const getTierComparison = async (region = 'US') => {
       return {
         tierId: tier.tierId,
         name: tier.name,
+        logo: tier.logo,
         description: tier.description,
         monthly: tierPricing.monthly,
         yearly: tierPricing.yearly,

@@ -10,6 +10,8 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
+RUN npm install node-cache
+
 # Copy application code
 COPY . .
 

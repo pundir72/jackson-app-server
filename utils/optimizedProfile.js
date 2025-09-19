@@ -16,7 +16,7 @@ async function getOptimizedProfile(userId) {
 
     // Get user data with minimal fields
     const user = await User.findById(userId)
-      .select('firstName lastName mobile profile email socialTag xp wallet badges titles vip')
+      .select('firstName lastName mobile profile email socialTag xp wallet badges titles vip location lastIp')
       .lean();
 
     if (!user) {
@@ -49,6 +49,11 @@ async function getOptimizedProfile(userId) {
       badges: user.badges || [],
       titles: user.titles || [],
       vip: user.vip,
+      location: {
+        current: user.location?.current || null,
+        historyCount: Array.isArray(user.location?.history) ? user.location.history.length : 0
+      },
+      lastIp: user.lastIp || null,
       achievements: {
         recent: recentAchievements,
         total: achievementCount

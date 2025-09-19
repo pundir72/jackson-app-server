@@ -4,79 +4,88 @@ const User = require('../models/User');
 const protect = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
-// Update location settings
-router.post('/settings', async (req, res) => {
+// Report location and IP (single endpoint for FE to call)
+router.post('/report', protect, async (req, res) => {
   try {
-    const { mobile, status, mode } = req.body;
-
-    if (!mobile) {
-      return res.status(400).json({ error: 'Mobile number is required' });
+    const { latitude, longitude, accuracy, timestamp, country, city, ip } = req.body;
+    const userId = req.user.userId;
+    const ipCandidates = [
+      req.headers['cf-connecting-ip'],
+      req.headers['x-real-ip'],
+      Array.isArray(req.headers['x-forwarded-for']) ? req.headers['x-forwarded-for'][0] : (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null),
+      req.ip
+    ].filter(Boolean);
+    let ipAddress = ip || ipCandidates[0];
+    if (ipAddress && ipAddress.startsWith('::ffff:')) ipAddress = ipAddress.replace('::ffff:', '');
+    if (ipAddress === '::1') ipAddress = '127.0.0.1';
+    // Basic coord validation
+    if (latitude !== undefined && (latitude < -90 || latitude > 90)) {
+      return res.status(400).json({ success: false, message: 'Invalid latitude value' });
+    }
+    if (longitude !== undefined && (longitude < -180 || longitude > 180)) {
+      return res.status(400).json({ success: false, message: 'Invalid longitude value' });
     }
 
-    // Validate status and mode
-    const validStatus = ['granted', 'denied', 'not_asked'];
-    const validModes = ['always', 'while_using', 'once', 'never'];
-
-    if (status && !validStatus.includes(status)) {
-      return res.status(400).json({ error: 'Invalid status value' });
-    }
-
-    if (mode && !validModes.includes(mode)) {
-      return res.status(400).json({ error: 'Invalid mode value' });
-    }
-
-    // Update user's location settings
-    const update = {
-      'locationSettings.status': status || 'not_asked',
-      'locationSettings.mode': mode || 'never'
-    };
-
-    if (status === 'granted') {
-      update['locationSettings.lastGrantedAt'] = new Date();
-    }
-
-    const user = await User.findOneAndUpdate(
-      { mobile },
-      update,
-      { upsert: true, new: true }
-    );
-
-    // Log the event
-    console.log(`Location settings updated for user ${mobile}:`, {
-      status,
-      mode
-    });
-
-    res.status(200).json({ 
-      message: 'Location settings updated successfully',
-      user
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to update location settings' });
-  }
-});
-
-// Get current location settings
-router.get('/settings/:mobile', async (req, res) => {
-  try {
-    const { mobile } = req.params;
-    const user = await User.findOne({ mobile });
-
+    const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Ensure containers exist
+    if (!user.location) {
+      user.location = { current: {}, history: [] };
+    }
+
+    // Update current GPS
+    if (latitude !== undefined && longitude !== undefined) {
+      const current = {
+        latitude,
+        longitude,
+        accuracy: accuracy || 0,
+        country: country || undefined,
+        city: city || undefined,
+        ip: ipAddress,
+        timestamp: timestamp || new Date()
+      };
+      user.location.current = current;
+      user.location.history.push(current);
+      if (user.location.history.length > 100) {
+        user.location.history = user.location.history.slice(-100);
+      }
+    }
+
+    // Update last seen IP
+    user.lastIp = ipAddress;
+
+    await user.save();
+
+    // Invalidate profile cache so GET /api/profile reflects latest IP/location
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      invalidateUserCaches(userId);
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after /report:', e.message);
     }
 
     res.status(200).json({
-      status: user.locationSettings.status,
-      mode: user.locationSettings.mode,
-      lastGrantedAt: user.locationSettings.lastGrantedAt,
-      ipLocation: user.locationSettings.ipLocation,
-      fallbackLocation: user.locationSettings.fallbackLocation
+      success: true,
+      message: 'Location and IP reported successfully',
+      data: {
+        current: user.location.current,
+        lastIp: user.lastIp
+      }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch location settings' });
+    console.error('Error reporting location:', error);
+    res.status(500).json({ success: false, message: 'Failed to report location', error: error.message });
   }
 });
+
+// Update location settings
+// Removed /settings endpoint per requirements
+
+// Get current location settings
+// Removed settings getter per requirements
 
 // IP-based location fallback
 router.post('/ip-location', async (req, res) => {
@@ -87,19 +96,19 @@ router.post('/ip-location', async (req, res) => {
       return res.status(400).json({ error: 'Mobile number is required' });
     }
 
-    const update = {
-      'locationSettings.ipLocation': {
-        country,
-        city,
-        latitude,
-        longitude
-      },
-      'locationSettings.fallbackLocation': {
-        enabled: true,
-        lastUsed: new Date(),
-        reason: 'IP-based fallback location'
-      }
-    };
+    const update = {};
+
+    // Capture and store IP as well
+    const ipCandidates = [
+      req.headers['cf-connecting-ip'],
+      req.headers['x-real-ip'],
+      Array.isArray(req.headers['x-forwarded-for']) ? req.headers['x-forwarded-for'][0] : (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null),
+      req.ip
+    ].filter(Boolean);
+    let ipAddress = ipCandidates[0];
+    if (ipAddress && ipAddress.startsWith('::ffff:')) ipAddress = ipAddress.replace('::ffff:', '');
+    if (ipAddress === '::1') ipAddress = '127.0.0.1';
+    update['lastIp'] = ipAddress;
 
     const user = await User.findOneAndUpdate(
       { mobile },
@@ -107,9 +116,17 @@ router.post('/ip-location', async (req, res) => {
       { upsert: true, new: true }
     );
 
+    // Invalidate profile cache
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      if (user?._id) invalidateUserCaches(user._id.toString());
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after /ip-location:', e.message);
+    }
+
     res.status(200).json({ 
-      message: 'IP location updated successfully',
-      user
+      message: 'IP updated successfully',
+      lastIp: update.lastIp
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update IP location' });
@@ -143,6 +160,16 @@ router.post('/update', protect, async (req, res) => {
         const { latitude, longitude, accuracy, timestamp } = req.body;
         const userId = req.user.userId;
 
+        const ipCandidates = [
+          req.headers['cf-connecting-ip'],
+          req.headers['x-real-ip'],
+          Array.isArray(req.headers['x-forwarded-for']) ? req.headers['x-forwarded-for'][0] : (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null),
+          req.ip
+        ].filter(Boolean);
+        let ipAddress = ipCandidates[0];
+        if (ipAddress && ipAddress.startsWith('::ffff:')) ipAddress = ipAddress.replace('::ffff:', '');
+        if (ipAddress === '::1') ipAddress = '127.0.0.1';
+
         // Validate coordinates
         if (latitude && (latitude < -90 || latitude > 90)) {
             return res.status(400).json({ error: 'Invalid latitude value' });
@@ -171,6 +198,7 @@ router.post('/update', protect, async (req, res) => {
             latitude,
             longitude,
             accuracy: accuracy || 0,
+            ip: ipAddress,
             timestamp: timestamp || new Date()
         };
 
@@ -179,6 +207,7 @@ router.post('/update', protect, async (req, res) => {
             latitude,
             longitude,
             accuracy: accuracy || 0,
+            ip: ipAddress,
             timestamp: timestamp || new Date()
         });
 
@@ -188,6 +217,19 @@ router.post('/update', protect, async (req, res) => {
         }
 
         await user.save();
+
+        // Also store last seen IP
+        await User.findByIdAndUpdate(userId, {
+          $set: { lastIp: ipAddress }
+        });
+
+        // Invalidate profile cache so latest IP appears in GET /api/profile
+        try {
+          const { invalidateUserCaches } = require('../utils/optimizedProfile');
+          invalidateUserCaches(userId);
+        } catch (e) {
+          console.warn('Failed to invalidate user caches after /update:', e.message);
+        }
 
         // Log the location update
         console.log(`Location updated for user ${user.userId} (mobile: ${user.mobile}):`, {

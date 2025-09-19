@@ -20,6 +20,7 @@ const vipTierSchema = new mongoose.Schema({
     title: { type: String, required: true },
     description: { type: String, required: true },
     icon: { type: String, required: true },
+    logo: { type: String, default: 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png' },
     order: { type: Number, default: 0 }
   }],
   pricing: {
@@ -108,7 +109,8 @@ vipTierSchema.methods.getBenefitsSummary = function() {
     id: benefit.id,
     title: benefit.title,
     description: benefit.description,
-    icon: benefit.icon
+    icon: benefit.icon,
+    logo: benefit.logo || benefit.icon || 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png'
   }));
 };
 

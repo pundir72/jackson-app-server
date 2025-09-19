@@ -48,6 +48,8 @@ const logger = winston.createLogger({
 const app = express();
 
 // Middleware setup
+// Trust proxy headers so req.ip and req.ips work correctly behind proxies/CDNs
+app.set('trust proxy', true);
 app.use(cors());
 app.use(helmet());
 

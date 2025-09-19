@@ -23,8 +23,10 @@ const vipSubscriptionSchema = new mongoose.Schema({
     default: 'pending'
   },
   paymentIntentId: { 
-    type: String, 
-    required: true 
+    type: String
+  },
+  paymentClientSecret: {
+    type: String
   },
   stripeSubscriptionId: { 
     type: String 

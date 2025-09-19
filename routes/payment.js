@@ -96,6 +96,22 @@ router.post('/initiate', protect, [
       });
     }
 
+    // If payment intent already exists, return it (idempotent initiation)
+    if (subscription.paymentIntentId && subscription.paymentClientSecret) {
+      return res.json({
+        success: true,
+        message: 'Payment already initiated',
+        data: {
+          paymentIntentId: subscription.paymentIntentId,
+          clientSecret: subscription.paymentClientSecret || null,
+          amount: subscription.amount,
+          currency: subscription.currency,
+          subscriptionId: subscription._id,
+          nextStep: 'payment_confirmation'
+        }
+      });
+    }
+
     // Validate pricing
     const region = subscription.metadata?.region || 'US';
     const isValidPricing = await validatePricing(
@@ -145,6 +161,7 @@ router.post('/initiate', protect, [
 
     // Update subscription with payment intent ID
     subscription.paymentIntentId = paymentIntent.id;
+    subscription.paymentClientSecret = paymentIntent.client_secret;
     await subscription.save();
 
     res.json({

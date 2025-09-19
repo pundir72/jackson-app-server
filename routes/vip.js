@@ -264,6 +264,27 @@ router.post('/upgrade', protect, [
             });
         }
         
+        // Check if user already has a pending subscription (prevent duplicates)
+        const existingPending = await VIPSubscription.findOne({
+            userId,
+            status: 'pending'
+        }).sort({ createdAt: -1 });
+        if (existingPending) {
+            return res.status(200).json({
+                success: true,
+                message: 'Pending VIP subscription already exists. Complete payment to activate.',
+                data: {
+                    subscriptionId: existingPending._id,
+                    tierId: existingPending.tier,
+                    plan: existingPending.plan,
+                    amount: existingPending.amount,
+                    currency: existingPending.currency,
+                    paymentIntentId: existingPending.paymentIntentId || null,
+                    nextStep: existingPending.paymentIntentId ? 'payment_confirmation' : 'payment_required'
+                }
+            });
+        }
+        
         // Calculate cost
         const cost = await calculateSubscriptionCost(tierId, plan, region, userId);
         
@@ -273,7 +294,6 @@ router.post('/upgrade', protect, [
             tier: tierId,
             plan,
             status: 'pending',
-            paymentIntentId: `pending_${Date.now()}_${userId}`,
             amount: cost.amount,
             currency: cost.currency,
             startDate: new Date(),

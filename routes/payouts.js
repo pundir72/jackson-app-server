@@ -23,8 +23,8 @@ router.get('/methods', protect, async (req, res) => {
 
     // Get products and funding sources from Tremendous
     const [productsResult, fundingSourcesResult] = await Promise.all([
-      tremendous.getProducts(),
-      tremendous.getFundingSources()
+      tremendous.getProducts(req.query || {}),
+      tremendous.getFundingSources(req.query || {})
     ]);
 
     // Handle fallback data for 502 errors
@@ -458,7 +458,7 @@ router.get('/:orderId/status', protect, async (req, res) => {
 // Get user order history
 router.get('/history', protect, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = 1, limit = 20, ...rest } = req.query;
     const user = await User.findById(req.user.userId).select('_id');
     
     if (!user) {
@@ -471,9 +471,9 @@ router.get('/history', protect, async (req, res) => {
     // Get order history from Tremendous
     const historyResult = await tremendous.getOrders({
       external_id: user._id.toString(),
-      status: status,
       limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      ...rest
     });
 
     if (!historyResult.success) {
@@ -624,9 +624,9 @@ router.get('/orders', protect, async (req, res) => {
 // Get all rewards
 router.get('/rewards', protect, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = 1, limit = 20, status, ...rest } = req.query;
     
-    const rewardsResult = await tremendous.getRewards();
+    const rewardsResult = await tremendous.getRewards(rest);
     
     if (!rewardsResult.success) {
       return res.status(400).json({
@@ -780,7 +780,7 @@ router.post('/rewards/:rewardId/cancel', protect, async (req, res) => {
 // Get all campaigns
 router.get('/campaigns', protect, async (req, res) => {
   try {
-    const campaignsResult = await tremendous.getCampaigns();
+    const campaignsResult = await tremendous.getCampaigns(req.query || {});
 
     if (!campaignsResult.success) {
       return res.status(500).json({
@@ -887,7 +887,7 @@ router.put('/campaigns/:campaignId', protect, async (req, res) => {
 // Get all funding sources
 router.get('/funding-sources', protect, async (req, res) => {
   try {
-    const fundingSourcesResult = await tremendous.getFundingSources();
+    const fundingSourcesResult = await tremendous.getFundingSources(req.query || {});
     
     if (!fundingSourcesResult.success) {
       return res.status(400).json({
@@ -945,11 +945,12 @@ router.get('/funding-sources/:fundingSourceId', protect, async (req, res) => {
 // Get all invoices
 router.get('/invoices', protect, async (req, res) => {
   try {
-    const { offset = 0, limit = 10 } = req.query;
+    const { offset = 0, limit = 10, ...rest } = req.query;
     
     const invoicesResult = await tremendous.getInvoices({
       offset: parseInt(offset),
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      ...rest
     });
 
     if (!invoicesResult.success) {
@@ -1108,7 +1109,7 @@ router.get('/invoices/:invoiceId/csv', protect, async (req, res) => {
 // Get balance transactions
 router.get('/balance-transactions', protect, async (req, res) => {
   try {
-    const balanceResult = await tremendous.getBalanceTransactions();
+    const balanceResult = await tremendous.getBalanceTransactions(req.query || {});
 
     if (!balanceResult.success) {
       return res.status(500).json({

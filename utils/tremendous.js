@@ -125,19 +125,10 @@ class TremendousSDK {
         };
       }
 
-      const queryParams = new URLSearchParams();
-      if (options.external_id) queryParams.append('external_id', options.external_id);
-      if (options.status) queryParams.append('status', options.status);
-      if (options.limit) queryParams.append('limit', options.limit);
-      if (options.offset) queryParams.append('offset', options.offset);
-
-      const url = queryParams.toString() ? 
-        `${this.baseUrl}/orders?${queryParams}` : 
-        `${this.baseUrl}/orders`;
-
-      const response = await axios.get(url, {
+      const response = await axios.get(`${this.baseUrl}/orders`, {
         headers: this.getHeaders(),
-        timeout: TREMENDOUS_CONFIG.timeout
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
       });
 
       return {
@@ -194,7 +185,7 @@ class TremendousSDK {
    * Get funding sources
    * @returns {Object} Funding sources list
    */
-  async getFundingSources() {
+  async getFundingSources(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -203,13 +194,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/funding_sources`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/funding_sources`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
 
       return {
         success: true,
@@ -248,7 +237,7 @@ class TremendousSDK {
    * Get all products
    * @returns {Object} Products list
    */
-  async getProducts() {
+  async getProducts(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -257,13 +246,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/products`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/products`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
       return {
         success: true,
         data: response.data
@@ -427,7 +414,7 @@ class TremendousSDK {
    * Get rewards
    * @returns {Object} Rewards list
    */
-  async getRewards() {
+  async getRewards(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -436,13 +423,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/rewards`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/rewards`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
 
       return {
         success: true,
@@ -609,7 +594,7 @@ class TremendousSDK {
    * Get all campaigns
    * @returns {Object} Campaigns list
    */
-  async getCampaigns() {
+  async getCampaigns(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -618,13 +603,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/campaigns`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/campaigns`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
 
       return {
         success: true,
@@ -801,17 +784,10 @@ class TremendousSDK {
         };
       }
 
-      const queryParams = new URLSearchParams();
-      if (options.offset) queryParams.append('offset', options.offset);
-      if (options.limit) queryParams.append('limit', options.limit);
-
-      const url = queryParams.toString() ? 
-        `${this.baseUrl}/invoices?${queryParams}` : 
-        `${this.baseUrl}/invoices`;
-
-      const response = await axios.get(url, {
+      const response = await axios.get(`${this.baseUrl}/invoices`, {
         headers: this.getHeaders(),
-        timeout: TREMENDOUS_CONFIG.timeout
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
       });
 
       return {
@@ -1022,7 +998,7 @@ class TremendousSDK {
    * Get balance transactions
    * @returns {Object} Balance transactions result
    */
-  async getBalanceTransactions() {
+  async getBalanceTransactions(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -1031,13 +1007,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/balance_transactions`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/balance_transactions`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
 
       return {
         success: true,
@@ -1057,7 +1031,7 @@ class TremendousSDK {
    * Get all organizations
    * @returns {Object} Organizations list
    */
-  async getOrganizations() {
+  async getOrganizations(options = {}) {
     try {
       if (!this.apiKey) {
         return {
@@ -1066,13 +1040,11 @@ class TremendousSDK {
         };
       }
 
-      const response = await axios.get(
-        `${this.baseUrl}/organizations`,
-        {
-          headers: this.getHeaders(),
-          timeout: TREMENDOUS_CONFIG.timeout
-        }
-      );
+      const response = await axios.get(`${this.baseUrl}/organizations`, {
+        headers: this.getHeaders(),
+        timeout: TREMENDOUS_CONFIG.timeout,
+        params: options
+      });
 
       return {
         success: true,

@@ -158,6 +158,7 @@ mongoose.connect(config.MONGODB_URI, {
         const leaderboardRoutes = require('./routes/leaderboard');
         const performanceRoutes = require('./routes/performance');
         const testRoutes = require('./routes/test');
+        const accountOverviewRoutes = require('./routes/account-overview');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -194,6 +195,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/leaderboard', leaderboardRoutes);
         app.use('/api/performance', performanceRoutes);
         app.use('/api/test', testRoutes);
+        app.use('/api/account-overview', accountOverviewRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {
@@ -238,6 +240,10 @@ mongoose.connect(config.MONGODB_URI, {
                 });
             });
         });
+
+        // Start scheduler for My Account Overview
+        const scheduler = require('./utils/scheduler');
+        scheduler.start();
 
         // Export for testing
         module.exports = {

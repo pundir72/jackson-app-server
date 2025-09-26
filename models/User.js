@@ -265,6 +265,27 @@ const userSchema = new mongoose.Schema({
         dailyEarningGoal: {
             type: Number,
             required: false
+        },
+        // My Account Overview - Dynamic Daily Goals
+        dailyGoals: {
+            gamesPlayed: {
+                type: Number,
+                default: 5,
+                min: 1,
+                max: 20
+            },
+            coinsEarned: {
+                type: Number,
+                default: 900,
+                min: 100,
+                max: 5000
+            },
+            challengesCompleted: {
+                type: Number,
+                default: 3,
+                min: 1,
+                max: 10
+            }
         }
     },
 
@@ -830,7 +851,15 @@ const userSchema = new mongoose.Schema({
         theme: { type: String, default: 'light' },
         notifications: { type: Boolean, default: true },
         language: { type: String, default: 'en' }
-    }
+    },
+    
+    // My Account Overview milestone tracking
+    milestone_gamesPlayed_claimed: { type: Boolean, default: false },
+    milestone_coinsEarned_claimed: { type: Boolean, default: false },
+    milestone_challengesCompleted_claimed: { type: Boolean, default: false },
+    
+    // Daily progress reset tracking
+    lastProgressReset: Date
 }, {
     timestamps: true,
     toJSON: {

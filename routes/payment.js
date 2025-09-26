@@ -6,63 +6,59 @@ const VIPSubscription = require('../models/VIPSubscription');
 const User = require('../models/User');
 const VIPTier = require('../models/VIPTier');
 const { calculateSubscriptionCost, validatePricing } = require('../utils/pricing');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // Mock Stripe configuration (replace with actual Stripe setup)
-const STRIPE_CONFIG = {
-  secretKey: process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key',
-  publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_mock_key',
-  webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || 'whsec_mock_secret'
-};
 
 // Initialize Stripe (mock implementation)
-const stripe = {
-  paymentIntents: {
-    create: async (params) => {
-      // Mock payment intent creation
-      return {
-        id: `pi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        client_secret: `pi_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
-        amount: params.amount,
-        currency: params.currency,
-        status: 'requires_payment_method'
-      };
-    },
-    confirm: async (paymentIntentId) => {
-      // Mock payment confirmation
-      return {
-        id: paymentIntentId,
-        status: 'succeeded',
-        amount: 10000,
-        currency: 'usd'
-      };
-    }
-  },
-  subscriptions: {
-    create: async (params) => {
-      // Mock subscription creation
-      return {
-        id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        status: 'active',
-        current_period_start: Math.floor(Date.now() / 1000),
-        current_period_end: Math.floor(Date.now() / 1000) + (params.items[0].price_data.unit_amount === 1000 ? 30 : 365) * 24 * 60 * 60
-      };
-    },
-    cancel: async (subscriptionId) => {
-      // Mock subscription cancellation
-      return {
-        id: subscriptionId,
-        status: 'canceled',
-        canceled_at: Math.floor(Date.now() / 1000)
-      };
-    }
-  },
-  webhooks: {
-    constructEvent: (body, signature, secret) => {
-      // Mock webhook event construction
-      return JSON.parse(body);
-    }
-  }
-};
+// const stripe = {
+//   paymentIntents: {
+//     create: async (params) => {
+//       // Mock payment intent creation
+//       return {
+//         id: `pi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+//         client_secret: `pi_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
+//         amount: params.amount,
+//         currency: params.currency,
+//         status: 'requires_payment_method'
+//       };
+//     },
+//     confirm: async (paymentIntentId) => {
+//       // Mock payment confirmation
+//       return {
+//         id: paymentIntentId,
+//         status: 'succeeded',
+//         amount: 10000,
+//         currency: 'usd'
+//       };
+//     }
+//   },
+//   subscriptions: {
+//     create: async (params) => {
+//       // Mock subscription creation
+//       return {
+//         id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+//         status: 'active',
+//         current_period_start: Math.floor(Date.now() / 1000),
+//         current_period_end: Math.floor(Date.now() / 1000) + (params.items[0].price_data.unit_amount === 1000 ? 30 : 365) * 24 * 60 * 60
+//       };
+//     },
+//     cancel: async (subscriptionId) => {
+//       // Mock subscription cancellation
+//       return {
+//         id: subscriptionId,
+//         status: 'canceled',
+//         canceled_at: Math.floor(Date.now() / 1000)
+//       };
+//     }
+//   },
+//   webhooks: {
+//     constructEvent: (body, signature, secret) => {
+//       // Mock webhook event construction
+//       return JSON.parse(body);
+//     }
+//   }
+// };
 
 // Initiate payment for VIP subscription
 router.post('/initiate', protect, [
@@ -131,7 +127,7 @@ router.post('/initiate', protect, [
         region,
         userId
       );
-      
+
       return res.status(400).json({
         success: false,
         message: 'Invalid pricing detected',
@@ -156,7 +152,8 @@ router.post('/initiate', protect, [
         tier: subscription.tier,
         plan: subscription.plan
       },
-      description: `VIP ${subscription.tier} ${subscription.plan} subscription`
+      description: `VIP ${subscription.tier} ${subscription.plan} subscription`,
+      payment_method_types: ['card', 'link'],
     });
 
     // Update subscription with payment intent ID
@@ -221,8 +218,7 @@ router.post('/confirm', protect, [
     }
 
     // Confirm payment intent (mock implementation)
-    const confirmedPayment = await stripe.paymentIntents.confirm(paymentIntentId);
-
+    const confirmedPayment = await stripe.paymentIntents.confirm(paymentIntentId, { return_url: 'jacksonrewards://payment-success', payment_method:"pm_card_visa" });
     if (confirmedPayment.status !== 'succeeded') {
       return res.status(400).json({
         success: false,
@@ -304,9 +300,9 @@ router.post('/confirm', protect, [
 router.post('/webhook/google-play', express.json(), async (req, res) => {
   try {
     const { notificationType, purchaseToken, subscriptionId } = req.body;
-    
+
     console.log('Google Play webhook received:', { notificationType, purchaseToken, subscriptionId });
-    
+
     switch (notificationType) {
       case 1: // SUBSCRIPTION_RECOVERED
         await handleGooglePlaySubscriptionRecovered(purchaseToken, subscriptionId);
@@ -350,15 +346,15 @@ router.post('/webhook/google-play', express.json(), async (req, res) => {
       default:
         console.log(`Unhandled Google Play notification type: ${notificationType}`);
     }
-    
+
     res.status(200).json({ received: true });
-    
+
   } catch (error) {
     console.error('Google Play webhook error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Google Play webhook processing failed',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -367,9 +363,9 @@ router.post('/webhook/google-play', express.json(), async (req, res) => {
 router.post('/webhook/apple-store', express.json(), async (req, res) => {
   try {
     const { notification_type, unified_receipt } = req.body;
-    
+
     console.log('Apple Store webhook received:', { notification_type });
-    
+
     switch (notification_type) {
       case 'INITIAL_BUY':
         await handleAppleStoreInitialBuy(unified_receipt);
@@ -413,15 +409,15 @@ router.post('/webhook/apple-store', express.json(), async (req, res) => {
       default:
         console.log(`Unhandled Apple Store notification type: ${notification_type}`);
     }
-    
+
     res.status(200).json({ received: true });
-    
+
   } catch (error) {
     console.error('Apple Store webhook error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Apple Store webhook processing failed',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -429,6 +425,7 @@ router.post('/webhook/apple-store', express.json(), async (req, res) => {
 // Handle Stripe webhooks
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
+    const STRIPE_CONFIG = { webhookSecret: "testing" }
     const sig = req.headers['stripe-signature'];
     const endpointSecret = STRIPE_CONFIG.webhookSecret;
 
@@ -477,7 +474,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 async function handlePaymentSucceeded(paymentIntent) {
   try {
     const { subscriptionId, userId, tier, plan } = paymentIntent.metadata;
-    
+
     const subscription = await VIPSubscription.findById(subscriptionId);
     if (!subscription) {
       console.error('Subscription not found for payment intent:', paymentIntent.id);
@@ -511,7 +508,7 @@ async function handlePaymentSucceeded(paymentIntent) {
 async function handlePaymentFailed(paymentIntent) {
   try {
     const { subscriptionId } = paymentIntent.metadata;
-    
+
     const subscription = await VIPSubscription.findById(subscriptionId);
     if (subscription) {
       subscription.status = 'failed';
@@ -528,13 +525,13 @@ async function handlePaymentFailed(paymentIntent) {
 async function handleInvoicePaymentSucceeded(invoice) {
   try {
     const { subscriptionId } = invoice.metadata;
-    
+
     const subscription = await VIPSubscription.findById(subscriptionId);
     if (subscription) {
       // Extend subscription
       const newEndDate = new Date(subscription.endDate);
       newEndDate.setFullYear(newEndDate.getFullYear() + 1);
-      
+
       subscription.endDate = newEndDate;
       subscription.nextBillingDate = newEndDate;
       await subscription.save();
@@ -557,7 +554,7 @@ async function handleInvoicePaymentSucceeded(invoice) {
 async function handleInvoicePaymentFailed(invoice) {
   try {
     const { subscriptionId } = invoice.metadata;
-    
+
     const subscription = await VIPSubscription.findById(subscriptionId);
     if (subscription) {
       subscription.status = 'failed';
@@ -577,7 +574,7 @@ async function handleInvoicePaymentFailed(invoice) {
 async function handleSubscriptionDeleted(subscription) {
   try {
     const { subscriptionId } = subscription.metadata;
-    
+
     const vipSubscription = await VIPSubscription.findById(subscriptionId);
     if (vipSubscription) {
       vipSubscription.status = 'cancelled';

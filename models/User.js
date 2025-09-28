@@ -340,6 +340,43 @@ const userSchema = new mongoose.Schema({
         },
         date: {
             type: Date
+        },
+        // Enhanced game tracking for My Games screen
+        firstPlayed: {
+            type: Date,
+            default: Date.now
+        },
+        lastPlayed: {
+            type: Date
+        },
+        playCount: {
+            type: Number,
+            default: 0
+        },
+        completedAt: {
+            type: Date
+        },
+        progress: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100
+        },
+        level: {
+            type: Number,
+            default: 1
+        },
+        // Unread message tracking
+        hasUnread: {
+            type: Boolean,
+            default: false
+        },
+        unreadCount: {
+            type: Number,
+            default: 0
+        },
+        lastMessageAt: {
+            type: Date
         }
     }],
 
@@ -850,7 +887,22 @@ const userSchema = new mongoose.Schema({
         lastInsightCheck: Date,
         theme: { type: String, default: 'light' },
         notifications: { type: Boolean, default: true },
-        language: { type: String, default: 'en' }
+        language: { type: String, default: 'en' },
+        // My Games screen preferences
+        searchHistory: [{
+            query: String,
+            timestamp: { type: Date, default: Date.now }
+        }],
+        favoriteGames: [String],
+        lastSearchQuery: String,
+        gameViewMode: { type: String, enum: ['grid', 'list'], default: 'grid' },
+        sortBy: { type: String, enum: ['recent', 'popular', 'alphabetical', 'earning'], default: 'recent' },
+        filterBy: {
+            category: [String],
+            difficulty: [String],
+            hasUnread: Boolean,
+            isFavorite: Boolean
+        }
     },
     
     // My Account Overview milestone tracking
@@ -859,7 +911,64 @@ const userSchema = new mongoose.Schema({
     milestone_challengesCompleted_claimed: { type: Boolean, default: false },
     
     // Daily progress reset tracking
-    lastProgressReset: Date
+    lastProgressReset: Date,
+    
+    // Ad-free purchase system
+    adFreeUntil: {
+        type: Date,
+        default: null
+    },
+    adFreePurchases: [{
+        purchaseDate: {
+            type: Date,
+            default: Date.now
+        },
+        duration: {
+            type: Number, // hours
+            required: true
+        },
+        cost: {
+            coins: {
+                type: Number,
+                default: 0
+            },
+            xp: {
+                type: Number,
+                default: 0
+            }
+        },
+        paymentMethod: {
+            type: String,
+            enum: ['coins', 'xp', 'mixed'],
+            required: true
+        },
+        expiresAt: {
+            type: Date,
+            required: true
+        },
+        isActive: {
+            type: Boolean,
+            default: true
+        }
+    }],
+    adFreeStats: {
+        totalPurchases: {
+            type: Number,
+            default: 0
+        },
+        totalCoinsSpent: {
+            type: Number,
+            default: 0
+        },
+        totalXPSpent: {
+            type: Number,
+            default: 0
+        },
+        totalHoursPurchased: {
+            type: Number,
+            default: 0
+        }
+    }
 }, {
     timestamps: true,
     toJSON: {
@@ -916,6 +1025,78 @@ userSchema.methods.getMobileWithoutCode = function() {
     }
     // For international numbers, this method might not be applicable
     return this.mobile;
+};
+
+// Ad-free purchase methods
+userSchema.methods.isAdFree = function() {
+    return this.adFreeUntil && this.adFreeUntil > new Date();
+};
+
+userSchema.methods.getAdFreeTimeRemaining = function() {
+    if (!this.isAdFree()) {
+        return 0;
+    }
+    return Math.max(0, this.adFreeUntil.getTime() - new Date().getTime());
+};
+
+userSchema.methods.purchaseAdFree = function(duration, cost, paymentMethod) {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + (duration * 60 * 60 * 1000)); // Convert hours to milliseconds
+    
+    // If user already has ad-free time, extend it
+    const currentAdFreeUntil = this.adFreeUntil && this.adFreeUntil > now ? this.adFreeUntil : now;
+    const newAdFreeUntil = new Date(currentAdFreeUntil.getTime() + (duration * 60 * 60 * 1000));
+    
+    // Create purchase record
+    const purchase = {
+        purchaseDate: now,
+        duration: duration,
+        cost: cost,
+        paymentMethod: paymentMethod,
+        expiresAt: newAdFreeUntil,
+        isActive: true
+    };
+    
+    // Add to purchases array
+    this.adFreePurchases.push(purchase);
+    
+    // Update ad-free until time
+    this.adFreeUntil = newAdFreeUntil;
+    
+    // Update stats
+    if (!this.adFreeStats) {
+        this.adFreeStats = {
+            totalPurchases: 0,
+            totalCoinsSpent: 0,
+            totalXPSpent: 0,
+            totalHoursPurchased: 0
+        };
+    }
+    
+    this.adFreeStats.totalPurchases += 1;
+    this.adFreeStats.totalCoinsSpent += cost.coins || 0;
+    this.adFreeStats.totalXPSpent += cost.xp || 0;
+    this.adFreeStats.totalHoursPurchased += duration;
+    
+    return purchase;
+};
+
+userSchema.methods.getAdFreeStats = function() {
+    return {
+        isAdFree: this.isAdFree(),
+        adFreeUntil: this.adFreeUntil,
+        timeRemaining: this.getAdFreeTimeRemaining(),
+        stats: this.adFreeStats || {
+            totalPurchases: 0,
+            totalCoinsSpent: 0,
+            totalXPSpent: 0,
+            totalHoursPurchased: 0
+        },
+        recentPurchases: this.adFreePurchases
+            .filter(p => p.isActive)
+            .sort((a, b) => b.purchaseDate - a.purchaseDate)
+            .slice(0, 5)
+    };
 };
 
 // Method to get country code

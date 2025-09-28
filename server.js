@@ -159,6 +159,9 @@ mongoose.connect(config.MONGODB_URI, {
         const performanceRoutes = require('./routes/performance');
         const testRoutes = require('./routes/test');
         const accountOverviewRoutes = require('./routes/account-overview');
+        const myGamesRoutes = require('./routes/my-games');
+        const adFreeRoutes = require('./routes/ad-free');
+        const temporaryAdFreeRoutes = require('./routes/temporary-ad-free');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -196,6 +199,9 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/performance', performanceRoutes);
         app.use('/api/test', testRoutes);
         app.use('/api/account-overview', accountOverviewRoutes);
+        app.use('/api/my-games', myGamesRoutes);
+        app.use('/api/ad-free', adFreeRoutes);
+        app.use('/api/temporary-ad-free', temporaryAdFreeRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

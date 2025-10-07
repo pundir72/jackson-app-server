@@ -7,12 +7,8 @@ const VIPSubscription = require('../models/VIPSubscription');
 const User = require('../models/User');
 const { getVIPPricing } = require('../utils/pricing');
 
-// Admin authentication middleware (you can enhance this later)
-const adminAuth = (req, res, next) => {
-  // For now, we'll use the same auth middleware
-  // Later you can add role-based authentication
-  protect(req, res, next);
-};
+// Admin authentication middleware
+const { adminAuth } = require('../middleware/adminAuth');
 
 // ==================== VIP TIERS MANAGEMENT ====================
 
@@ -464,7 +460,162 @@ router.post('/subscriptions/:id/cancel', adminAuth, [
 
 // ==================== USERS MANAGEMENT ====================
 
-// Get VIP users
+// Get all users with filters and pagination
+router.get('/users', adminAuth, async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      tier = 'all', 
+      status = 'all',
+      location = 'all',
+      memberSince = 'all',
+      gender = 'all',
+      ageRange = 'all',
+      search = ''
+    } = req.query;
+    
+    let query = {};
+    
+    // Search functionality
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Tier filter
+    if (tier !== 'all') {
+      query['vip.level'] = tier;
+    }
+    
+    // Status filter
+    if (status !== 'all') {
+      if (status === 'Active') {
+        query['profile.status'] = 'active';
+      } else if (status === 'Inactive') {
+        query['profile.status'] = 'inactive';
+      } else if (status === 'Paused') {
+        query['profile.status'] = 'paused';
+      }
+    }
+    
+    // Gender filter
+    if (gender !== 'all') {
+      query['onboarding.gender'] = gender.toLowerCase();
+    }
+    
+    // Age range filter
+    if (ageRange !== 'all') {
+      query['onboarding.ageRange'] = ageRange.replace('–', '-');
+    }
+    
+    // Location filter (based on current location)
+    if (location !== 'all') {
+      query['location.current.city'] = { $regex: location.split(',')[0], $options: 'i' };
+    }
+    
+    // Member since filter
+    if (memberSince !== 'all') {
+      const now = new Date();
+      let dateFilter = {};
+      
+      switch (memberSince) {
+        case 'Last 30 days':
+          dateFilter = { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) };
+          break;
+        case 'Last 3 months':
+          dateFilter = { $gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) };
+          break;
+        case 'Last 6 months':
+          dateFilter = { $gte: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000) };
+          break;
+        case 'Last year':
+          dateFilter = { $gte: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000) };
+          break;
+        case 'More than a year':
+          dateFilter = { $lt: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000) };
+          break;
+      }
+      
+      if (Object.keys(dateFilter).length > 0) {
+        query.createdAt = dateFilter;
+      }
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const users = await User.find(query)
+      .select('firstName lastName email mobile vip profile onboarding location createdAt lastActive')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await User.countDocuments(query);
+    
+    // Transform users to match frontend format
+    const transformedUsers = users.map(user => {
+      const fullName = `${user.firstName} ${user.lastName}`;
+      const tier = user.vip.level.charAt(0).toUpperCase() + user.vip.level.slice(1);
+      const status = user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1);
+      const gender = user.onboarding.gender ? user.onboarding.gender.charAt(0).toUpperCase() + user.onboarding.gender.slice(1) : 'N/A';
+      const ageRange = user.onboarding.ageRange || 'N/A';
+      const location = user.location.current.city && user.location.current.country 
+        ? `${user.location.current.city}, ${user.location.current.country}` 
+        : 'N/A';
+      
+      // Generate user ID from MongoDB ObjectId
+      const userId = `ID${user._id.toString().slice(-6).toUpperCase()}`;
+      
+      return {
+        id: user._id,
+        userId,
+        name: fullName,
+        tier,
+        tierIcon: getTierIcon(tier),
+        tierBg: getTierBg(tier),
+        tierBorder: getTierBorder(tier),
+        tierColor: getTierColor(tier),
+        email: user.email || 'N/A',
+        phone: user.mobile || 'N/A',
+        gender,
+        age: ageRange,
+        location,
+        status,
+        statusBg: getStatusBg(status),
+        statusColor: getStatusColor(status),
+        avatar: user.profile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
+        createdAt: user.createdAt,
+        lastActive: user.lastActive || user.createdAt
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        users: transformedUsers,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          totalItems: total,
+          itemsPerPage: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get users',
+      error: error.message
+    });
+  }
+});
+
+// Get VIP users (must come before /users/:id route)
 router.get('/users/vip', adminAuth, async (req, res) => {
   try {
     const { page = 1, limit = 10, tier = 'all' } = req.query;
@@ -506,6 +657,296 @@ router.get('/users/vip', adminAuth, async (req, res) => {
     });
   }
 });
+
+// Export users data (must come before /users/:id route)
+router.get('/users/export', adminAuth, async (req, res) => {
+  try {
+    const { format = 'csv' } = req.query;
+    
+    const users = await User.find({})
+      .select('firstName lastName email mobile vip profile onboarding location createdAt')
+      .sort({ createdAt: -1 });
+    
+    if (format === 'csv') {
+      // Generate CSV data
+      const csvHeaders = 'User ID,Name,Email,Phone,Gender,Age Range,Location,Tier,Status,Member Since\n';
+      const csvData = users.map(user => {
+        const userId = `ID${user._id.toString().slice(-6).toUpperCase()}`;
+        const fullName = `${user.firstName} ${user.lastName}`;
+        const tier = user.vip.level.charAt(0).toUpperCase() + user.vip.level.slice(1);
+        const status = user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1);
+        const gender = user.onboarding.gender ? user.onboarding.gender.charAt(0).toUpperCase() + user.onboarding.gender.slice(1) : 'N/A';
+        const ageRange = user.onboarding.ageRange || 'N/A';
+        const location = user.location.current.city && user.location.current.country 
+          ? `${user.location.current.city}, ${user.location.current.country}` 
+          : 'N/A';
+        const memberSince = user.createdAt.toISOString().split('T')[0];
+        
+        return `${userId},"${fullName}",${user.email || 'N/A'},${user.mobile || 'N/A'},${gender},${ageRange},"${location}",${tier},${status},${memberSince}`;
+      }).join('\n');
+      
+      const csvContent = csvHeaders + csvData;
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=users-export-${new Date().toISOString().split('T')[0]}.csv`);
+      res.send(csvContent);
+    } else {
+      // Return JSON format
+      res.json({
+        success: true,
+        data: users,
+        exportedAt: new Date(),
+        totalUsers: users.length
+      });
+    }
+  } catch (error) {
+    console.error('Error exporting users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to export users',
+      error: error.message
+    });
+  }
+});
+
+// Get single user details
+router.get('/users/:id', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const user = await User.findById(id)
+      .populate('wallet.transactions')
+      .populate('games')
+      .populate('tasks')
+      .populate('surveys');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Transform user data to match frontend format
+    const transformedUser = {
+      id: user._id,
+      userId: `ID${user._id.toString().slice(-6).toUpperCase()}`,
+      name: `${user.firstName} ${user.lastName}`,
+      tier: user.vip.level.charAt(0).toUpperCase() + user.vip.level.slice(1),
+      email: user.email || 'N/A',
+      phone: user.mobile || 'N/A',
+      gender: user.onboarding.gender ? user.onboarding.gender.charAt(0).toUpperCase() + user.onboarding.gender.slice(1) : 'N/A',
+      age: user.onboarding.ageRange || 'N/A',
+      location: user.location.current.city && user.location.current.country 
+        ? `${user.location.current.city}, ${user.location.current.country}` 
+        : 'N/A',
+      status: user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1),
+      avatar: user.profile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
+      registrationDate: user.createdAt,
+      memberSince: user.createdAt,
+      lastActive: user.lastActive || user.createdAt,
+      appVersion: '1.1.3.7', // Default value
+      accountStatus: user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1),
+      faceVerification: user.isVerified ? 'Verified' : 'Not Verified',
+      signupCountry: user.location.current.country || 'N/A',
+      country: user.location.current.country || 'N/A',
+      coinBalance: user.wallet.balance || 0,
+      xp: user.xp.current || 0,
+      xpTier: user.xp.tier || 1,
+      gamesPlayed: user.games.length || 0,
+      tasksCompleted: user.tasks.filter(task => task.completed).length || 0,
+      surveysCompleted: user.surveys.filter(survey => survey.completed).length || 0,
+      vip: user.vip,
+      wallet: user.wallet,
+      onboarding: user.onboarding,
+      profile: user.profile
+    };
+    
+    res.json({
+      success: true,
+      data: transformedUser
+    });
+  } catch (error) {
+    console.error('Error getting user details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user details',
+      error: error.message
+    });
+  }
+});
+
+// Update user
+router.put('/users/:id', adminAuth, [
+  body('firstName').optional().notEmpty().withMessage('First name cannot be empty'),
+  body('lastName').optional().notEmpty().withMessage('Last name cannot be empty'),
+  body('email').optional().isEmail().withMessage('Invalid email format'),
+  body('mobile').optional().isMobilePhone().withMessage('Invalid mobile number'),
+  body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Invalid gender'),
+  body('ageRange').optional().isIn(['18-25', '26-35', '36-45', '46-55', '56+']).withMessage('Invalid age range'),
+  body('status').optional().isIn(['active', 'inactive', 'paused']).withMessage('Invalid status')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    // Build update object
+    const updateFields = {};
+    
+    if (updateData.firstName) updateFields.firstName = updateData.firstName;
+    if (updateData.lastName) updateFields.lastName = updateData.lastName;
+    if (updateData.email) updateFields.email = updateData.email;
+    if (updateData.mobile) updateFields.mobile = updateData.mobile;
+    if (updateData.gender) updateFields['onboarding.gender'] = updateData.gender;
+    if (updateData.ageRange) updateFields['onboarding.ageRange'] = updateData.ageRange;
+    if (updateData.status) updateFields['profile.status'] = updateData.status;
+    
+    const user = await User.findByIdAndUpdate(
+      id,
+      updateFields,
+      { new: true, runValidators: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user',
+      error: error.message
+    });
+  }
+});
+
+// Update user status (suspend/activate)
+router.patch('/users/:id/status', adminAuth, [
+  body('status').isIn(['active', 'inactive', 'paused']).withMessage('Invalid status'),
+  body('reason').optional().isString().withMessage('Reason must be a string')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    
+    const { id } = req.params;
+    const { status, reason } = req.body;
+    
+    const user = await User.findByIdAndUpdate(
+      id,
+      { 
+        'profile.status': status,
+        'profile.statusReason': reason,
+        'profile.statusUpdatedAt': new Date()
+      },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+    
+    res.json({
+      success: true,
+      message: `User ${statusText.toLowerCase()}d successfully`,
+      data: {
+        id: user._id,
+        status: statusText,
+        reason
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status',
+      error: error.message
+    });
+  }
+});
+
+// Send notification to user
+router.post('/users/:id/notifications', adminAuth, [
+  body('message').notEmpty().withMessage('Message is required'),
+  body('type').optional().isIn(['info', 'warning', 'success', 'error']).withMessage('Invalid notification type')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    
+    const { id } = req.params;
+    const { message, type = 'info' } = req.body;
+    
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Here you would integrate with your notification service
+    // For now, we'll just log the notification
+    console.log(`Sending ${type} notification to user ${user.firstName} ${user.lastName}: ${message}`);
+    
+    // You could store the notification in a database or send via push notification service
+    // For example: await Notification.create({ userId: id, message, type, sentAt: new Date() });
+    
+    res.json({
+      success: true,
+      message: 'Notification sent successfully',
+      data: {
+        userId: id,
+        message,
+        type,
+        sentAt: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send notification',
+      error: error.message
+    });
+  }
+});
+
 
 // ==================== DASHBOARD STATS ====================
 
@@ -589,5 +1030,84 @@ router.get('/dashboard', adminAuth, async (req, res) => {
     });
   }
 });
+
+// Helper functions for user styling
+function getTierIcon(tier) {
+  switch (tier.toLowerCase()) {
+    case 'bronze':
+      return 'https://c.animaapp.com/t66hdvJZ/img/---icon--star--3@2x.png';
+    case 'gold':
+      return 'https://c.animaapp.com/t66hdvJZ/img/---icon--star--9@2x.png';
+    case 'platinum':
+      return 'https://c.animaapp.com/t66hdvJZ/img/---icon--star--10@2x.png';
+    default:
+      return 'https://c.animaapp.com/t66hdvJZ/img/---icon--star--3@2x.png';
+  }
+}
+
+function getTierBg(tier) {
+  switch (tier.toLowerCase()) {
+    case 'bronze':
+      return '#ffefda';
+    case 'gold':
+      return '#fffddf';
+    case 'platinum':
+      return '#f4f4f4';
+    default:
+      return '#ffefda';
+  }
+}
+
+function getTierBorder(tier) {
+  switch (tier.toLowerCase()) {
+    case 'bronze':
+      return '#c77023';
+    case 'gold':
+      return '#f0c92e';
+    case 'platinum':
+      return '#9aa7b8';
+    default:
+      return '#c77023';
+  }
+}
+
+function getTierColor(tier) {
+  switch (tier.toLowerCase()) {
+    case 'bronze':
+      return '#f68d2b';
+    case 'gold':
+      return '#c7a20f';
+    case 'platinum':
+      return '#6f85a4';
+    default:
+      return '#f68d2b';
+  }
+}
+
+function getStatusBg(status) {
+  switch (status.toLowerCase()) {
+    case 'active':
+      return '#d3f8d2';
+    case 'inactive':
+      return '#ffdbd4';
+    case 'paused':
+      return '#fff2ab';
+    default:
+      return '#d3f8d2';
+  }
+}
+
+function getStatusColor(status) {
+  switch (status.toLowerCase()) {
+    case 'active':
+      return '#066657';
+    case 'inactive':
+      return '#f40202';
+    case 'paused':
+      return '#6f631b';
+    default:
+      return '#066657';
+  }
+}
 
 module.exports = router;

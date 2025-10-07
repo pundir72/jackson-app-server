@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult, query } = require('express-validator');
-const protect = require('../middleware/auth');
 const User = require('../models/User');
 const TaskStepTemplate = require('../models/TaskStepTemplate');
 const PayoutMethod = require('../models/PayoutMethod');
@@ -12,26 +11,7 @@ const Deals = require('../models/Deals');
 // ADMIN AUTHENTICATION MIDDLEWARE
 // ============================================================================
 
-const requireAdmin = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.userId).select('role');
-    
-    if (!user || user.role !== 'ADMIN') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
-    
-    next();
-  } catch (error) {
-    console.error('Admin auth error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to verify admin privileges'
-    });
-  }
-};
+const { adminAuth } = require('../middleware/adminAuth');
 
 // ============================================================================
 // TASK STEP TEMPLATE MANAGEMENT
@@ -41,7 +21,7 @@ const requireAdmin = async (req, res, next) => {
  * Get all task step templates with filtering and pagination
  * GET /api/admin/cash-coach/task-templates
  */
-router.get('/task-templates', protect, requireAdmin, async (req, res) => {
+router.get('/task-templates', adminAuth, async (req, res) => {
   try {
     const {
       page = 1,
@@ -103,7 +83,7 @@ router.get('/task-templates', protect, requireAdmin, async (req, res) => {
  * Get single task step template
  * GET /api/admin/cash-coach/task-templates/:id
  */
-router.get('/task-templates/:id', protect, requireAdmin, async (req, res) => {
+router.get('/task-templates/:id', adminAuth, async (req, res) => {
   try {
     const template = await TaskStepTemplate.findOne({ id: req.params.id });
     
@@ -132,7 +112,7 @@ router.get('/task-templates/:id', protect, requireAdmin, async (req, res) => {
  * Create new task step template
  * POST /api/admin/cash-coach/task-templates
  */
-router.post('/task-templates', protect, requireAdmin, [
+router.post('/task-templates', adminAuth, [
   body('id').notEmpty().withMessage('ID is required'),
   body('title').notEmpty().withMessage('Title is required'),
   body('description').notEmpty().withMessage('Description is required'),
@@ -182,7 +162,7 @@ router.post('/task-templates', protect, requireAdmin, [
  * Update task step template
  * PUT /api/admin/cash-coach/task-templates/:id
  */
-router.put('/task-templates/:id', protect, requireAdmin, [
+router.put('/task-templates/:id', adminAuth, [
   body('title').optional().notEmpty().withMessage('Title cannot be empty'),
   body('description').optional().notEmpty().withMessage('Description cannot be empty'),
   body('type').optional().isIn(['game', 'survey', 'challenge', 'milestone', 'receipt']).withMessage('Invalid type'),
@@ -232,7 +212,7 @@ router.put('/task-templates/:id', protect, requireAdmin, [
  * Delete task step template
  * DELETE /api/admin/cash-coach/task-templates/:id
  */
-router.delete('/task-templates/:id', protect, requireAdmin, async (req, res) => {
+router.delete('/task-templates/:id', adminAuth, async (req, res) => {
   try {
     const template = await TaskStepTemplate.findOneAndDelete({ id: req.params.id });
 
@@ -261,7 +241,7 @@ router.delete('/task-templates/:id', protect, requireAdmin, async (req, res) => 
  * Toggle task template active status
  * PATCH /api/admin/cash-coach/task-templates/:id/toggle
  */
-router.patch('/task-templates/:id/toggle', protect, requireAdmin, async (req, res) => {
+router.patch('/task-templates/:id/toggle', adminAuth, async (req, res) => {
   try {
     const template = await TaskStepTemplate.findOne({ id: req.params.id });
 
@@ -299,7 +279,7 @@ router.patch('/task-templates/:id/toggle', protect, requireAdmin, async (req, re
  * Get all payout methods with filtering and pagination
  * GET /api/admin/cash-coach/payout-methods
  */
-router.get('/payout-methods', protect, requireAdmin, async (req, res) => {
+router.get('/payout-methods', adminAuth, async (req, res) => {
   try {
     const {
       page = 1,
@@ -361,7 +341,7 @@ router.get('/payout-methods', protect, requireAdmin, async (req, res) => {
  * Get single payout method
  * GET /api/admin/cash-coach/payout-methods/:id
  */
-router.get('/payout-methods/:id', protect, requireAdmin, async (req, res) => {
+router.get('/payout-methods/:id', adminAuth, async (req, res) => {
   try {
     const method = await PayoutMethod.findOne({ id: req.params.id });
     
@@ -390,7 +370,7 @@ router.get('/payout-methods/:id', protect, requireAdmin, async (req, res) => {
  * Create new payout method
  * POST /api/admin/cash-coach/payout-methods
  */
-router.post('/payout-methods', protect, requireAdmin, [
+router.post('/payout-methods', adminAuth, [
   body('id').notEmpty().withMessage('ID is required'),
   body('name').notEmpty().withMessage('Name is required'),
   body('icon').notEmpty().withMessage('Icon is required'),
@@ -440,7 +420,7 @@ router.post('/payout-methods', protect, requireAdmin, [
  * Update payout method
  * PUT /api/admin/cash-coach/payout-methods/:id
  */
-router.put('/payout-methods/:id', protect, requireAdmin, [
+router.put('/payout-methods/:id', adminAuth, [
   body('name').optional().notEmpty().withMessage('Name cannot be empty'),
   body('minAmount').optional().isNumeric().withMessage('Min amount must be a number'),
   body('processingTime').optional().isIn(['instant', '1-3 days', '3-5 days', '5-7 days']).withMessage('Invalid processing time')
@@ -487,7 +467,7 @@ router.put('/payout-methods/:id', protect, requireAdmin, [
  * Delete payout method
  * DELETE /api/admin/cash-coach/payout-methods/:id
  */
-router.delete('/payout-methods/:id', protect, requireAdmin, async (req, res) => {
+router.delete('/payout-methods/:id', adminAuth, async (req, res) => {
   try {
     const method = await PayoutMethod.findOneAndDelete({ id: req.params.id });
 
@@ -516,7 +496,7 @@ router.delete('/payout-methods/:id', protect, requireAdmin, async (req, res) => 
  * Toggle payout method enabled status
  * PATCH /api/admin/cash-coach/payout-methods/:id/toggle
  */
-router.patch('/payout-methods/:id/toggle', protect, requireAdmin, async (req, res) => {
+router.patch('/payout-methods/:id/toggle', adminAuth, async (req, res) => {
   try {
     const method = await PayoutMethod.findOne({ id: req.params.id });
 
@@ -554,7 +534,7 @@ router.patch('/payout-methods/:id/toggle', protect, requireAdmin, async (req, re
  * Get all financial insights with filtering and pagination
  * GET /api/admin/cash-coach/financial-insights
  */
-router.get('/financial-insights', protect, requireAdmin, async (req, res) => {
+router.get('/financial-insights', adminAuth, async (req, res) => {
   try {
     const {
       page = 1,
@@ -620,7 +600,7 @@ router.get('/financial-insights', protect, requireAdmin, async (req, res) => {
  * Get single financial insight
  * GET /api/admin/cash-coach/financial-insights/:id
  */
-router.get('/financial-insights/:id', protect, requireAdmin, async (req, res) => {
+router.get('/financial-insights/:id', adminAuth, async (req, res) => {
   try {
     const insight = await FinancialInsight.findOne({ id: req.params.id });
     
@@ -649,7 +629,7 @@ router.get('/financial-insights/:id', protect, requireAdmin, async (req, res) =>
  * Create new financial insight
  * POST /api/admin/cash-coach/financial-insights
  */
-router.post('/financial-insights', protect, requireAdmin, [
+router.post('/financial-insights', adminAuth, [
   body('id').notEmpty().withMessage('ID is required'),
   body('type').isIn(['tip', 'warning', 'motivation', 'achievement', 'reminder']).withMessage('Invalid type'),
   body('title').notEmpty().withMessage('Title is required'),
@@ -698,7 +678,7 @@ router.post('/financial-insights', protect, requireAdmin, [
  * Update financial insight
  * PUT /api/admin/cash-coach/financial-insights/:id
  */
-router.put('/financial-insights/:id', protect, requireAdmin, [
+router.put('/financial-insights/:id', adminAuth, [
   body('type').optional().isIn(['tip', 'warning', 'motivation', 'achievement', 'reminder']).withMessage('Invalid type'),
   body('title').optional().notEmpty().withMessage('Title cannot be empty'),
   body('message').optional().notEmpty().withMessage('Message cannot be empty'),
@@ -746,7 +726,7 @@ router.put('/financial-insights/:id', protect, requireAdmin, [
  * Delete financial insight
  * DELETE /api/admin/cash-coach/financial-insights/:id
  */
-router.delete('/financial-insights/:id', protect, requireAdmin, async (req, res) => {
+router.delete('/financial-insights/:id', adminAuth, async (req, res) => {
   try {
     const insight = await FinancialInsight.findOneAndDelete({ id: req.params.id });
 
@@ -775,7 +755,7 @@ router.delete('/financial-insights/:id', protect, requireAdmin, async (req, res)
  * Toggle financial insight active status
  * PATCH /api/admin/cash-coach/financial-insights/:id/toggle
  */
-router.patch('/financial-insights/:id/toggle', protect, requireAdmin, async (req, res) => {
+router.patch('/financial-insights/:id/toggle', adminAuth, async (req, res) => {
   try {
     const insight = await FinancialInsight.findOne({ id: req.params.id });
 
@@ -813,7 +793,7 @@ router.patch('/financial-insights/:id/toggle', protect, requireAdmin, async (req
  * Bulk update task template order
  * PUT /api/admin/cash-coach/task-templates/bulk/order
  */
-router.put('/task-templates/bulk/order', protect, requireAdmin, [
+router.put('/task-templates/bulk/order', adminAuth, [
   body('updates').isArray().withMessage('Updates must be an array'),
   body('updates.*.id').notEmpty().withMessage('ID is required'),
   body('updates.*.order').isNumeric().withMessage('Order must be a number')
@@ -856,7 +836,7 @@ router.put('/task-templates/bulk/order', protect, requireAdmin, [
  * Bulk toggle active status
  * PATCH /api/admin/cash-coach/:type/bulk/toggle
  */
-router.patch('/:type/bulk/toggle', protect, requireAdmin, [
+router.patch('/:type/bulk/toggle', adminAuth, [
   body('ids').isArray().withMessage('IDs must be an array'),
   body('isActive').isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res) => {
@@ -918,7 +898,7 @@ router.patch('/:type/bulk/toggle', protect, requireAdmin, [
  * Get Cash Coach analytics dashboard
  * GET /api/admin/cash-coach/analytics
  */
-router.get('/analytics', protect, requireAdmin, async (req, res) => {
+router.get('/analytics', adminAuth, async (req, res) => {
   try {
     const { period = '30d' } = req.query;
     
@@ -997,7 +977,7 @@ router.get('/analytics', protect, requireAdmin, async (req, res) => {
  * Get system health status
  * GET /api/admin/cash-coach/health
  */
-router.get('/health', protect, requireAdmin, async (req, res) => {
+router.get('/health', adminAuth, async (req, res) => {
   try {
     const health = {
       database: 'connected',

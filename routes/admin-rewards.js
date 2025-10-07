@@ -41,26 +41,8 @@ const upload = multer({
   }
 });
 
-// Middleware to check admin authentication
-const adminAuth = async (req, res, next) => {
-  try {
-    // TODO: Implement proper admin authentication
-    // For now, we'll use a simple check
-    const adminToken = req.headers.authorization;
-    if (!adminToken || !adminToken.includes('admin')) {
-      return res.status(401).json({
-        success: false,
-        error: 'Admin authentication required'
-      });
-    }
-    next();
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid admin token'
-    });
-  }
-};
+// Admin authentication middleware
+const { adminAuth } = require('../middleware/adminAuth');
 
 // Apply admin auth to all routes
 router.use(adminAuth);

@@ -135,6 +135,7 @@ mongoose.connect(config.MONGODB_URI, {
         const dashboardRoutes = require('./routes/dashboard');
         const cashCoachRoutes = require('./routes/cashCoach');
         const adminCashCoachRoutes = require('./routes/admin-cash-coach');
+        const adminRoutes = require('./routes/admin');
         const receiptsRoutes = require('./routes/receipts');
         const biometricRoutes = require('./routes/biometric');
         const locationRoutes = require('./routes/location');
@@ -163,6 +164,9 @@ mongoose.connect(config.MONGODB_URI, {
         const adFreeRoutes = require('./routes/ad-free');
         const temporaryAdFreeRoutes = require('./routes/temporary-ad-free');
         const adminRewardsRoutes = require('./routes/admin-rewards');
+        const adminGameOffersRoutes = require('./routes/admin-game-offers');
+        const adminSurveysRoutes = require('./routes/admin-surveys');
+        const adminDailyChallengesRoutes = require('./routes/admin-daily-challenges');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -176,6 +180,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/dashboard', dashboardRoutes);
         app.use('/api/cash-coach', cashCoachRoutes);
         app.use('/api/admin/cash-coach', adminCashCoachRoutes);
+        app.use('/api/admin', adminRoutes);
         app.use('/api/v1/receipts', receiptsRoutes);
         app.use('/api/biometric', biometricRoutes);
         app.use('/api/location', locationRoutes);
@@ -204,6 +209,9 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/ad-free', adFreeRoutes);
         app.use('/api/temporary-ad-free', temporaryAdFreeRoutes);
         app.use('/api/admin/rewards', adminRewardsRoutes);
+        app.use('/api/admin/game-offers', adminGameOffersRoutes);
+        app.use('/api/admin/surveys', adminSurveysRoutes);
+        app.use('/api/admin/daily-challenges', adminDailyChallengesRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

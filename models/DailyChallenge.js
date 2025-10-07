@@ -1,0 +1,372 @@
+const mongoose = require('mongoose');
+
+const dailyChallengeSchema = new mongoose.Schema({
+  challengeDate: {
+    type: Date,
+    required: true,
+    index: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  type: {
+    type: String,
+    required: true,
+    enum: ['spin', 'game', 'survey', 'referral', 'watch_ad', 'social_share', 'app_install', 'quiz', 'custom']
+  },
+  coinReward: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 0
+  },
+  xpReward: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 0
+  },
+  claimType: {
+    type: String,
+    required: true,
+    enum: ['watch_ad', 'auto', 'manual', 'social_action']
+  },
+  isVisible: {
+    type: Boolean,
+    default: true
+  },
+  status: {
+    type: String,
+    enum: ['scheduled', 'live', 'completed', 'expired', 'draft'],
+    default: 'scheduled'
+  },
+  targetAudience: {
+    userSegments: [{
+      type: String,
+      enum: ['all', 'new_users', 'returning_users', 'vip_users', 'high_engagement', 'low_engagement']
+    }],
+    minXP: {
+      type: Number,
+      default: 0
+    },
+    maxXP: {
+      type: Number,
+      default: null
+    },
+    countries: [{
+      type: String,
+      trim: true
+    }],
+    ageRange: {
+      min: {
+        type: Number,
+        default: 13
+      },
+      max: {
+        type: Number,
+        default: 100
+      }
+    }
+  },
+  requirements: {
+    minStreak: {
+      type: Number,
+      default: 0
+    },
+    maxCompletions: {
+      type: Number,
+      default: null
+    },
+    timeLimit: {
+      type: Number, // in minutes
+      default: null
+    },
+    prerequisites: [{
+      challengeId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'DailyChallenge'
+      },
+      required: {
+        type: Boolean,
+        default: true
+      }
+    }]
+  },
+  content: {
+    instructions: String,
+    mediaUrl: String,
+    externalLink: String,
+    customFields: mongoose.Schema.Types.Mixed
+  },
+  analytics: {
+    totalViews: {
+      type: Number,
+      default: 0
+    },
+    totalStarts: {
+      type: Number,
+      default: 0
+    },
+    totalCompletions: {
+      type: Number,
+      default: 0
+    },
+    completionRate: {
+      type: Number,
+      default: 0
+    },
+    totalCoinsIssued: {
+      type: Number,
+      default: 0
+    },
+    totalXPIssued: {
+      type: Number,
+      default: 0
+    },
+    lastUpdated: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  scheduling: {
+    startTime: {
+      type: Date,
+      required: true
+    },
+    endTime: {
+      type: Date,
+      required: true
+    },
+    timezone: {
+      type: String,
+      default: 'UTC'
+    },
+    recurring: {
+      isRecurring: {
+        type: Boolean,
+        default: false
+      },
+      pattern: {
+        type: String,
+        enum: ['daily', 'weekly', 'monthly', 'custom']
+      },
+      interval: {
+        type: Number,
+        default: 1
+      },
+      daysOfWeek: [{
+        type: Number,
+        min: 0,
+        max: 6 // 0 = Sunday, 6 = Saturday
+      }]
+    }
+  },
+  metadata: {
+    priority: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100
+    },
+    tags: [String],
+    notes: String,
+    campaignId: String,
+    version: {
+      type: Number,
+      default: 1
+    }
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+}, {
+  timestamps: true
+});
+
+// Update the updatedAt field before saving
+dailyChallengeSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  
+  // Calculate completion rate
+  if (this.analytics.totalStarts > 0) {
+    this.analytics.completionRate = (this.analytics.totalCompletions / this.analytics.totalStarts) * 100;
+  }
+  
+  // Update status based on dates
+  const now = new Date();
+  if (this.scheduling.startTime <= now && this.scheduling.endTime >= now) {
+    this.status = 'live';
+  } else if (this.scheduling.endTime < now) {
+    this.status = 'expired';
+  }
+  
+  next();
+});
+
+// Indexes for efficient queries
+dailyChallengeSchema.index({ challengeDate: 1, status: 1 });
+dailyChallengeSchema.index({ status: 1 });
+dailyChallengeSchema.index({ type: 1 });
+dailyChallengeSchema.index({ 'scheduling.startTime': 1, 'scheduling.endTime': 1 });
+dailyChallengeSchema.index({ createdAt: -1 });
+dailyChallengeSchema.index({ 'targetAudience.userSegments': 1 });
+
+// Compound indexes for filtering
+dailyChallengeSchema.index({ challengeDate: 1, type: 1, status: 1 });
+dailyChallengeSchema.index({ status: 1, isVisible: 1 });
+
+// Static methods
+dailyChallengeSchema.statics.findByDateRange = function(startDate, endDate, filters = {}) {
+  const query = {
+    challengeDate: {
+      $gte: startDate,
+      $lte: endDate
+    },
+    ...filters
+  };
+  
+  return this.find(query)
+    .sort({ challengeDate: 1, 'metadata.priority': -1 })
+    .populate('createdBy', 'name email')
+    .populate('updatedBy', 'name email');
+};
+
+dailyChallengeSchema.statics.findLive = function(date = new Date()) {
+  return this.find({
+    status: 'live',
+    'scheduling.startTime': { $lte: date },
+    'scheduling.endTime': { $gte: date }
+  }).sort({ 'metadata.priority': -1, challengeDate: 1 });
+};
+
+dailyChallengeSchema.statics.findScheduled = function() {
+  return this.find({
+    status: 'scheduled',
+    'scheduling.startTime': { $gt: new Date() }
+  }).sort({ 'scheduling.startTime': 1 });
+};
+
+dailyChallengeSchema.statics.findByType = function(type, date = new Date()) {
+  return this.find({
+    type: type,
+    status: 'live',
+    'scheduling.startTime': { $lte: date },
+    'scheduling.endTime': { $gte: date }
+  });
+};
+
+dailyChallengeSchema.statics.getCalendarView = function(year, month, filters = {}) {
+  const startDate = new Date(year, month, 1);
+  const endDate = new Date(year, month + 1, 0);
+  
+  return this.findByDateRange(startDate, endDate, filters);
+};
+
+// Instance methods
+dailyChallengeSchema.methods.isLive = function(date = new Date()) {
+  return this.status === 'live' &&
+         this.scheduling.startTime <= date &&
+         this.scheduling.endTime >= date &&
+         this.isVisible;
+};
+
+dailyChallengeSchema.methods.canUserAccess = function(userProfile) {
+  // Check user segments
+  if (this.targetAudience.userSegments.length > 0 && 
+      !this.targetAudience.userSegments.includes('all')) {
+    // This would need user segment logic
+    // For now, return true
+  }
+  
+  // Check XP requirements
+  if (this.targetAudience.minXP > 0 && userProfile.xp < this.targetAudience.minXP) {
+    return false;
+  }
+  
+  if (this.targetAudience.maxXP && userProfile.xp > this.targetAudience.maxXP) {
+    return false;
+  }
+  
+  // Check age requirements
+  if (userProfile.age) {
+    if (userProfile.age < this.targetAudience.ageRange.min || 
+        userProfile.age > this.targetAudience.ageRange.max) {
+      return false;
+    }
+  }
+  
+  // Check country requirements
+  if (this.targetAudience.countries.length > 0 && 
+      !this.targetAudience.countries.includes(userProfile.country)) {
+    return false;
+  }
+  
+  return true;
+};
+
+dailyChallengeSchema.methods.updateAnalytics = function(eventType, data = {}) {
+  switch (eventType) {
+    case 'view':
+      this.analytics.totalViews += 1;
+      break;
+    case 'start':
+      this.analytics.totalStarts += 1;
+      break;
+    case 'complete':
+      this.analytics.totalCompletions += 1;
+      this.analytics.totalCoinsIssued += data.coins || this.coinReward;
+      this.analytics.totalXPIssued += data.xp || this.xpReward;
+      break;
+  }
+  
+  this.analytics.lastUpdated = new Date();
+  return this.save();
+};
+
+dailyChallengeSchema.methods.getDisplayData = function() {
+  return {
+    id: this._id,
+    title: this.title,
+    description: this.description,
+    type: this.type,
+    coinReward: this.coinReward,
+    xpReward: this.xpReward,
+    claimType: this.claimType,
+    status: this.status,
+    isVisible: this.isVisible,
+    challengeDate: this.challengeDate,
+    startTime: this.scheduling.startTime,
+    endTime: this.scheduling.endTime,
+    analytics: {
+      views: this.analytics.totalViews,
+      starts: this.analytics.totalStarts,
+      completions: this.analytics.totalCompletions,
+      completionRate: this.analytics.completionRate
+    }
+  };
+};
+
+const DailyChallenge = mongoose.model('DailyChallenge', dailyChallengeSchema);
+
+module.exports = DailyChallenge;
+

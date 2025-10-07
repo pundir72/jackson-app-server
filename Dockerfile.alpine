@@ -1,21 +1,22 @@
-# Use Node.js LTS version with full image (not slim) for Sharp compatibility
-FROM node:20
+# Use Alpine-based Node.js image for better Sharp compatibility
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies required for Sharp
-RUN apt-get update && apt-get install -y \
+# Install system dependencies required for Sharp and native modules
+RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    && rm -rf /var/lib/apt/lists/*
+    libc6-compat \
+    vips-dev
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with better timeout and retry settings
-RUN npm install --timeout=300000 --retry=3
+# Install dependencies with Sharp-specific optimizations
+RUN npm install --timeout=600000 --retry=3
 
 # Install node-cache
 RUN npm install node-cache

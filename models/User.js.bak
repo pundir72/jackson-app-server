@@ -2971,7 +2971,6 @@ module.exports = User;
     surveys: [{
         provider: {
             type: String,
-            enum: ['bitlabs', 'cpx', 'ayet'],
             required: true
         },
         status: {

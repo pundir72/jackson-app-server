@@ -6,7 +6,6 @@ const surveySDKSchema = new mongoose.Schema({
     required: true,
     trim: true,
     unique: true,
-    enum: ['bitlabs', 'offertoro', 'cpxtr', 'ayet', 'pollfish', 'tapresearch']
   },
   displayName: {
     type: String,

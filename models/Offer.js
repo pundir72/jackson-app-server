@@ -14,7 +14,6 @@ const offerSchema = new mongoose.Schema({
   sdkProvider: {
     type: String,
     required: true,
-    enum: ['bitlabs', 'adgem', 'besitos', 'cpx', 'ayet', 'unity', 'ironsource']
   },
   tierAccess: [{
     type: String,

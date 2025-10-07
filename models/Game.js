@@ -14,7 +14,6 @@ const gameSchema = new mongoose.Schema({
   sdkProvider: {
     type: String,
     required: true,
-    enum: ['bitlabs', 'adgem', 'besitos', 'cpx', 'ayet', 'unity', 'ironsource']
   },
   countries: [{
     type: String,

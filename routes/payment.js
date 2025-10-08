@@ -218,7 +218,9 @@ router.post('/confirm', protect, [
     }
 
     // Confirm payment intent (mock implementation)
-    const confirmedPayment = await stripe.paymentIntents.confirm(paymentIntentId, { return_url: 'jacksonrewards://payment-success', payment_method:"pm_card_visa" });
+    // const confirmedPayment = await stripe.paymentIntents.confirm(paymentIntentId, { return_url: 'jacksonrewards://payment-success', payment_method:"pm_card_visa" });
+    const confirmedPayment = await stripe.paymentIntents.retrieve(paymentIntentId);
+
     if (confirmedPayment.status !== 'succeeded') {
       return res.status(400).json({
         success: false,

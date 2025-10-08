@@ -170,6 +170,8 @@ mongoose.connect(config.MONGODB_URI, {
         const besitosRoutes = require('./routes/besitos');
         const dailyChallengeRoutes = require('./routes/daily-challenge');
         const webhookRoutes = require('./routes/webhooks');
+        const dailyRewardsRoutes = require('./routes/daily-rewards');
+        const adminDailyRewardsRoutes = require('./routes/admin-daily-rewards');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -218,6 +220,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/besitos', besitosRoutes);
         app.use('/api/daily-challenge', dailyChallengeRoutes);
         app.use('/api/webhooks', webhookRoutes);
+        app.use('/api/daily-rewards', dailyRewardsRoutes);
+        app.use('/api/admin/daily-rewards', adminDailyRewardsRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

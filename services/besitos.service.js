@@ -12,7 +12,7 @@ class BesitosService {
         this.baseURL = config.BESITOS_BASE_URL;
         this.partnerId = config.BESITOS_PARTNER_ID;
         this.token = config.BESITOS_API_TOKEN;
-        
+        console.log(this.baseURL,this.partnerId,this.token)
         // Create axios instance with default config
         this.client = axios.create({
             baseURL: this.baseURL,

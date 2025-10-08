@@ -76,6 +76,11 @@ module.exports = {
     MIN_WITHDRAWAL_AMOUNT: parseFloat(process.env.MIN_WITHDRAWAL_AMOUNT) || 20,
     MAX_WITHDRAWAL_AMOUNT: parseFloat(process.env.MAX_WITHDRAWAL_AMOUNT) || 100,
     
+    // Besitos - Game Offers & Surveys Platform
+    BESITOS_BASE_URL: process.env.BESITOS_BASE_URL || 'https://api.besitos.ai',
+    BESITOS_PARTNER_ID: process.env.BESITOS_PARTNER_ID,
+    BESITOS_API_TOKEN: process.env.BESITOS_API_TOKEN,
+    
     // Error Codes
     ERROR_CODES: {
         INVALID_CREDENTIALS: 401,

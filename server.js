@@ -167,6 +167,7 @@ mongoose.connect(config.MONGODB_URI, {
         const adminGameOffersRoutes = require('./routes/admin-game-offers');
         const adminSurveysRoutes = require('./routes/admin-surveys');
         const adminDailyChallengesRoutes = require('./routes/admin-daily-challenges');
+        const besitosRoutes = require('./routes/besitos');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -212,6 +213,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/admin/game-offers', adminGameOffersRoutes);
         app.use('/api/admin/surveys', adminSurveysRoutes);
         app.use('/api/admin/daily-challenges', adminDailyChallengesRoutes);
+        app.use('/api/besitos', besitosRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

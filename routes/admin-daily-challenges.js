@@ -221,14 +221,31 @@ router.post('/challenges', adminAuth, [
       });
     }
 
+    // Normalize provided date to UTC start-of-day to avoid timezone drift
+    const rawDate = new Date(req.body.challengeDate);
+    const normalizedStart = new Date(Date.UTC(
+      rawDate.getUTCFullYear(),
+      rawDate.getUTCMonth(),
+      rawDate.getUTCDate(),
+      0, 0, 0, 0
+    ));
+    const normalizedEnd = new Date(Date.UTC(
+      rawDate.getUTCFullYear(),
+      rawDate.getUTCMonth(),
+      rawDate.getUTCDate(),
+      23, 59, 59, 999
+    ));
+
     const challengeData = {
       ...req.body,
+      // store canonical UTC start-of-day
+      challengeDate: normalizedStart,
       createdBy: req.user.userId
     };
 
-    // Check for overlapping challenges on the same date
+    // Check for overlapping challenges on the same date (UTC day range)
     const existingChallenge = await DailyChallenge.findOne({
-      challengeDate: new Date(req.body.challengeDate),
+      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
       type: req.body.type,
       status: { $in: ['scheduled', 'live'] }
     });

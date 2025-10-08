@@ -104,6 +104,28 @@ const dailyChallengeSchema = new mongoose.Schema({
     externalLink: String,
     customFields: mongoose.Schema.Types.Mixed
   },
+  // Game/Task assignment
+  assignedGame: {
+    gameId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Game'
+    },
+    isRequired: {
+      type: Boolean,
+      default: false // If false, user can select any game
+    }
+  },
+  // SDK Task integration (Besitos, BitLabs, etc.)
+  sdkTask: {
+    provider: {
+      type: String,
+      enum: ['besitos', 'bitlabs', 'none'],
+      default: 'none'
+    },
+    taskId: String,
+    offerId: String,
+    taskData: mongoose.Schema.Types.Mixed
+  },
   analytics: {
     totalViews: {
       type: Number,

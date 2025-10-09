@@ -3,6 +3,8 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const RaceConfig = require('../models/RaceConfig');
+const BesitosService = require('../services/besitos.service');
 
 // Race configuration
 const RACE_CONFIG = {
@@ -21,7 +23,7 @@ const RACE_CONFIG = {
   }
 };
 
-// Get available races
+// Get available races (from DB)
 router.get('/available', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('xp races');
@@ -36,7 +38,9 @@ router.get('/available', protect, async (req, res) => {
     const currentXP = user.xp.current || 0;
     const currentTier = getCurrentTier(currentXP);
     
-    const availableRaces = await getAvailableRaces(currentTier);
+    // Fetch active configs and filter by tier gating
+    const configs = await RaceConfig.listActive();
+    const availableRaces = (configs || []).filter(cfg => isTierUnlocked(currentTier.id, cfg.requiredTier));
     
     res.json({
       success: true,
@@ -55,10 +59,64 @@ router.get('/available', protect, async (req, res) => {
   }
 });
 
+// List third-party games (from Besitos offers) for race selection
+router.get('/games', protect, async (req, res) => {
+  try {
+    const { platform, country, category, limit = 50 } = req.query;
+    const params = { platform, country, category, limit };
+    // Clean undefined
+    Object.keys(params).forEach(k => (params[k] === undefined || params[k] === '') && delete params[k]);
+    const offers = await BesitosService.getOffers(params);
+    // Normalize to race game card structure
+    const games = (offers || []).map(o => ({
+      id: o.offer_id || o.id || o.game_id || o.slug,
+      title: o.title || o.name,
+      icon: o.icon || o.icon_url || o.image || o.thumbnail,
+      category: o.category || o.genre || 'General',
+      coinReward: o.reward?.coins || o.payout || 0,
+      xpReward: o.reward?.xp || Math.round((o.payout || 0) / 2),
+      provider: 'besitos',
+      deepLink: o.deeplink || o.deep_link || null
+    }));
+    res.json({ success: true, data: { games, total: games.length } });
+  } catch (error) {
+    console.error('Error fetching race games from Besitos:', error);
+    res.status(error.status || 500).json({ success: false, error: error.message || 'Failed to fetch games' });
+  }
+});
+
+// Get level definitions for a race
+router.get('/:raceKey/levels', protect, async (req, res) => {
+  try {
+    const { raceKey } = req.params;
+    const cfg = await RaceConfig.getByKey(raceKey);
+    if (!cfg) {
+      return res.status(404).json({ success: false, error: 'Race config not found' });
+    }
+    res.json({ success: true, data: { levels: cfg.levels, requiredTier: cfg.requiredTier, maxLevels: cfg.maxLevels } });
+  } catch (error) {
+    console.error('Error getting race levels:', error);
+    res.status(500).json({ success: false, error: 'Failed to get race levels' });
+  }
+});
+
+// Tier summary for current user
+router.get('/tier-summary', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('xp');
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    const tier = getCurrentTier(user.xp?.current || 0);
+    res.json({ success: true, data: { tier, xp: user.xp?.current || 0 } });
+  } catch (error) {
+    console.error('Error getting tier summary:', error);
+    res.status(500).json({ success: false, error: 'Failed to get tier summary' });
+  }
+});
+
 // Start a race
 router.post('/start', protect, async (req, res) => {
   try {
-    const { raceId, gameId } = req.body;
+    const { raceKey, gameId } = req.body;
     const user = await User.findById(req.user.userId).select('xp races');
     
     if (!user) {
@@ -77,9 +135,9 @@ router.post('/start', protect, async (req, res) => {
       });
     }
 
-    // Get race details
-    const race = getRaceDetails(raceId);
-    if (!race) {
+    // Get race config from DB
+    const cfg = await RaceConfig.getByKey(raceKey);
+    if (!cfg) {
       return res.status(404).json({
         success: false,
         error: 'Race not found'
@@ -89,23 +147,23 @@ router.post('/start', protect, async (req, res) => {
     // Check if user meets tier requirements
     const currentXP = user.xp.current || 0;
     const currentTier = getCurrentTier(currentXP);
-    if (!isTierUnlocked(currentTier.id, race.requiredTier)) {
+    if (!isTierUnlocked(currentTier.id, cfg.requiredTier)) {
       return res.status(400).json({
         success: false,
-        error: `This race requires ${race.requiredTier} tier or higher`
+        error: `This race requires ${cfg.requiredTier} tier or higher`
       });
     }
 
     // Create new race entry
     const newRace = {
-      raceId,
+      raceId: raceKey,
       gameId,
       status: 'active',
       startedAt: new Date(),
-      expiresAt: new Date(Date.now() + RACE_CONFIG.timeLimit),
+      expiresAt: new Date(Date.now() + (cfg.durationMs || RACE_CONFIG.timeLimit)),
       currentLevel: 0,
       completedLevels: [],
-      bots: generateRaceBots(raceId),
+      bots: generateRaceBotsFromConfig(cfg),
       position: 0,
       totalReward: { coins: 0, xp: 0 }
     };
@@ -126,6 +184,24 @@ router.post('/start', protect, async (req, res) => {
       success: false,
       error: 'Failed to start race'
     });
+  }
+});
+
+// Poll race status (for frontend to refresh ladder without websocket)
+router.get('/:raceId/status', protect, async (req, res) => {
+  try {
+    const { raceId } = req.params;
+    const user = await User.findById(req.user.userId).select('races');
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    const race = user.races.find(r => r.raceId === raceId);
+    if (!race) return res.status(404).json({ success: false, error: 'Race not found' });
+    // Update bot progress on poll
+    updateBotProgress(race);
+    await user.save();
+    res.json({ success: true, data: { race } });
+  } catch (error) {
+    console.error('Error getting race status:', error);
+    res.status(500).json({ success: false, error: 'Failed to get race status' });
   }
 });
 
@@ -161,19 +237,23 @@ router.post('/progress', protect, async (req, res) => {
     }
 
     // Update user progress
+    let levelReward = null;
     if (completed && !race.completedLevels.includes(level)) {
       race.completedLevels.push(level);
       race.currentLevel = Math.max(race.currentLevel, level);
-      
+
       // Award level rewards
-      const levelReward = {
+      // Resolve level reward from config if available
+      const cfg = await RaceConfig.getByKey(race.raceId);
+      const lvl = (cfg && Array.isArray(cfg.levels)) ? cfg.levels.find(l => l.level === level) : null;
+      levelReward = lvl && lvl.reward ? { coins: lvl.reward.coins || 0, xp: lvl.reward.xp || 0 } : {
         coins: RACE_CONFIG.levelRewards.coins[level - 1] || 0,
         xp: RACE_CONFIG.levelRewards.xp[level - 1] || 0
       };
-      
+
       race.totalReward.coins += levelReward.coins;
       race.totalReward.xp += levelReward.xp;
-      
+
       // Update user wallet and XP
       user.wallet.balance = (user.wallet.balance || 0) + levelReward.coins;
       user.xp.current = (user.xp.current || 0) + levelReward.xp;
@@ -184,13 +264,15 @@ router.post('/progress', protect, async (req, res) => {
     updateBotProgress(race);
 
     // Check if race is completed
-    if (race.currentLevel >= RACE_CONFIG.maxLevels) {
+    const cfg = await RaceConfig.getByKey(race.raceId);
+    const maxLevels = (cfg && cfg.maxLevels) || RACE_CONFIG.maxLevels;
+    if (race.currentLevel >= maxLevels) {
       race.status = 'completed';
       race.completedAt = new Date();
       
       // Award bonus rewards based on position
       const position = calculateRacePosition(race);
-      const bonusReward = getBonusReward(position);
+      const bonusReward = getBonusRewardFromConfig(cfg, position) || getBonusReward(position);
       
       if (bonusReward) {
         race.totalReward.coins += bonusReward.coins;
@@ -211,10 +293,7 @@ router.post('/progress', protect, async (req, res) => {
       data: {
         race,
         levelCompleted: completed,
-        levelReward: completed ? {
-          coins: RACE_CONFIG.levelRewards.coins[level - 1] || 0,
-          xp: RACE_CONFIG.levelRewards.xp[level - 1] || 0
-        } : null,
+        levelReward: levelReward,
         isRaceCompleted: race.status === 'completed',
         position: race.position
       }
@@ -317,6 +396,21 @@ router.get('/history', protect, async (req, res) => {
   }
 });
 
+// Retry/reset a race (clears active or last completed entry for the key)
+router.post('/:raceKey/retry', protect, async (req, res) => {
+  try {
+    const { raceKey } = req.params;
+    const user = await User.findById(req.user.userId).select('races');
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    user.races = (user.races || []).filter(r => !(r.raceId === raceKey && r.status === 'active'));
+    await user.save();
+    res.json({ success: true, message: 'Race reset. You can start again.' });
+  } catch (error) {
+    console.error('Error resetting race:', error);
+    res.status(500).json({ success: false, error: 'Failed to reset race' });
+  }
+});
+
 // Helper functions
 async function getAvailableRaces(userTier) {
   const allRaces = [
@@ -386,22 +480,14 @@ function getRaceDetails(raceId) {
   return races[raceId];
 }
 
-function generateRaceBots(raceId) {
-  const race = getRaceDetails(raceId);
-  const botCount = Math.min(4, RACE_CONFIG.botNames.length);
+function generateRaceBotsFromConfig(cfg) {
   const bots = [];
-  
+  const list = Array.isArray(cfg?.bots) && cfg.bots.length ? cfg.bots : (RACE_CONFIG.botNames.map((n, i) => ({ name: n, speed: RACE_CONFIG.botSpeeds[i] || 1.0, avatar: '🤖' })));
+  const botCount = Math.min(5, list.length);
   for (let i = 0; i < botCount; i++) {
-    bots.push({
-      id: `bot_${i + 1}`,
-      name: RACE_CONFIG.botNames[i],
-      currentLevel: 0,
-      speed: RACE_CONFIG.botSpeeds[i],
-      avatar: `🤖`,
-      isActive: true
-    });
+    const b = list[i];
+    bots.push({ id: `bot_${i + 1}`, name: b.name, currentLevel: 0, speed: b.speed || 1.0, avatar: b.avatar || '🤖', isActive: true });
   }
-  
   return bots;
 }
 
@@ -440,6 +526,14 @@ function getBonusReward(position) {
   if (position === 1) return RACE_CONFIG.bonusRewards.firstPlace;
   if (position === 2) return RACE_CONFIG.bonusRewards.secondPlace;
   if (position === 3) return RACE_CONFIG.bonusRewards.thirdPlace;
+  return null;
+}
+
+function getBonusRewardFromConfig(cfg, position) {
+  if (!cfg || !cfg.bonusRewards) return null;
+  if (position === 1) return cfg.bonusRewards.firstPlace;
+  if (position === 2) return cfg.bonusRewards.secondPlace;
+  if (position === 3) return cfg.bonusRewards.thirdPlace;
   return null;
 }
 

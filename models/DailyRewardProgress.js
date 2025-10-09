@@ -32,3 +32,4 @@ dailyRewardProgressSchema.index({ userId: 1, weekKey: 1 }, { unique: true });
 const DailyRewardProgress = mongoose.model('DailyRewardProgress', dailyRewardProgressSchema);
 module.exports = DailyRewardProgress;
 
+

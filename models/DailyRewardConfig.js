@@ -36,3 +36,4 @@ dailyRewardConfigSchema.pre('save', function(next) {
 const DailyRewardConfig = mongoose.model('DailyRewardConfig', dailyRewardConfigSchema);
 module.exports = DailyRewardConfig;
 
+

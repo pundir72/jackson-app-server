@@ -4,15 +4,23 @@ const transactionSchema = new mongoose.Schema({
     user: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true
+        required: true,
+        index: true
     },
     type: {
         type: String,
-        required: true
+        required: true,
+        enum: ['credit', 'debit', 'reward', 'xp', 'redemption', 'spin', 'adjustment', 'refund', 'bonus', 'penalty'],
+        index: true
     },
     amount: {
         type: Number,
         required: true
+    },
+    balanceType: {
+        type: String,
+        enum: ['coins', 'xp', 'cash'],
+        default: 'coins'
     },
     description: {
         type: String,
@@ -20,10 +28,37 @@ const transactionSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        default: 'completed'
+        enum: ['pending', 'completed', 'failed', 'rejected', 'processing'],
+        default: 'completed',
+        index: true
     },
     referenceId: {
         type: String,
+        index: true
+    },
+    
+    // Approval system for redemptions and adjustments
+    approval: {
+        required: {
+            type: Boolean,
+            default: false
+        },
+        status: {
+            type: String,
+            enum: ['pending', 'approved', 'rejected', 'not_required'],
+            default: 'not_required'
+        },
+        approvedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        approvedAt: Date,
+        rejectedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        rejectedAt: Date,
+        rejectionReason: String
     },
     
     // Tremendous integration fields
@@ -36,6 +71,36 @@ const transactionSchema = new mongoose.Schema({
         default: 'internal'
     },
     
+    // Face verification for redemptions
+    verification: {
+        faceVerified: {
+            type: Boolean,
+            default: false
+        },
+        verifiedAt: Date,
+        verificationType: String,
+        verificationData: mongoose.Schema.Types.Mixed
+    },
+    
+    // For admin adjustments
+    adjustment: {
+        isAdjustment: {
+            type: Boolean,
+            default: false
+        },
+        adjustmentType: {
+            type: String,
+            enum: ['add', 'subtract', 'correction', 'bonus', 'penalty']
+        },
+        reason: String,
+        adminId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        previousBalance: Number,
+        newBalance: Number
+    },
+    
     // Additional metadata
     metadata: {
         type: mongoose.Schema.Types.Mixed,
@@ -45,12 +110,97 @@ const transactionSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Indexes for performance
+transactionSchema.index({ user: 1, createdAt: -1 });
+transactionSchema.index({ type: 1, status: 1 });
+transactionSchema.index({ 'approval.status': 1 });
+transactionSchema.index({ createdAt: -1 });
+
 transactionSchema.pre('save', function(next) {
     if (!this.referenceId) {
         this.referenceId = `TX-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     }
     next();
 });
+
+// Methods
+
+/**
+ * Approve transaction (for redemptions/adjustments)
+ */
+transactionSchema.methods.approve = async function(adminId) {
+    this.approval.status = 'approved';
+    this.approval.approvedBy = adminId;
+    this.approval.approvedAt = new Date();
+    this.status = 'completed';
+    return await this.save();
+};
+
+/**
+ * Reject transaction
+ */
+transactionSchema.methods.reject = async function(adminId, reason) {
+    this.approval.status = 'rejected';
+    this.approval.rejectedBy = adminId;
+    this.approval.rejectedAt = new Date();
+    this.approval.rejectionReason = reason;
+    this.status = 'rejected';
+    return await this.save();
+};
+
+/**
+ * Mark as face verified
+ */
+transactionSchema.methods.markFaceVerified = async function(verificationType = 'manual') {
+    this.verification.faceVerified = true;
+    this.verification.verifiedAt = new Date();
+    this.verification.verificationType = verificationType;
+    return await this.save();
+};
+
+// Statics
+
+/**
+ * Get pending redemptions
+ */
+transactionSchema.statics.getPendingRedemptions = async function(limit = 50) {
+    return await this.find({
+        type: 'redemption',
+        'approval.status': 'pending',
+        status: 'pending'
+    })
+    .populate('user', 'firstName lastName email mobile location verification')
+    .sort({ createdAt: 1 })
+    .limit(limit);
+};
+
+/**
+ * Get transaction statistics
+ */
+transactionSchema.statics.getStatistics = async function(filters = {}) {
+    const matchQuery = {};
+    
+    if (filters.type) matchQuery.type = filters.type;
+    if (filters.status) matchQuery.status = filters.status;
+    if (filters.startDate || filters.endDate) {
+        matchQuery.createdAt = {};
+        if (filters.startDate) matchQuery.createdAt.$gte = new Date(filters.startDate);
+        if (filters.endDate) matchQuery.createdAt.$lte = new Date(filters.endDate);
+    }
+    
+    return await this.aggregate([
+        { $match: matchQuery },
+        {
+            $group: {
+                _id: '$type',
+                count: { $sum: 1 },
+                totalAmount: { $sum: '$amount' },
+                avgAmount: { $avg: '$amount' }
+            }
+        },
+        { $sort: { count: -1 } }
+    ]);
+};
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 module.exports = Transaction;

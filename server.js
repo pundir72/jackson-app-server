@@ -172,6 +172,9 @@ mongoose.connect(config.MONGODB_URI, {
         const webhookRoutes = require('./routes/webhooks');
         const dailyRewardsRoutes = require('./routes/daily-rewards');
         const adminDailyRewardsRoutes = require('./routes/admin-daily-rewards');
+        const adminCreativesRoutes = require('./routes/admin-creatives');
+        const adminTransactionsRoutes = require('./routes/admin-transactions');
+        const adminSpinWheelRoutes = require('./routes/admin-spin-wheel');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -222,6 +225,9 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/webhooks', webhookRoutes);
         app.use('/api/daily-rewards', dailyRewardsRoutes);
         app.use('/api/admin/daily-rewards', adminDailyRewardsRoutes);
+        app.use('/api/admin/creatives', adminCreativesRoutes);
+        app.use('/api/admin/transactions', adminTransactionsRoutes);
+        app.use('/api/admin/spin-wheel', adminSpinWheelRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

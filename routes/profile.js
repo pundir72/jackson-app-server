@@ -65,7 +65,7 @@ router.get('/', protect, async (req, res) => {
 // Update profile
 router.put('/', protect, async (req, res) => {
     try {
-        const { firstName, lastName, status, mobile, bio, theme, email, socialTag } = req.body;
+        const { firstName, lastName, status, mobile, bio, theme, email, socialTag, username } = req.body;
         
         const user = await User.findById(req.user.userId);
         if (!user) {
@@ -81,6 +81,25 @@ router.put('/', protect, async (req, res) => {
             user.profile.theme = theme;
         }
         if (socialTag !== undefined) user.socialTag = socialTag;
+        // Update username with validation & uniqueness
+        if (username !== undefined) {
+            if (username && !/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+                return res.status(400).json({
+                    error: 'Invalid username',
+                    message: 'Username must be 3-20 chars, letters/numbers/underscores only'
+                });
+            }
+            if (username) {
+                const existingUsername = await User.findOne({ username: username, _id: { $ne: user._id } });
+                if (existingUsername) {
+                    return res.status(400).json({
+                        error: 'Username already exists',
+                        message: 'Please choose a different username'
+                    });
+                }
+            }
+            user.username = username || undefined;
+        }
         
         // Update email with validation
         if (email) {
@@ -151,6 +170,7 @@ router.put('/', protect, async (req, res) => {
                 _id: user._id,
                 firstName: user.firstName,
                 lastName: user.lastName,
+                username: user.username,
                 mobile: user.mobile,
                 email: user.email,
                 profile: user.profile,
@@ -388,7 +408,7 @@ router.get('/leadership', protect, async (req, res) => {
     }
 });
 
-// Get user dashboard (optimized)
+// Get user dashboard (optimized) - Complete mobile app dashboard
 router.get('/dashboard', protect, async (req, res) => {
     try {
         const { getOptimizedProfile, getOptimizedStats } = require('../utils/optimizedProfile');
@@ -401,30 +421,85 @@ router.get('/dashboard', protect, async (req, res) => {
         if (!profileData || !stats) {
             return res.status(404).json({ error: 'User not found' });
         }
+
+        const currentXP = profileData.xp?.current || 0;
+        const totalXP = profileData.xp?.total || 0;
+        const tier = getTierFromXP(currentXP);
         
         res.json({
             success: true,
             data: {
+                // Complete user profile
                 user: {
-                    name: profileData.firstName || 'Anonymous',
-                    avatar: profileData.profile?.avatar,
-                    tier: getTierFromXP(profileData.xp?.current || 0),
-                    vipLevel: profileData.vip?.level || 'free'
+                    id: profileData._id,
+                    firstName: profileData.firstName,
+                    lastName: profileData.lastName,
+                    username: profileData.username || null,
+                    email: profileData.email || null,
+                    mobile: profileData.mobile,
+                    socialTag: profileData.socialTag || null,
+                    avatar: profileData.profile?.avatar || null,
+                    status: profileData.profile?.status || null,
+                    bio: profileData.profile?.bio || null,
+                    theme: profileData.profile?.theme || 'light',
+                    tier: tier,
+                    vipLevel: profileData.vip?.level || 'free',
+                    vipActive: profileData.vip?.isActive || false,
+                    vipExpires: profileData.vip?.expires || null
                 },
+                // Wallet & XP details
+                wallet: {
+                    balance: profileData.wallet?.balance || 0,
+                    lastUpdated: profileData.wallet?.lastUpdated || null
+                },
+                xp: {
+                    current: currentXP,
+                    total: totalXP,
+                    nextLevelTarget: stats.nextLevelTarget,
+                    xpToNext: stats.xpToNext,
+                    progressPercentage: stats.nextLevelTarget > 0 
+                        ? Math.round((currentXP / stats.nextLevelTarget) * 100) 
+                        : 100
+                },
+                // Progress stats
                 progress: {
                     gamesPlayed: stats.gamesPlayed,
                     surveysCompleted: stats.surveysCompleted,
                     racesCompleted: stats.racesCompleted,
                     currentStreak: stats.streak,
-                    totalXP: stats.xp,
+                    totalXP: currentXP,
+                    nextLevelTarget: stats.nextLevelTarget,
+                    xpToNext: stats.xpToNext,
                     walletBalance: stats.balance,
                     badgesEarned: stats.badges,
                     titlesEarned: stats.titles
                 },
-                achievements: profileData.achievements,
-                leadership: profileData.leadership,
-                badges: profileData.badges,
-                titles: profileData.titles
+                // Achievements
+                achievements: {
+                    recent: profileData.achievements?.recent || [],
+                    total: profileData.achievements?.total || 0,
+                    stats: stats.achievements || { total: 0, completed: 0, claimed: 0, inProgress: 0 }
+                },
+                // Leadership rankings
+                leadership: {
+                    overallRank: profileData.leadership?.overallRank || null,
+                    percentile: profileData.leadership?.percentile || null,
+                    rankings: stats.rankings || {}
+                },
+                // Badges & Titles
+                badges: profileData.badges || [],
+                titles: profileData.titles || [],
+                // VIP details
+                vip: {
+                    level: profileData.vip?.level || 'free',
+                    isActive: profileData.vip?.isActive || false,
+                    expires: profileData.vip?.expires || null,
+                    benefits: profileData.vip?.benefits || []
+                },
+                // Location
+                location: profileData.location || null,
+                // Last IP
+                lastIp: profileData.lastIp || null
             }
         });
     } catch (error) {

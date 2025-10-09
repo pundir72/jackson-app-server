@@ -264,7 +264,8 @@ router.post('/signup',
         gameStyle,
         improvementArea,
         dailyEarningGoal,
-        socialTag
+        socialTag,
+        referralCode // New: Referral code from inviter
       } = req.body;
 
       // Standardize mobile number format
@@ -331,6 +332,30 @@ router.post('/signup',
 
       await user.save();
 
+      // Process referral if code was provided
+      let referralResult = null;
+      if (referralCode) {
+        try {
+          const Referral = require('../models/Referral');
+          referralResult = await Referral.processReferralSignup(
+            referralCode, 
+            user._id,
+            {
+              source: req.body.referralSource || 'direct',
+              deviceInfo: {
+                platform: req.headers['user-agent'],
+                ip: req.ip,
+                userAgent: req.headers['user-agent']
+              }
+            }
+          );
+          console.log('Referral processed successfully:', referralResult);
+        } catch (referralError) {
+          // Don't fail signup if referral processing fails, just log it
+          console.error('Referral processing error:', referralError.message);
+        }
+      }
+
       // Generate JWT token since user is complete
       const token = jwt.sign(
         { userId: user._id },
@@ -354,7 +379,13 @@ router.post('/signup',
           improvementArea: user.improvementArea,
           dailyEarningGoal: user.dailyEarningGoal,
           socialTag: user.socialTag
-        }
+        },
+        referral: referralResult ? {
+          success: true,
+          xpAwarded: 50,
+          badgeAwarded: true,
+          referrerName: referralResult.referrer.name
+        } : null
       });
     } catch (error) {
       console.error('User registration error:', error);

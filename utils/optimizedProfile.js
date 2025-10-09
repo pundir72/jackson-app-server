@@ -106,6 +106,17 @@ async function getOptimizedStats(userId) {
       titles: user.titles?.length || 0
     };
 
+  // Add next-level progress helpers
+  const xp = stats.xp;
+  const thresholds = [1000, 5000, 10000];
+  let nextLevelTarget = 0;
+  for (const t of thresholds) {
+    if (xp < t) { nextLevelTarget = t; break; }
+  }
+  const xpToNext = nextLevelTarget > xp ? (nextLevelTarget - xp) : 0;
+  stats.nextLevelTarget = nextLevelTarget;
+  stats.xpToNext = xpToNext;
+
     // Get basic achievement stats (lightweight)
     const achievementStats = await getCachedAchievementStats(userId);
     stats.achievements = achievementStats;

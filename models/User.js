@@ -71,6 +71,22 @@ const userSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    // Public username displayed in profile; unique, alphanumeric/underscore, 3-20 chars
+    username: {
+        type: String,
+        unique: true,
+        sparse: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 20,
+        validate: {
+            validator: function(v) {
+                if (!v) return true; // optional
+                return /^[a-zA-Z0-9_]+$/.test(v);
+            },
+            message: 'Username can contain only letters, numbers, and underscores (3-20 chars)'
+        }
+    },
     email: {
         type: String,
         required: false,

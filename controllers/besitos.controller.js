@@ -38,7 +38,7 @@ exports.getOffers = async (req, res) => {
 
         res.json({
             success: true,
-            data: data,
+            data: data?.data || [],
             timestamp: new Date().toISOString()
         });
     } catch (error) {

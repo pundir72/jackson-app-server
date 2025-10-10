@@ -9,18 +9,18 @@ const taskProgressionRuleSchema = new mongoose.Schema({
   unlockCondition: {
     type: String,
     required: true,
-    enum: ['previous_task_complete', 'xp_threshold', 'time_based', 'manual']
+    // enum: ['previous_task_complete', 'xp_threshold', 'time_based', 'manual']
   },
   lockType: {
     type: String,
     required: true,
-    enum: ['sequential', 'timed', 'manual']
+    // enum: ['sequential', 'timed', 'manual']
   },
   eventThresholds: [{
     event: {
       type: String,
       required: true,
-      enum: ['game_complete', 'score_achieved', 'time_elapsed', 'xp_earned']
+      // enum: ['game_complete', 'score_achieved', 'time_elapsed', 'xp_earned']
     },
     value: {
       type: Number,
@@ -31,7 +31,7 @@ const taskProgressionRuleSchema = new mongoose.Schema({
   rewardTriggerRule: {
     type: String,
     required: true,
-    enum: ['immediate', 'on_completion', 'milestone_based', 'conditional']
+    // enum: ['immediate', 'on_completion', 'milestone_based', 'conditional']
   },
   dependencies: [{
     taskId: {
@@ -40,7 +40,7 @@ const taskProgressionRuleSchema = new mongoose.Schema({
     },
     condition: {
       type: String,
-      enum: ['must_complete', 'must_fail', 'optional']
+      // enum: ['must_complete', 'must_fail', 'optional']
     }
   }],
   isActive: {

@@ -229,6 +229,11 @@ const userSchema = new mongoose.Schema({
             type: Number,
             default: 0
         },
+        // Total lifetime XP earned (used for analytics and some progress calcs)
+        total: {
+            type: Number,
+            default: 0
+        },
         tier: {
             type: Number,
             default: 1
@@ -303,6 +308,44 @@ const userSchema = new mongoose.Schema({
                 max: 10
             }
         }
+    },
+    
+    // App / session meta for admin analytics
+    appVersion: {
+        type: String,
+        default: '1.0.0'
+    },
+    lastActive: {
+        type: Date
+    },
+    lastLoginAt: {
+        type: Date
+    },
+    loginCount: {
+        type: Number,
+        default: 0
+    },
+
+    // Signup snapshot (immutable registration metadata)
+    signup: {
+        ip: String,
+        country: String,
+        city: String,
+        at: { type: Date }
+    },
+
+    // Redemption preferences (admin Balance & Tier panel)
+    redemption: {
+        preference: {
+            type: String,
+            enum: ['paypal', 'gift_card', 'crypto', 'bank', 'gpay', 'revolut', 'usd', 'inr', 'coins', 'none'],
+            default: 'none'
+        }
+    },
+
+    // Lightweight cache for spin usage history (for admin summaries)
+    lastSpinAt: {
+        type: Date
     },
 
     // Biometric

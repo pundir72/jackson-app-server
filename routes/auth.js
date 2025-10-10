@@ -265,7 +265,9 @@ router.post('/signup',
         improvementArea,
         dailyEarningGoal,
         socialTag,
-        referralCode // New: Referral code from inviter
+        referralCode, // Referral code from inviter
+        appVersion,
+        redemptionPreference
       } = req.body;
 
       // Standardize mobile number format
@@ -320,14 +322,37 @@ router.post('/signup',
         email: email.toLowerCase(),
         mobile: standardizedMobile,
         password, // Will be hashed by pre-save middleware
-        gender,
-        ageRange,
-        gamePreferences,
-        gameStyle,
-        improvementArea,
-        dailyEarningGoal,
         socialTag,
-        isVerified: true // Mobile is already verified
+        isVerified: true, // Mobile is already verified
+        appVersion: appVersion || req.headers['x-app-version'] || '1.0.0',
+        // Initialize activity/session counters
+        lastActive: new Date(),
+        lastLoginAt: new Date(),
+        loginCount: 1,
+        signup: {
+          ip: req.ip,
+          country: req.headers['x-country'] || (req.headers['cf-ipcountry'] || ''),
+          city: req.headers['x-city'] || '',
+          at: new Date()
+        },
+        redemption: {
+          preference: redemptionPreference || 'none'
+        },
+        // Map onboarding fields correctly
+        onboarding: {
+          completed: false,
+          step: 1,
+          gender: gender || undefined,
+          ageRange: ageRange || undefined,
+          gamePreferences: Array.isArray(gamePreferences) ? gamePreferences : [],
+          gameStyle: gameStyle || undefined,
+          improvementArea: improvementArea || undefined,
+          dailyGoals: {
+            gamesPlayed: 5,
+            coinsEarned: typeof dailyEarningGoal === 'number' ? dailyEarningGoal : 900,
+            challengesCompleted: 3
+          }
+        }
       });
 
       await user.save();
@@ -378,7 +403,12 @@ router.post('/signup',
           gameStyle: user.gameStyle,
           improvementArea: user.improvementArea,
           dailyEarningGoal: user.dailyEarningGoal,
-          socialTag: user.socialTag
+          socialTag: user.socialTag,
+          appVersion: user.appVersion,
+          signup: user.signup,
+          redemption: user.redemption,
+          xp: user.xp,
+          wallet: user.wallet
         },
         referral: referralResult ? {
           success: true,
@@ -495,6 +525,23 @@ router.post('/login',
         { expiresIn: '24h' }
       );
 
+      // Update login analytics
+      try {
+        await User.findByIdAndUpdate(
+          user._id,
+          {
+            $inc: { loginCount: 1 },
+            $set: {
+              lastLoginAt: new Date(),
+              lastActive: new Date(),
+              appVersion: req.headers['x-app-version'] || user.appVersion || '1.0.0'
+            }
+          }
+        );
+      } catch (e) {
+        console.error('Failed to update login analytics:', e.message);
+      }
+
       res.status(200).json({
         token,
         biometricRequired: false,
@@ -569,6 +616,23 @@ router.post('/admin-login',
         process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
+
+      // Update login analytics for admin as well
+      try {
+        await User.findByIdAndUpdate(
+          user._id,
+          {
+            $inc: { loginCount: 1 },
+            $set: {
+              lastLoginAt: new Date(),
+              lastActive: new Date(),
+              appVersion: req.headers['x-app-version'] || user.appVersion || '1.0.0'
+            }
+          }
+        );
+      } catch (e) {
+        console.error('Failed to update admin login analytics:', e.message);
+      }
 
       res.status(200).json({
         token,

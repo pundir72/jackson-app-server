@@ -558,13 +558,21 @@ router.get('/users', adminAuth, async (req, res) => {
     
     // Transform users to match frontend format
     const transformedUsers = users.map(user => {
-      const fullName = `${user.firstName} ${user.lastName}`;
-      const tier = user.vip.level.charAt(0).toUpperCase() + user.vip.level.slice(1);
-      const status = user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1);
-      const gender = user.onboarding.gender ? user.onboarding.gender.charAt(0).toUpperCase() + user.onboarding.gender.slice(1) : 'N/A';
-      const ageRange = user.onboarding.ageRange || 'N/A';
-      const location = user.location.current.city && user.location.current.country 
-        ? `${user.location.current.city}, ${user.location.current.country}` 
+      const vip = user.vip || { level: 'free' };
+      const profile = user.profile || { status: 'active', avatar: '' };
+      const onboarding = user.onboarding || {};
+      const locCurrent = (user.location && user.location.current) ? user.location.current : {};
+      const firstName = user.firstName || '';
+      const lastName = user.lastName || '';
+      const fullName = `${firstName} ${lastName}`.trim() || 'N/A';
+      const tierLevel = vip.level || 'free';
+      const tier = tierLevel.charAt(0).toUpperCase() + tierLevel.slice(1);
+      const statusVal = profile.status || 'active';
+      const status = statusVal.charAt(0).toUpperCase() + statusVal.slice(1);
+      const gender = onboarding.gender ? onboarding.gender.charAt(0).toUpperCase() + onboarding.gender.slice(1) : 'N/A';
+      const ageRange = onboarding.ageRange || 'N/A';
+      const location = (locCurrent.city && locCurrent.country)
+        ? `${locCurrent.city}, ${locCurrent.country}`
         : 'N/A';
       
       // Generate user ID from MongoDB ObjectId
@@ -587,7 +595,7 @@ router.get('/users', adminAuth, async (req, res) => {
         status,
         statusBg: getStatusBg(status),
         statusColor: getStatusColor(status),
-        avatar: user.profile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
+        avatar: profile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
         createdAt: user.createdAt,
         lastActive: user.lastActive || user.createdAt
       };
@@ -728,38 +736,51 @@ router.get('/users/:id', adminAuth, async (req, res) => {
     }
     
     // Transform user data to match frontend format
+    const safeVip = user.vip || { level: 'free' };
+    const safeProfile = user.profile || { status: 'active', avatar: '' };
+    const safeOnboarding = user.onboarding || {};
+    const safeWallet = user.wallet || { balance: 0 };
+    const safeXp = user.xp || { current: 0, tier: 1 };
+    const safeLocation = (user.location && user.location.current) ? user.location.current : {};
+    const safeGames = Array.isArray(user.games) ? user.games : [];
+    const safeTasks = Array.isArray(user.tasks) ? user.tasks : [];
+    const safeSurveys = Array.isArray(user.surveys) ? user.surveys : [];
+    const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'N/A';
+    const tierText = (safeVip.level || 'free');
+    const statusText = (safeProfile.status || 'active');
+
     const transformedUser = {
       id: user._id,
       userId: `ID${user._id.toString().slice(-6).toUpperCase()}`,
-      name: `${user.firstName} ${user.lastName}`,
-      tier: user.vip.level.charAt(0).toUpperCase() + user.vip.level.slice(1),
+      name: fullName,
+      tier: tierText.charAt(0).toUpperCase() + tierText.slice(1),
       email: user.email || 'N/A',
       phone: user.mobile || 'N/A',
-      gender: user.onboarding.gender ? user.onboarding.gender.charAt(0).toUpperCase() + user.onboarding.gender.slice(1) : 'N/A',
-      age: user.onboarding.ageRange || 'N/A',
-      location: user.location.current.city && user.location.current.country 
-        ? `${user.location.current.city}, ${user.location.current.country}` 
-        : 'N/A',
-      status: user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1),
-      avatar: user.profile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
+      gender: safeOnboarding.gender ? safeOnboarding.gender.charAt(0).toUpperCase() + safeOnboarding.gender.slice(1) : 'N/A',
+      age: safeOnboarding.ageRange || 'N/A',
+      location: (safeLocation.city && safeLocation.country) ? `${safeLocation.city}, ${safeLocation.country}` : 'N/A',
+      status: statusText.charAt(0).toUpperCase() + statusText.slice(1),
+      avatar: safeProfile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
       registrationDate: user.createdAt,
       memberSince: user.createdAt,
       lastActive: user.lastActive || user.createdAt,
-      appVersion: '1.1.3.7', // Default value
-      accountStatus: user.profile.status.charAt(0).toUpperCase() + user.profile.status.slice(1),
+      lastLoginAt: user.lastLoginAt || null,
+      loginCount: typeof user.loginCount === 'number' ? user.loginCount : 0,
+      appVersion: user.appVersion || 'N/A',
+      accountStatus: statusText.charAt(0).toUpperCase() + statusText.slice(1),
       faceVerification: user.isVerified ? 'Verified' : 'Not Verified',
-      signupCountry: user.location.current.country || 'N/A',
-      country: user.location.current.country || 'N/A',
-      coinBalance: user.wallet.balance || 0,
-      xp: user.xp.current || 0,
-      xpTier: user.xp.tier || 1,
-      gamesPlayed: user.games.length || 0,
-      tasksCompleted: user.tasks.filter(task => task.completed).length || 0,
-      surveysCompleted: user.surveys.filter(survey => survey.completed).length || 0,
-      vip: user.vip,
-      wallet: user.wallet,
-      onboarding: user.onboarding,
-      profile: user.profile
+      signupCountry: (user.signup && user.signup.country) ? user.signup.country : 'N/A',
+      country: safeLocation.country || 'N/A',
+      coinBalance: typeof safeWallet.balance === 'number' ? safeWallet.balance : 0,
+      xp: typeof safeXp.current === 'number' ? safeXp.current : 0,
+      xpTier: typeof safeXp.tier === 'number' ? safeXp.tier : 1,
+      gamesPlayed: safeGames.length || 0,
+      tasksCompleted: safeTasks.filter(task => task && task.completed).length || 0,
+      surveysCompleted: safeSurveys.filter(survey => survey && survey.completed).length || 0,
+      vip: safeVip,
+      wallet: safeWallet,
+      onboarding: safeOnboarding,
+      profile: safeProfile
     };
     
     res.json({

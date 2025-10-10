@@ -8,8 +8,8 @@ const userSchema = new mongoose.Schema({
             latitude: {
                 type: Number
             },
-  // Last seen IP
-  lastIp: { type: String },
+            // Last seen IP
+            lastIp: { type: String },
             longitude: {
                 type: Number
             },
@@ -80,7 +80,7 @@ const userSchema = new mongoose.Schema({
         minlength: 3,
         maxlength: 20,
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 if (!v) return true; // optional
                 return /^[a-zA-Z0-9_]+$/.test(v);
             },
@@ -94,7 +94,7 @@ const userSchema = new mongoose.Schema({
         lowercase: true,
         trim: true,
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 // Allow null/undefined values
                 if (!v) return true;
                 return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -108,25 +108,25 @@ const userSchema = new mongoose.Schema({
         unique: true,
         trim: true,
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 // Remove any non-digit characters first
                 const cleanNumber = v.replace(/\D/g, '');
-                
+
                 // International mobile number validation
                 // Supports formats like: +1234567890, +44123456789, 6263573606
-                
+
                 // Check if it's a valid mobile number
                 if (cleanNumber.length >= 7 && cleanNumber.length <= 15) {
                     // Valid international mobile number length
                     return true;
                 }
-                
+
                 return false;
             },
             message: 'Please enter a valid mobile number (7-15 digits, with or without country code)'
         }
     },
-    
+
     // OTP Verification
     otp: {
         code: {
@@ -136,7 +136,7 @@ const userSchema = new mongoose.Schema({
             type: Date
         }
     },
-    
+
     isVerified: {
         type: Boolean,
         default: false
@@ -150,11 +150,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
-    role:{
+    role: {
         type: String,
         default: "USER",
     },
-    
+
     // Social Login
     social: {
         googleId: {
@@ -256,31 +256,31 @@ const userSchema = new mongoose.Schema({
         },
         primaryGoal: {
             type: String,
-            enum: ['earn', 'save', 'invest', 'learn'],
+            // enum: ['earn', 'save', 'invest', 'learn'],
             required: false
         },
         gender: {
             type: String,
-            enum: ['male', 'female', 'other'],
+            // enum: ['male', 'female', 'other'],
             required: false
         },
         ageRange: {
             type: String,
-            enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
+            // enum: ['18-25', '26-35', '36-45', '46-55', '56+'],
             required: false
         },
         gamePreferences: [{
             type: String,
-            enum: ['puzzle', 'arcade', 'strategy', 'action', 'adventure', 'words', 'trivia']
+            // enum: ['puzzle', 'arcade', 'strategy', 'action', 'adventure', 'words', 'trivia']
         }],
         gameStyle: {
             type: String,
-            enum: ['easy', 'medium', 'hard', 'casual'],
+            // enum: ['easy', 'medium', 'hard', 'casual'],
             required: false
         },
         improvementArea: {
             type: String,
-            enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
+            // enum: ['budgeting', 'saving', 'investing', 'debt', 'retirement'],
             required: false
         },
         dailyEarningGoal: {
@@ -309,7 +309,7 @@ const userSchema = new mongoose.Schema({
             }
         }
     },
-    
+
     // App / session meta for admin analytics
     appVersion: {
         type: String,
@@ -338,7 +338,7 @@ const userSchema = new mongoose.Schema({
     redemption: {
         preference: {
             type: String,
-            enum: ['paypal', 'gift_card', 'crypto', 'bank', 'gpay', 'revolut', 'usd', 'inr', 'coins', 'none'],
+            // enum: ['paypal', 'gift_card', 'crypto', 'bank', 'gpay', 'revolut', 'usd', 'inr', 'coins', 'none'],
             default: 'none'
         }
     },
@@ -446,7 +446,7 @@ const userSchema = new mongoose.Schema({
         },
         type: {
             type: String,
-            enum: ['daily', 'weekly', 'monthly']
+            // enum: ['daily', 'weekly', 'monthly']
         },
         completed: {
             type: Boolean,
@@ -526,7 +526,7 @@ const userSchema = new mongoose.Schema({
                 max: 9999
             }
         },
-        
+
         // Monthly Summary (Calculated Values)
         monthlySummary: {
             totalIncome: {
@@ -550,7 +550,7 @@ const userSchema = new mongoose.Schema({
                 default: Date.now
             }
         },
-        
+
         // Task Progress Tracking for "Achieve Your Goal"
         taskProgress: {
             steps: [{
@@ -568,7 +568,7 @@ const userSchema = new mongoose.Schema({
                 },
                 type: {
                     type: String,
-                    enum: ['game', 'survey', 'challenge', 'milestone', 'receipt'],
+                    // enum: ['game', 'survey', 'challenge', 'milestone', 'receipt'],
                     required: true
                 },
                 completed: {
@@ -622,12 +622,12 @@ const userSchema = new mongoose.Schema({
                 type: Date
             }
         },
-        
+
         // Linked Accounts for Payout Methods
         linkedAccounts: [{
             provider: {
                 type: String,
-                enum: ['paypal', 'gpay', 'revolut', 'bank', 'crypto'],
+                // enum: ['paypal', 'gpay', 'revolut', 'bank', 'crypto'],
                 required: true
             },
             accountId: {
@@ -654,7 +654,7 @@ const userSchema = new mongoose.Schema({
                 type: Date
             }
         }],
-        
+
         // Receipt Management
         receipts: [{
             id: {
@@ -677,7 +677,7 @@ const userSchema = new mongoose.Schema({
             },
             status: {
                 type: String,
-                enum: ['processing', 'approved', 'rejected'],
+                // enum: ['processing', 'approved', 'rejected'],
                 default: 'processing'
             },
             reward: {
@@ -698,7 +698,7 @@ const userSchema = new mongoose.Schema({
                 type: Date
             }
         }],
-        
+
         // Custom Goals (Named Goals)
         customGoals: [{
             id: {
@@ -722,7 +722,7 @@ const userSchema = new mongoose.Schema({
             },
             category: {
                 type: String,
-                enum: ['vacation', 'rent_deposit', 'emergency', 'purchase', 'savings', 'other'],
+                // enum: ['vacation', 'rent_deposit', 'emergency', 'purchase', 'savings', 'other'],
                 default: 'other'
             },
             priority: {
@@ -732,7 +732,7 @@ const userSchema = new mongoose.Schema({
             },
             status: {
                 type: String,
-                enum: ['active', 'completed', 'paused', 'cancelled'],
+                // enum: ['active', 'completed', 'paused', 'cancelled'],
                 default: 'active'
             },
             targetDate: {
@@ -746,7 +746,7 @@ const userSchema = new mongoose.Schema({
                 type: Date
             }
         }],
-        
+
         // Earning History
         earningHistory: [{
             date: {
@@ -755,7 +755,7 @@ const userSchema = new mongoose.Schema({
             },
             source: {
                 type: String,
-                enum: ['game', 'survey', 'challenge', 'receipt', 'bonus', 'referral'],
+                // enum: ['game', 'survey', 'challenge', 'receipt', 'bonus', 'referral'],
                 required: true
             },
             amount: {
@@ -769,7 +769,7 @@ const userSchema = new mongoose.Schema({
                 type: String
             }
         }],
-        
+
         // Settings and Preferences
         settings: {
             autoCalculate: {
@@ -823,7 +823,7 @@ const userSchema = new mongoose.Schema({
         },
         status: {
             type: String,
-            enum: ['pending', 'task_completed', 'ad_completed', 'claimed', 'expired']
+            // enum: ['pending', 'task_completed', 'ad_completed', 'claimed', 'expired']
         },
         expiresAt: Date,
         taskId: String,
@@ -847,7 +847,7 @@ const userSchema = new mongoose.Schema({
         paymentDetails: Object,
         status: {
             type: String,
-            enum: ['pending', 'approved', 'rejected', 'completed', 'failed']
+            // enum: ['pending', 'approved', 'rejected', 'completed', 'failed']
         },
         createdAt: {
             type: Date,
@@ -884,7 +884,7 @@ const userSchema = new mongoose.Schema({
         provider: String,
         status: {
             type: String,
-            enum: ['active', 'completed', 'incomplete', 'expired']
+            // enum: ['active', 'completed', 'incomplete', 'expired']
         },
         startedAt: Date,
         expiresAt: Date,
@@ -900,7 +900,7 @@ const userSchema = new mongoose.Schema({
         gameId: String,
         status: {
             type: String,
-            enum: ['active', 'completed', 'expired', 'cancelled']
+            // enum: ['active', 'completed', 'expired', 'cancelled']
         },
         startedAt: Date,
         expiresAt: Date,
@@ -955,7 +955,11 @@ const userSchema = new mongoose.Schema({
         favoriteGames: [String],
         lastSearchQuery: String,
         gameViewMode: { type: String, enum: ['grid', 'list'], default: 'grid' },
-        sortBy: { type: String, enum: ['recent', 'popular', 'alphabetical', 'earning'], default: 'recent' },
+        sortBy: {
+            type: String,
+            // enum: ['recent', 'popular', 'alphabetical', 'earning'],
+            default: 'recent'
+        },
         filterBy: {
             category: [String],
             difficulty: [String],
@@ -963,15 +967,15 @@ const userSchema = new mongoose.Schema({
             isFavorite: Boolean
         }
     },
-    
+
     // My Account Overview milestone tracking
     milestone_gamesPlayed_claimed: { type: Boolean, default: false },
     milestone_coinsEarned_claimed: { type: Boolean, default: false },
     milestone_challengesCompleted_claimed: { type: Boolean, default: false },
-    
+
     // Daily progress reset tracking
     lastProgressReset: Date,
-    
+
     // Ad-free purchase system
     adFreeUntil: {
         type: Date,
@@ -998,7 +1002,7 @@ const userSchema = new mongoose.Schema({
         },
         paymentMethod: {
             type: String,
-            enum: ['coins', 'xp', 'mixed'],
+            // enum: ['coins', 'xp', 'mixed'],
             required: true
         },
         expiresAt: {
@@ -1036,11 +1040,11 @@ const userSchema = new mongoose.Schema({
 });
 
 // Normalize mobile number before saving
-userSchema.pre('save', function(next) {
+userSchema.pre('save', function (next) {
     if (this.isModified('mobile')) {
         // Remove all non-digit characters
         const cleanNumber = this.mobile.replace(/\D/g, '');
-        
+
         // Store the full international number (with country code)
         // This preserves the country code for international support
         this.mobile = cleanNumber;
@@ -1049,9 +1053,9 @@ userSchema.pre('save', function(next) {
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
-    
+
     try {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
@@ -1062,7 +1066,7 @@ userSchema.pre('save', async function(next) {
 });
 
 // Method to compare password
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
     console.log('comparePassword method called');
     console.log('candidatePassword:', candidatePassword);
     console.log('this.password:', this.password);
@@ -1072,12 +1076,12 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 };
 
 // Method to get formatted mobile number with + prefix
-userSchema.methods.getFormattedMobile = function() {
+userSchema.methods.getFormattedMobile = function () {
     return `+${this.mobile}`;
 };
 
 // Method to get mobile without country code (for backward compatibility)
-userSchema.methods.getMobileWithoutCode = function() {
+userSchema.methods.getMobileWithoutCode = function () {
     // If it's a 10-digit number (likely Indian), return as is
     if (this.mobile.length === 10) {
         return this.mobile;
@@ -1087,25 +1091,25 @@ userSchema.methods.getMobileWithoutCode = function() {
 };
 
 // Ad-free purchase methods
-userSchema.methods.isAdFree = function() {
+userSchema.methods.isAdFree = function () {
     return this.adFreeUntil && this.adFreeUntil > new Date();
 };
 
-userSchema.methods.getAdFreeTimeRemaining = function() {
+userSchema.methods.getAdFreeTimeRemaining = function () {
     if (!this.isAdFree()) {
         return 0;
     }
     return Math.max(0, this.adFreeUntil.getTime() - new Date().getTime());
 };
 
-userSchema.methods.purchaseAdFree = function(duration, cost, paymentMethod) {
+userSchema.methods.purchaseAdFree = function (duration, cost, paymentMethod) {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (duration * 60 * 60 * 1000)); // Convert hours to milliseconds
-    
+
     // If user already has ad-free time, extend it
     const currentAdFreeUntil = this.adFreeUntil && this.adFreeUntil > now ? this.adFreeUntil : now;
     const newAdFreeUntil = new Date(currentAdFreeUntil.getTime() + (duration * 60 * 60 * 1000));
-    
+
     // Create purchase record
     const purchase = {
         purchaseDate: now,
@@ -1115,13 +1119,13 @@ userSchema.methods.purchaseAdFree = function(duration, cost, paymentMethod) {
         expiresAt: newAdFreeUntil,
         isActive: true
     };
-    
+
     // Add to purchases array
     this.adFreePurchases.push(purchase);
-    
+
     // Update ad-free until time
     this.adFreeUntil = newAdFreeUntil;
-    
+
     // Update stats
     if (!this.adFreeStats) {
         this.adFreeStats = {
@@ -1131,16 +1135,16 @@ userSchema.methods.purchaseAdFree = function(duration, cost, paymentMethod) {
             totalHoursPurchased: 0
         };
     }
-    
+
     this.adFreeStats.totalPurchases += 1;
     this.adFreeStats.totalCoinsSpent += cost.coins || 0;
     this.adFreeStats.totalXPSpent += cost.xp || 0;
     this.adFreeStats.totalHoursPurchased += duration;
-    
+
     return purchase;
 };
 
-userSchema.methods.getAdFreeStats = function() {
+userSchema.methods.getAdFreeStats = function () {
     return {
         isAdFree: this.isAdFree(),
         adFreeUntil: this.adFreeUntil,
@@ -1159,7 +1163,7 @@ userSchema.methods.getAdFreeStats = function() {
 };
 
 // Method to get country code
-userSchema.methods.getCountryCode = function() {
+userSchema.methods.getCountryCode = function () {
     if (this.mobile.length > 10) {
         // Extract country code (first 1-3 digits)
         const countryCodeLength = this.mobile.length - 10;
@@ -1169,7 +1173,7 @@ userSchema.methods.getCountryCode = function() {
 };
 
 // Method to get mobile without country code
-userSchema.methods.getMobileWithoutCountryCode = function() {
+userSchema.methods.getMobileWithoutCountryCode = function () {
     if (this.mobile.length > 10) {
         // Remove country code
         const countryCodeLength = this.mobile.length - 10;
@@ -1179,42 +1183,42 @@ userSchema.methods.getMobileWithoutCountryCode = function() {
 };
 
 // Method to generate password reset token
-userSchema.methods.generatePasswordResetToken = function() {
+userSchema.methods.generatePasswordResetToken = function () {
     const crypto = require('crypto');
     const resetToken = crypto.randomBytes(32).toString('hex');
-    
+
     // Hash the token before saving to database
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    
+
     this.passwordReset.token = hashedToken;
     this.passwordReset.expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     this.passwordReset.lastRequest = new Date();
-    
+
     return resetToken; // Return unhashed token for email/SMS
 };
 
 // Method to clear password reset token
-userSchema.methods.clearPasswordResetToken = function() {
+userSchema.methods.clearPasswordResetToken = function () {
     this.passwordReset.token = undefined;
     this.passwordReset.expires = undefined;
     this.passwordReset.attempts = 0;
 };
 
 // Method to check if password reset token is valid
-userSchema.methods.isPasswordResetTokenValid = function(token) {
+userSchema.methods.isPasswordResetTokenValid = function (token) {
     if (!this.passwordReset.token || !this.passwordReset.expires) {
         return false;
     }
-    
+
     const crypto = require('crypto');
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    
-    return hashedToken === this.passwordReset.token && 
-           this.passwordReset.expires > new Date();
+
+    return hashedToken === this.passwordReset.token &&
+        this.passwordReset.expires > new Date();
 };
 
 // Virtuals
-userSchema.virtual('totalEarnings').get(function() {
+userSchema.virtual('totalEarnings').get(function () {
     return this.wallet.balance;
 });
 

@@ -5,6 +5,10 @@ const protect = require('../middleware/auth');
 const VIPTier = require('../models/VIPTier');
 const VIPSubscription = require('../models/VIPSubscription');
 const User = require('../models/User');
+const DailyChallenge = require('../models/DailyChallenge');
+const UserChallengeProgress = require('../models/UserChallengeProgress');
+const BonusDay = require('../models/BonusDay');
+const XPMultiplier = require('../models/XPMultiplier');
 const { getVIPPricing } = require('../utils/pricing');
 
 // Admin authentication middleware
@@ -728,6 +732,28 @@ router.get('/users/:id', adminAuth, async (req, res) => {
       .populate('tasks')
       .populate('surveys');
     
+    // Get challenge-related data
+    const [challengeProgress, completedChallenges, streakData, bonusDaysClaimed] = await Promise.all([
+      // Get user's challenge progress
+      UserChallengeProgress.find({ userId: id })
+        .populate('challengeId', 'title type coinReward xpReward challengeDate')
+        .sort({ challengeDate: -1 })
+        .limit(50),
+      
+      // Get completed challenges count
+      UserChallengeProgress.countDocuments({ userId: id, status: 'completed' }),
+      
+      // Get current streak info from user
+      Promise.resolve({
+        current: user.xp?.streak || user.streak?.current || 0,
+        lastUpdated: user.streak?.lastUpdated || null,
+        completedTasks: user.streak?.completedTasks || []
+      }),
+      
+      // Get bonus days claimed (if tracked)
+      Promise.resolve(0) // TODO: Implement bonus day tracking if needed
+    ]);
+    
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -737,19 +763,60 @@ router.get('/users/:id', adminAuth, async (req, res) => {
     
     // Transform user data to match frontend format
     const safeVip = user.vip || { level: 'free' };
-    const safeProfile = user.profile || { status: 'active', avatar: '' };
+    const safeProfile = user.profile || { status: 'active', avatar: '', notifications: true };
     const safeOnboarding = user.onboarding || {};
     const safeWallet = user.wallet || { balance: 0 };
-    const safeXp = user.xp || { current: 0, tier: 1 };
+    const safeXp = user.xp || { current: 0, tier: 1, total: 0 };
     const safeLocation = (user.location && user.location.current) ? user.location.current : {};
     const safeGames = Array.isArray(user.games) ? user.games : [];
     const safeTasks = Array.isArray(user.tasks) ? user.tasks : [];
     const safeSurveys = Array.isArray(user.surveys) ? user.surveys : [];
+    const safeDevice = user.device || { type: 'Unknown', model: 'Unknown', os: 'Unknown' };
+    const safeRedemption = user.redemption || { preference: 'none', count: 0 };
+    const safeAnalytics = user.analytics || {};
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'N/A';
     const tierText = (safeVip.level || 'free');
     const statusText = (safeProfile.status || 'active');
+    
+    // Compute derived fields
+    const mostPlayedGame = safeGames.length > 0 
+      ? safeGames.reduce((max, g) => (g.playCount || 0) > (max.playCount || 0) ? g : max, safeGames[0])
+      : null;
+    const lastGamePlayed = safeGames.length > 0
+      ? safeGames.reduce((latest, g) => {
+          if (!g.lastPlayed) return latest;
+          if (!latest || !latest.lastPlayed) return g;
+          return new Date(g.lastPlayed) > new Date(latest.lastPlayed) ? g : latest;
+        }, null)
+      : null;
+    const lastTaskCompleted = safeTasks.length > 0
+      ? safeTasks.filter(t => t.completed).reduce((latest, t) => {
+          if (!t.date) return latest;
+          if (!latest || !latest.date) return t;
+          return new Date(t.date) > new Date(latest.date) ? t : latest;
+        }, null)
+      : null;
+    
+    // Compute preferred game category from onboarding
+    const preferredCategory = (safeOnboarding.gamePreferences && safeOnboarding.gamePreferences.length > 0)
+      ? safeOnboarding.gamePreferences[0]
+      : 'N/A';
+    
+    // Compute challenge-related fields
+    const lastChallengeCompleted = challengeProgress.find(cp => cp.status === 'completed');
+    const challengesInProgress = challengeProgress.filter(cp => cp.status === 'in_progress').length;
+    const totalChallengesCompleted = completedChallenges;
+    const currentStreak = streakData.current;
+    const streakLastUpdated = streakData.lastUpdated;
+    
+    // Calculate challenge success rate
+    const totalChallengeAttempts = challengeProgress.length;
+    const challengeSuccessRate = totalChallengeAttempts > 0 
+      ? Math.round((totalChallengesCompleted / totalChallengeAttempts) * 100)
+      : 0;
 
     const transformedUser = {
+      // === Profile Tab ===
       id: user._id,
       userId: `ID${user._id.toString().slice(-6).toUpperCase()}`,
       name: fullName,
@@ -758,22 +825,79 @@ router.get('/users/:id', adminAuth, async (req, res) => {
       phone: user.mobile || 'N/A',
       gender: safeOnboarding.gender ? safeOnboarding.gender.charAt(0).toUpperCase() + safeOnboarding.gender.slice(1) : 'N/A',
       age: safeOnboarding.ageRange || 'N/A',
-      location: (safeLocation.city && safeLocation.country) ? `${safeLocation.city}, ${safeLocation.country}` : 'N/A',
-      status: statusText.charAt(0).toUpperCase() + statusText.slice(1),
-      avatar: safeProfile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
       registrationDate: user.createdAt,
-      memberSince: user.createdAt,
-      lastActive: user.lastActive || user.createdAt,
-      lastLoginAt: user.lastLoginAt || null,
-      loginCount: typeof user.loginCount === 'number' ? user.loginCount : 0,
+      country: safeLocation.country || 'N/A',
+      signupCountry: (user.signup && user.signup.country) ? user.signup.country : 'N/A',
       appVersion: user.appVersion || 'N/A',
       accountStatus: statusText.charAt(0).toUpperCase() + statusText.slice(1),
       faceVerification: user.isVerified ? 'Verified' : 'Not Verified',
-      signupCountry: (user.signup && user.signup.country) ? user.signup.country : 'N/A',
-      country: safeLocation.country || 'N/A',
-      coinBalance: typeof safeWallet.balance === 'number' ? safeWallet.balance : 0,
+      deviceType: `${safeDevice.type} - ${safeDevice.model}` !== 'Unknown - Unknown' 
+        ? `${safeDevice.type} - ${safeDevice.model}` 
+        : 'N/A',
+      deviceOS: safeDevice.os || 'N/A',
+      lastActive: user.lastActive || user.createdAt,
+      ipAddress: safeLocation.ip || 'N/A',
+      location: (safeLocation.city && safeLocation.country) ? `${safeLocation.city}, ${safeLocation.country}` : 'N/A',
+      
+      // === Balance & Tier Tab ===
       xp: typeof safeXp.current === 'number' ? safeXp.current : 0,
+      coinBalance: typeof safeWallet.balance === 'number' ? safeWallet.balance : 0,
       xpTier: typeof safeXp.tier === 'number' ? safeXp.tier : 1,
+      redemptionPreference: (safeRedemption.preference || 'none').toUpperCase(),
+      mostPlayedGame: mostPlayedGame ? (mostPlayedGame.gameId || 'N/A') : 'N/A',
+      lastGamePlayed: lastGamePlayed ? (lastGamePlayed.gameId || 'N/A') : 'N/A',
+      totalGamesDownloaded: safeGames.length || 0,
+      avgSessionDuration: typeof safeAnalytics.avgSessionDuration === 'number' 
+        ? `${safeAnalytics.avgSessionDuration} min` 
+        : 'N/A',
+      primaryEarningSource: safeAnalytics.primaryEarningSource || 'N/A',
+      preferredGameCategory: preferredCategory,
+      onboardingGoal: safeOnboarding.primaryGoal || safeOnboarding.improvementArea || 'N/A',
+      notificationSettings: safeProfile.notifications ? 'Enabled' : 'Disabled',
+      
+      // === Activity Summary Tab ===
+      lastLoginAt: user.lastLoginAt || null,
+      loginCount: typeof user.loginCount === 'number' ? user.loginCount : 0,
+      lastTaskCompleted: lastTaskCompleted ? (lastTaskCompleted.taskId || 'N/A') : 'N/A',
+      lastTaskCompletedDate: lastTaskCompleted ? lastTaskCompleted.date : null,
+      offersRedeemed: typeof safeAnalytics.totalOffersRedeemed === 'number' ? safeAnalytics.totalOffersRedeemed : 0,
+      lastOfferClaimed: safeAnalytics.lastOfferClaimedAt || null,
+      totalCoinsEarned: typeof safeAnalytics.totalCoinsEarned === 'number' ? safeAnalytics.totalCoinsEarned : 0,
+      totalXPEarned: typeof safeXp.total === 'number' ? safeXp.total : 0,
+      redemptionsMade: typeof safeRedemption.count === 'number' ? safeRedemption.count : 0,
+      redemptionBreakdown: {
+        count: safeRedemption.count || 0,
+        totalCoins: safeRedemption.totalCoinsRedeemed || 0,
+        lastRedeemed: safeRedemption.lastRedeemedAt || null
+      },
+      challengeProgress: {
+        currentStreak: currentStreak,
+        streakLastUpdated: streakLastUpdated,
+        totalChallengesCompleted: totalChallengesCompleted,
+        challengesInProgress: challengesInProgress,
+        challengeSuccessRate: challengeSuccessRate,
+        lastChallengeCompleted: lastChallengeCompleted ? {
+          title: lastChallengeCompleted.challengeId?.title || 'N/A',
+          type: lastChallengeCompleted.challengeId?.type || 'N/A',
+          completedAt: lastChallengeCompleted.completedAt,
+          coinsEarned: lastChallengeCompleted.rewardsEarned?.coins || 0,
+          xpEarned: lastChallengeCompleted.rewardsEarned?.xp || 0
+        } : null,
+        recentChallenges: challengeProgress.slice(0, 5).map(cp => ({
+          title: cp.challengeId?.title || 'N/A',
+          type: cp.challengeId?.type || 'N/A',
+          status: cp.status,
+          challengeDate: cp.challengeDate,
+          progress: cp.progress?.percentage || 0
+        }))
+      },
+      spinUsage: typeof user.spinCount === 'number' ? user.spinCount : 0,
+      lastSpinAt: user.lastSpinAt || null,
+      
+      // === Legacy & Full Objects ===
+      status: statusText.charAt(0).toUpperCase() + statusText.slice(1),
+      avatar: safeProfile.avatar || 'https://c.animaapp.com/t66hdvJZ/img/avatar.svg',
+      memberSince: user.createdAt,
       gamesPlayed: safeGames.length || 0,
       tasksCompleted: safeTasks.filter(task => task && task.completed).length || 0,
       surveysCompleted: safeSurveys.filter(survey => survey && survey.completed).length || 0,

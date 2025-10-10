@@ -325,6 +325,25 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    
+    // Device tracking for admin analytics
+    device: {
+        type: {
+            type: String, // 'iOS', 'Android', 'Web'
+            default: 'Unknown'
+        },
+        model: {
+            type: String, // 'iPhone 14 Pro', 'Samsung Galaxy S23', etc.
+            default: 'Unknown'
+        },
+        os: {
+            type: String, // 'iOS 17.2', 'Android 14', etc.
+            default: 'Unknown'
+        },
+        lastUpdated: {
+            type: Date
+        }
+    },
 
     // Signup snapshot (immutable registration metadata)
     signup: {
@@ -340,12 +359,51 @@ const userSchema = new mongoose.Schema({
             type: String,
             // enum: ['paypal', 'gift_card', 'crypto', 'bank', 'gpay', 'revolut', 'usd', 'inr', 'coins', 'none'],
             default: 'none'
+        },
+        // Redemption tracking for admin analytics
+        count: {
+            type: Number,
+            default: 0
+        },
+        totalCoinsRedeemed: {
+            type: Number,
+            default: 0
+        },
+        lastRedeemedAt: {
+            type: Date
         }
     },
 
     // Lightweight cache for spin usage history (for admin summaries)
     lastSpinAt: {
         type: Date
+    },
+    spinCount: {
+        type: Number,
+        default: 0
+    },
+    
+    // Analytics for admin dashboard
+    analytics: {
+        totalCoinsEarned: {
+            type: Number,
+            default: 0
+        },
+        totalOffersRedeemed: {
+            type: Number,
+            default: 0
+        },
+        lastOfferClaimedAt: {
+            type: Date
+        },
+        avgSessionDuration: {
+            type: Number, // in minutes
+            default: 0
+        },
+        primaryEarningSource: {
+            type: String, // 'games', 'surveys', 'tasks', 'referrals'
+            default: 'N/A'
+        }
     },
 
     // Biometric

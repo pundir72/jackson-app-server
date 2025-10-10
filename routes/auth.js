@@ -267,7 +267,10 @@ router.post('/signup',
         socialTag,
         referralCode, // Referral code from inviter
         appVersion,
-        redemptionPreference
+        redemptionPreference,
+        deviceType,
+        deviceModel,
+        deviceOS
       } = req.body;
 
       // Standardize mobile number format
@@ -330,10 +333,26 @@ router.post('/signup',
         lastLoginAt: new Date(),
         loginCount: 1,
         signup: {
-          ip: req.ip,
-          country: req.headers['x-country'] || (req.headers['cf-ipcountry'] || ''),
+          ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+          country: req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
           city: req.headers['x-city'] || '',
           at: new Date()
+        },
+        // Capture device info
+        device: {
+          type: deviceType || req.headers['x-device-type'] || 'Unknown',
+          model: deviceModel || req.headers['x-device-model'] || 'Unknown',
+          os: deviceOS || req.headers['x-device-os'] || 'Unknown',
+          lastUpdated: new Date()
+        },
+        // Initialize location with IP
+        location: {
+          current: {
+            ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+            country: req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
+            city: req.headers['x-city'] || '',
+            timestamp: new Date()
+          }
         },
         redemption: {
           preference: redemptionPreference || 'none'
@@ -525,19 +544,25 @@ router.post('/login',
         { expiresIn: '24h' }
       );
 
-      // Update login analytics
+      // Update login analytics and device info
       try {
-        await User.findByIdAndUpdate(
-          user._id,
-          {
-            $inc: { loginCount: 1 },
-            $set: {
-              lastLoginAt: new Date(),
-              lastActive: new Date(),
-              appVersion: req.headers['x-app-version'] || user.appVersion || '1.0.0'
-            }
+        const updateData = {
+          $inc: { loginCount: 1 },
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion: req.body.appVersion || req.headers['x-app-version'] || user.appVersion || '1.0.0',
+            'device.type': req.body.deviceType || req.headers['x-device-type'] || user.device?.type || 'Unknown',
+            'device.model': req.body.deviceModel || req.headers['x-device-model'] || user.device?.model || 'Unknown',
+            'device.os': req.body.deviceOS || req.headers['x-device-os'] || user.device?.os || 'Unknown',
+            'device.lastUpdated': new Date(),
+            'location.current.ip': req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+            'location.current.country': req.headers['x-country'] || req.headers['cf-ipcountry'] || user.location?.current?.country || '',
+            'location.current.city': req.headers['x-city'] || user.location?.current?.city || '',
+            'location.current.timestamp': new Date()
           }
-        );
+        };
+        await User.findByIdAndUpdate(user._id, updateData);
       } catch (e) {
         console.error('Failed to update login analytics:', e.message);
       }
@@ -619,17 +644,23 @@ router.post('/admin-login',
 
       // Update login analytics for admin as well
       try {
-        await User.findByIdAndUpdate(
-          user._id,
-          {
-            $inc: { loginCount: 1 },
-            $set: {
-              lastLoginAt: new Date(),
-              lastActive: new Date(),
-              appVersion: req.headers['x-app-version'] || user.appVersion || '1.0.0'
-            }
+        const updateData = {
+          $inc: { loginCount: 1 },
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion: req.body.appVersion || req.headers['x-app-version'] || user.appVersion || '1.0.0',
+            'device.type': req.body.deviceType || req.headers['x-device-type'] || user.device?.type || 'Unknown',
+            'device.model': req.body.deviceModel || req.headers['x-device-model'] || user.device?.model || 'Unknown',
+            'device.os': req.body.deviceOS || req.headers['x-device-os'] || user.device?.os || 'Unknown',
+            'device.lastUpdated': new Date(),
+            'location.current.ip': req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+            'location.current.country': req.headers['x-country'] || req.headers['cf-ipcountry'] || user.location?.current?.country || '',
+            'location.current.city': req.headers['x-city'] || user.location?.current?.city || '',
+            'location.current.timestamp': new Date()
           }
-        );
+        };
+        await User.findByIdAndUpdate(user._id, updateData);
       } catch (e) {
         console.error('Failed to update admin login analytics:', e.message);
       }

@@ -220,14 +220,26 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
     
-    // Check if user exists and is suspended before marking OTP as verified
+    // Check if user exists and account status allows verification (only active users can verify OTP)
     const user = await findUserByPhone(User, standardizedMobile);
-    if (user && user.profile && user.profile.status === 'suspended') {
+    if (user && user.profile && user.profile.status !== 'active') {
+      const status = user.profile.status;
+      const statusReason = user.profile.statusReason;
+      
+      let message = 'Your account is not active. Please contact support for more information.';
+      if (status === 'suspended') {
+        message = statusReason || 'Your account has been suspended. Please contact support for more information.';
+      } else if (status === 'paused') {
+        message = statusReason || 'Your account has been paused. Please contact support for more information.';
+      } else if (status === 'inactive') {
+        message = 'Your account is inactive. Please contact support to reactivate your account.';
+      }
+      
       return res.status(403).json({
-        error: 'Account suspended',
-        message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
-        accountStatus: 'suspended',
-        suspensionReason: user.profile.statusReason
+        error: 'Account not active',
+        message: message,
+        accountStatus: status,
+        statusReason: statusReason
       });
     }
 
@@ -540,13 +552,25 @@ router.post('/login',
         });
       }
 
-      // Check if user is suspended
-      if (user.profile && user.profile.status === 'suspended') {
+      // Check if user account status allows login (only active users can login)
+      if (user.profile && user.profile.status !== 'active') {
+        const status = user.profile.status;
+        const statusReason = user.profile.statusReason;
+        
+        let message = 'Your account is not active. Please contact support for more information.';
+        if (status === 'suspended') {
+          message = statusReason || 'Your account has been suspended. Please contact support for more information.';
+        } else if (status === 'paused') {
+          message = statusReason || 'Your account has been paused. Please contact support for more information.';
+        } else if (status === 'inactive') {
+          message = 'Your account is inactive. Please contact support to reactivate your account.';
+        }
+        
         return res.status(403).json({
-          error: 'Account suspended',
-          message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
-          accountStatus: 'suspended',
-          suspensionReason: user.profile.statusReason
+          error: 'Account not active',
+          message: message,
+          accountStatus: status,
+          statusReason: statusReason
         });
       }
 
@@ -648,13 +672,25 @@ router.post('/admin-login',
         });
       }
 
-      // Check if user is suspended
-      if (user.profile && user.profile.status === 'suspended') {
+      // Check if user account status allows login (only active users can login)
+      if (user.profile && user.profile.status !== 'active') {
+        const status = user.profile.status;
+        const statusReason = user.profile.statusReason;
+        
+        let message = 'Your account is not active. Please contact support for more information.';
+        if (status === 'suspended') {
+          message = statusReason || 'Your account has been suspended. Please contact support for more information.';
+        } else if (status === 'paused') {
+          message = statusReason || 'Your account has been paused. Please contact support for more information.';
+        } else if (status === 'inactive') {
+          message = 'Your account is inactive. Please contact support to reactivate your account.';
+        }
+        
         return res.status(403).json({
-          error: 'Account suspended',
-          message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
-          accountStatus: 'suspended',
-          suspensionReason: user.profile.statusReason
+          error: 'Account not active',
+          message: message,
+          accountStatus: status,
+          statusReason: statusReason
         });
       }
 

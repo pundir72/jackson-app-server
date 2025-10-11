@@ -45,16 +45,28 @@ module.exports = async (req, res, next) => {
       });
     }
     
-    // Check if user is suspended (for regular users only, not admin)
+    // Check if user account status allows access (only active users can access protected routes)
     const user = await User.findById(decoded.userId);
-    if (user && user.role === 'USER' && user.profile && user.profile.status === 'suspended') {
+    if (user && user.role === 'USER' && user.profile && user.profile.status !== 'active') {
+      const status = user.profile.status;
+      const statusReason = user.profile.statusReason;
+      
+      let message = 'Your account is not active. Please contact support for more information.';
+      if (status === 'suspended') {
+        message = statusReason || 'Your account has been suspended. Please contact support for more information.';
+      } else if (status === 'paused') {
+        message = statusReason || 'Your account has been paused. Please contact support for more information.';
+      } else if (status === 'inactive') {
+        message = 'Your account is inactive. Please contact support to reactivate your account.';
+      }
+      
       return res.status(403).json({
         success: false,
         error: {
-          message: 'Account suspended',
-          details: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
-          accountStatus: 'suspended',
-          suspensionReason: user.profile.statusReason
+          message: 'Account not active',
+          details: message,
+          accountStatus: status,
+          statusReason: statusReason
         }
       });
     }

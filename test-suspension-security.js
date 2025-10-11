@@ -91,7 +91,7 @@ async function runSuspensionTests() {
       });
       console.log('❌ SECURITY ISSUE: Suspended user can still login!\n');
     } catch (error) {
-      if (error.response?.status === 403 && error.response?.data?.error === 'Account suspended') {
+      if (error.response?.status === 403 && error.response?.data?.error === 'Account not active') {
         console.log('✅ SECURITY WORKING: Suspended user cannot login\n');
       } else {
         console.log('❌ Unexpected error:', error.response?.data || error.message);
@@ -106,7 +106,7 @@ async function runSuspensionTests() {
       });
       console.log('❌ SECURITY ISSUE: Suspended user can access protected routes!\n');
     } catch (error) {
-      if (error.response?.status === 403 && error.response?.data?.error?.message === 'Account suspended') {
+      if (error.response?.status === 403 && error.response?.data?.error?.message === 'Account not active') {
         console.log('✅ SECURITY WORKING: Suspended user cannot access protected routes\n');
       } else {
         console.log('❌ Unexpected error:', error.response?.data || error.message);
@@ -122,7 +122,7 @@ async function runSuspensionTests() {
       });
       console.log('❌ SECURITY ISSUE: Suspended user can verify OTP!\n');
     } catch (error) {
-      if (error.response?.status === 403 && error.response?.data?.error === 'Account suspended') {
+      if (error.response?.status === 403 && error.response?.data?.error === 'Account not active') {
         console.log('✅ SECURITY WORKING: Suspended user cannot verify OTP\n');
       } else {
         console.log('❌ Unexpected error:', error.response?.data || error.message);
@@ -140,7 +140,7 @@ async function runSuspensionTests() {
       });
       console.log('❌ SECURITY ISSUE: Suspended user can use biometric auth!\n');
     } catch (error) {
-      if (error.response?.status === 403 && error.response?.data?.error === 'Account suspended') {
+      if (error.response?.status === 403 && error.response?.data?.error === 'Account not active') {
         console.log('✅ SECURITY WORKING: Suspended user cannot use biometric auth\n');
       } else {
         console.log('⚠️  Biometric test inconclusive (user may not have biometric setup)');

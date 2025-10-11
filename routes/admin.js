@@ -504,6 +504,8 @@ router.get('/users', adminAuth, async (req, res) => {
         query['profile.status'] = 'inactive';
       } else if (status === 'Paused') {
         query['profile.status'] = 'paused';
+      } else if (status === 'Suspended') {
+        query['profile.status'] = 'suspended';
       }
     }
     
@@ -575,9 +577,24 @@ router.get('/users', adminAuth, async (req, res) => {
       const status = statusVal.charAt(0).toUpperCase() + statusVal.slice(1);
       const gender = onboarding.gender ? onboarding.gender.charAt(0).toUpperCase() + onboarding.gender.slice(1) : 'N/A';
       const ageRange = onboarding.ageRange || 'N/A';
-      const location = (locCurrent.city && locCurrent.country)
-        ? `${locCurrent.city}, ${locCurrent.country}`
-        : 'N/A';
+      
+      // Determine location - check multiple sources
+      let location = 'N/A';
+      if (locCurrent.city && locCurrent.country && locCurrent.city.trim() && locCurrent.country.trim()) {
+        location = `${locCurrent.city}, ${locCurrent.country}`;
+      } else if (user.signup && user.signup.city && user.signup.country && user.signup.city.trim() && user.signup.country.trim()) {
+        // Fallback to signup location if current location is not available
+        location = `${user.signup.city}, ${user.signup.country}`;
+      } else if (locCurrent.country && locCurrent.country.trim()) {
+        // If only country is available
+        location = locCurrent.country;
+      } else if (user.signup && user.signup.country && user.signup.country.trim()) {
+        // Fallback to signup country
+        location = user.signup.country;
+      } else if (locCurrent.latitude && locCurrent.longitude) {
+        // If GPS coordinates are available but no city/country
+        location = `${locCurrent.latitude.toFixed(2)}, ${locCurrent.longitude.toFixed(2)}`;
+      }
       
       // Generate user ID from MongoDB ObjectId
       const userId = `ID${user._id.toString().slice(-6).toUpperCase()}`;
@@ -826,8 +843,9 @@ router.get('/users/:id', adminAuth, async (req, res) => {
       gender: safeOnboarding.gender ? safeOnboarding.gender.charAt(0).toUpperCase() + safeOnboarding.gender.slice(1) : 'N/A',
       age: safeOnboarding.ageRange || 'N/A',
       registrationDate: user.createdAt,
-      country: safeLocation.country || 'N/A',
-      signupCountry: (user.signup && user.signup.country) ? user.signup.country : 'N/A',
+      country: safeLocation.country && safeLocation.country.trim() ? safeLocation.country : 
+               (user.signup && user.signup.country && user.signup.country.trim() ? user.signup.country : 'N/A'),
+      signupCountry: (user.signup && user.signup.country && user.signup.country.trim()) ? user.signup.country : 'N/A',
       appVersion: user.appVersion || 'N/A',
       accountStatus: statusText.charAt(0).toUpperCase() + statusText.slice(1),
       faceVerification: user.isVerified ? 'Verified' : 'Not Verified',
@@ -836,8 +854,22 @@ router.get('/users/:id', adminAuth, async (req, res) => {
         : 'N/A',
       deviceOS: safeDevice.os || 'N/A',
       lastActive: user.lastActive || user.createdAt,
-      ipAddress: safeLocation.ip || 'N/A',
-      location: (safeLocation.city && safeLocation.country) ? `${safeLocation.city}, ${safeLocation.country}` : 'N/A',
+      ipAddress: safeLocation.ip || (user.signup && user.signup.ip) || 'N/A',
+      location: (() => {
+        // Determine location - check multiple sources with trimming
+        if (safeLocation.city && safeLocation.country && safeLocation.city.trim() && safeLocation.country.trim()) {
+          return `${safeLocation.city}, ${safeLocation.country}`;
+        } else if (user.signup && user.signup.city && user.signup.country && user.signup.city.trim() && user.signup.country.trim()) {
+          return `${user.signup.city}, ${user.signup.country}`;
+        } else if (safeLocation.country && safeLocation.country.trim()) {
+          return safeLocation.country;
+        } else if (user.signup && user.signup.country && user.signup.country.trim()) {
+          return user.signup.country;
+        } else if (safeLocation.latitude && safeLocation.longitude) {
+          return `${safeLocation.latitude.toFixed(2)}, ${safeLocation.longitude.toFixed(2)}`;
+        }
+        return 'N/A';
+      })(),
       
       // === Balance & Tier Tab ===
       xp: typeof safeXp.current === 'number' ? safeXp.current : 0,
@@ -923,13 +955,23 @@ router.get('/users/:id', adminAuth, async (req, res) => {
 
 // Update user
 router.put('/users/:id', adminAuth, [
-  body('firstName').optional().notEmpty().withMessage('First name cannot be empty'),
-  body('lastName').optional().notEmpty().withMessage('Last name cannot be empty'),
-  body('email').optional().isEmail().withMessage('Invalid email format'),
-  body('mobile').optional().isMobilePhone().withMessage('Invalid mobile number'),
-  body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Invalid gender'),
-  body('ageRange').optional().isIn(['18-25', '26-35', '36-45', '46-55', '56+']).withMessage('Invalid age range'),
-  body('status').optional().isIn(['active', 'inactive', 'paused']).withMessage('Invalid status')
+  body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
+  body('lastName').optional().trim().notEmpty().withMessage('Last name cannot be empty'),
+  body('email').optional().trim().isEmail().withMessage('Invalid email format'),
+  body('mobile').optional().trim().notEmpty().withMessage('Mobile number cannot be empty'),
+  body('username').optional().trim().matches(/^[a-zA-Z0-9_]{3,20}$/).withMessage('Username must be 3-20 characters (letters, numbers, underscore only)'),
+  body('socialTag').optional().trim(),
+  body('gender').optional().isIn(['male', 'female', 'Male', 'Female', 'other', 'N/A']).withMessage('Invalid gender'),
+  body('ageRange').optional().trim(),
+  body('age').optional().trim(), // Alias for ageRange
+  body('status').optional().trim().isIn(['active', 'inactive', 'paused', 'suspended', 'Active', 'Inactive', 'Paused', 'Suspended']).withMessage('Invalid status'),
+  body('tier').optional().trim().isIn(['free', 'bronze', 'silver', 'gold', 'platinum', 'Free', 'Bronze', 'Silver', 'Gold', 'Platinum']).withMessage('Invalid tier'),
+  body('country').optional().trim(),
+  body('city').optional().trim(),
+  body('phone').optional().trim(), // Alias for mobile
+  body('dateOfBirth').optional().isISO8601().withMessage('Invalid date format'),
+  body('dob').optional().isISO8601().withMessage('Invalid date format'), // Alias for dateOfBirth
+  body('location').optional().trim() // Can be country or city,country format
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -937,28 +979,171 @@ router.put('/users/:id', adminAuth, [
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: errors.array()
+        errors: errors.array().map(err => ({
+          field: err.path || err.param || err.location,
+          message: err.msg,
+          value: err.value
+        }))
       });
     }
     
     const { id } = req.params;
     const updateData = req.body;
     
-    // Build update object
+    // Find user first to check uniqueness
+    const existingUser = await User.findById(id);
+    if (!existingUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Check email uniqueness if being updated
+    if (updateData.email && updateData.email !== existingUser.email) {
+      const emailExists = await User.findOne({ 
+        email: updateData.email.toLowerCase(),
+        _id: { $ne: id }
+      });
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists',
+          errors: [{ field: 'email', message: 'This email is already registered' }]
+        });
+      }
+    }
+    
+    // Check username uniqueness if being updated
+    if (updateData.username && updateData.username !== existingUser.username) {
+      const usernameExists = await User.findOne({ 
+        username: updateData.username,
+        _id: { $ne: id }
+      });
+      if (usernameExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Username already exists',
+          errors: [{ field: 'username', message: 'This username is already taken' }]
+        });
+      }
+    }
+    
+    // Check mobile uniqueness if being updated
+    const mobileField = updateData.mobile || updateData.phone;
+    if (mobileField && mobileField !== existingUser.mobile) {
+      const mobileExists = await User.findOne({ 
+        mobile: mobileField,
+        _id: { $ne: id }
+      });
+      if (mobileExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Mobile number already exists',
+          errors: [{ field: 'mobile', message: 'This mobile number is already registered' }]
+        });
+      }
+    }
+    
+    // Build update object - use 'in' operator to handle all fields including empty strings
     const updateFields = {};
     
-    if (updateData.firstName) updateFields.firstName = updateData.firstName;
-    if (updateData.lastName) updateFields.lastName = updateData.lastName;
-    if (updateData.email) updateFields.email = updateData.email;
-    if (updateData.mobile) updateFields.mobile = updateData.mobile;
-    if (updateData.gender) updateFields['onboarding.gender'] = updateData.gender;
-    if (updateData.ageRange) updateFields['onboarding.ageRange'] = updateData.ageRange;
-    if (updateData.status) updateFields['profile.status'] = updateData.status;
+    // Basic fields
+    if ('firstName' in updateData) updateFields.firstName = updateData.firstName;
+    if ('lastName' in updateData) updateFields.lastName = updateData.lastName;
+    if ('email' in updateData) updateFields.email = updateData.email.toLowerCase();
+    if ('mobile' in updateData || 'phone' in updateData) updateFields.mobile = mobileField;
+    if ('username' in updateData) updateFields.username = updateData.username || undefined;
+    if ('socialTag' in updateData) updateFields.socialTag = updateData.socialTag;
+    
+    // Date of birth - store as dateOfBirth field (will be added to model if needed)
+    if ('dateOfBirth' in updateData || 'dob' in updateData) {
+      const dobValue = updateData.dateOfBirth || updateData.dob;
+      if (dobValue && dobValue !== 'dd/mm/yyyy') {
+        try {
+          const dobDate = new Date(dobValue);
+          if (!isNaN(dobDate.getTime())) {
+            updateFields.dateOfBirth = dobDate;
+            
+            // Also calculate and update ageRange if possible
+            const today = new Date();
+            const age = today.getFullYear() - dobDate.getFullYear();
+            const monthDiff = today.getMonth() - dobDate.getMonth();
+            
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+              age--;
+            }
+            
+            let ageRange = 'N/A';
+            if (age >= 13 && age <= 17) ageRange = '13-17';
+            else if (age >= 18 && age <= 24) ageRange = '18-24';
+            else if (age >= 25 && age <= 34) ageRange = '25-34';
+            else if (age >= 35 && age <= 44) ageRange = '35-44';
+            else if (age >= 45 && age <= 54) ageRange = '45-54';
+            else if (age >= 55 && age <= 64) ageRange = '55-64';
+            else if (age >= 65) ageRange = '65+';
+            
+            updateFields['onboarding.ageRange'] = ageRange;
+          }
+        } catch (error) {
+          console.warn('Invalid date of birth format:', dobValue);
+        }
+      }
+    }
+    
+    // Nested onboarding fields
+    if ('gender' in updateData) {
+      const genderValue = updateData.gender === 'N/A' ? undefined : updateData.gender.toLowerCase();
+      updateFields['onboarding.gender'] = genderValue;
+    }
+    if ('ageRange' in updateData || 'age' in updateData) {
+      const ageValue = updateData.ageRange || updateData.age;
+      updateFields['onboarding.ageRange'] = ageValue === 'N/A' ? undefined : ageValue;
+    }
+    
+    // Profile fields
+    if ('status' in updateData) {
+      const statusValue = updateData.status.toLowerCase();
+      updateFields['profile.status'] = statusValue;
+    }
+    
+    // VIP tier
+    if ('tier' in updateData) {
+      const tierValue = updateData.tier.toLowerCase();
+      updateFields['vip.level'] = tierValue;
+    }
+    
+    // Location fields
+    if ('country' in updateData) {
+      updateFields['location.current.country'] = updateData.country;
+    }
+    if ('city' in updateData) {
+      updateFields['location.current.city'] = updateData.city;
+    }
+    
+    // Handle location field (can be "country" or "city, country" format)
+    if ('location' in updateData) {
+      const locationValue = updateData.location;
+      if (locationValue && locationValue !== 'Select location') {
+        // Check if it contains a comma (city, country format)
+        if (locationValue.includes(',')) {
+          const [city, country] = locationValue.split(',').map(s => s.trim());
+          updateFields['location.current.city'] = city;
+          updateFields['location.current.country'] = country;
+        } else {
+          // Just country
+          updateFields['location.current.country'] = locationValue;
+        }
+      }
+    }
+    
+    // Update timestamp
+    updateFields.updatedAt = new Date();
     
     const user = await User.findByIdAndUpdate(
       id,
-      updateFields,
-      { new: true, runValidators: true }
+      { $set: updateFields },
+      { new: true, runValidators: false } // Disable validators to allow flexible updates
     );
     
     if (!user) {
@@ -975,6 +1160,17 @@ router.put('/users/:id', adminAuth, [
     });
   } catch (error) {
     console.error('Error updating user:', error);
+    
+    // Handle MongoDB duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        success: false,
+        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`,
+        errors: [{ field, message: `This ${field} is already registered` }]
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to update user',
@@ -985,7 +1181,7 @@ router.put('/users/:id', adminAuth, [
 
 // Update user status (suspend/activate)
 router.patch('/users/:id/status', adminAuth, [
-  body('status').isIn(['active', 'inactive', 'paused']).withMessage('Invalid status'),
+  body('status').isIn(['active', 'inactive', 'paused', 'suspended']).withMessage('Invalid status'),
   body('reason').optional().isString().withMessage('Reason must be a string')
 ], async (req, res) => {
   try {
@@ -1034,6 +1230,100 @@ router.patch('/users/:id/status', adminAuth, [
     res.status(500).json({
       success: false,
       message: 'Failed to update user status',
+      error: error.message
+    });
+  }
+});
+
+// Suspend user (dedicated endpoint)
+router.patch('/users/:id/suspend', adminAuth, [
+  body('reason').optional().isString().withMessage('Reason must be a string')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    const user = await User.findByIdAndUpdate(
+      id,
+      { 
+        'profile.status': 'suspended',
+        'profile.statusReason': reason || 'Suspended by admin',
+        'profile.statusUpdatedAt': new Date()
+      },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'User suspended successfully',
+      data: {
+        id: user._id,
+        status: 'Suspended',
+        reason: reason || 'Suspended by admin'
+      }
+    });
+  } catch (error) {
+    console.error('Error suspending user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to suspend user',
+      error: error.message
+    });
+  }
+});
+
+// Unsuspend user (dedicated endpoint)
+router.patch('/users/:id/unsuspend', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const user = await User.findByIdAndUpdate(
+      id,
+      { 
+        'profile.status': 'active',
+        'profile.statusReason': 'Unsuspended by admin',
+        'profile.statusUpdatedAt': new Date()
+      },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'User unsuspended successfully',
+      data: {
+        id: user._id,
+        status: 'Active',
+        reason: 'Unsuspended by admin'
+      }
+    });
+  } catch (error) {
+    console.error('Error unsuspending user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unsuspend user',
       error: error.message
     });
   }

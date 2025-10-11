@@ -30,6 +30,16 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
 
+    // Check if user is suspended
+    if (user.profile && user.profile.status === 'suspended') {
+      return res.status(403).json({
+        error: 'Account suspended',
+        message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
+        accountStatus: 'suspended',
+        suspensionReason: user.profile.statusReason
+      });
+    }
+
     // Check if user is locked out due to too many attempts
     if (user.biometric.lockedUntil && user.biometric.lockedUntil > new Date()) {
       return res.status(403).json({

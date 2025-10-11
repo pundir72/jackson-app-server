@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const { generateError } = require('../utils/error');
+const User = require('../models/User');
 
-module.exports = (req, res, next) => {
+module.exports = async (req, res, next) => {
   try {
     // Try to get token from x-auth-token header first
     let token = req.header('x-auth-token');
@@ -40,6 +41,20 @@ module.exports = (req, res, next) => {
         error: {
           message: 'Invalid token format',
           statusCode: 401
+        }
+      });
+    }
+    
+    // Check if user is suspended (for regular users only, not admin)
+    const user = await User.findById(decoded.userId);
+    if (user && user.role === 'USER' && user.profile && user.profile.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'Account suspended',
+          details: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
+          accountStatus: 'suspended',
+          suspensionReason: user.profile.statusReason
         }
       });
     }

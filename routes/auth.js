@@ -220,6 +220,17 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
     
+    // Check if user exists and is suspended before marking OTP as verified
+    const user = await findUserByPhone(User, standardizedMobile);
+    if (user && user.profile && user.profile.status === 'suspended') {
+      return res.status(403).json({
+        error: 'Account suspended',
+        message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
+        accountStatus: 'suspended',
+        suspensionReason: user.profile.statusReason
+      });
+    }
+
     // Mark OTP as verified
     await otpVerification.markVerified();
     
@@ -334,8 +345,8 @@ router.post('/signup',
         loginCount: 1,
         signup: {
           ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-          country: req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
-          city: req.headers['x-city'] || '',
+          country: req.body.country || req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
+          city: req.body.city || req.headers['x-city'] || '',
           at: new Date()
         },
         // Capture device info
@@ -345,12 +356,15 @@ router.post('/signup',
           os: deviceOS || req.headers['x-device-os'] || 'Unknown',
           lastUpdated: new Date()
         },
-        // Initialize location with IP
+        // Initialize location with IP and GPS if provided
         location: {
           current: {
+            latitude: req.body.latitude ? parseFloat(req.body.latitude) : undefined,
+            longitude: req.body.longitude ? parseFloat(req.body.longitude) : undefined,
+            accuracy: req.body.accuracy ? parseFloat(req.body.accuracy) : 0,
             ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-            country: req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
-            city: req.headers['x-city'] || '',
+            country: req.body.country || req.headers['x-country'] || req.headers['cf-ipcountry'] || '',
+            city: req.body.city || req.headers['x-city'] || '',
             timestamp: new Date()
           }
         },
@@ -526,6 +540,16 @@ router.post('/login',
         });
       }
 
+      // Check if user is suspended
+      if (user.profile && user.profile.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Account suspended',
+          message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
+          accountStatus: 'suspended',
+          suspensionReason: user.profile.statusReason
+        });
+      }
+
       // Check biometric requirement
       const shouldRequireBiometric = await checkBiometricRequirement(user);
       if (shouldRequireBiometric) {
@@ -621,6 +645,16 @@ router.post('/admin-login',
           message: 'Please verify your mobile number with OTP before logging in',
           requiresVerification: true,
           mobile: user.mobile
+        });
+      }
+
+      // Check if user is suspended
+      if (user.profile && user.profile.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Account suspended',
+          message: user.profile.statusReason || 'Your account has been suspended. Please contact support for more information.',
+          accountStatus: 'suspended',
+          suspensionReason: user.profile.statusReason
         });
       }
 

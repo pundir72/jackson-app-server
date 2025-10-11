@@ -71,6 +71,9 @@ const userSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    dateOfBirth: {
+        type: Date
+    },
     // Public username displayed in profile; unique, alphanumeric/underscore, 3-20 chars
     username: {
         type: String,
@@ -190,6 +193,7 @@ const userSchema = new mongoose.Schema({
         },
         status: {
             type: String,
+            enum: ['active', 'inactive', 'paused', 'suspended'],
             default: 'active'
         },
         theme: {

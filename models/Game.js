@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 
 const gameSchema = new mongoose.Schema({
+  gameId: {
+    type: String,
+    required: true,
+    trim: true,
+    unique: true,
+    index: true
+  },
   title: {
     type: String,
     required: true,
@@ -22,6 +29,34 @@ const gameSchema = new mongoose.Schema({
   xptrRules: {
     type: String,
     required: true
+  },
+  // Reward Configuration
+  rewards: {
+    xp: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    coins: {
+      type: Number,
+      default: 0,
+      min: 0
+    }
+  },
+  defaultTaskCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  xpTier: {
+    type: Number,
+    min: 1,
+    max: 10,
+    default: 1
+  },
+  isDefaultFallback: {
+    type: Boolean,
+    default: false
   },
   tags: [{
     type: String,
@@ -54,8 +89,17 @@ const gameSchema = new mongoose.Schema({
       type: Number,
       default: 13
     },
+    // Game Thumbnail/Image Management
     imageUrl: String,
     iconUrl: String,
+    thumbnail: {
+      url: String,
+      dimensions: {
+        width: { type: Number, default: 300 },
+        height: { type: Number, default: 300 }
+      },
+      altText: String
+    },
     deepLink: String,
     packageName: String,
     version: String,
@@ -78,6 +122,23 @@ const gameSchema = new mongoose.Schema({
       type: Number,
       default: 0
     }
+  },
+  // Targeting & Segmentation
+  ageGroups: [{
+    type: String,
+    enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+  }],
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'all']
+  },
+  marketingChannel: {
+    type: String,
+    trim: true
+  },
+  campaignName: {
+    type: String,
+    trim: true
   },
   tierRestrictions: {
     minTier: {

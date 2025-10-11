@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 
 const offerSchema = new mongoose.Schema({
+  offerId: {
+    type: String,
+    required: true,
+    trim: true,
+    unique: true,
+    index: true
+  },
   name: {
     type: String,
     required: true,
@@ -23,6 +30,14 @@ const offerSchema = new mongoose.Schema({
     type: String,
     required: true
   }],
+  cities: [{
+    type: String,
+    trim: true
+  }],
+  startDate: {
+    type: Date,
+    default: Date.now
+  },
   expiryDate: {
     type: Date,
     required: true
@@ -49,6 +64,56 @@ const offerSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  isDefaultFallback: {
+    type: Boolean,
+    default: false
+  },
+  // Targeting & Segmentation
+  ageGroups: [{
+    type: String,
+    enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+  }],
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'all']
+  },
+  marketingChannel: {
+    type: String,
+    trim: true
+  },
+  campaignName: {
+    type: String,
+    trim: true
+  },
+  xpTier: {
+    type: Number,
+    min: 1,
+    max: 10,
+    default: 1
+  },
+  // Creative Management
+  creative: {
+    offerCard: {
+      imageUrl: String,
+      layout: {
+        type: String,
+        enum: ['standard', 'compact', 'featured'],
+        default: 'standard'
+      },
+      dimensions: {
+        width: { type: Number, default: 320 },
+        height: { type: Number, default: 180 }
+      }
+    },
+    additionalAssets: [{
+      type: {
+        type: String,
+        enum: ['banner', 'icon', 'screenshot', 'video']
+      },
+      url: String,
+      altText: String
+    }]
+  },
   metadata: {
     estimatedTimeMinutes: {
       type: Number,
@@ -61,7 +126,7 @@ const offerSchema = new mongoose.Schema({
     },
     category: {
       type: String,
-      enum: ['survey', 'game', 'ad', 'challenge'],
+      enum: ['survey', 'game', 'ad', 'challenge', 'puzzle', 'trivia', 'casual', 'strategy'],
       default: 'survey'
     },
     imageUrl: String,

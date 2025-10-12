@@ -179,7 +179,7 @@ router.post('/', protect, upload.array('images', 3), async (req, res) => {
                 ticket: {
                     id: ticket._id,
                     ticketId: ticket.ticketId,
-                    game: ticket.game,
+                    game: ticket?.game,
                     description: ticket.description,
                     wordCount: ticket.wordCount,
                     images: ticket.images,
@@ -241,9 +241,9 @@ router.get('/', protect, async (req, res) => {
             id: ticket._id,
             ticketId: ticket.ticketId,
             game: {
-                id: ticket.game._id,
-                name: ticket.game.name,
-                icon: ticket.game.icon
+                id: ticket?.game?._id,
+                name: ticket?.game?.name,
+                icon: ticket?.game?.icon
             },
             descriptionPreview: ticket.description.split('\n').slice(0, 2).join('\n'),
             fullDescription: ticket.description,
@@ -333,7 +333,7 @@ router.get('/:ticketId', protect, async (req, res) => {
                 ticket: {
                     id: ticket._id,
                     ticketId: ticket.ticketId,
-                    game: ticket.game,
+                    game: ticket?.game,
                     description: ticket.description,
                     wordCount: ticket.wordCount,
                     status: ticket.status,

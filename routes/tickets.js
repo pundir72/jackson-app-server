@@ -82,12 +82,12 @@ router.post('/', protect, upload.array('images', 3), async (req, res) => {
         
         // Verify game exists
         const game = await Game.findById(gameId);
-        if (!game) {
-            return res.status(404).json({
-                success: false,
-                error: 'Game not found'
-            });
-        }
+        // if (!game) {
+        //     return res.status(404).json({
+        //         success: false,
+        //         error: 'Game not found'
+        //     });
+        // }
         
         // Process uploaded images
         const images = [];

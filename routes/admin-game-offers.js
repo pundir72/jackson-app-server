@@ -206,6 +206,17 @@ router.post('/offers',
           error: 'DUPLICATE_OFFER_ID'
         });
       }
+      // Lookup offer from Besitos by offerId provided
+      req.query.offer_id = req.body.offerId;
+      const getOffer = await besitosController.getOffers(req, res);
+      // If external offer lookup fails or returns empty, stop processing
+      if (!getOffer || getOffer.success !== true || !Array.isArray(getOffer.data) || getOffer.data.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'External offer not found for the provided offerId',
+          error: 'EXTERNAL_OFFER_NOT_FOUND'
+        });
+      }
 
       // Parse JSON fields from form-data
       const offerData = {
@@ -239,6 +250,19 @@ router.post('/offers',
           trackingId: req.body.trackingId
         },
         createdBy: req.user.userId
+      };
+
+      // Map external offer details into gameDetails snapshot
+      const external = getOffer.data[0];
+      offerData.gameDetails = {
+        id: external.id || '',
+        name: external.title || external.name || offerData.name,
+        description: external.description || offerData.description,
+        image: external.image || external.large_image || '',
+        square_image: external.square_image || '',
+        large_image: external.large_image || external.image || '',
+        category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+        downloadUrl: external.url || ''
       };
 
       // Handle uploaded offer card image
@@ -708,6 +732,18 @@ router.post('/games',
         });
       }
 
+      // Fetch external details (Besitos) by gameId (same flow as offers which uses offerId)
+      req.query.offer_id = req.body.gameId;
+      const ext = await besitosController.getOffers(req, res);
+      if (!ext || ext.success !== true || !Array.isArray(ext.data) || ext.data.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'External game not found for the provided gameId',
+          error: 'EXTERNAL_GAME_NOT_FOUND'
+        });
+      }
+      const external = ext.data[0];
+
       // Parse JSON fields from form-data
       const gameData = {
         gameId: req.body.gameId,
@@ -740,6 +776,18 @@ router.post('/games',
         isActive: req.body.isActive === 'true',
         isAdSupported: req.body.isAdSupported === 'true',
         createdBy: req.user.userId
+      };
+
+      // Map external details into gameDetails snapshot
+      gameData.gameDetails = {
+        id: external.id || '',
+        name: external.title || external.name || gameData.title,
+        description: external.description || gameData.description,
+        image: external.image || external.large_image || '',
+        square_image: external.square_image || '',
+        large_image: external.large_image || external.image || '',
+        category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+        downloadUrl: external.url || ''
       };
 
       // Handle uploaded game thumbnail

@@ -68,14 +68,16 @@ const offerSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Optional UI placement hint (e.g., featured_row, banner, carousel)
+  uiSection: { type: String, trim: true },
   // Targeting & Segmentation
   ageGroups: [{
     type: String,
-    enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+    // enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
   }],
   gender: {
     type: String,
-    enum: ['male', 'female', 'all']
+    // enum: ['male', 'female', 'all']
   },
   marketingChannel: {
     type: String,
@@ -97,7 +99,7 @@ const offerSchema = new mongoose.Schema({
       imageUrl: String,
       layout: {
         type: String,
-        enum: ['standard', 'compact', 'featured'],
+        // enum: ['standard', 'compact', 'featured'],
         default: 'standard'
       },
       dimensions: {
@@ -108,7 +110,7 @@ const offerSchema = new mongoose.Schema({
     additionalAssets: [{
       type: {
         type: String,
-        enum: ['banner', 'icon', 'screenshot', 'video']
+        // enum: ['banner', 'icon', 'screenshot', 'video']
       },
       url: String,
       altText: String
@@ -121,17 +123,32 @@ const offerSchema = new mongoose.Schema({
     },
     difficulty: {
       type: String,
-      enum: ['easy', 'medium', 'hard'],
+      // enum: ['easy', 'medium', 'hard'],
       default: 'easy'
     },
     category: {
       type: String,
-      enum: ['survey', 'game', 'ad', 'challenge', 'puzzle', 'trivia', 'casual', 'strategy'],
+      // enum: ['survey', 'game', 'ad', 'challenge', 'puzzle', 'trivia', 'casual', 'strategy'],
       default: 'survey'
     },
     imageUrl: String,
     deepLink: String,
     trackingId: String
+  },
+  // Linked game info snapshot for display/use
+  gameDetails: {
+    id: { type: String, trim: true },
+    name: { type: String, trim: true },
+    description: { type: String, trim: true },
+    image: { type: String, trim: true },
+    square_image: { type: String, trim: true },
+    large_image: { type: String, trim: true },
+    category: { type: String, trim: true },
+    downloadUrl: { type: String, trim: true }
+  },
+  deviceType: {
+    type: String,
+    default: "android"
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -155,7 +172,7 @@ const offerSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-offerSchema.pre('save', function(next) {
+offerSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });
@@ -169,23 +186,23 @@ offerSchema.index({ expiryDate: 1 });
 offerSchema.index({ createdAt: -1 });
 
 // Static methods
-offerSchema.statics.findActive = function() {
-  return this.find({ 
-    isActive: true, 
-    expiryDate: { $gt: new Date() } 
+offerSchema.statics.findActive = function () {
+  return this.find({
+    isActive: true,
+    expiryDate: { $gt: new Date() }
   }).sort({ createdAt: -1 });
 };
 
-offerSchema.statics.findByCountry = function(country) {
-  return this.find({ 
+offerSchema.statics.findByCountry = function (country) {
+  return this.find({
     countries: country,
     isActive: true,
     expiryDate: { $gt: new Date() }
   }).sort({ createdAt: -1 });
 };
 
-offerSchema.statics.findByTier = function(tier) {
-  return this.find({ 
+offerSchema.statics.findByTier = function (tier) {
+  return this.find({
     tierAccess: { $in: [tier, 'free'] },
     isActive: true,
     expiryDate: { $gt: new Date() }
@@ -193,15 +210,15 @@ offerSchema.statics.findByTier = function(tier) {
 };
 
 // Instance methods
-offerSchema.methods.isExpired = function() {
+offerSchema.methods.isExpired = function () {
   return new Date() > this.expiryDate;
 };
 
-offerSchema.methods.isEligibleForTier = function(tier) {
+offerSchema.methods.isEligibleForTier = function (tier) {
   return this.tierAccess.includes(tier) || this.tierAccess.includes('free');
 };
 
-offerSchema.methods.isEligibleForCountry = function(country) {
+offerSchema.methods.isEligibleForCountry = function (country) {
   return this.countries.includes(country);
 };
 

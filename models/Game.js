@@ -70,15 +70,17 @@ const gameSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Optional UI placement hint (e.g., featured_row, banner, carousel)
+  uiSection: { type: String, trim: true },
   metadata: {
     genre: {
       type: String,
-      enum: ['puzzle', 'action', 'strategy', 'simulation', 'arcade', 'sports', 'racing', 'rpg'],
+      // enum: ['puzzle', 'action', 'strategy', 'simulation', 'arcade', 'sports', 'racing', 'rpg'],
       default: 'puzzle'
     },
     difficulty: {
       type: String,
-      enum: ['easy', 'medium', 'hard'],
+      // enum: ['easy', 'medium', 'hard'],
       default: 'easy'
     },
     estimatedPlayTime: {
@@ -123,14 +125,29 @@ const gameSchema = new mongoose.Schema({
       default: 0
     }
   },
+  // External game metadata snapshot
+  gameDetails: {
+    id: { type: String, trim: true },
+    name: { type: String, trim: true },
+    description: { type: String, trim: true },
+    image: { type: String, trim: true },
+    square_image: { type: String, trim: true },
+    large_image: { type: String, trim: true },
+    category: { type: String, trim: true },
+    downloadUrl: { type: String, trim: true }
+  },
+  deviceType: {
+    type: String,
+    default: "android"
+  },
   // Targeting & Segmentation
   ageGroups: [{
     type: String,
-    enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+    // enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
   }],
   gender: {
     type: String,
-    enum: ['male', 'female', 'all']
+    // enum: ['male', 'female', 'all']
   },
   marketingChannel: {
     type: String,
@@ -143,12 +160,12 @@ const gameSchema = new mongoose.Schema({
   tierRestrictions: {
     minTier: {
       type: String,
-      enum: ['free', 'bronze', 'silver', 'gold', 'platinum'],
+      // enum: ['free', 'bronze', 'silver', 'gold', 'platinum'],
       default: 'free'
     },
     maxTier: {
       type: String,
-      enum: ['free', 'bronze', 'silver', 'gold', 'platinum'],
+      // enum: ['free', 'bronze', 'silver', 'gold', 'platinum'],
       default: 'platinum'
     }
   },

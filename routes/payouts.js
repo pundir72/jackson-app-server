@@ -8,6 +8,7 @@ const TremendousCampaign = require('../models/TremendousCampaign');
 const TremendousOrganization = require('../models/TremendousOrganization');
 const tremendous = require('../utils/tremendous');
 const verisoul = require('../utils/verisoul');
+const PayoutMethod = require('../models/PayoutMethod');
 
 // Get available payout methods
 router.get('/methods', protect, async (req, res) => {
@@ -92,6 +93,53 @@ router.get('/methods', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get payout methods'
+    });
+  }
+});
+
+// Get payout methods from DB (without calling provider)
+router.get('/methods/db', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('location');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const { region, amount } = req.query;
+    const userRegion = (region || user.location?.country || 'GLOBAL').toUpperCase();
+
+    // Fetch active payout methods for region
+    const methods = userRegion
+      ? await PayoutMethod.getMethodsForRegion(userRegion)
+      : await PayoutMethod.getActiveMethods();
+
+    // Optionally compute fees/validity if amount provided
+    const parsedAmount = amount ? parseFloat(amount) : null;
+    const methodsWithFees = methods.map(m => {
+      const method = m.toObject ? m.toObject() : m;
+      if (parsedAmount && !Number.isNaN(parsedAmount)) {
+        method.feeEstimate = m.calculateFees(parsedAmount);
+        method.isAmountValid = m.isAmountValid(parsedAmount);
+      }
+      return method;
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        region: userRegion,
+        methods: methodsWithFees
+      }
+    });
+  } catch (error) {
+    console.error('Error getting payout methods from DB:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get payout methods from DB'
     });
   }
 });

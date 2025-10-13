@@ -261,7 +261,9 @@ router.post('/offers',
           deepLink: req.body.deepLink,
           trackingId: req.body.trackingId
         },
-        createdBy: req.user.userId
+        createdBy: req.user.userId,
+        deviceType: req.body.deviceType || 'android',
+        uiSection: req.body.uiSection || ''
       };
 
       // Map external offer details into gameDetails snapshot
@@ -799,7 +801,9 @@ router.post('/games',
         },
         isActive: req.body.isActive === 'true',
         isAdSupported: req.body.isAdSupported === 'true',
-        createdBy: req.user.userId
+        createdBy: req.user.userId,
+        deviceType: req.body.deviceType || 'android',
+        uiSection: req.body.uiSection || ''
       };
 
       // Map external details into gameDetails snapshot

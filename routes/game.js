@@ -136,6 +136,8 @@ router.get('/discover', protect, async (req, res) => {
             _id: g._id
         }));
 
+        const uiSections = await Game.distinct("uiSection");
+
         res.json({
             success: true,
             data: games,
@@ -144,7 +146,8 @@ router.get('/discover', protect, async (req, res) => {
                 limit: pageSize,
                 total,
                 pages: Math.ceil(total / pageSize)
-            }
+            },
+            uiSections
         });
     } catch (error) {
         console.error('Error fetching discover games:', error);

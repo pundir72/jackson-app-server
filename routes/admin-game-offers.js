@@ -206,9 +206,21 @@ router.post('/offers',
           error: 'DUPLICATE_OFFER_ID'
         });
       }
-      // Lookup offer from Besitos by offerId provided
+      // Lookup offer from Besitos by offerId provided without sending headers
       req.query.offer_id = req.body.offerId;
-      const getOffer = await besitosController.getOffers(req, res);
+      const captureOffer = () => {
+        let payload = null; let code = 200;
+        return {
+          res: {
+            status(c){ code = c; return this; },
+            json(obj){ payload = obj; return this; }
+          },
+          get(){ return payload || { success: false, data: [] }; }
+        };
+      };
+      const cap1 = captureOffer();
+      await besitosController.getOffers(req, cap1.res);
+      const getOffer = cap1.get();
       // If external offer lookup fails or returns empty, stop processing
       if (!getOffer || getOffer.success !== true || !Array.isArray(getOffer.data) || getOffer.data.length === 0) {
         return res.status(404).json({
@@ -732,9 +744,21 @@ router.post('/games',
         });
       }
 
-      // Fetch external details (Besitos) by gameId (same flow as offers which uses offerId)
+      // Fetch external details (Besitos) by gameId without sending headers
       req.query.offer_id = req.body.gameId;
-      const ext = await besitosController.getOffers(req, res);
+      const captureGame = () => {
+        let payload = null; let code = 200;
+        return {
+          res: {
+            status(c){ code = c; return this; },
+            json(obj){ payload = obj; return this; }
+          },
+          get(){ return payload || { success: false, data: [] }; }
+        };
+      };
+      const cap2 = captureGame();
+      await besitosController.getOffers(req, cap2.res);
+      const ext = cap2.get();
       if (!ext || ext.success !== true || !Array.isArray(ext.data) || ext.data.length === 0) {
         return res.status(404).json({
           success: false,

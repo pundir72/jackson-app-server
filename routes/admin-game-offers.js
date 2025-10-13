@@ -188,7 +188,7 @@ router.get('/offers/check-id/:offerId', adminAuth, async (req, res) => {
   }
 });
 
-// Create new offer with file uploads
+// Create or update offer variant with file uploads (upsert by offerId+gender+uiSection+ageGroup)
 router.post('/offers',
   adminAuth,
   upload.fields([
@@ -197,15 +197,6 @@ router.post('/offers',
   ]),
   async (req, res) => {
     try {
-      // Check if offer with this offerId already exists
-      const existingOffer = await Offer.findOne({ offerId: req.body.offerId });
-      if (existingOffer) {
-        return res.status(400).json({
-          success: false,
-          message: 'An offer with this ID already exists. The offerId field must be unique.',
-          error: 'DUPLICATE_OFFER_ID'
-        });
-      }
       // Lookup offer from Besitos by offerId provided without sending headers
       req.query.offer_id = req.body.offerId;
       const captureOffer = () => {
@@ -231,6 +222,12 @@ router.post('/offers',
       }
 
       // Parse JSON fields from form-data
+      const parsedCountries = JSON.parse(req.body.countries || '[]');
+      const parsedAgeGroups = req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [];
+      const targetGender = (req.body.gender || 'all').toLowerCase();
+      const targetUiSection = req.body.uiSection || '';
+      const targetAgeGroup = req.body.ageGroup || (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0 ? parsedAgeGroups[0] : '');
+
       const offerData = {
         offerId: req.body.offerId,
         name: req.body.name,
@@ -238,11 +235,11 @@ router.post('/offers',
         sdkProvider: req.body.sdkProvider,
         startDate: req.body.startDate,
         expiryDate: req.body.expiryDate,
-        countries: JSON.parse(req.body.countries || '[]'),
+        countries: parsedCountries,
         cities: req.body.cities ? JSON.parse(req.body.cities) : [],
         tierAccess: JSON.parse(req.body.tierAccess || '[]'),
-        ageGroups: req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [],
-        gender: req.body.gender,
+        ageGroups: parsedAgeGroups,
+        gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
@@ -263,7 +260,8 @@ router.post('/offers',
         },
         createdBy: req.user.userId,
         deviceType: req.body.deviceType || 'android',
-        uiSection: req.body.uiSection || ''
+        uiSection: targetUiSection,
+        ageGroup: targetAgeGroup
       };
 
       // Map external offer details into gameDetails snapshot
@@ -316,13 +314,52 @@ router.post('/offers',
         });
       }
 
-      const offer = new Offer(offerData);
-      await offer.save();
+      // Upsert by compound key (offerId, gender, uiSection, ageGroup)
+      const filter = {
+        offerId: offerData.offerId,
+        gender: targetGender,
+        uiSection: targetUiSection,
+        ageGroup: targetAgeGroup
+      };
+      const update = {
+        $set: {
+          name: offerData.name,
+          description: offerData.description,
+          sdkProvider: offerData.sdkProvider,
+          startDate: offerData.startDate,
+          expiryDate: offerData.expiryDate,
+          countries: offerData.countries,
+          cities: offerData.cities,
+          tierAccess: offerData.tierAccess,
+          ageGroups: parsedAgeGroups,
+          gender: targetGender,
+          marketingChannel: offerData.marketingChannel,
+          campaignName: offerData.campaignName,
+          xpTier: offerData.xpTier,
+          isActive: offerData.isActive,
+          isDefaultFallback: offerData.isDefaultFallback,
+          isAdSupported: offerData.isAdSupported,
+          xptrRule: offerData.xptrRule,
+          reward: offerData.reward,
+          metadata: offerData.metadata,
+          deviceType: offerData.deviceType,
+          uiSection: targetUiSection,
+          ageGroup: targetAgeGroup,
+          gameDetails: offerData.gameDetails,
+          creative: offerData.creative
+        },
+        $setOnInsert: {
+          offerId: offerData.offerId,
+          createdBy: req.user.userId
+        }
+      };
+
+      const upserted = await Offer.findOneAndUpdate(filter, update, { upsert: true, new: true });
 
       res.status(201).json({
         success: true,
-        message: 'Offer created successfully',
-        data: offer
+        message: 'Offer created/updated successfully',
+        data: upserted
       });
     } catch (error) {
       console.error('Error creating offer:', error);
@@ -336,12 +373,12 @@ router.post('/offers',
         });
       }
 
-      // Handle MongoDB duplicate key error
+      // Handle MongoDB duplicate key error (compound key)
       if (error.code === 11000 || error.name === 'MongoServerError') {
         return res.status(400).json({
           success: false,
-          message: 'An offer with this ID already exists. The offerId field must be unique.',
-          error: 'DUPLICATE_OFFER_ID'
+          message: 'An offer variant with the same offerId, gender, uiSection and ageGroup already exists.',
+          error: 'DUPLICATE_OFFER_VARIANT'
         });
       }
 
@@ -736,16 +773,6 @@ router.post('/games',
   ]),
   async (req, res) => {
     try {
-      // Check if game with this gameId already exists
-      const existingGame = await Game.findOne({ gameId: req.body.gameId });
-      if (existingGame) {
-        return res.status(400).json({
-          success: false,
-          message: 'A game with this ID already exists. The gameId must be unique.',
-          error: 'DUPLICATE_GAME_ID'
-        });
-      }
-
       // Fetch external details (Besitos) by gameId without sending headers
       req.query.offer_id = req.body.gameId;
       const captureGame = () => {
@@ -771,12 +798,18 @@ router.post('/games',
       const external = ext.data[0];
 
       // Parse JSON fields from form-data
+      const parsedCountries = JSON.parse(req.body.countries || '[]');
+      const parsedAgeGroups = req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [];
+      const targetGender = (req.body.gender || 'all').toLowerCase();
+      const targetUiSection = req.body.uiSection || '';
+      const targetAgeGroup = req.body.ageGroup || (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0 ? parsedAgeGroups[0] : '');
+
       const gameData = {
         gameId: req.body.gameId,
         title: req.body.title,
         description: req.body.description,
         sdkProvider: req.body.sdkProvider,
-        countries: JSON.parse(req.body.countries || '[]'),
+        countries: parsedCountries,
         xptrRules: req.body.xptrRules,
         rewards: {
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
@@ -785,8 +818,8 @@ router.post('/games',
         defaultTaskCount: req.body.defaultTaskCount ? parseInt(req.body.defaultTaskCount) : 0,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
         isDefaultFallback: req.body.isDefaultFallback === 'true',
-        ageGroups: req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [],
-        gender: req.body.gender,
+        ageGroups: parsedAgeGroups,
+        gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         tierRestrictions: {
@@ -803,7 +836,7 @@ router.post('/games',
         isAdSupported: req.body.isAdSupported === 'true',
         createdBy: req.user.userId,
         deviceType: req.body.deviceType || 'android',
-        uiSection: req.body.uiSection || ''
+        uiSection: targetUiSection
       };
 
       // Map external details into gameDetails snapshot
@@ -836,13 +869,42 @@ router.post('/games',
         gameData.metadata.imageUrl = imageUrl;
       }
 
-      const game = new Game(gameData);
-      await game.save();
+      // Upsert by compound key (gameId, gender, uiSection, ageGroup) same as seed logic
+      const filter = {
+        gameId: gameData.gameId,
+        gender: targetGender,
+        uiSection: targetUiSection,
+        ageGroup: targetAgeGroup
+      };
+      const update = {
+        $set: {
+          title: gameData.title,
+          description: gameData.description,
+          sdkProvider: gameData.sdkProvider,
+          countries: gameData.countries,
+          xptrRules: gameData.xptrRules,
+          isActive: gameData.isActive,
+          isAdSupported: gameData.isAdSupported,
+          deviceType: gameData.deviceType,
+          rewards: gameData.rewards,
+          metadata: gameData.metadata,
+          gameDetails: gameData.gameDetails,
+          uiSection: targetUiSection,
+          gender: targetGender,
+          ageGroup: targetAgeGroup,
+          ageGroups: parsedAgeGroups
+        },
+        $setOnInsert: {
+          createdBy: req.user.userId
+        }
+      };
+
+      const upserted = await Game.findOneAndUpdate(filter, update, { upsert: true, new: true });
 
       res.status(201).json({
         success: true,
-        message: 'Game created successfully',
-        data: game
+        message: 'Game created/updated successfully',
+        data: upserted
       });
     } catch (error) {
       console.error('Error creating game:', error);
@@ -856,12 +918,12 @@ router.post('/games',
         });
       }
 
-      // Handle MongoDB duplicate key error
+      // Handle MongoDB duplicate key error (compound key)
       if (error.code === 11000 || error.name === 'MongoServerError') {
         return res.status(400).json({
           success: false,
-          message: 'A game with this ID already exists. The gameId must be unique.',
-          error: 'DUPLICATE_GAME_ID'
+          message: 'A game variant with the same gameId, gender, uiSection and ageGroup already exists.',
+          error: 'DUPLICATE_GAME_VARIANT'
         });
       }
 
@@ -890,22 +952,6 @@ router.put('/games/:id',
           success: false,
           message: 'Game not found'
         });
-      }
-
-      // Check if updating gameId and if new gameId already exists
-      if (req.body.gameId && req.body.gameId !== existingGame.gameId) {
-        const duplicateGame = await Game.findOne({
-          gameId: req.body.gameId,
-          _id: { $ne: id } // Exclude current game
-        });
-
-        if (duplicateGame) {
-          return res.status(400).json({
-            success: false,
-            message: 'A game with this ID already exists. The gameId must be unique.',
-            error: 'DUPLICATE_GAME_ID'
-          });
-        }
       }
 
       // Build update data

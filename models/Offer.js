@@ -5,7 +5,6 @@ const offerSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    unique: true,
     index: true
   },
   name: {
@@ -71,6 +70,10 @@ const offerSchema = new mongoose.Schema({
   // Optional UI placement hint (e.g., featured_row, banner, carousel)
   uiSection: { type: String, trim: true },
   // Targeting & Segmentation
+  ageGroup: {
+    type: String,
+    trim: true
+  },
   ageGroups: [{
     type: String,
     // enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
@@ -184,6 +187,11 @@ offerSchema.index({ countries: 1 });
 offerSchema.index({ tierAccess: 1 });
 offerSchema.index({ expiryDate: 1 });
 offerSchema.index({ createdAt: -1 });
+// Compound unique index to allow variants per offerId by targeting
+offerSchema.index(
+  { offerId: 1, gender: 1, uiSection: 1, ageGroup: 1 },
+  { unique: true }
+);
 
 // Static methods
 offerSchema.statics.findActive = function () {

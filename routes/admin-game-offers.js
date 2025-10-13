@@ -1838,11 +1838,14 @@ router.post('/seed-games', adminAuth, async (req, res) => {
             const gameData = {
               gameId: external.id,
               title: external.title || external.name || title,
-              description: stripHtml(external.description || ''),
+              description: stripHtml(external.description || '') || 'No description available',
               category: (Array.isArray(external.categories) && external.categories[0]?.name) 
                 ? external.categories[0].name 
                 : (external.category || 'General'),
               
+              sdkProvider: 'besitos',
+              countries: [region],
+              xptrRules: 'default',
               platform: device === 'ios' ? 'iOS' : 'Android',
               status: 'active',
               
@@ -1890,7 +1893,8 @@ router.post('/seed-games', adminAuth, async (req, res) => {
 
               uiSection: uiSectionKey,
               gender: gender,
-              ageGroups: [ageRangeKey]
+              ageGroups: [ageRangeKey],
+              createdBy: req.user.userId
             };
 
             try {

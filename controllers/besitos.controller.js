@@ -69,7 +69,7 @@ exports.getUserData = async (req, res) => {
         const { userId } = req.params;
 
         // Validate that user can only access their own data (unless admin)
-        if (req.user.id !== userId && req.user.role !== 'admin') {
+        if (req.user.id !== userId) {
             return res.status(403).json({
                 success: false,
                 error: {

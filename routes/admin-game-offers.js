@@ -1893,21 +1893,29 @@ router.post('/seed-games', adminAuth, async (req, res) => {
 
               uiSection: uiSectionKey,
               gender: gender,
+              ageGroup: ageRangeKey,
               ageGroups: [ageRangeKey],
               createdBy: req.user.userId
             };
 
             try {
-              const existing = await Game.findOne({ gameId: external.id });
+              // Upsert uniqueness by (gameId, gender, uiSection, ageGroup)
+              const existing = await Game.findOne({ 
+                gameId: external.id,
+                gender: gender,
+                uiSection: uiSectionKey,
+                ageGroup: ageRangeKey
+              });
               
               if (existing) {
                 // Update targeting, uiSection, and gameDetails
                 await Game.updateOne(
-                  { gameId: external.id },
+                  { gameId: external.id, gender: gender, uiSection: uiSectionKey, ageGroup: ageRangeKey },
                   {
                     $set: {
                       uiSection: uiSectionKey,
                       gender: gender,
+                      ageGroup: ageRangeKey,
                       ageGroups: [ageRangeKey],
                       gameDetails: gameData.gameDetails,
                       metadata: gameData.metadata,

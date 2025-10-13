@@ -5,7 +5,6 @@ const gameSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    unique: true,
     index: true
   },
   title: {
@@ -141,6 +140,10 @@ const gameSchema = new mongoose.Schema({
     default: "android"
   },
   // Targeting & Segmentation
+  ageGroup: {
+    type: String,
+    trim: true
+  },
   ageGroups: [{
     type: String,
     // enum: ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
@@ -241,6 +244,11 @@ gameSchema.index({ 'metadata.genre': 1 });
 gameSchema.index({ 'tierRestrictions.minTier': 1, 'tierRestrictions.maxTier': 1 });
 gameSchema.index({ 'displayRules.isFeatured': 1, 'displayRules.priority': -1 });
 gameSchema.index({ createdAt: -1 });
+// Compound unique index to allow multiple variants per gameId by targeting
+gameSchema.index(
+  { gameId: 1, gender: 1, uiSection: 1, ageGroup: 1 },
+  { unique: true }
+);
 
 // Static methods
 gameSchema.statics.findActive = function() {

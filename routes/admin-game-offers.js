@@ -1733,5 +1733,233 @@ router.get('/games/by-sdk/:sdk', adminAuth, async (req, res) => {
   }
 });
 
+/**
+ * Seed games from segments JSON structure
+ * POST /api/admin/game-offers/seed-games
+ * Body: {
+ *   segments: { gender -> ageRange -> uiSection -> [titles] },
+ *   region: 'US',
+ *   device: 'android'
+ * }
+ */
+router.post('/seed-games', adminAuth, async (req, res) => {
+  try {
+    const { segments, region = 'US', device = 'android' } = req.body;
+
+    if (!segments || typeof segments !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'segments object is required in request body'
+      });
+    }
+
+    const besitosService = require('../services/besitos.service');
+    
+    // Helper to normalize titles for matching
+    const normalizeTitle = (title = '') => {
+      return String(title)
+        .toLowerCase()
+        .replace(/®|\u00ae/g, '')
+        .replace(/[^a-z0-9\s:-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const stripHtml = (html = '') => {
+      return String(html).replace(/<[^>]*>/g, '').trim();
+    };
+
+    // Fetch all Besitos offers once
+    console.log(`Fetching Besitos offers for ${device}/${region}...`);
+    let offersPayload;
+    try {
+      offersPayload = await besitosService.getOffers({ 
+        platform: device === 'ios' ? 'iOS' : 'Android', 
+        country: region 
+      });
+    } catch (e) {
+      console.error('Failed to fetch Besitos offers:', e);
+      return res.status(503).json({
+        success: false,
+        message: 'Failed to fetch offers from Besitos API',
+        error: e.message || 'Service unavailable'
+      });
+    }
+
+    const offers = Array.isArray(offersPayload?.data) ? offersPayload.data : [];
+    if (offers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No offers found from Besitos API'
+      });
+    }
+
+    console.log(`Found ${offers.length} Besitos offers`);
+
+    // Build a normalized lookup map
+    const offerMap = new Map();
+    offers.forEach(offer => {
+      const norm = normalizeTitle(offer.title || offer.name);
+      if (norm) {
+        offerMap.set(norm, offer);
+      }
+    });
+
+    // Process segments
+    const results = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+      matched: [],
+      unmatched: []
+    };
+
+    for (const [genderKey, ageRanges] of Object.entries(segments)) {
+      const gender = genderKey.toLowerCase();
+
+      for (const [ageRangeKey, uiSections] of Object.entries(ageRanges)) {
+        for (const [uiSectionKey, titles] of Object.entries(uiSections)) {
+          if (!Array.isArray(titles)) continue;
+
+          for (const title of titles) {
+            const norm = normalizeTitle(title);
+            const external = offerMap.get(norm);
+
+            if (!external) {
+              results.unmatched.push({ title, gender, ageRange: ageRangeKey, uiSection: uiSectionKey });
+              results.skipped++;
+              continue;
+            }
+
+            results.matched.push({ title, gameId: external.id });
+
+            // Build game data
+            const gameData = {
+              gameId: external.id,
+              title: external.title || external.name || title,
+              description: stripHtml(external.description || ''),
+              category: (Array.isArray(external.categories) && external.categories[0]?.name) 
+                ? external.categories[0].name 
+                : (external.category || 'General'),
+              
+              platform: device === 'ios' ? 'iOS' : 'Android',
+              status: 'active',
+              
+              rewards: {
+                coins: 50,
+                xp: 100
+              },
+
+              metadata: {
+                genre: (Array.isArray(external.categories) && external.categories[0]?.name) 
+                  ? external.categories[0].name 
+                  : (external.category || 'General'),
+                thumbnail: {
+                  url: external.large_image || external.image || external.square_image || '',
+                  dimensions: { width: 512, height: 512 },
+                  altText: `${external.title || title} thumbnail`
+                },
+                images: {
+                  icon: external.square_image || external.image || '',
+                  banner: external.large_image || external.image || '',
+                  screenshots: []
+                },
+                packageName: external.bundle_id || '',
+                developer: '',
+                rating: 4.0,
+                downloads: '1M+',
+                size: '',
+                version: '',
+                lastUpdated: new Date(),
+                ageRating: '12+'
+              },
+
+              gameDetails: {
+                id: external.id || '',
+                name: external.title || external.name || title,
+                description: stripHtml(external.description || ''),
+                image: external.image || external.large_image || '',
+                square_image: external.square_image || '',
+                large_image: external.large_image || external.image || '',
+                category: (Array.isArray(external.categories) && external.categories[0]?.name) 
+                  ? external.categories[0].name 
+                  : (external.category || ''),
+                downloadUrl: external.url || ''
+              },
+
+              uiSection: uiSectionKey,
+              gender: gender,
+              ageGroups: [ageRangeKey]
+            };
+
+            try {
+              const existing = await Game.findOne({ gameId: external.id });
+              
+              if (existing) {
+                // Update targeting, uiSection, and gameDetails
+                await Game.updateOne(
+                  { gameId: external.id },
+                  {
+                    $set: {
+                      uiSection: uiSectionKey,
+                      gender: gender,
+                      ageGroups: [ageRangeKey],
+                      gameDetails: gameData.gameDetails,
+                      metadata: gameData.metadata,
+                      title: gameData.title,
+                      description: gameData.description,
+                      category: gameData.category
+                    }
+                  }
+                );
+                results.updated++;
+              } else {
+                // Create new game
+                await Game.create(gameData);
+                results.created++;
+              }
+            } catch (err) {
+              console.error(`Error upserting game ${external.id}:`, err.message);
+              results.errors.push({
+                title,
+                gameId: external.id,
+                error: err.message
+              });
+            }
+          }
+        }
+      }
+    }
+
+    console.log('Seed complete:', results);
+
+    res.json({
+      success: true,
+      message: 'Game seeding completed',
+      data: {
+        summary: {
+          totalProcessed: results.created + results.updated + results.skipped,
+          created: results.created,
+          updated: results.updated,
+          skipped: results.skipped,
+          errors: results.errors.length
+        },
+        matched: results.matched.length,
+        unmatched: results.unmatched,
+        errors: results.errors
+      }
+    });
+
+  } catch (error) {
+    console.error('Error seeding games:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to seed games',
+      error: error.message
+    });
+  }
+});
+
 
 module.exports = router;

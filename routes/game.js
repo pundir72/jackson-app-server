@@ -138,14 +138,12 @@ router.get('/discover', protect, async (req, res) => {
 
         res.json({
             success: true,
-            data: {
-                games,
-                pagination: {
-                    page: pageNum,
-                    limit: pageSize,
-                    total,
-                    pages: Math.ceil(total / pageSize)
-                }
+            data: games,
+            pagination: {
+                page: pageNum,
+                limit: pageSize,
+                total,
+                pages: Math.ceil(total / pageSize)
             }
         });
     } catch (error) {

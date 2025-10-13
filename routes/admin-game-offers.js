@@ -1899,37 +1899,44 @@ router.post('/seed-games', adminAuth, async (req, res) => {
             };
 
             try {
-              // Upsert uniqueness by (gameId, gender, uiSection, ageGroup)
-              const existing = await Game.findOne({ 
+              // Atomic upsert by (gameId, gender, uiSection, ageGroup)
+              const filter = {
                 gameId: external.id,
                 gender: gender,
                 uiSection: uiSectionKey,
                 ageGroup: ageRangeKey
-              });
-              
-              if (existing) {
-                // Update targeting, uiSection, and gameDetails
-                await Game.updateOne(
-                  { gameId: external.id, gender: gender, uiSection: uiSectionKey, ageGroup: ageRangeKey },
-                  {
-                    $set: {
-                      uiSection: uiSectionKey,
-                      gender: gender,
-                      ageGroup: ageRangeKey,
-                      ageGroups: [ageRangeKey],
-                      gameDetails: gameData.gameDetails,
-                      metadata: gameData.metadata,
-                      title: gameData.title,
-                      description: gameData.description,
-                      category: gameData.category
-                    }
-                  }
-                );
+              };
+              const update = {
+                $set: {
+                  // mutable/always-updated fields
+                  title: gameData.title,
+                  description: gameData.description,
+                  category: gameData.category,
+                  sdkProvider: gameData.sdkProvider,
+                  countries: gameData.countries,
+                  xptrRules: gameData.xptrRules,
+                  platform: gameData.platform,
+                  status: gameData.status,
+                  rewards: gameData.rewards,
+                  metadata: gameData.metadata,
+                  gameDetails: gameData.gameDetails,
+                  uiSection: uiSectionKey,
+                  gender: gender,
+                  ageGroup: ageRangeKey,
+                  ageGroups: [ageRangeKey]
+                },
+                $setOnInsert: {
+                  createdBy: req.user.userId
+                }
+              };
+              const result = await Game.updateOne(filter, update, { upsert: true });
+              if (result.upsertedCount && result.upsertedCount > 0) {
+                results.created++;
+              } else if (result.modifiedCount && result.modifiedCount > 0) {
                 results.updated++;
               } else {
-                // Create new game
-                await Game.create(gameData);
-                results.created++;
+                // Matched but no changes (already up-to-date)
+                results.skipped++;
               }
             } catch (err) {
               console.error(`Error upserting game ${external.id}:`, err.message);

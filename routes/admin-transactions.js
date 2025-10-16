@@ -377,7 +377,7 @@ router.post('/redemptions/:id/reject', adminAuth, [
         // If rejected, refund the amount to user wallet
         const user = await User.findById(transaction.user);
         if (user && transaction.balanceType === 'coins') {
-            user.wallet.coins = (user.wallet.coins || 0) + transaction.amount;
+            user.wallet.balance = (user.wallet.balance || 0) + transaction.amount;
             await user.save();
         }
 

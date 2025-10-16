@@ -261,6 +261,10 @@ function getCurrentValue(user, achievement, data) {
       return user.streak?.current || 0;
     case 'total_earnings':
       return user.wallet?.balance || 0;
+    case 'daily_rewards_claimed':
+      // For daily rewards, we need to count from the user's daily reward progress
+      // This will be handled by the tracking function with data from daily rewards
+      return data?.dailyRewardsClaimed || 0;
     default:
       return 0;
   }
@@ -276,7 +280,7 @@ function getRequirementType(category, data) {
     games: data?.completed ? 'games_completed' : 'games_played',
     surveys: 'surveys_completed',
     races: 'races_completed',
-    wallet: 'wallet_balance'
+    wallet: data?.category === 'daily_reward' ? 'daily_rewards_claimed' : 'wallet_balance'
   };
   return typeMap[category] || 'custom';
 }

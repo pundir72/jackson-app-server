@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const protect = require('../middleware/auth');
 const DailyRewardProgress = require('../models/DailyRewardProgress');
 const DailyRewardConfig = require('../models/DailyRewardConfig');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const { getISOWeekKey, getWeekBoundsUtc, initWeekDays } = require('../utils/dailyRewardHelpers');
+const { trackAchievements } = require('../utils/achievements');
 
 // Load or create weekly progress
 async function loadProgress(userId, dateUtc = new Date()) {
@@ -32,11 +34,13 @@ async function loadProgress(userId, dateUtc = new Date()) {
   }
 
   // Safety net: ensure today's day is claimable and past locked days are missed
+  // BUT don't override already claimed rewards
   const todayIdx = ((dateUtc.getUTCDay() + 6) % 7);
   let changed = false;
   progress.days.forEach((d, idx) => {
     if (idx < todayIdx && d.status === 'locked') { d.status = 'missed'; changed = true; }
     if (idx === todayIdx && d.status === 'locked') { d.status = 'claimable'; changed = true; }
+    // Don't change already claimed rewards
   });
   if (changed) await progress.save();
   return progress;
@@ -138,7 +142,8 @@ router.post('/claim', protect, async (req, res) => {
 
     // Credit wallet
     const user = await User.findById(userId).select('wallet xp badges');
-    user.wallet.coins = (user.wallet.coins || 0) + coins;
+    user.wallet.balance = (user.wallet.balance || 0) + coins;
+    user.wallet.lastUpdated = now;
     user.xp.current = (user.xp.current || 0) + xp;
     user.xp.total = (user.xp.total || 0) + xp;
     if (cfg.bigReward.awardBadge && bigReward && cfg.bigReward.badgeName) {
@@ -157,6 +162,32 @@ router.post('/claim', protect, async (req, res) => {
 
     await Promise.all([user.save(), tx.save()]);
 
+    // Track achievements for daily reward claim
+    setImmediate(async () => {
+      try {
+        // Count total daily rewards claimed by this user
+        const totalClaimed = await DailyRewardProgress.aggregate([
+          { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+          { $unwind: '$days' },
+          { $match: { 'days.status': 'claimed' } },
+          { $count: 'total' }
+        ]);
+        
+        const dailyRewardsClaimed = totalClaimed.length > 0 ? totalClaimed[0].total : 0;
+        
+        await trackAchievements(userId, 'wallet', {
+          coins: coins,
+          xp: xp,
+          dayNumber: day.dayNumber,
+          bigReward: !!bigReward,
+          category: 'daily_reward',
+          dailyRewardsClaimed: dailyRewardsClaimed
+        });
+      } catch (error) {
+        console.error('Error tracking daily reward achievements:', error);
+      }
+    });
+
     res.json({
       success: true,
       data: {
@@ -164,7 +195,7 @@ router.post('/claim', protect, async (req, res) => {
         coins,
         xp,
         bigReward: !!bigReward,
-        newBalance: user.wallet.coins,
+        newBalance: user.wallet.balance,
         newXP: user.xp.current
       }
     });

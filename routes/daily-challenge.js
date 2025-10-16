@@ -562,7 +562,7 @@ router.post('/complete', protect, async (req, res) => {
     const totalXP = xpReward + bonusXP;
     
     // Update user wallet and XP
-    user.wallet.coins = (user.wallet.coins || 0) + totalCoins;
+    user.wallet.balance = (user.wallet.balance || 0) + totalCoins;
     user.xp.current = (user.xp.current || 0) + totalXP;
     user.xp.total = (user.xp.total || 0) + totalXP;
     
@@ -631,7 +631,7 @@ router.post('/complete', protect, async (req, res) => {
           totalXP
         },
         newBalance: {
-          coins: user.wallet.coins,
+          coins: user.wallet.balance,
           xp: user.xp.current
         },
         streak: {

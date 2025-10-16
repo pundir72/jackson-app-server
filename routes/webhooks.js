@@ -124,7 +124,7 @@ router.post('/besitos/conversion', async (req, res) => {
         });
         
         // Credit user rewards
-        user.wallet.coins = (user.wallet.coins || 0) + challenge.coinReward;
+        user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
         user.xp.current = (user.xp.current || 0) + challenge.xpReward;
         user.xp.total = (user.xp.total || 0) + challenge.xpReward;
         
@@ -269,7 +269,7 @@ router.post('/bitlabs/completion', async (req, res) => {
         });
         
         // Credit user
-        user.wallet.coins = (user.wallet.coins || 0) + challenge.coinReward;
+        user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
         user.xp.current = (user.xp.current || 0) + challenge.xpReward;
         user.xp.total = (user.xp.total || 0) + challenge.xpReward;
         

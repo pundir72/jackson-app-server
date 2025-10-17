@@ -14,6 +14,7 @@ const Game = require('../models/Game');
 const Transaction = require('../models/Transaction');
 const BesitosConversion = require('../models/BesitosConversion');
 const besitosService = require('../services/besitos.service');
+const { trackActivity } = require('../middleware/activityTracker');
 
 // ==================== CALENDAR VIEW ====================
 

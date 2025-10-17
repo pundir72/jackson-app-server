@@ -18,7 +18,7 @@ router.get('/', protect, async (req, res) => {
             // XP stats
             currentXP: user.xp?.current || 0,
             tier: user.xp?.tier || 1,
-            streak: user.xp?.streak || 0,
+            streak: user.streak?.current || 0,
 
             // VIP status
             vipLevel: user.vip?.level || 'free',

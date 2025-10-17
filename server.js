@@ -77,6 +77,10 @@ const apiLimiter = rateLimit({
 // Initialize Passport
 app.use(passport.initialize());
 
+// Global Activity Tracking Middleware
+const { globalActivityTracker } = require('./middleware/globalActivityTracker');
+app.use(globalActivityTracker);
+
 // MongoDB connection
 mongoose.connect(config.MONGODB_URI, {
     useNewUrlParser: true,
@@ -178,6 +182,7 @@ mongoose.connect(config.MONGODB_URI, {
         const referralRoutes = require('./routes/referral');
         const ticketsRoutes = require('./routes/tickets');
         const adminTicketsRoutes = require('./routes/admin-tickets');
+        const dailyActivityRoutes = require('./routes/daily-activity');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -234,6 +239,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/referral', referralRoutes);
         app.use('/api/tickets', ticketsRoutes);
         app.use('/api/admin/tickets', adminTicketsRoutes);
+        app.use('/api/daily-activity', dailyActivityRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

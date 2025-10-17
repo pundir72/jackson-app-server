@@ -104,7 +104,7 @@ router.get('/', auth, async (req, res) => {
                 total: user.xp.total,
                 level: user.xp.level,
                 tier: user.xp.tier,
-                streak: user.xp.streak
+                streak: user.streak?.current || 0
             },
             mostPlayedGames,
             activeTasks,
@@ -131,19 +131,19 @@ const updateStreak = async (user) => {
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
     
-    if (!user.xp.streak.lastUpdated || user.xp.streak.lastUpdated < yesterday) {
-        if (user.xp.streak.current > 0) {
+    if (!user.streak?.lastUpdated || user.streak.lastUpdated < yesterday) {
+        if (user.streak?.current > 0) {
             await User.findByIdAndUpdate(user._id, {
-                $inc: { 'xp.streak.current': 1 },
+                $inc: { 'streak.current': 1 },
                 $set: {
-                    'xp.streak.lastUpdated': today
+                    'streak.lastUpdated': today
                 }
             });
         } else {
             await User.findByIdAndUpdate(user._id, {
                 $set: {
-                    'xp.streak.current': 1,
-                    'xp.streak.lastUpdated': today
+                    'streak.current': 1,
+                    'streak.lastUpdated': today
                 }
             });
         }

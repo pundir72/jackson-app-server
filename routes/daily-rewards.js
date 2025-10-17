@@ -23,24 +23,43 @@ async function loadProgress(userId, dateUtc = new Date()) {
       days: initWeekDays()
     });
 
-    // Initialize states relative to today's weekday so the current day is claimable
+    // Initialize states relative to the requested date
     const todayIdx = ((dateUtc.getUTCDay() + 6) % 7); // 0..6 Mon..Sun
+    const isCurrentWeek = dateUtc >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Within last 7 days
     let changed = false;
+    
     progress.days.forEach((d, idx) => {
-      if (idx < todayIdx && d.status === 'locked') { d.status = 'missed'; changed = true; }
-      if (idx === todayIdx && d.status === 'locked') { d.status = 'claimable'; changed = true; }
+      if (isCurrentWeek) {
+        // Current week: past days missed, today claimable, future days locked
+        if (idx < todayIdx && d.status === 'locked') { d.status = 'missed'; changed = true; }
+        if (idx === todayIdx && d.status === 'locked') { d.status = 'claimable'; changed = true; }
+      } else {
+        // Previous week: all days should be missed (since they're in the past)
+        if (d.status === 'locked') { d.status = 'missed'; changed = true; }
+      }
     });
     if (changed) await progress.save();
   }
 
-  // Safety net: ensure today's day is claimable and past locked days are missed
-  // BUT don't override already claimed rewards
+  // Safety net: ensure proper status based on the requested date
+  // For current week: today is claimable, past days are missed
+  // For previous weeks: all days should be either claimed or missed (never locked)
   const todayIdx = ((dateUtc.getUTCDay() + 6) % 7);
+  const isCurrentWeek = dateUtc >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Within last 7 days
   let changed = false;
+  
   progress.days.forEach((d, idx) => {
-    if (idx < todayIdx && d.status === 'locked') { d.status = 'missed'; changed = true; }
-    if (idx === todayIdx && d.status === 'locked') { d.status = 'claimable'; changed = true; }
     // Don't change already claimed rewards
+    if (d.status === 'claimed') return;
+    
+    if (isCurrentWeek) {
+      // Current week logic: past days missed, today claimable, future days locked
+      if (idx < todayIdx && d.status === 'locked') { d.status = 'missed'; changed = true; }
+      if (idx === todayIdx && d.status === 'locked') { d.status = 'claimable'; changed = true; }
+    } else {
+      // Previous week logic: all days should be either claimed or missed (never locked)
+      if (d.status === 'locked') { d.status = 'missed'; changed = true; }
+    }
   });
   if (changed) await progress.save();
   return progress;

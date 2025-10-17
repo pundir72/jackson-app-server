@@ -241,10 +241,6 @@ const userSchema = new mongoose.Schema({
         tier: {
             type: Number,
             default: 1
-        },
-        streak: {
-            type: Number,
-            default: 0
         }
     },
 
@@ -991,6 +987,22 @@ const userSchema = new mongoose.Schema({
         lastTaskType: String,
         lastTaskId: String,
         resetAt: Date,
+        resetReason: String
+    },
+    // Daily Activity Tracking
+    dailyActivity: {
+        currentStreak: { type: Number, default: 0 },
+        lastActiveDate: { type: Date },
+        totalActiveDays: { type: Number, default: 0 },
+        activeDates: [String], // Array of date strings (YYYY-MM-DD) when user was active
+        longestStreak: { type: Number, default: 0 },
+        streakHistory: [{
+            startDate: Date,
+            endDate: Date,
+            days: Number,
+            brokenAt: Date
+        }],
+        lastStreakReset: Date,
         resetReason: String
     },
     // User badges

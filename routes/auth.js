@@ -910,6 +910,7 @@ router.post('/forgot-password',
   ],
   async (req, res) => {
     try {
+      console.log("============called ")
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ 
@@ -933,8 +934,8 @@ router.post('/forgot-password',
 
       if (!user) {
         // Don't reveal if user exists or not for security
-        return res.status(200).json({ 
-          message: 'If an account with this information exists, you will receive a password reset link shortly'
+        return res.status(404).json({ 
+          message: 'Please enter a registered email.'
         });
       }
 
@@ -1069,6 +1070,7 @@ router.post('/reset-password',
   async (req, res) => {
     try {
       const errors = validationResult(req);
+      console.log(errors)
       if (!errors.isEmpty()) {
         return res.status(400).json({ 
           error: 'Validation failed',

@@ -63,7 +63,7 @@ router.get('/', protect, async (req, res) => {
           current: user.xp.current || 0,
           level: user.xp.level || 1,
           tier: user.xp.tier || 1,
-          streak: user.xp.streak || 0
+          streak: user.streak?.current || 0
         },
         
         // Recent transactions

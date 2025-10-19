@@ -43,6 +43,11 @@ const ACHIEVEMENT_CATEGORIES = {
     name: 'Special Events',
     description: 'Special and limited-time achievements',
     trackingFunction: 'trackSpecialAchievements'
+  },
+  daily_activity: {
+    name: 'Daily Activity',
+    description: 'Achievements for daily activity and streaks',
+    trackingFunction: 'trackDailyActivityAchievements'
   }
 };
 
@@ -131,6 +136,63 @@ const DEFAULT_ACHIEVEMENTS = [
     order: 2
   },
   
+  // Daily Activity Achievements
+  {
+    achievementId: 'daily_activity_7',
+    name: 'Week Warrior',
+    description: 'Be active for 7 days',
+    category: 'daily_activity',
+    icon: '📅',
+    rarity: 'common',
+    requirements: { type: 'total_active_days', value: 7, timeframe: 'all_time' },
+    rewards: { coins: 100, xp: 50, badge: 'Week Warrior 📅' },
+    order: 1
+  },
+  {
+    achievementId: 'daily_activity_30',
+    name: 'Monthly Master',
+    description: 'Be active for 30 days',
+    category: 'daily_activity',
+    icon: '🗓️',
+    rarity: 'uncommon',
+    requirements: { type: 'total_active_days', value: 30, timeframe: 'all_time' },
+    rewards: { coins: 300, xp: 150, badge: 'Monthly Master 🗓️' },
+    order: 2
+  },
+  {
+    achievementId: 'daily_activity_100',
+    name: 'Century Club',
+    description: 'Be active for 100 days',
+    category: 'daily_activity',
+    icon: '💯',
+    rarity: 'rare',
+    requirements: { type: 'total_active_days', value: 100, timeframe: 'all_time' },
+    rewards: { coins: 1000, xp: 500, badge: 'Century Club 💯', title: 'Daily Champion' },
+    order: 3
+  },
+  {
+    achievementId: 'longest_streak_14',
+    name: 'Two Week Champion',
+    description: 'Achieve a 14-day streak',
+    category: 'streak',
+    icon: '🔥🔥',
+    rarity: 'uncommon',
+    requirements: { type: 'longest_streak', value: 14, timeframe: 'all_time' },
+    rewards: { coins: 200, xp: 100, badge: 'Two Week Champion 🔥🔥' },
+    order: 4
+  },
+  {
+    achievementId: 'longest_streak_60',
+    name: 'Streak Legend',
+    description: 'Achieve a 60-day streak',
+    category: 'streak',
+    icon: '👑',
+    rarity: 'legendary',
+    requirements: { type: 'longest_streak', value: 60, timeframe: 'all_time' },
+    rewards: { coins: 2000, xp: 1000, badge: 'Streak Legend 👑', title: 'Streak Master' },
+    order: 5
+  },
+
   // Survey Achievements
   {
     achievementId: 'surveys_5',
@@ -244,7 +306,7 @@ async function trackAchievements(userId, category, data) {
 function getCurrentValue(user, achievement, data) {
   switch (achievement.requirements.type) {
     case 'streak':
-      return user.streak?.current || 0;
+      return user.dailyActivity?.currentStreak || 0;
     case 'xp':
       return user.xp?.current || 0;
     case 'games_played':
@@ -258,7 +320,11 @@ function getCurrentValue(user, achievement, data) {
     case 'wallet_balance':
       return user.wallet?.balance || 0;
     case 'consecutive_days':
-      return user.streak?.current || 0;
+      return user.dailyActivity?.currentStreak || 0;
+    case 'total_active_days':
+      return user.dailyActivity?.totalActiveDays || 0;
+    case 'longest_streak':
+      return user.dailyActivity?.longestStreak || 0;
     case 'total_earnings':
       return user.wallet?.balance || 0;
     case 'daily_rewards_claimed':
@@ -280,7 +346,8 @@ function getRequirementType(category, data) {
     games: data?.completed ? 'games_completed' : 'games_played',
     surveys: 'surveys_completed',
     races: 'races_completed',
-    wallet: data?.category === 'daily_reward' ? 'daily_rewards_claimed' : 'wallet_balance'
+    wallet: data?.category === 'daily_reward' ? 'daily_rewards_claimed' : 'wallet_balance',
+    daily_activity: 'total_active_days'
   };
   return typeMap[category] || 'custom';
 }

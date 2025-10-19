@@ -16,7 +16,7 @@ const achievementSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['streak', 'xp', 'games', 'surveys', 'races', 'wallet', 'social', 'special'],
+    enum: ['streak', 'xp', 'games', 'surveys', 'races', 'wallet', 'social', 'special', 'daily_activity'],
     required: true
   },
   icon: {
@@ -31,7 +31,7 @@ const achievementSchema = new mongoose.Schema({
   requirements: {
     type: {
       type: String,
-      enum: ['streak', 'xp', 'games_played', 'games_completed', 'surveys_completed', 'races_completed', 'wallet_balance', 'consecutive_days', 'total_earnings', 'custom'],
+      enum: ['streak', 'xp', 'games_played', 'games_completed', 'surveys_completed', 'races_completed', 'wallet_balance', 'consecutive_days', 'total_earnings', 'total_active_days', 'longest_streak', 'daily_rewards_claimed', 'custom'],
       required: true
     },
     value: {

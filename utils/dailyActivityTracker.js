@@ -5,6 +5,7 @@
  */
 
 const User = require('../models/User');
+const { trackAchievements } = require('./achievements');
 
 /**
  * Track user activity for today
@@ -66,6 +67,26 @@ async function trackUserActivity(userId, options = {}) {
 
     await user.save();
 
+    // Track achievements for daily activity
+    setImmediate(async () => {
+      try {
+        await trackAchievements(userId, 'daily_activity', {
+          currentStreak: activity.currentStreak,
+          totalActiveDays: activity.totalActiveDays,
+          longestStreak: activity.longestStreak,
+          isNewDay: !isAlreadyActiveToday
+        });
+        
+        // Also track streak achievements
+        await trackAchievements(userId, 'streak', {
+          currentStreak: activity.currentStreak,
+          longestStreak: activity.longestStreak
+        });
+      } catch (error) {
+        console.error('Error tracking daily activity achievements:', error);
+      }
+    });
+
     return {
       success: true,
       data: {
@@ -97,16 +118,9 @@ async function trackUserActivity(userId, options = {}) {
 async function updateStreak(user, activity, todayStr, lastActiveStr) {
   const today = new Date();
   
-  console.log('updateStreak called:', {
-    userId: user._id,
-    currentStreak: activity.currentStreak,
-    lastActiveStr,
-    todayStr
-  });
   
   if (!lastActiveStr) {
     // First time user is active
-    console.log('First time user active - setting streak to 1');
     activity.currentStreak = 1;
     activity.longestStreak = Math.max(activity.longestStreak, 1);
     return;
@@ -115,33 +129,23 @@ async function updateStreak(user, activity, todayStr, lastActiveStr) {
   const lastActiveDate = new Date(lastActiveStr);
   const daysDiff = Math.floor((today - lastActiveDate) / (1000 * 60 * 60 * 24));
 
-  console.log('Days difference:', daysDiff, 'Current streak:', activity.currentStreak);
-
   if (daysDiff === 1) {
     // Consecutive day - increment streak
-    console.log('Consecutive day - incrementing streak');
     activity.currentStreak += 1;
     activity.longestStreak = Math.max(activity.longestStreak, activity.currentStreak);
   } else if (daysDiff > 1) {
     // Streak broken - reset to 1
-    console.log('Streak broken - resetting to 1');
     await recordStreakHistory(user, activity);
     activity.currentStreak = 1;
     activity.lastStreakReset = today;
     activity.resetReason = 'missed_day';
   } else if (daysDiff === 0) {
     // Same day - if streak is 0 (after reset), set it to 1
-    console.log('Same day - checking if streak needs to be set to 1');
     if (activity.currentStreak === 0) {
-      console.log('Setting streak from 0 to 1 (same day after reset)');
       activity.currentStreak = 1;
       activity.longestStreak = Math.max(activity.longestStreak, 1);
-    } else {
-      console.log('Streak already > 0, no change needed');
     }
   }
-  
-  console.log('Final streak after update:', activity.currentStreak);
 }
 
 /**
@@ -347,5 +351,6 @@ module.exports = {
   getActivityLeaderboard,
   resetUserStreak,
   wasUserActiveOnDate,
-  getDateString
+  getDateString,
+  cleanupStreakHistory
 };

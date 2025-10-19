@@ -4,6 +4,7 @@ const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Game = require('../models/Game');
 const besitosController = require('../controllers/besitos.controller');
+const { trackAchievements } = require('../utils/achievements');
 // Get user's games
 router.get('/', protect, async (req, res) => {
     try {
@@ -26,6 +27,7 @@ router.post('/start', protect, async (req, res) => {
             gameId,
             score: 0,
             completed: false,
+            progress: 0,
             date: new Date()
         });
 
@@ -54,7 +56,22 @@ router.put('/score', protect, async (req, res) => {
         }
 
         game.score = score;
+        // Update progress based on score (assuming 100 is max score)
+        game.progress = Math.min(100, Math.max(0, (score / 100) * 100));
         await user.save();
+
+        // Track achievements for game score updates
+        setImmediate(async () => {
+          try {
+            await trackAchievements(req.user.userId, 'games', {
+              score: score,
+              gameId: gameId,
+              category: 'game_score'
+            });
+          } catch (error) {
+            console.error('Error tracking game score achievements:', error);
+          }
+        });
 
         res.json({
             message: 'Score updated successfully',
@@ -79,7 +96,22 @@ router.put('/complete', protect, async (req, res) => {
         }
 
         game.completed = true;
+        // Set progress to 100% when game is completed
+        game.progress = 100;
         await user.save();
+
+        // Track achievements for game completion
+        setImmediate(async () => {
+          try {
+            await trackAchievements(req.user.userId, 'games', {
+              completed: true,
+              gameId: gameId,
+              category: 'game_completion'
+            });
+          } catch (error) {
+            console.error('Error tracking game completion achievements:', error);
+          }
+        });
 
         res.json({
             message: 'Game completed successfully',
@@ -219,6 +251,27 @@ router.post('/earn', protect, async (req, res) => {
     }
 
     await user.save();
+
+    // Track achievements for game earnings
+    setImmediate(async () => {
+      try {
+        await trackAchievements(req.user.userId, 'wallet', {
+          coins: coinsNum,
+          xp: xpNum,
+          category: 'game_earn',
+          gameId: gameId,
+          reason: reason
+        });
+        
+        // Also track XP achievements
+        await trackAchievements(req.user.userId, 'xp', {
+          xp: xpNum,
+          category: 'game_earn'
+        });
+      } catch (error) {
+        console.error('Error tracking game earn achievements:', error);
+      }
+    });
 
     return res.json({
       success: true,

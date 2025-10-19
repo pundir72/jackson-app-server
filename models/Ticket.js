@@ -262,7 +262,7 @@ ticketSchema.statics.getUserTickets = async function(userId, filters = {}) {
     
     const [tickets, total] = await Promise.all([
         this.find(query)
-            .populate('game', 'name icon category')
+            .populate('game')
             .populate('assignedTo', 'firstName lastName email')
             .sort(sort)
             .skip(skip)

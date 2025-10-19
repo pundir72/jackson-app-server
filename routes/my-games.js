@@ -509,10 +509,12 @@ async function getAccountOverviewData(user) {
   
   const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
   
-  // Get games played today
+  // Get games played today (including games with progress > 0)
   const gamesPlayedToday = user.games?.filter(game => {
     const gameDate = new Date(game.lastPlayed || game.completedAt);
-    return gameDate >= today && gameDate < tomorrow && game.completed;
+    const isToday = gameDate >= today && gameDate < tomorrow;
+    const hasProgress = game.completed || (game.progress && game.progress > 0);
+    return isToday && hasProgress;
   }).length || 0;
   
   // Get challenges completed today

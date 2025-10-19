@@ -93,7 +93,7 @@ router.get('/', adminAuth, async (req, res) => {
         const [tickets, total] = await Promise.all([
             Ticket.find(query)
                 .populate('user', 'firstName lastName email mobile')
-                .populate('game', 'name icon category')
+                .populate('game')
                 .populate('assignedTo', 'firstName lastName email')
                 .populate('resolution.resolvedBy', 'firstName lastName')
                 .sort(sort)
@@ -247,7 +247,7 @@ router.get('/:ticketId', adminAuth, async (req, res) => {
         
         const ticket = await Ticket.findOne({ ticketId })
             .populate('user', 'firstName lastName email mobile avatar')
-            .populate('game', 'name icon category description')
+            .populate('game')
             .populate('assignedTo', 'firstName lastName email')
             .populate('replies.adminUser', 'firstName lastName email')
             .populate('resolution.resolvedBy', 'firstName lastName email');
@@ -622,7 +622,7 @@ router.get('/export/csv', adminAuth, async (req, res) => {
         
         const tickets = await Ticket.find(query)
             .populate('user', 'firstName lastName email')
-            .populate('game', 'name')
+            .populate('game')
             .lean();
         
         // Generate CSV
@@ -630,7 +630,7 @@ router.get('/export/csv', adminAuth, async (req, res) => {
         const csvRows = tickets.map(ticket => {
             const user = `${ticket.user.firstName} ${ticket.user.lastName}`;
             const description = ticket.description.replace(/"/g, '""').replace(/\n/g, ' ');
-            return `"${ticket.ticketId}","${user}","${ticket.user.email}","${ticket.game.name}","${ticket.category}","${ticket.status}","${ticket.priority}","${description}","${ticket.createdAt}","${ticket.closedAt || 'N/A'}"`;
+            return `"${ticket.ticketId}","${user}","${ticket.user.email}","${ticket.game?.title || 'Unknown Game'}","${ticket.category}","${ticket.status}","${ticket.priority}","${description}","${ticket.createdAt}","${ticket.closedAt || 'N/A'}"`;
         }).join('\n');
         
         const csv = csvHeaders + csvRows;

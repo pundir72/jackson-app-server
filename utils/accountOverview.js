@@ -226,10 +226,12 @@ class AccountOverviewService {
 
     const user = await User.findById(userId);
 
-    // Games played today
+    // Games played today (including games with progress > 0)
     const gamesPlayedToday = user.games?.filter(game => {
       const gameDate = new Date(game.date || game.completedAt);
-      return gameDate >= today && gameDate < tomorrow && game.completed;
+      const isToday = gameDate >= today && gameDate < tomorrow;
+      const hasProgress = game.completed || (game.progress && game.progress > 0);
+      return isToday && hasProgress;
     }).length || 0;
 
     // Coins earned today

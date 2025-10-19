@@ -7,6 +7,7 @@ const {
   getUserAchievements, 
   getAchievementStats, 
   trackAchievements,
+  initializeAchievements,
   ACHIEVEMENT_CATEGORIES 
 } = require('../utils/achievements');
 
@@ -286,5 +287,23 @@ async function awardAchievementRewards(userId, userAchievement) {
     title: rewards.title
   };
 }
+
+// Initialize achievements (seed default achievements)
+router.post('/initialize', protect, async (req, res) => {
+  try {
+    const result = await initializeAchievements();
+    res.json({
+      success: true,
+      message: 'Achievements initialized successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error initializing achievements:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to initialize achievements'
+    });
+  }
+});
 
 module.exports = router;

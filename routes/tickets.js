@@ -169,7 +169,7 @@ router.post('/', protect, upload.array('images', 3), async (req, res) => {
         await ticket.save();
         
         // Populate game details for response
-        await ticket.populate('game', 'name icon category');
+        await ticket.populate('game');
         
         res.status(201).json({
             success: true,
@@ -240,10 +240,11 @@ router.get('/', protect, async (req, res) => {
         const formattedTickets = result.tickets.map(ticket => ({
             id: ticket._id,
             ticketId: ticket.ticketId,
-            game: {
-                id: ticket?.game?._id,
-                name: ticket?.game?.name,
-                icon: ticket?.game?.icon
+            game: ticket?.game || {
+                id: null,
+                name: 'Unknown Game',
+                icon: '🎮',
+                category: 'General'
             },
             descriptionPreview: ticket.description.split('\n').slice(0, 2).join('\n'),
             fullDescription: ticket.description,
@@ -315,7 +316,7 @@ router.get('/:ticketId', protect, async (req, res) => {
             ticketId,
             user: req.user.userId
         })
-            .populate('game', 'name icon category description')
+            .populate('game')
             .populate('assignedTo', 'firstName lastName email')
             .populate('replies.adminUser', 'firstName lastName email')
             .populate('resolution.resolvedBy', 'firstName lastName email');
@@ -395,7 +396,7 @@ router.get('/games/list', protect, async (req, res) => {
 
             try {
                 if (mongoose.Types.ObjectId.isValid(rawId)) {
-                    const dbGame = await Game.findById(rawId).select('title metadata.iconUrl metadata.genre');
+                    const dbGame = await Game.findById(rawId).select('title metadata.iconUrl metadata.genre metadata.imageUrl');
                     if (dbGame) {
                         id = dbGame._id;
                         name = dbGame.title || name;

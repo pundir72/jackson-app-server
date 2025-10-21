@@ -311,6 +311,401 @@ router.post('/select-game', protect, async (req, res) => {
   }
 });
 
+// ==================== CRUD OPERATIONS ====================
+
+/**
+ * @route   POST /api/daily-challenge/create
+ * @desc    Create a new daily challenge (user-created)
+ * @access  Private
+ */
+router.post('/create', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const {
+      title,
+      description,
+      type = 'custom',
+      coinReward = 0,
+      xpReward = 0,
+      claimType = 'manual',
+      gameId,
+      sdkProvider,
+      challengeDate
+    } = req.body;
+
+    // Validate required fields
+    if (!title || !description) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title and description are required'
+      });
+    }
+
+    // Set challenge date to today if not provided
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const targetDate = challengeDate ? new Date(challengeDate) : today;
+
+    // Normalize date to UTC start-of-day
+    const normalizedStart = new Date(Date.UTC(
+      targetDate.getUTCFullYear(),
+      targetDate.getUTCMonth(),
+      targetDate.getUTCDate(),
+      0, 0, 0, 0
+    ));
+    const normalizedEnd = new Date(Date.UTC(
+      targetDate.getUTCFullYear(),
+      targetDate.getUTCMonth(),
+      targetDate.getUTCDate(),
+      23, 59, 59, 999
+    ));
+
+    const challengeData = {
+      title,
+      description,
+      type,
+      coinReward,
+      xpReward,
+      claimType,
+      gameId,
+      sdkProvider,
+      challengeDate: normalizedStart,
+      scheduling: {
+        startTime: normalizedStart,
+        endTime: normalizedEnd
+      },
+      isVisible: true,
+      status: 'scheduled',
+      createdBy: userId
+    };
+
+    // Fetch gameDetails if gameId and sdkProvider are provided
+    if (gameId && sdkProvider === 'besitos') {
+      try {
+        const mockReq = { query: { offer_id: gameId } };
+        const captureGame = () => {
+          let payload = null;
+          return {
+            res: {
+              json: (data) => { payload = data; },
+              status: (code) => ({ json: (data) => { payload = { ...data, statusCode: code }; } })
+            },
+            get: () => payload
+          };
+        };
+        const cap = captureGame();
+        await besitosController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+
+        if (ext && ext.success === true && Array.isArray(ext.data) && ext.data.length > 0) {
+          const external = ext.data[0];
+          challengeData.gameDetails = {
+            id: external.id || '',
+            name: external.title || external.name || challengeData.title,
+            description: external.description || challengeData.description,
+            image: external.image || external.large_image || '',
+            square_image: external.square_image || '',
+            large_image: external.large_image || external.image || '',
+            category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+            downloadUrl: external.url || ''
+          };
+        } else {
+          challengeData.gameDetails = {
+            id: challengeData.gameId || '',
+            name: challengeData.title || '',
+            description: challengeData.description || '',
+            image: '', square_image: '', large_image: '', category: '', downloadUrl: ''
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to fetch gameDetails from Besitos:', error.message);
+        challengeData.gameDetails = {
+          id: challengeData.gameId || '',
+          name: challengeData.title || '',
+          description: challengeData.description || '',
+          image: '', square_image: '', large_image: '', category: '', downloadUrl: ''
+        };
+      }
+    }
+
+    const challenge = await DailyChallenge.create(challengeData);
+
+    res.status(201).json({
+      success: true,
+      message: 'Challenge created successfully',
+      data: challenge.getDisplayData()
+    });
+  } catch (error) {
+    console.error('Error creating challenge:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create challenge'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/daily-challenge/:id
+ * @desc    Get a specific daily challenge by ID
+ * @access  Private
+ */
+router.get('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const challenge = await DailyChallenge.findById(id);
+    
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: 'Challenge not found'
+      });
+    }
+
+    // Check if user can access this challenge
+    const isOwner = challenge.createdBy.toString() === userId;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: challenge.getDisplayData()
+    });
+  } catch (error) {
+    console.error('Error getting challenge:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get challenge'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/daily-challenge/:id
+ * @desc    Update a daily challenge
+ * @access  Private
+ */
+router.put('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const updateData = req.body;
+
+    const challenge = await DailyChallenge.findById(id);
+    
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: 'Challenge not found'
+      });
+    }
+
+    // Check if user can update this challenge
+    const isOwner = challenge.createdBy.toString() === userId;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    // Auto-update scheduling if challengeDate is being updated
+    if (updateData.challengeDate) {
+      const rawDate = new Date(updateData.challengeDate);
+      const normalizedStart = new Date(Date.UTC(
+        rawDate.getUTCFullYear(),
+        rawDate.getUTCMonth(),
+        rawDate.getUTCDate(),
+        0, 0, 0, 0
+      ));
+      const normalizedEnd = new Date(Date.UTC(
+        rawDate.getUTCFullYear(),
+        rawDate.getUTCMonth(),
+        rawDate.getUTCDate(),
+        23, 59, 59, 999
+      ));
+      
+      updateData.scheduling = {
+        startTime: normalizedStart,
+        endTime: normalizedEnd
+      };
+    }
+
+    // Fetch gameDetails if gameId and sdkProvider are provided
+    if (updateData.gameId && updateData.sdkProvider === 'besitos') {
+      try {
+        const mockReq = { query: { offer_id: updateData.gameId } };
+        const captureGame = () => {
+          let payload = null;
+          return {
+            res: {
+              json: (data) => { payload = data; },
+              status: (code) => ({ json: (data) => { payload = { ...data, statusCode: code }; } })
+            },
+            get: () => payload
+          };
+        };
+        const cap = captureGame();
+        await besitosController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+
+        if (ext && ext.success === true && Array.isArray(ext.data) && ext.data.length > 0) {
+          const external = ext.data[0];
+          updateData.gameDetails = {
+            id: external.id || '',
+            name: external.title || external.name || updateData.title,
+            description: external.description || updateData.description,
+            image: external.image || external.large_image || '',
+            square_image: external.square_image || '',
+            large_image: external.large_image || external.image || '',
+            category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+            downloadUrl: external.url || ''
+          };
+        } else {
+          updateData.gameDetails = {
+            id: updateData.gameId || '',
+            name: updateData.title || '',
+            description: updateData.description || '',
+            image: '', square_image: '', large_image: '', category: '', downloadUrl: ''
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to fetch gameDetails from Besitos:', error.message);
+        updateData.gameDetails = {
+          id: updateData.gameId || '',
+          name: updateData.title || '',
+          description: updateData.description || '',
+          image: '', square_image: '', large_image: '', category: '', downloadUrl: ''
+        };
+      }
+    }
+
+    const updatedChallenge = await DailyChallenge.findByIdAndUpdate(
+      id,
+      { ...updateData, updatedBy: userId },
+      { new: true, runValidators: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Challenge updated successfully',
+      data: updatedChallenge.getDisplayData()
+    });
+  } catch (error) {
+    console.error('Error updating challenge:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update challenge'
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/daily-challenge/:id
+ * @desc    Delete a daily challenge
+ * @access  Private
+ */
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const challenge = await DailyChallenge.findById(id);
+    
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: 'Challenge not found'
+      });
+    }
+
+    // Check if user can delete this challenge
+    const isOwner = challenge.createdBy.toString() === userId;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    // Check if challenge is already started by users
+    const hasProgress = await UserChallengeProgress.findOne({ challengeId: id });
+    if (hasProgress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete challenge that has been started by users'
+      });
+    }
+
+    await DailyChallenge.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: 'Challenge deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting challenge:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete challenge'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/daily-challenge/my-challenges
+ * @desc    Get user's own challenges
+ * @access  Private
+ */
+router.get('/my-challenges', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { page = 1, limit = 10, status, type } = req.query;
+
+    const query = { createdBy: userId };
+    if (status) query.status = status;
+    if (type) query.type = type;
+
+    const challenges = await DailyChallenge.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .select('title description type coinReward xpReward status challengeDate createdAt');
+
+    const total = await DailyChallenge.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        challenges: challenges.map(challenge => challenge.getDisplayData()),
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting user challenges:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get user challenges'
+    });
+  }
+});
+
 // ==================== TODAY'S CHALLENGE ====================
 
 /**

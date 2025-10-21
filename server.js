@@ -183,6 +183,7 @@ mongoose.connect(config.MONGODB_URI, {
         const ticketsRoutes = require('./routes/tickets');
         const adminTicketsRoutes = require('./routes/admin-tickets');
         const dailyActivityRoutes = require('./routes/daily-activity');
+        const securitySettingsRoutes = require('./routes/security-settings');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -240,6 +241,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/tickets', ticketsRoutes);
         app.use('/api/admin/tickets', adminTicketsRoutes);
         app.use('/api/daily-activity', dailyActivityRoutes);
+        app.use('/api/security-settings', securitySettingsRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

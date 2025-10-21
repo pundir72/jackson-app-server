@@ -115,6 +115,9 @@ router.get('/calendar', protect, async (req, res) => {
           type: challenge.type,
           coinReward: challenge.coinReward,
           xpReward: challenge.xpReward,
+          gameId: challenge.gameId,
+          sdkProvider: challenge.sdkProvider,
+          gameDetails: challenge.gameDetails || {},
           hasGame: !!challenge.assignedGame?.gameId,
           hasSdkTask: challenge.sdkTask?.provider !== 'none'
         } : null,
@@ -245,6 +248,9 @@ router.get('/today', protect, async (req, res) => {
         coinReward: challenge.coinReward,
         xpReward: challenge.xpReward,
         claimType: challenge.claimType,
+        gameId: challenge.gameId,
+        sdkProvider: challenge.sdkProvider,
+        gameDetails: challenge.gameDetails || {},
         assignedGame: challenge.assignedGame?.gameId ? {
           id: challenge.assignedGame.gameId._id,
           title: challenge.assignedGame.gameId.title,

@@ -105,6 +105,30 @@ const dailyChallengeSchema = new mongoose.Schema({
     customFields: mongoose.Schema.Types.Mixed
   },
   // Game/Task assignment
+  gameId: {
+    type: String,
+    trim: true,
+    index: true
+  },
+  title: {
+    type: String,
+    trim: true
+  },
+  sdkProvider: {
+    type: String,
+    trim: true
+  },
+  // External game metadata snapshot (same structure as Game model)
+  gameDetails: {
+    id: { type: String, trim: true },
+    name: { type: String, trim: true },
+    description: { type: String, trim: true },
+    image: { type: String, trim: true },
+    square_image: { type: String, trim: true },
+    large_image: { type: String, trim: true },
+    category: { type: String, trim: true },
+    downloadUrl: { type: String, trim: true }
+  },
   assignedGame: {
     gameId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -379,6 +403,9 @@ dailyChallengeSchema.methods.getDisplayData = function() {
     challengeDate: this.challengeDate,
     startTime: this.scheduling.startTime,
     endTime: this.scheduling.endTime,
+    gameId: this.gameId,
+    sdkProvider: this.sdkProvider,
+    gameDetails: this.gameDetails || {},
     analytics: {
       views: this.analytics.totalViews,
       starts: this.analytics.totalStarts,

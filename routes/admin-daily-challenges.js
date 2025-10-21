@@ -9,6 +9,9 @@ const BonusDay = require('../models/BonusDay');
 const ChallengePauseRule = require('../models/ChallengePauseRule');
 const XPMultiplier = require('../models/XPMultiplier');
 
+// Import services
+const besitosController = require('../controllers/besitos.controller');
+
 // Admin authentication middleware
 const { adminAuth } = require('../middleware/adminAuth');
 
@@ -209,7 +212,9 @@ router.post('/challenges', adminAuth, [
   body('xpReward').isInt({ min: 0 }).withMessage('XP reward must be a non-negative integer'),
   body('claimType').isIn(['watch_ad', 'auto', 'manual', 'social_action']).withMessage('Invalid claim type'),
   body('scheduling.startTime').isISO8601().withMessage('Start time must be valid ISO 8601 date'),
-  body('scheduling.endTime').isISO8601().withMessage('End time must be valid ISO 8601 date')
+  body('scheduling.endTime').isISO8601().withMessage('End time must be valid ISO 8601 date'),
+  body('gameId').optional().isString().withMessage('Game ID must be a string'),
+  body('sdkProvider').optional().isString().withMessage('SDK Provider must be a string')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -242,6 +247,51 @@ router.post('/challenges', adminAuth, [
       challengeDate: normalizedStart,
       createdBy: req.user.userId
     };
+
+    // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided
+    if (req.body.gameId && req.body.sdkProvider === 'besitos') {
+      try {
+        // Create a mock request object for besitos controller
+        const mockReq = {
+          query: { offer_id: req.body.gameId }
+        };
+        
+        // Create a mock response object to capture the data
+        const captureGame = () => {
+          let payload = null;
+          let code = 200;
+          return {
+            res: {
+              status(c) { code = c; return this; },
+              json(obj) { payload = obj; return this; }
+            },
+            get() { return payload || { success: false, data: [] }; }
+          };
+        };
+        
+        const cap = captureGame();
+        await besitosController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+        if (ext && ext.success === true && Array.isArray(ext.data) && ext.data.length > 0) {
+          const external = ext.data[0];
+          
+          // Map external details into gameDetails snapshot (same as Game model)
+          challengeData.gameDetails = {
+            id: external.id || '',
+            name: external.title || external.name || challengeData.title,
+            description: external.description || challengeData.description,
+            image: external.image || external.large_image || '',
+            square_image: external.square_image || '',
+            large_image: external.large_image || external.image || '',
+            category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+            downloadUrl: external.url || ''
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to fetch gameDetails from Besitos:', error.message);
+        // Continue without gameDetails if API call fails
+      }
+    }
 
     // Check for overlapping challenges on the same date (UTC day range)
     const existingChallenge = await DailyChallenge.findOne({
@@ -286,7 +336,9 @@ router.put('/challenges/:id', adminAuth, [
   body('coinReward').optional().isInt({ min: 0 }).withMessage('Coin reward must be a non-negative integer'),
   body('xpReward').optional().isInt({ min: 0 }).withMessage('XP reward must be a non-negative integer'),
   body('claimType').optional().isIn(['watch_ad', 'auto', 'manual', 'social_action']).withMessage('Invalid claim type'),
-  body('status').optional().isIn(['scheduled', 'live', 'completed', 'expired', 'draft']).withMessage('Invalid status')
+  body('status').optional().isIn(['scheduled', 'live', 'completed', 'expired', 'draft']).withMessage('Invalid status'),
+  body('gameId').optional().isString().withMessage('Game ID must be a string'),
+  body('sdkProvider').optional().isString().withMessage('SDK Provider must be a string')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -302,6 +354,52 @@ router.put('/challenges/:id', adminAuth, [
       ...req.body,
       updatedBy: req.user.userId
     };
+
+    // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided
+    if (req.body.gameId && req.body.sdkProvider === 'besitos') {
+      try {
+        // Create a mock request object for besitos controller
+        const mockReq = {
+          query: { offer_id: req.body.gameId }
+        };
+        
+        // Create a mock response object to capture the data
+        const captureGame = () => {
+          let payload = null;
+          let code = 200;
+          return {
+            res: {
+              status(c) { code = c; return this; },
+              json(obj) { payload = obj; return this; }
+            },
+            get() { return payload || { success: false, data: [] }; }
+          };
+        };
+        
+        const cap = captureGame();
+        await besitosController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+        
+        if (ext && ext.success === true && Array.isArray(ext.data) && ext.data.length > 0) {
+          const external = ext.data[0];
+          
+          // Map external details into gameDetails snapshot (same as Game model)
+          updateData.gameDetails = {
+            id: external.id || '',
+            name: external.title || external.name || updateData.title,
+            description: external.description || updateData.description,
+            image: external.image || external.large_image || '',
+            square_image: external.square_image || '',
+            large_image: external.large_image || external.image || '',
+            category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
+            downloadUrl: external.url || ''
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to fetch gameDetails from Besitos:', error.message);
+        // Continue without gameDetails if API call fails
+      }
+    }
 
     const challenge = await DailyChallenge.findByIdAndUpdate(
       req.params.id,

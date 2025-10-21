@@ -157,6 +157,160 @@ router.get('/calendar', protect, async (req, res) => {
   }
 });
 
+// ==================== GAME SELECTION ====================
+
+/**
+ * @route   GET /api/daily-challenge/available-games
+ * @desc    Get available games for today's challenge
+ * @access  Private
+ */
+router.get('/available-games', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get today's challenge
+    const startOfDay = new Date(today);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+    const now = new Date();
+
+    const challenge = await DailyChallenge.findOne({
+      challengeDate: { $gte: startOfDay, $lte: endOfDay },
+      isVisible: true,
+    });
+    
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: 'No challenge available for today'
+      });
+    }
+
+    // If challenge has gameId and sdkProvider, return the game details
+    if (challenge.gameId && challenge.sdkProvider) {
+      return res.json({
+        success: true,
+        data: {
+          challengeId: challenge._id,
+          games: [{
+            id: challenge.gameId,
+            title: challenge.gameDetails?.name || challenge.title,
+            description: challenge.gameDetails?.description || challenge.description,
+            image: challenge.gameDetails?.image || '',
+            square_image: challenge.gameDetails?.square_image || '',
+            large_image: challenge.gameDetails?.large_image || '',
+            category: challenge.gameDetails?.category || '',
+            downloadUrl: challenge.gameDetails?.downloadUrl || '',
+            sdkProvider: challenge.sdkProvider
+          }]
+        }
+      });
+    }
+
+    // If challenge has assigned games, return them
+    if (challenge.assignedGame?.gameId) {
+      const game = await Game.findById(challenge.assignedGame.gameId);
+      return res.json({
+        success: true,
+        data: {
+          challengeId: challenge._id,
+          games: [{
+            id: game._id,
+            title: game.title,
+            description: game.description,
+            image: game.metadata?.imageUrl || game.gameDetails?.image || '',
+            square_image: game.gameDetails?.square_image || '',
+            large_image: game.gameDetails?.large_image || '',
+            category: game.metadata?.genre || game.gameDetails?.category || '',
+            downloadUrl: game.gameDetails?.downloadUrl || '',
+            sdkProvider: game.sdkProvider
+          }]
+        }
+      });
+    }
+
+    res.status(404).json({
+      success: false,
+      error: 'No games available for this challenge'
+    });
+  } catch (error) {
+    console.error('Error getting available games:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get available games'
+    });
+  }
+});
+
+/**
+ * @route   POST /api/daily-challenge/select-game
+ * @desc    Select a game for today's challenge
+ * @access  Private
+ */
+router.post('/select-game', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { gameId, sdkProvider } = req.body;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get today's challenge
+    const startOfDay = new Date(today);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+    const now = new Date();
+
+    const challenge = await DailyChallenge.findOne({
+      challengeDate: { $gte: startOfDay, $lte: endOfDay },
+      isVisible: true,
+    });
+    
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: 'No challenge available for today'
+      });
+    }
+
+    // Get or create user's progress
+    let progress = await UserChallengeProgress.getOrCreateTodayChallenge(
+      userId,
+      challenge._id,
+      today
+    );
+
+    // Update selected game
+    progress.selectedGame = {
+      gameId: gameId,
+      sdkProvider: sdkProvider,
+      selectedAt: new Date()
+    };
+
+    await progress.save();
+
+    res.json({
+      success: true,
+      message: 'Game selected successfully',
+      data: {
+        challengeId: challenge._id,
+        selectedGame: {
+          gameId: gameId,
+          sdkProvider: sdkProvider,
+          selectedAt: progress.selectedGame.selectedAt
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error selecting game:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to select game'
+    });
+  }
+});
+
 // ==================== TODAY'S CHALLENGE ====================
 
 /**
@@ -177,14 +331,11 @@ router.get('/today', protect, async (req, res) => {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
     const now = new Date();
-    
+    console.log({endOfDay, startOfDay, now});
     // Find today's challenge (tolerant to timezone/time parts)
     const challenge = await DailyChallenge.findOne({
       challengeDate: { $gte: startOfDay, $lte: endOfDay },
       isVisible: true,
-      // Ensure it's within live scheduling window
-      'scheduling.startTime': { $lte: now },
-      'scheduling.endTime': { $gte: now }
     }).populate('assignedGame.gameId');
     
     if (!challenge) {
@@ -338,8 +489,6 @@ router.post('/select-game', protect, async (req, res) => {
     const challenge = await DailyChallenge.findOne({
       challengeDate: { $gte: startOfDay, $lte: endOfDay },
       isVisible: true,
-      'scheduling.startTime': { $lte: now },
-      'scheduling.endTime': { $gte: now }
     });
     
     if (!challenge) {
@@ -416,6 +565,7 @@ router.post('/select-game', protect, async (req, res) => {
 router.post('/start', protect, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const { gameId, sdkProvider } = req.body;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -428,9 +578,7 @@ router.post('/start', protect, async (req, res) => {
     const challenge = await DailyChallenge.findOne({
       challengeDate: { $gte: startOfDay, $lte: endOfDay },
       isVisible: true,
-      'scheduling.startTime': { $lte: now },
-      'scheduling.endTime': { $gte: now }
-    }).populate('assignedGame.gameId');
+    });
     
     if (!challenge) {
       return res.status(404).json({
@@ -446,12 +594,22 @@ router.post('/start', protect, async (req, res) => {
       progress = await UserChallengeProgress.getOrCreateTodayChallenge(userId, challenge._id, today);
     }
     
-    // Check if game is required/selected
-    const hasGame = challenge.assignedGame?.gameId || progress.selectedGame?.gameId;
+    // If user provides gameId in request, use it
+    if (gameId && sdkProvider) {
+      progress.selectedGame = {
+        gameId: gameId,
+        sdkProvider: sdkProvider,
+        selectedAt: new Date()
+      };
+      await progress.save();
+    }
+    
+    // Check if game is available
+    const hasGame = challenge.gameId || challenge.assignedGame?.gameId || progress.selectedGame?.gameId;
     if (!hasGame && challenge.type === 'game') {
       return res.status(400).json({
         success: false,
-        error: 'Please select a game first'
+        error: 'Please provide a gameId in the request body'
       });
     }
     
@@ -461,7 +619,17 @@ router.post('/start', protect, async (req, res) => {
     
     // Get the game to play
     let gameToPlay = null;
-    if (challenge.assignedGame?.gameId) {
+    if (challenge.gameId) {
+      // Use challenge's own gameId and gameDetails
+      gameToPlay = {
+        _id: challenge.gameId,
+        title: challenge.gameDetails?.name || challenge.title,
+        metadata: {
+          deepLink: challenge.gameDetails?.downloadUrl,
+          packageName: challenge.gameId
+        }
+      };
+    } else if (challenge.assignedGame?.gameId) {
       gameToPlay = challenge.assignedGame.gameId;
     } else if (progress.selectedGame?.gameId) {
       gameToPlay = await Game.findById(progress.selectedGame.gameId);
@@ -519,8 +687,6 @@ router.post('/complete', protect, async (req, res) => {
     const challenge = await DailyChallenge.findOne({
       challengeDate: { $gte: startOfDay, $lte: endOfDay },
       isVisible: true,
-      'scheduling.startTime': { $lte: now },
-      'scheduling.endTime': { $gte: now }
     });
     
     if (!challenge) {

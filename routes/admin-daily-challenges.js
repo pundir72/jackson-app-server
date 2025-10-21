@@ -211,8 +211,8 @@ router.post('/challenges', adminAuth, [
   body('coinReward').isInt({ min: 0 }).withMessage('Coin reward must be a non-negative integer'),
   body('xpReward').isInt({ min: 0 }).withMessage('XP reward must be a non-negative integer'),
   body('claimType').isIn(['watch_ad', 'auto', 'manual', 'social_action']).withMessage('Invalid claim type'),
-  body('scheduling.startTime').isISO8601().withMessage('Start time must be valid ISO 8601 date'),
-  body('scheduling.endTime').isISO8601().withMessage('End time must be valid ISO 8601 date'),
+  body('scheduling.startTime').optional().isISO8601().withMessage('Start time must be valid ISO 8601 date'),
+  body('scheduling.endTime').optional().isISO8601().withMessage('End time must be valid ISO 8601 date'),
   body('gameId').optional().isString().withMessage('Game ID must be a string'),
   body('sdkProvider').optional().isString().withMessage('SDK Provider must be a string')
 ], async (req, res) => {
@@ -248,6 +248,14 @@ router.post('/challenges', adminAuth, [
       createdBy: req.user.userId
     };
 
+    // Auto-set scheduling times if not provided or if they don't match challenge date
+    if (!req.body.scheduling || !req.body.scheduling.startTime || !req.body.scheduling.endTime) {
+      challengeData.scheduling = {
+        startTime: normalizedStart,
+        endTime: normalizedEnd
+      };
+    }
+
     // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided
     if (req.body.gameId && req.body.sdkProvider === 'besitos') {
       try {
@@ -272,6 +280,7 @@ router.post('/challenges', adminAuth, [
         const cap = captureGame();
         await besitosController.getOffers(mockReq, cap.res);
         const ext = cap.get();
+        
         if (ext && ext.success === true && Array.isArray(ext.data) && ext.data.length > 0) {
           const external = ext.data[0];
           
@@ -286,10 +295,32 @@ router.post('/challenges', adminAuth, [
             category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
             downloadUrl: external.url || ''
           };
+        } else {
+          // Create fallback gameDetails with the provided challenge data
+          challengeData.gameDetails = {
+            id: challengeData.gameId || '',
+            name: challengeData.title || '',
+            description: challengeData.description || '',
+            image: '',
+            square_image: '',
+            large_image: '',
+            category: '',
+            downloadUrl: ''
+          };
         }
       } catch (error) {
         console.warn('Failed to fetch gameDetails from Besitos:', error.message);
-        // Continue without gameDetails if API call fails
+        // Create fallback gameDetails if API call fails
+        challengeData.gameDetails = {
+          id: challengeData.gameId || '',
+          name: challengeData.title || '',
+          description: challengeData.description || '',
+          image: '',
+          square_image: '',
+          large_image: '',
+          category: '',
+          downloadUrl: ''
+        };
       }
     }
 
@@ -355,6 +386,28 @@ router.put('/challenges/:id', adminAuth, [
       updatedBy: req.user.userId
     };
 
+    // Auto-set scheduling times if challengeDate is being updated
+    if (req.body.challengeDate) {
+      const rawDate = new Date(req.body.challengeDate);
+      const normalizedStart = new Date(Date.UTC(
+        rawDate.getUTCFullYear(),
+        rawDate.getUTCMonth(),
+        rawDate.getUTCDate(),
+        0, 0, 0, 0
+      ));
+      const normalizedEnd = new Date(Date.UTC(
+        rawDate.getUTCFullYear(),
+        rawDate.getUTCMonth(),
+        rawDate.getUTCDate(),
+        23, 59, 59, 999
+      ));
+      
+      updateData.scheduling = {
+        startTime: normalizedStart,
+        endTime: normalizedEnd
+      };
+    }
+
     // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided
     if (req.body.gameId && req.body.sdkProvider === 'besitos') {
       try {
@@ -394,10 +447,32 @@ router.put('/challenges/:id', adminAuth, [
             category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
             downloadUrl: external.url || ''
           };
+        } else {
+          // Create fallback gameDetails with the provided challenge data
+          updateData.gameDetails = {
+            id: updateData.gameId || '',
+            name: updateData.title || '',
+            description: updateData.description || '',
+            image: '',
+            square_image: '',
+            large_image: '',
+            category: '',
+            downloadUrl: ''
+          };
         }
       } catch (error) {
         console.warn('Failed to fetch gameDetails from Besitos:', error.message);
-        // Continue without gameDetails if API call fails
+        // Create fallback gameDetails if API call fails
+        updateData.gameDetails = {
+          id: updateData.gameId || '',
+          name: updateData.title || '',
+          description: updateData.description || '',
+          image: '',
+          square_image: '',
+          large_image: '',
+          category: '',
+          downloadUrl: ''
+        };
       }
     }
 

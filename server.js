@@ -190,6 +190,8 @@ mongoose.connect(config.MONGODB_URI, {
         const internalSurveyRoutes = require('./routes/internal-surveys');
         const adminInternalSurveyRoutes = require('./routes/admin-internal-surveys');
         const surveyWebviewRoutes = require('./routes/survey-webview');
+        const vipMembershipRoutes = require('./routes/vip-membership');
+        const adminVipManagementRoutes = require('./routes/admin-vip-management');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -254,6 +256,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/internal-surveys', internalSurveyRoutes);
         app.use('/api/admin/internal-surveys', adminInternalSurveyRoutes);
         app.use('/api/survey-webview', surveyWebviewRoutes);
+        app.use('/api/vip/membership', vipMembershipRoutes);
+        app.use('/api/admin/vip', adminVipManagementRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

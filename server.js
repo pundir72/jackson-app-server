@@ -185,6 +185,8 @@ mongoose.connect(config.MONGODB_URI, {
         const dailyActivityRoutes = require('./routes/daily-activity');
         const securitySettingsRoutes = require('./routes/security-settings');
         const integrationRoutes = require('./routes/integration');
+        const walkathonRoutes = require('./routes/walkathon');
+        const adminWalkathonRoutes = require('./routes/admin-walkathon');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -244,6 +246,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/daily-activity', dailyActivityRoutes);
         app.use('/api/security-settings', securitySettingsRoutes);
         app.use('/api/integration', integrationRoutes);
+        app.use('/api/walkathon', walkathonRoutes);
+        app.use('/api/admin/walkathon', adminWalkathonRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {
@@ -292,6 +296,10 @@ mongoose.connect(config.MONGODB_URI, {
         // Start scheduler for My Account Overview
         const scheduler = require('./utils/scheduler');
         scheduler.start();
+
+        // Start walkathon scheduler
+        const walkathonScheduler = require('./utils/walkathonScheduler');
+        walkathonScheduler.initializeWalkathonScheduler();
 
         // Export for testing
         module.exports = {

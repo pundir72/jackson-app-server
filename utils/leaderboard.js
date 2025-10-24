@@ -3,7 +3,7 @@ const User = require('../models/User');
 
 // Leaderboard configuration
 const LEADERBOARD_CONFIG = {
-  categories: ['xp', 'coins', 'streak', 'games', 'surveys', 'races', 'overall'],
+  categories: ['xp', 'coins', 'streak', 'games', 'surveys', 'races', 'steps', 'overall'],
   timeframes: ['daily', 'weekly', 'monthly', 'all_time'],
   updateIntervals: {
     daily: 24 * 60 * 60 * 1000, // 24 hours

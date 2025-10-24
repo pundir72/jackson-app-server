@@ -72,6 +72,59 @@ leaderboardSchema.statics.getLeaderboard = function(category, timeframe = 'all_t
 
 leaderboardSchema.statics.updateLeaderboard = async function(category, timeframe = 'all_time') {
   const User = require('./User');
+  const StepData = require('./StepData');
+  
+  // Helper function to get weekly step count
+  const getWeeklyStepCount = async (userId, timeframe) => {
+    if (timeframe === 'all_time') {
+      // For all-time, get total steps from all time
+      const result = await StepData.aggregate([
+        { $match: { userId: userId } },
+        { $group: { _id: null, totalSteps: { $sum: '$steps' } } }
+      ]);
+      return result.length > 0 ? result[0].totalSteps : 0;
+    } else if (timeframe === 'weekly') {
+      // For weekly, get current week's steps
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      
+      const result = await StepData.aggregate([
+        { $match: { userId: userId, date: { $gte: weekStart, $lte: weekEnd } } },
+        { $group: { _id: null, totalSteps: { $sum: '$steps' } } }
+      ]);
+      return result.length > 0 ? result[0].totalSteps : 0;
+    } else if (timeframe === 'monthly') {
+      // For monthly, get current month's steps
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      
+      const result = await StepData.aggregate([
+        { $match: { userId: userId, date: { $gte: monthStart, $lte: monthEnd } } },
+        { $group: { _id: null, totalSteps: { $sum: '$steps' } } }
+      ]);
+      return result.length > 0 ? result[0].totalSteps : 0;
+    } else if (timeframe === 'daily') {
+      // For daily, get today's steps
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+      
+      const result = await StepData.aggregate([
+        { $match: { userId: userId, date: { $gte: today, $lt: tomorrow } } },
+        { $group: { _id: null, totalSteps: { $sum: '$steps' } } }
+      ]);
+      return result.length > 0 ? result[0].totalSteps : 0;
+    }
+    return 0;
+  };
   
   // Get all users with relevant data
   const users = await User.find({})
@@ -79,7 +132,7 @@ leaderboardSchema.statics.updateLeaderboard = async function(category, timeframe
     .lean();
   
   // Calculate scores based on category
-  const entries = users.map(user => {
+  const entries = await Promise.all(users.map(async (user) => {
     let score = 0;
     const metadata = {
       gamesPlayed: user.games?.length || 0,
@@ -109,14 +162,20 @@ leaderboardSchema.statics.updateLeaderboard = async function(category, timeframe
       case 'races':
         score = user.races?.filter(r => r.completed).length || 0;
         break;
+      case 'steps':
+        // For steps, get step data for the specified timeframe
+        score = await getWeeklyStepCount(user._id, timeframe);
+        break;
       case 'overall':
-        // Weighted overall score
-        score = (metadata.xp * 0.3) + 
-                (metadata.coins * 0.25) + 
+        // Weighted overall score including steps
+        const weeklySteps = await getWeeklyStepCount(user._id, timeframe);
+        score = (metadata.xp * 0.25) + 
+                (metadata.coins * 0.2) + 
                 (metadata.streak * 10) + 
                 (metadata.gamesPlayed * 5) + 
                 (metadata.surveysCompleted * 3) + 
-                (metadata.racesCompleted * 2);
+                (metadata.racesCompleted * 2) +
+                (weeklySteps * 0.1); // Add steps to overall score
         break;
     }
     
@@ -130,7 +189,7 @@ leaderboardSchema.statics.updateLeaderboard = async function(category, timeframe
       vipLevel: user.vip?.level || 'free',
       metadata
     };
-  });
+  }));
   
   // Sort by score (descending) and assign ranks
   entries.sort((a, b) => b.score - a.score);

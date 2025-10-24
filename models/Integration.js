@@ -69,3 +69,8 @@ integrationSchema.methods.getDisplayData = function() {
 const Integration = mongoose.model('Integration', integrationSchema);
 
 module.exports = Integration;
+
+
+
+
+

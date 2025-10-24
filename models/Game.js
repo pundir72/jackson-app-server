@@ -71,6 +71,19 @@ const gameSchema = new mongoose.Schema({
   },
   // Optional UI placement hint (e.g., featured_row, banner, carousel)
   uiSection: { type: String, trim: true },
+  // Game Tips & Tricks support
+  tipsEnabled: {
+    type: Boolean,
+    default: true
+  },
+  bannerImage: {
+    url: String,
+    alt: String,
+    dimensions: {
+      width: { type: Number, default: 1200 },
+      height: { type: Number, default: 400 }
+    }
+  },
   metadata: {
     genre: {
       type: String,
@@ -296,6 +309,16 @@ gameSchema.methods.isEligibleForTier = function(tier) {
 
 gameSchema.methods.isEligibleForCountry = function(country) {
   return this.countries.includes(country);
+};
+
+gameSchema.methods.getTips = function() {
+  const GameTip = require('./GameTip');
+  return GameTip.findByGame(this.gameId);
+};
+
+gameSchema.methods.getFeaturedTips = function() {
+  const GameTip = require('./GameTip');
+  return GameTip.findFeatured(this.gameId);
 };
 
 gameSchema.methods.updateAnalytics = function(playTime, completed = false) {

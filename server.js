@@ -192,6 +192,8 @@ mongoose.connect(config.MONGODB_URI, {
         const surveyWebviewRoutes = require('./routes/survey-webview');
         const vipMembershipRoutes = require('./routes/vip-membership');
         const adminVipManagementRoutes = require('./routes/admin-vip-management');
+        const gameTipsRoutes = require('./routes/game-tips');
+        const adminGameTipsRoutes = require('./routes/admin-game-tips');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -258,6 +260,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/survey-webview', surveyWebviewRoutes);
         app.use('/api/vip/membership', vipMembershipRoutes);
         app.use('/api/admin/vip', adminVipManagementRoutes);
+        app.use('/api/game-tips', gameTipsRoutes);
+        app.use('/api/admin/game-tips', adminGameTipsRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

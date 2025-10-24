@@ -187,6 +187,9 @@ mongoose.connect(config.MONGODB_URI, {
         const integrationRoutes = require('./routes/integration');
         const walkathonRoutes = require('./routes/walkathon');
         const adminWalkathonRoutes = require('./routes/admin-walkathon');
+        const internalSurveyRoutes = require('./routes/internal-surveys');
+        const adminInternalSurveyRoutes = require('./routes/admin-internal-surveys');
+        const surveyWebviewRoutes = require('./routes/survey-webview');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -248,6 +251,9 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/integration', integrationRoutes);
         app.use('/api/walkathon', walkathonRoutes);
         app.use('/api/admin/walkathon', adminWalkathonRoutes);
+        app.use('/api/internal-surveys', internalSurveyRoutes);
+        app.use('/api/admin/internal-surveys', adminInternalSurveyRoutes);
+        app.use('/api/survey-webview', surveyWebviewRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

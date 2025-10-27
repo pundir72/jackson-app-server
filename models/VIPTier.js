@@ -5,7 +5,7 @@ const vipTierSchema = new mongoose.Schema({
     type: String, 
     unique: true, 
     required: true,
-    enum: ['bronze', 'gold', 'platinum']
+    // enum: ['bronze', 'gold', 'platinum']
   },
   name: { 
     type: String, 

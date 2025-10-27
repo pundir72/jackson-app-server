@@ -45,7 +45,7 @@ const userSchema = new mongoose.Schema({
     vip: {
         level: {
             type: String,
-            enum: ['free', 'bronze', 'gold', 'platinum'],
+            // enum: ['free', 'bronze', 'gold', 'platinum'],
             default: 'free'
         },
         expires: {

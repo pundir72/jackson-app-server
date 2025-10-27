@@ -9,7 +9,7 @@ const vipSubscriptionSchema = new mongoose.Schema({
   tier: { 
     type: String, 
     required: true,
-    enum: ['bronze', 'gold', 'platinum']
+    // enum: ['bronze', 'gold', 'platinum']
   },
   plan: { 
     type: String, 

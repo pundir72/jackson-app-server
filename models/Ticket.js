@@ -1,342 +1,478 @@
 const mongoose = require('mongoose');
 
 const ticketSchema = new mongoose.Schema({
-    // Unique ticket ID (displayed to users)
-    ticketId: {
-        type: String,
-        required: true,
-        unique: true,
-        index: true
+  // Legacy Ticket ID (for compatibility with existing system)
+  ticketId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
+  
+  // Zoho Integration
+  zoho_ticket_id: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
+  
+  // Basic Ticket Information
+  subject: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 500
+  },
+  
+  description: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  
+  // Ticket Status
+  status: {
+    type: String,
+    enum: ['Open', 'In Progress', 'Resolved', 'Closed', 'Pending', 'On Hold'],
+    default: 'Open'
+  },
+  
+  priority: {
+    type: String,
+    enum: ['Low', 'Medium', 'High', 'Urgent', 'Critical'],
+    default: 'Medium'
+  },
+  
+  category: {
+    type: String,
+    enum: ['General', 'Technical', 'Billing', 'Account', 'Feature Request', 'Bug Report', 'Other'],
+    default: 'General'
+  },
+  
+  // User Information
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  
+  // Game Information (for game-based tickets)
+  game: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Game',
+    required: false // Not all tickets are game-related
+  },
+  
+  // Word count for description
+  wordCount: {
+    type: Number,
+    default: 0
+  },
+  
+  // Contact Information
+  contact: {
+    name: {
+      type: String,
+      required: true,
+      trim: true
     },
-    
-    // User who raised the ticket
+    email: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true
+    },
+    phone: {
+      type: String,
+      trim: true
+    }
+  },
+  
+  // Assignment
+  assigned_to: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  
+  // Ticket Source
+  source: {
+    type: String,
+    enum: ['Web', 'Email', 'Phone', 'API', 'Mobile App', 'Admin Panel'],
+    default: 'Web'
+  },
+  
+  // Resolution Information (new format)
+  resolution: {
+    type: String,
+    trim: true
+  },
+  
+  resolved_at: {
+    type: Date,
+    default: null
+  },
+  
+  resolved_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  
+  // Legacy resolution format for compatibility
+  resolution_legacy: {
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    resolvedAt: Date,
+    resolutionNotes: String
+  },
+  
+  // Closed timestamp
+  closedAt: {
+    type: Date,
+    default: null
+  },
+  
+  // Zoho Sync Information
+  zoho_sync: {
+    last_synced: {
+      type: Date,
+      default: null
+    },
+    sync_status: {
+      type: String,
+      enum: ['pending', 'synced', 'failed', 'not_synced'],
+      default: 'not_synced'
+    },
+    sync_attempts: {
+      type: Number,
+      default: 0
+    },
+    last_sync_error: {
+      type: String,
+      trim: true
+    }
+  },
+  
+  // Tags and Labels
+  tags: [{
+    type: String,
+    trim: true
+  }],
+  
+  // Attachments (new format)
+  attachments: [{
+    filename: String,
+    original_name: String,
+    file_path: String,
+    file_size: Number,
+    mime_type: String,
+    uploaded_at: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
+  // Images (legacy format for compatibility)
+  images: [{
+    url: String,
+    filename: String,
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
+  // Metadata
+  metadata: {
+    deviceInfo: {
+      platform: String,
+      os: String,
+      appVersion: String
+    },
+    userLocation: {
+      ip: String,
+      country: String,
+      city: String
+    }
+  },
+  
+  // Replies (legacy format)
+  replies: [{
+    message: String,
     user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-        index: true
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     },
-    
-    // Game related to the issue
-    game: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Game',
-        required: true,
-        index: true
-    },
-    
-    // Issue description
-    description: {
-        type: String,
-        required: true,
-        maxlength: 2000, // ~200 words
-        trim: true
-    },
-    
-    // Word count for validation
-    wordCount: {
-        type: Number,
-        default: 0
-    },
-    
-    // Screenshot/evidence images
-    images: [{
-        url: String,
-        filename: String,
-        uploadedAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
-    
-    // Ticket status
-    status: {
-        type: String,
-        enum: ['pending', 'in_progress', 'completed', 'closed', 'reopened'],
-        default: 'in_progress',
-        index: true
-    },
-    
-    // Priority level (optional, for admin use)
-    priority: {
-        type: String,
-        enum: ['low', 'medium', 'high', 'urgent'],
-        default: 'medium'
-    },
-    
-    // Category/Type of issue
-    category: {
-        type: String,
-        enum: ['bug', 'payment', 'task_not_credited', 'game_issue', 'account', 'other'],
-        default: 'other'
-    },
-    
-    // Admin responses/replies
-    replies: [{
-        adminUser: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        message: {
-            type: String,
-            required: true
-        },
-        attachments: [{
-            url: String,
-            filename: String
-        }],
-        repliedAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
-    
-    // Assigned agent (optional)
-    assignedTo: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
-    
-    // Resolution details
-    resolution: {
-        resolvedBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        resolvedAt: Date,
-        resolutionNotes: String
-    },
-    
-    // Tracking metadata
-    metadata: {
-        deviceInfo: {
-            platform: String,
-            os: String,
-            appVersion: String,
-            deviceModel: String
-        },
-        userLocation: {
-            ip: String,
-            country: String,
-            city: String
-        },
-        contextData: {
-            orderId: String,
-            transactionId: String,
-            gameSessionId: String
-        }
-    },
-    
-    // Timestamps
     createdAt: {
-        type: Date,
-        default: Date.now,
-        index: true
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
+  // Internal Notes
+  internal_notes: [{
+    note: String,
+    created_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
     },
-    
-    updatedAt: {
-        type: Date,
-        default: Date.now
+    created_at: {
+      type: Date,
+      default: Date.now
     },
-    
-    closedAt: Date
+    is_private: {
+      type: Boolean,
+      default: true
+    }
+  }],
+  
+  // Customer Communication
+  customer_notes: [{
+    note: String,
+    created_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    created_at: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
+  // SLA Information
+  sla: {
+    response_time: {
+      type: Number, // in hours
+      default: 24
+    },
+    resolution_time: {
+      type: Number, // in hours
+      default: 72
+    },
+    first_response_at: {
+      type: Date,
+      default: null
+    },
+    due_date: {
+      type: Date,
+      default: null
+    }
+  },
+  
+  // Ticket Statistics
+  stats: {
+    response_count: {
+      type: Number,
+      default: 0
+    },
+    last_activity: {
+      type: Date,
+      default: Date.now
+    },
+    time_spent: {
+      type: Number, // in minutes
+      default: 0
+    }
+  },
+  
+  // System Fields
+  is_active: {
+    type: Boolean,
+    default: true
+  },
+  
+  created_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  }
 }, {
-    timestamps: true
+  timestamps: true
 });
 
-// Indexes for performance
+// Indexes for better performance
 ticketSchema.index({ user: 1, status: 1 });
 ticketSchema.index({ game: 1, status: 1 });
-ticketSchema.index({ createdAt: -1 });
+ticketSchema.index({ status: 1, priority: 1 });
+ticketSchema.index({ assigned_to: 1, status: 1 });
+ticketSchema.index({ zoho_ticket_id: 1 });
+ticketSchema.index({ 'contact.email': 1 });
+ticketSchema.index({ created_at: -1 });
+ticketSchema.index({ 'zoho_sync.sync_status': 1 });
 ticketSchema.index({ ticketId: 1, user: 1 });
 
-// Pre-save middleware to update timestamps
+// Instance methods
+ticketSchema.methods.isOverdue = function() {
+  if (!this.sla.due_date) return false;
+  return new Date() > this.sla.due_date && this.status !== 'Closed' && this.status !== 'Resolved';
+};
+
+ticketSchema.methods.getTimeToResponse = function() {
+  if (this.sla.first_response_at) return null; // Already responded
+  if (!this.sla.response_time) return null;
+  
+  const responseDeadline = new Date(this.createdAt.getTime() + (this.sla.response_time * 60 * 60 * 1000));
+  return responseDeadline;
+};
+
+ticketSchema.methods.getTimeToResolution = function() {
+  if (this.status === 'Closed' || this.status === 'Resolved') return null;
+  if (!this.sla.resolution_time) return null;
+  
+  const resolutionDeadline = new Date(this.createdAt.getTime() + (this.sla.resolution_time * 60 * 60 * 1000));
+  return resolutionDeadline;
+};
+
+ticketSchema.methods.addInternalNote = function(note, userId, isPrivate = true) {
+  this.internal_notes.push({
+    note,
+    created_by: userId,
+    is_private: isPrivate
+  });
+  this.stats.last_activity = new Date();
+  return this.save();
+};
+
+ticketSchema.methods.addCustomerNote = function(note, userId) {
+  this.customer_notes.push({
+    note,
+    created_by: userId
+  });
+  this.stats.last_activity = new Date();
+  this.stats.response_count += 1;
+  return this.save();
+};
+
+ticketSchema.methods.updateStatus = function(newStatus, userId, resolution = null) {
+  this.status = newStatus;
+  this.stats.last_activity = new Date();
+  
+  if (newStatus === 'Resolved' || newStatus === 'Closed') {
+    this.resolved_at = new Date();
+    this.resolved_by = userId;
+    if (resolution) {
+      this.resolution = resolution;
+    }
+  }
+  
+  return this.save();
+};
+
+ticketSchema.methods.assignTo = function(userId) {
+  this.assigned_to = userId;
+  this.stats.last_activity = new Date();
+  return this.save();
+};
+
+ticketSchema.methods.getDisplayData = function() {
+  return {
+    id: this._id,
+    zoho_ticket_id: this.zoho_ticket_id,
+    subject: this.subject,
+    description: this.description,
+    status: this.status,
+    priority: this.priority,
+    category: this.category,
+    user: this.user,
+    contact: this.contact,
+    assigned_to: this.assigned_to,
+    source: this.source,
+    resolution: this.resolution,
+    resolved_at: this.resolved_at,
+    resolved_by: this.resolved_by,
+    zoho_sync: this.zoho_sync,
+    tags: this.tags,
+    attachments: this.attachments,
+    sla: {
+      ...this.sla,
+      is_overdue: this.isOverdue(),
+      time_to_response: this.getTimeToResponse(),
+      time_to_resolution: this.getTimeToResolution()
+    },
+    stats: this.stats,
+    is_active: this.is_active,
+    createdAt: this.createdAt,
+    updatedAt: this.updatedAt
+  };
+};
+
+// Static methods
+ticketSchema.statics.findByUser = function(userId, options = {}) {
+  const query = { user: userId, is_active: true };
+  if (options.status) query.status = options.status;
+  if (options.priority) query.priority = options.priority;
+  
+  return this.find(query)
+    .populate('user', 'name email')
+    .populate('assigned_to', 'name email')
+    .populate('resolved_by', 'name email')
+    .sort({ createdAt: -1 });
+};
+
+ticketSchema.statics.findByAssignee = function(userId, options = {}) {
+  const query = { assigned_to: userId, is_active: true };
+  if (options.status) query.status = options.status;
+  
+  return this.find(query)
+    .populate('user', 'name email')
+    .populate('assigned_to', 'name email')
+    .sort({ createdAt: -1 });
+};
+
+ticketSchema.statics.findOverdue = function() {
+  return this.find({
+    is_active: true,
+    status: { $nin: ['Closed', 'Resolved'] },
+    'sla.due_date': { $lt: new Date() }
+  })
+    .populate('user', 'name email')
+    .populate('assigned_to', 'name email')
+    .sort({ 'sla.due_date': 1 });
+};
+
+ticketSchema.statics.findPendingSync = function() {
+  return this.find({
+    'zoho_sync.sync_status': { $in: ['pending', 'failed'] },
+    is_active: true
+  });
+};
+
+// Pre-save middleware
 ticketSchema.pre('save', function(next) {
-    this.updatedAt = new Date();
-    
-    // Calculate word count from description
-    if (this.description) {
-        this.wordCount = this.description.trim().split(/\s+/).length;
-    }
-    
-    next();
+  // Generate ticketId if not provided
+  if (!this.ticketId) {
+    this.ticketId = Math.random().toString(36).substr(2, 9).toUpperCase();
+  }
+  
+  // Calculate word count for description
+  if (this.description) {
+    this.wordCount = this.description.split(/\s+/).filter(word => word.length > 0).length;
+  }
+  
+  // Calculate due date based on SLA
+  if (this.sla.resolution_time && !this.sla.due_date) {
+    this.sla.due_date = new Date(this.createdAt.getTime() + (this.sla.resolution_time * 60 * 60 * 1000));
+  }
+  
+  // Set first response time if this is the first customer note
+  if (this.customer_notes.length === 1 && !this.sla.first_response_at) {
+    this.sla.first_response_at = new Date();
+  }
+  
+  // Set closedAt when status is closed or resolved
+  if ((this.status === 'Closed' || this.status === 'Resolved') && !this.closedAt) {
+    this.closedAt = new Date();
+  }
+  
+  next();
 });
 
-// Static method to generate unique ticket ID
-ticketSchema.statics.generateTicketId = async function() {
-    let ticketId;
-    let isUnique = false;
-    let attempts = 0;
-    
-    while (!isUnique && attempts < 10) {
-        // Generate 7-digit ticket ID (e.g., 2345678)
-        ticketId = Math.floor(1000000 + Math.random() * 9000000).toString();
-        
-        // Check if ID already exists
-        const existing = await this.findOne({ ticketId });
-        if (!existing) {
-            isUnique = true;
-        }
-        attempts++;
-    }
-    
-    if (!isUnique) {
-        // Fallback to timestamp-based ID
-        ticketId = Date.now().toString().slice(-7);
-    }
-    
-    return ticketId;
-};
+const Ticket = mongoose.model('Ticket', ticketSchema);
 
-// Instance method to add admin reply
-ticketSchema.methods.addReply = async function(adminUserId, message, attachments = []) {
-    this.replies.push({
-        adminUser: adminUserId,
-        message,
-        attachments,
-        repliedAt: new Date()
-    });
-    
-    // Update status to in_progress if it was pending
-    if (this.status === 'pending') {
-        this.status = 'in_progress';
-    }
-    
-    this.updatedAt = new Date();
-    await this.save();
-    
-    return this;
-};
-
-// Instance method to update status
-ticketSchema.methods.updateStatus = async function(newStatus, adminUserId = null, notes = null) {
-    const oldStatus = this.status;
-    this.status = newStatus;
-    this.updatedAt = new Date();
-    
-    // If completing/closing the ticket
-    if (newStatus === 'completed' || newStatus === 'closed') {
-        this.closedAt = new Date();
-        if (adminUserId) {
-            this.resolution = {
-                resolvedBy: adminUserId,
-                resolvedAt: new Date(),
-                resolutionNotes: notes || 'Ticket resolved'
-            };
-        }
-    }
-    
-    await this.save();
-    
-    return {
-        oldStatus,
-        newStatus,
-        updatedAt: this.updatedAt
-    };
-};
-
-// Static method to get user's tickets with filters
-ticketSchema.statics.getUserTickets = async function(userId, filters = {}) {
-    const {
-        status,
-        category,
-        page = 1,
-        limit = 10,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
-    } = filters;
-    
-    const query = { user: userId };
-    
-    // Apply filters
-    if (status && status !== 'all') {
-        query.status = status;
-    }
-    
-    if (category) {
-        query.category = category;
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-    
-    const [tickets, total] = await Promise.all([
-        this.find(query)
-            .populate('game')
-            .populate('assignedTo', 'firstName lastName email')
-            .sort(sort)
-            .skip(skip)
-            .limit(parseInt(limit))
-            .lean(),
-        this.countDocuments(query)
-    ]);
-    
-    return {
-        tickets,
-        pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total,
-            pages: Math.ceil(total / parseInt(limit))
-        }
-    };
-};
-
-// Static method to get ticket statistics
-ticketSchema.statics.getTicketStats = async function(userId = null) {
-    const matchQuery = userId ? { user: new mongoose.Types.ObjectId(userId) } : {};
-    
-    const stats = await this.aggregate([
-        { $match: matchQuery },
-        {
-            $group: {
-                _id: '$status',
-                count: { $sum: 1 }
-            }
-        }
-    ]);
-    
-    const result = {
-        total: 0,
-        pending: 0,
-        in_progress: 0,
-        completed: 0,
-        closed: 0,
-        reopened: 0
-    };
-    
-    stats.forEach(stat => {
-        result.total += stat.count;
-        result[stat._id] = stat.count;
-    });
-    
-    return result;
-};
-
-// Instance method to get preview (first 2 lines of description)
-ticketSchema.methods.getDescriptionPreview = function(lines = 2) {
-    if (!this.description) return '';
-    
-    const allLines = this.description.split('\n');
-    return allLines.slice(0, lines).join('\n');
-};
-
-// Virtual for status badge color
-ticketSchema.virtual('statusBadge').get(function() {
-    const colors = {
-        pending: { color: '#FFA500', label: 'Pending' },
-        in_progress: { color: '#2196F3', label: 'In Progress' },
-        completed: { color: '#4CAF50', label: 'Completed' },
-        closed: { color: '#9E9E9E', label: 'Closed' },
-        reopened: { color: '#FF5722', label: 'Reopened' }
-    };
-    
-    return colors[this.status] || colors.pending;
-});
-
-// Ensure virtuals are included in JSON
-ticketSchema.set('toJSON', { virtuals: true });
-ticketSchema.set('toObject', { virtuals: true });
-
-module.exports = mongoose.model('Ticket', ticketSchema);
-
+module.exports = Ticket;

@@ -46,7 +46,7 @@ const taskStepTemplateSchema = new mongoose.Schema({
     },
     vipRequired: {
       type: String,
-      enum: ['free', 'bronze', 'gold', 'platinum'],
+      // enum: ['free', 'bronze', 'gold', 'platinum'],
       default: 'free'
     },
     maxPerDay: {

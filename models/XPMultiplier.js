@@ -80,7 +80,7 @@ const xpMultiplierSchema = new mongoose.Schema({
     },
     vipTiers: [{
       type: String,
-      enum: ['bronze', 'silver', 'gold', 'platinum']
+      // enum: ['bronze', 'silver', 'gold', 'platinum']
     }]
   },
   analytics: {

@@ -194,6 +194,7 @@ mongoose.connect(config.MONGODB_URI, {
         const adminVipManagementRoutes = require('./routes/admin-vip-management');
         const gameTipsRoutes = require('./routes/game-tips');
         const adminGameTipsRoutes = require('./routes/admin-game-tips');
+        const zohoRoutes = require('./routes/zoho');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -262,6 +263,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/admin/vip', adminVipManagementRoutes);
         app.use('/api/game-tips', gameTipsRoutes);
         app.use('/api/admin/game-tips', adminGameTipsRoutes);
+        app.use('/api/zoho', zohoRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

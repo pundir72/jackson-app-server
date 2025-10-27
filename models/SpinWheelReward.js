@@ -46,7 +46,7 @@ const spinWheelRewardSchema = new mongoose.Schema({
     // Tier restrictions
     eligibleTiers: [{
         type: String,
-        enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
+        // enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
         default: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond']
     }],
     

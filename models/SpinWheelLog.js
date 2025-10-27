@@ -55,7 +55,7 @@ const spinWheelLogSchema = new mongoose.Schema({
     
     userTier: {
         type: String,
-        enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
+        // enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
         required: true
     },
     

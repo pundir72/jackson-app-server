@@ -23,7 +23,7 @@ const offerSchema = new mongoose.Schema({
   },
   tierAccess: [{
     type: String,
-    enum: ['free', 'bronze', 'silver', 'gold', 'platinum']
+    // enum: ['free', 'bronze', 'silver', 'gold', 'platinum']
   }],
   countries: [{
     type: String,

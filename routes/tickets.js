@@ -137,7 +137,7 @@ router.post('/', protect, upload.array('attachments', 5), createTicketValidation
 
 /**
  * @route   GET /api/tickets
- * @desc    Get tickets with filtering and pagination
+ * @desc    Get tickets with filtering and paginaeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OGJlYjFhYTdkN2YxM2Q5NjFhMDkwNGQiLCJpYXQiOjE3NjE0MDQ0MDEsImV4cCI6MTc2MTQ5MDgwMX0.Ppd4tt0MJRa7J73BEoENy0FflfxzqMZpOJwEQB3yAc8tion
  * @access  Private
  */
 router.get('/', protect, async (req, res) => {

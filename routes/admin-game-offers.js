@@ -134,6 +134,60 @@ router.get('/offers', adminAuth, async (req, res) => {
   }
 });
 
+// Get available UI sections/screens for games and offers
+router.get('/ui-sections', adminAuth, async (req, res) => {
+  try {
+    // Get distinct uiSection values from both Games and Offers
+    const [gameSections, offerSections] = await Promise.all([
+      Game.distinct('uiSection'),
+      Offer.distinct('uiSection')
+    ]);
+
+    // Combine and deduplicate sections
+    const allSections = [...new Set([...gameSections, ...offerSections])]
+      .filter(section => section && section.trim() !== '') // Remove empty/null values
+      .sort();
+
+    // Common screen/section names based on segments.json
+    const commonSections = [
+      'Swipe',
+      'Most Played',
+      'Most Played Screen',
+      'Highest Earning',
+      'Cash Coach Recommendation',
+      'Leadership',
+      'Featured',
+      'Banner',
+      'Carousel',
+      'Home',
+      'Games',
+      'Wallet',
+      'Discover'
+    ];
+
+    // Combine common sections with existing ones
+    const allAvailableSections = [...new Set([...commonSections, ...allSections])]
+      .filter(section => section && section.trim() !== '')
+      .sort();
+
+    res.json({
+      success: true,
+      data: {
+        sections: allAvailableSections,
+        gameSections: gameSections.filter(s => s && s.trim() !== ''),
+        offerSections: offerSections.filter(s => s && s.trim() !== '')
+      }
+    });
+  } catch (error) {
+    console.error('Error getting UI sections:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get UI sections',
+      error: error.message
+    });
+  }
+});
+
 // Get single offer by ID
 router.get('/offers/:id', adminAuth, async (req, res) => {
   try {
@@ -443,7 +497,9 @@ router.put('/offers/:id',
       if (req.body.cities) updateData.cities = JSON.parse(req.body.cities);
       if (req.body.tierAccess) updateData.tierAccess = JSON.parse(req.body.tierAccess);
       if (req.body.ageGroups) updateData.ageGroups = JSON.parse(req.body.ageGroups);
+      if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
+      if (req.body.uiSection !== undefined) updateData.uiSection = req.body.uiSection || '';
       if (req.body.marketingChannel) updateData.marketingChannel = req.body.marketingChannel;
       if (req.body.campaignName) updateData.campaignName = req.body.campaignName;
       if (req.body.xpTier) updateData.xpTier = parseInt(req.body.xpTier);
@@ -968,7 +1024,9 @@ router.put('/games/:id',
       if (req.body.countries) updateData.countries = JSON.parse(req.body.countries);
       if (req.body.xptrRules) updateData.xptrRules = req.body.xptrRules;
       if (req.body.ageGroups) updateData.ageGroups = JSON.parse(req.body.ageGroups);
+      if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
+      if (req.body.uiSection !== undefined) updateData.uiSection = req.body.uiSection || '';
       if (req.body.marketingChannel) updateData.marketingChannel = req.body.marketingChannel;
       if (req.body.campaignName) updateData.campaignName = req.body.campaignName;
       if (req.body.xpTier) updateData.xpTier = parseInt(req.body.xpTier);

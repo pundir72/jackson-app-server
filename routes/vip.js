@@ -236,10 +236,9 @@ router.post('/calculate-cost', [
     }
 });
 
-// Initiate VIP upgrade (create pending subscription)
-router.post('/upgrade', protect, [
-    body('tierId').isIn(['bronze', 'gold', 'platinum']).withMessage('Invalid tier ID'),
-    body('plan').isIn(['weekly', 'monthly', 'yearly']).withMessage('Invalid plan'),
+// Initiate VIP subscription (alias for upgrade)
+router.post('/subscribe', protect, [
+    body('plan').isIn(['weekly', 'monthly', 'yearly']).withMessage('Invalid plan. Must be: weekly, monthly, or yearly'),
     body('region').optional().isString().withMessage('Invalid region')
 ], async (req, res) => {
     try {
@@ -252,8 +251,36 @@ router.post('/upgrade', protect, [
             });
         }
         
-        const { tierId, plan, region = 'US' } = req.body;
+        // Accept both 'tier' and 'tierId' for backward compatibility
+        const tierId = req.body.tierId || req.body.tier;
+        if (!tierId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                error: 'Tier ID is required. Use either "tier" or "tierId" field.'
+            });
+        }
+        
+        const { plan, region = 'US' } = req.body;
         const userId = req.user.userId;
+        
+        // Normalize tierId to lowercase
+        const normalizedTierId = tierId.toLowerCase();
+        
+        // Validate tier exists and is active
+        const tier = await VIPTier.getTierById(normalizedTierId);
+        if (!tier || !tier.active) {
+            // Get available tiers for error message
+            const availableTiers = await VIPTier.getActiveTiers();
+            const tierIds = availableTiers.map(t => t.tierId).join(', ');
+            
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid tier ID',
+                error: `Tier '${tierId}' not found or inactive. Available tiers: ${tierIds || 'bronze, gold, platinum'}`,
+                availableTiers: availableTiers.map(t => t.tierId)
+            });
+        }
         
         // Check if user already has an active subscription
         const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
@@ -286,12 +313,134 @@ router.post('/upgrade', protect, [
         }
         
         // Calculate cost
-        const cost = await calculateSubscriptionCost(tierId, plan, region, userId);
+        const cost = await calculateSubscriptionCost(normalizedTierId, plan, region, userId);
         
         // Create pending subscription
         const subscription = new VIPSubscription({
             userId,
-            tier: tierId,
+            tier: normalizedTierId,
+            plan,
+            status: 'pending',
+            amount: cost.amount,
+            currency: cost.currency,
+            startDate: new Date(),
+            endDate: new Date(Date.now() + (plan === 'yearly' ? 365 : plan === 'monthly' ? 30 : 7) * 24 * 60 * 60 * 1000),
+            metadata: {
+                region: region,
+                source: 'app',
+                campaign: null,
+                referrer: null
+            }
+        });
+        
+        await subscription.save();
+        
+        res.json({
+            success: true,
+            message: 'VIP subscription initiated',
+            data: {
+                subscriptionId: subscription._id,
+                tierId: normalizedTierId,
+                plan,
+                amount: cost.amount,
+                currency: cost.currency,
+                paymentIntentId: subscription.paymentIntentId,
+                nextStep: 'payment_required'
+            }
+        });
+    } catch (error) {
+        console.error('Error initiating VIP subscription:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to initiate VIP subscription',
+            error: error.message 
+        });
+    }
+});
+
+// Initiate VIP upgrade (create pending subscription)
+router.post('/upgrade', protect, [
+    body('plan').isIn(['weekly', 'monthly', 'yearly']).withMessage('Invalid plan. Must be: weekly, monthly, or yearly'),
+    body('region').optional().isString().withMessage('Invalid region')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+        
+        // Accept both 'tier' and 'tierId' for backward compatibility
+        const tierId = req.body.tierId || req.body.tier;
+        if (!tierId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                error: 'Tier ID is required. Use either "tier" or "tierId" field.'
+            });
+        }
+        
+        const { plan, region = 'US' } = req.body;
+        const userId = req.user.userId;
+        
+        // Normalize tierId to lowercase
+        const normalizedTierId = tierId.toLowerCase();
+        
+        // Validate tier exists and is active
+        const tier = await VIPTier.getTierById(normalizedTierId);
+        if (!tier || !tier.active) {
+            // Get available tiers for error message
+            const availableTiers = await VIPTier.getActiveTiers();
+            const tierIds = availableTiers.map(t => t.tierId).join(', ');
+            
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid tier ID',
+                error: `Tier '${tierId}' not found or inactive. Available tiers: ${tierIds || 'bronze, gold, platinum'}`,
+                availableTiers: availableTiers.map(t => t.tierId)
+            });
+        }
+        
+        // Check if user already has an active subscription
+        const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
+        if (existingSubscription) {
+            return res.status(400).json({
+                success: false,
+                message: 'User already has an active VIP subscription'
+            });
+        }
+        
+        // Check if user already has a pending subscription (prevent duplicates)
+        const existingPending = await VIPSubscription.findOne({
+            userId,
+            status: 'pending'
+        }).sort({ createdAt: -1 });
+        if (existingPending) {
+            return res.status(200).json({
+                success: true,
+                message: 'Pending VIP subscription already exists. Complete payment to activate.',
+                data: {
+                    subscriptionId: existingPending._id,
+                    tierId: existingPending.tier,
+                    plan: existingPending.plan,
+                    amount: existingPending.amount,
+                    currency: existingPending.currency,
+                    paymentIntentId: existingPending.paymentIntentId || null,
+                    nextStep: existingPending.paymentIntentId ? 'payment_confirmation' : 'payment_required'
+                }
+            });
+        }
+        
+        // Calculate cost
+        const cost = await calculateSubscriptionCost(normalizedTierId, plan, region, userId);
+        
+        // Create pending subscription
+        const subscription = new VIPSubscription({
+            userId,
+            tier: normalizedTierId,
             plan,
             status: 'pending',
             amount: cost.amount,
@@ -313,7 +462,7 @@ router.post('/upgrade', protect, [
             message: 'VIP upgrade initiated',
             data: {
                 subscriptionId: subscription._id,
-                tierId,
+                tierId: normalizedTierId,
                 plan,
                 amount: cost.amount,
                 currency: cost.currency,

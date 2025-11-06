@@ -1,17 +1,84 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Game = require('../models/Game');
 const besitosController = require('../controllers/besitos.controller');
 const { trackAchievements } = require('../utils/achievements');
-// Get user's games
+// Get user's games (downloaded/installed games list)
 router.get('/', protect, async (req, res) => {
     try {
+        const { page = 1, limit = 20 } = req.query;
+        const pageNum = Math.max(parseInt(page) || 1, 1);
+        const pageSize = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+
         const user = await User.findById(req.user.userId).select('games');
-        res.json(user.games);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        const gamesArr = Array.isArray(user.games) ? user.games.slice() : [];
+        gamesArr.sort((a, b) => new Date(b.installedAt || b.date || 0) - new Date(a.installedAt || a.date || 0));
+
+        const start = (pageNum - 1) * pageSize;
+        const slice = gamesArr.slice(start, start + pageSize);
+
+        // Enrich with game metadata from Game collection
+        const enriched = await Promise.all(slice.map(async (g) => {
+            let meta = null;
+            try {
+                meta = await Game.findOne({ gameId: g.gameId })
+                    .select('title description category uiSection gender ageGroup metadata gameDetails rewards')
+                    .lean();
+            } catch (_) {}
+
+            return {
+                gameId: g.gameId,
+                offerId: g.offerId || null,
+                installedAt: g.installedAt || g.date || null,
+                status: g.status || 'installed',
+                completed: g.completed || false,
+                progress: g.progress || 0,
+                score: g.score || 0,
+                playCount: g.playCount || 0,
+                lastPlayed: g.lastPlayed || null,
+                level: g.level || 1,
+                // Game metadata
+                title: meta?.title || null,
+                description: meta?.description || null,
+                category: meta?.category || null,
+                uiSection: meta?.uiSection || null,
+                gender: meta?.gender || null,
+                ageGroup: meta?.ageGroup || null,
+                rewards: meta?.rewards || { coins: 0, xp: 0 },
+                icon: meta?.metadata?.thumbnail?.url || meta?.gameDetails?.square_image || meta?.gameDetails?.image || '',
+                gameDetails: meta?.gameDetails || null
+            };
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                games: enriched,
+                pagination: {
+                    page: pageNum,
+                    limit: pageSize,
+                    total: gamesArr.length,
+                    pages: Math.ceil(gamesArr.length / pageSize)
+                }
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Server error' });
+        console.error('Error getting user games:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Server error',
+            error: error.message 
+        });
     }
 });
 
@@ -351,33 +418,169 @@ router.get('/discover', protect, async (req, res) => {
     }
 });
 
+// Get single game by ID (supports both MongoDB _id and gameId string)
 router.get('/get-game-by-id/:id', protect, async (req, res) => {
     try {
-        const game = await Game.findById(req.params.id).select("gameDetails sdkProvider");
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        // Try to find by MongoDB _id first
+        let game = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            game = await Game.findById(id)
+                .select('gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards')
+                .lean();
+        }
+
+        // If not found by _id, try to find by gameId
+        if (!game) {
+            game = await Game.findOne({ gameId: id })
+                .select('gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards')
+                .lean();
+        }
+
         if (!game) {
             return res.status(404).json({
                 success: false,
                 message: 'Game not found'
             });
         }
+
+        // Get user's game data if this game is in their downloaded games
+        const user = await User.findById(userId).select('games').lean();
+        const userGame = user?.games?.find(g => String(g.gameId) === String(game.gameId));
+
+        // If game is from Besitos, get external details
         if (game.sdkProvider === "besitos") {
             const externalId = game.gameDetails?.id;
             if (!externalId) {
-                return res.status(400).json({ success: false, message: 'Missing external game id for besitos mapping' });
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Missing external game id for besitos mapping' 
+                });
             }
-            req.query.offer_id = externalId;
-            await besitosController.getOffers(req, res);
-        } else {
-            res.json({
-                success: true,
-                data: game.gameDetails
-            });
+            
+            // Try to get from Besitos
+            try {
+                req.query.offer_id = externalId;
+                const captureResponse = () => {
+                    let payload = null;
+                    let statusCode = 200;
+                    return {
+                        res: {
+                            status(code) { statusCode = code; return this; },
+                            json(obj) { payload = obj; return this; }
+                        },
+                        get() { return { payload, statusCode }; }
+                    };
+                };
+                const cap = captureResponse();
+                await besitosController.getOffers(req, cap.res);
+                const result = cap.get();
+                
+                if (result.statusCode === 200 && result.payload?.success && result.payload?.data?.length > 0) {
+                    const besitosGame = result.payload.data[0];
+                    return res.json({
+                        success: true,
+                        data: {
+                            ...game,
+                            gameDetails: {
+                                ...game.gameDetails,
+                                ...besitosGame
+                            },
+                            userGame: userGame || null,
+                            isDownloaded: !!userGame
+                        }
+                    });
+                }
+            } catch (besitosError) {
+                console.error('Error fetching from Besitos:', besitosError);
+                // Fall through to return game data without Besitos details
+            }
         }
+
+        res.json({
+            success: true,
+            data: {
+                ...game,
+                userGame: userGame || null,
+                isDownloaded: !!userGame
+            }
+        });
     } catch (error) {
-        console.error('Error while fetching game list:', error);
+        console.error('Error while fetching game:', error);
         res.status(500).json({
             success: false,
-            message: 'An error occurred while fetching the game list.',
+            message: 'An error occurred while fetching the game.',
+            error: error.message
+        });
+    }
+});
+
+// Get single downloaded game by gameId (from user's downloaded games)
+router.get('/downloaded/:gameId', protect, async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const userId = req.user.userId;
+
+        const user = await User.findById(userId).select('games');
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Find game in user's downloaded games
+        const userGame = user.games?.find(g => String(g.gameId) === String(gameId));
+        if (!userGame) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found in your downloaded games'
+            });
+        }
+
+        // Get full game metadata
+        const game = await Game.findOne({ gameId })
+            .select('title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards')
+            .lean();
+
+        // Enrich with game metadata
+        const enrichedGame = {
+            gameId: userGame.gameId,
+            offerId: userGame.offerId || null,
+            installedAt: userGame.installedAt || userGame.date || null,
+            status: userGame.status || 'installed',
+            completed: userGame.completed || false,
+            progress: userGame.progress || 0,
+            score: userGame.score || 0,
+            playCount: userGame.playCount || 0,
+            lastPlayed: userGame.lastPlayed || null,
+            level: userGame.level || 1,
+            firstPlayed: userGame.firstPlayed || null,
+            completedAt: userGame.completedAt || null,
+            // Game metadata
+            title: game?.title || null,
+            description: game?.description || null,
+            category: game?.category || null,
+            uiSection: game?.uiSection || null,
+            gender: game?.gender || null,
+            ageGroup: game?.ageGroup || null,
+            rewards: game?.rewards || { coins: 0, xp: 0 },
+            icon: game?.metadata?.thumbnail?.url || game?.gameDetails?.square_image || game?.gameDetails?.image || '',
+            gameDetails: game?.gameDetails || null,
+            sdkProvider: game?.sdkProvider || null
+        };
+
+        res.json({
+            success: true,
+            data: enrichedGame
+        });
+    } catch (error) {
+        console.error('Error getting downloaded game:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get downloaded game',
             error: error.message
         });
     }

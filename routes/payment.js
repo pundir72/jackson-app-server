@@ -75,25 +75,102 @@ router.post('/initiate', protect, [
       });
     }
 
-    const { subscriptionId, paymentMethod = 'card' } = req.body;
+    const { subscriptionId, paymentMethod = 'card', retry = false } = req.body;
     const userId = req.user.userId;
 
-    // Get subscription
+    // Get subscription - allow 'pending' or 'failed' status for retry
     const subscription = await VIPSubscription.findOne({
       _id: subscriptionId,
       userId,
-      status: 'pending'
+      status: { $in: ['pending', 'failed'] }
     });
 
     if (!subscription) {
       return res.status(404).json({
         success: false,
-        message: 'Subscription not found or not pending'
+        message: 'Subscription not found or cannot be retried. Only pending or failed subscriptions can be retried.'
       });
     }
 
-    // If payment intent already exists, return it (idempotent initiation)
-    if (subscription.paymentIntentId && subscription.paymentClientSecret) {
+    // Check if payment intent exists and is still valid
+    let shouldCreateNewIntent = false;
+    if (subscription.paymentIntentId) {
+      try {
+        // Check Stripe payment intent status
+        const existingPaymentIntent = await stripe.paymentIntents.retrieve(subscription.paymentIntentId);
+        
+        // If payment intent is succeeded, subscription should be active
+        if (existingPaymentIntent.status === 'succeeded') {
+          // Payment already succeeded but subscription not updated - sync it
+          await handlePaymentSucceeded(existingPaymentIntent);
+          return res.json({
+            success: true,
+            message: 'Payment already succeeded',
+            data: {
+              paymentIntentId: subscription.paymentIntentId,
+              status: 'succeeded',
+              subscriptionId: subscription._id,
+              nextStep: 'subscription_active'
+            }
+          });
+        }
+        
+        // If payment intent is failed, cancelled, or requires_payment_method, allow retry
+        if (['failed', 'canceled', 'requires_payment_method'].includes(existingPaymentIntent.status)) {
+          shouldCreateNewIntent = true;
+        } else if (existingPaymentIntent.status === 'requires_confirmation' || existingPaymentIntent.status === 'requires_action') {
+          // Payment intent is stuck in intermediate state - allow retry
+          shouldCreateNewIntent = true;
+        } else if (existingPaymentIntent.status === 'processing') {
+          // Payment is still processing - return existing intent
+          return res.json({
+            success: true,
+            message: 'Payment is processing',
+            data: {
+              paymentIntentId: subscription.paymentIntentId,
+              clientSecret: subscription.paymentClientSecret || null,
+              amount: subscription.amount,
+              currency: subscription.currency,
+              subscriptionId: subscription._id,
+              status: existingPaymentIntent.status,
+              nextStep: 'payment_processing'
+            }
+          });
+        } else {
+          // For other statuses, return existing intent
+          return res.json({
+            success: true,
+            message: 'Payment already initiated',
+            data: {
+              paymentIntentId: subscription.paymentIntentId,
+              clientSecret: subscription.paymentClientSecret || null,
+              amount: subscription.amount,
+              currency: subscription.currency,
+              subscriptionId: subscription._id,
+              status: existingPaymentIntent.status,
+              nextStep: 'payment_confirmation'
+            }
+          });
+        }
+      } catch (stripeError) {
+        // If payment intent doesn't exist in Stripe or error, create new one
+        console.log('Error retrieving payment intent, creating new one:', stripeError.message);
+        shouldCreateNewIntent = true;
+      }
+    }
+
+    // If retry is explicitly requested or subscription is failed, reset to pending
+    if (subscription.status === 'failed' || retry || shouldCreateNewIntent) {
+      subscription.status = 'pending';
+      // Clear old payment intent if creating new one
+      if (shouldCreateNewIntent) {
+        subscription.paymentIntentId = null;
+        subscription.paymentClientSecret = null;
+      }
+    }
+
+    // If payment intent exists and is still valid, return it
+    if (subscription.paymentIntentId && subscription.paymentClientSecret && !shouldCreateNewIntent) {
       return res.json({
         success: true,
         message: 'Payment already initiated',
@@ -202,7 +279,7 @@ router.post('/confirm', protect, [
     const { paymentIntentId, subscriptionId } = req.body;
     const userId = req.user.userId;
 
-    // Get subscription
+    // Get subscription - allow 'pending' status (failed subscriptions should retry via initiate first)
     const subscription = await VIPSubscription.findOne({
       _id: subscriptionId,
       userId,
@@ -213,7 +290,7 @@ router.post('/confirm', protect, [
     if (!subscription) {
       return res.status(404).json({
         success: false,
-        message: 'Subscription not found or not pending'
+        message: 'Subscription not found or not pending. If payment failed, please retry the payment first.'
       });
     }
 
@@ -662,15 +739,40 @@ router.get('/status/:paymentIntentId', protect, async (req, res) => {
       });
     }
 
+    // Check Stripe payment intent status if available
+    let stripeStatus = null;
+    let canRetry = false;
+    if (subscription.paymentIntentId) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(subscription.paymentIntentId);
+        stripeStatus = paymentIntent.status;
+        
+        // Determine if payment can be retried
+        canRetry = ['failed', 'canceled', 'requires_payment_method', 'requires_confirmation', 'requires_action'].includes(paymentIntent.status);
+        
+        // If payment succeeded but subscription not updated, sync it
+        if (paymentIntent.status === 'succeeded' && subscription.status !== 'active') {
+          await handlePaymentSucceeded(paymentIntent);
+        }
+      } catch (stripeError) {
+        console.error('Error retrieving Stripe payment intent:', stripeError.message);
+        // If payment intent doesn't exist in Stripe, allow retry
+        canRetry = true;
+      }
+    }
+
     res.json({
       success: true,
       data: {
         paymentIntentId: subscription.paymentIntentId,
         status: subscription.status,
+        stripeStatus: stripeStatus,
+        canRetry: canRetry || subscription.status === 'failed',
         amount: subscription.amount,
         currency: subscription.currency,
         tier: subscription.tier,
         plan: subscription.plan,
+        subscriptionId: subscription._id,
         createdAt: subscription.createdAt
       }
     });
@@ -679,6 +781,121 @@ router.get('/status/:paymentIntentId', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get payment status',
+      error: error.message
+    });
+  }
+});
+
+// Retry failed or stuck payment
+router.post('/retry', protect, [
+  body('subscriptionId').isMongoId().withMessage('Invalid subscription ID'),
+  body('paymentMethod').optional().isIn(['card', 'upi', 'google_pay', 'apple_pay']).withMessage('Invalid payment method')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { subscriptionId, paymentMethod = 'card' } = req.body;
+    const userId = req.user.userId;
+
+    // Get subscription - allow 'pending' or 'failed' status for retry
+    const subscription = await VIPSubscription.findOne({
+      _id: subscriptionId,
+      userId,
+      status: { $in: ['pending', 'failed'] }
+    });
+
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription not found or cannot be retried. Only pending or failed subscriptions can be retried.'
+      });
+    }
+
+    // Reset subscription to pending and clear old payment intent
+    subscription.status = 'pending';
+    subscription.paymentIntentId = null;
+    subscription.paymentClientSecret = null;
+    await subscription.save();
+
+    // Call initiate payment with retry flag
+    req.body.retry = true;
+    // Reuse the initiate logic by calling it internally
+    // For now, we'll create a new payment intent directly
+    const region = subscription.metadata?.region || 'US';
+    const isValidPricing = await validatePricing(
+      subscription.tier,
+      subscription.plan,
+      subscription.amount,
+      region,
+      userId,
+      true
+    );
+
+    if (!isValidPricing) {
+      const expectedCost = await calculateSubscriptionCost(
+        subscription.tier,
+        subscription.plan,
+        region,
+        userId
+      );
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid pricing detected',
+        details: {
+          expectedAmount: expectedCost.amount,
+          actualAmount: subscription.amount,
+          tier: subscription.tier,
+          plan: subscription.plan,
+          region: region,
+          expectedFormatted: expectedCost.formatted
+        }
+      });
+    }
+
+    // Create new payment intent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(subscription.amount * 100),
+      currency: subscription.currency.toLowerCase(),
+      metadata: {
+        subscriptionId: subscription._id.toString(),
+        userId: userId.toString(),
+        tier: subscription.tier,
+        plan: subscription.plan
+      },
+      description: `VIP ${subscription.tier} ${subscription.plan} subscription (Retry)`,
+      payment_method_types: ['card', 'link'],
+    });
+
+    // Update subscription with new payment intent
+    subscription.paymentIntentId = paymentIntent.id;
+    subscription.paymentClientSecret = paymentIntent.client_secret;
+    await subscription.save();
+
+    res.json({
+      success: true,
+      message: 'Payment retry initiated successfully',
+      data: {
+        paymentIntentId: paymentIntent.id,
+        clientSecret: paymentIntent.client_secret,
+        amount: subscription.amount,
+        currency: subscription.currency,
+        subscriptionId: subscription._id,
+        nextStep: 'payment_confirmation'
+      }
+    });
+  } catch (error) {
+    console.error('Error retrying payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retry payment',
       error: error.message
     });
   }

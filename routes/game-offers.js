@@ -117,6 +117,8 @@ router.post('/install', protect, async (req, res) => {
     if (existingGameIndex >= 0) {
       user.games[existingGameIndex].installedAt = new Date();
       user.games[existingGameIndex].trackingId = trackingResult.trackingId;
+      user.games[existingGameIndex].status = 'installed'; // Ensure status is set
+      if (offerId) user.games[existingGameIndex].offerId = offerId; // Update offerId if provided
     } else {
       user.games.push({
         gameId: gameId,

@@ -184,6 +184,23 @@ class AccountOverviewService {
       // Get recent achievements
       const recentAchievements = await this.getRecentAchievements(userId);
 
+      // Calculate downloaded games count (games with installedAt or status: 'installed')
+      // A game is considered downloaded if:
+      // 1. It has installedAt date (explicitly installed)
+      // 2. It has status: 'installed' (explicitly marked as installed)
+      // 3. It has a date but no completed flag (legacy games that were started but not explicitly marked as installed)
+      const downloadedGamesCount = user.games?.filter(game => {
+        // Primary check: has installedAt or status: 'installed'
+        if (game.installedAt || game.status === 'installed') {
+          return true;
+        }
+        // Secondary check: has date (legacy games) but not completed (still active)
+        if (game.date && !game.completed) {
+          return true;
+        }
+        return false;
+      }).length || 0;
+
       return {
         user: {
           name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Anonymous',
@@ -207,6 +224,12 @@ class AccountOverviewService {
           ageRange: user.onboarding?.ageRange,
           gameStyle: user.onboarding?.gameStyle,
           dailyEarningGoal: user.onboarding?.dailyEarningGoal
+        },
+        // Add downloaded games count
+        stats: {
+          downloadedGames: downloadedGamesCount,
+          totalGames: user.games?.length || 0,
+          completedGames: user.games?.filter(game => game.completed).length || 0
         }
       };
     } catch (error) {

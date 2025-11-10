@@ -4,8 +4,18 @@
  * @module utils/dailyActivityTracker
  */
 
-const User = require('../models/User');
-const { trackAchievements } = require('./achievements');
+const User = require("../models/User");
+const Transaction = require("../models/Transaction");
+const { trackAchievements } = require("./achievements");
+
+// Streak milestone configuration
+const STREAK_MILESTONES = [7, 14, 21, 30];
+const STREAK_REWARDS = {
+  7: { coins: 50, xp: 25, badge: "Week Warrior 🏆" },
+  14: { coins: 150, xp: 75, badge: "Fortnight Fighter 🥇" },
+  21: { coins: 300, xp: 150, badge: "Three Week Titan 🏅" },
+  30: { coins: 500, xp: 250, badge: "Monthly Master 👑" },
+};
 
 /**
  * Track user activity for today
@@ -17,15 +27,17 @@ const { trackAchievements } = require('./achievements');
  */
 async function trackUserActivity(userId, options = {}) {
   try {
-    console.log('Tracking user activity for user:', userId);  
-    const user = await User.findById(userId);
+    console.log("Tracking user activity for user:", userId);
+    const user = await User.findById(userId).select(
+      "wallet xp badges dailyActivity"
+    );
     if (!user) {
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
     const today = new Date();
     const todayStr = getDateString(today);
-    
+
     // Initialize dailyActivity if it doesn't exist
     if (!user.dailyActivity) {
       user.dailyActivity = {
@@ -36,12 +48,15 @@ async function trackUserActivity(userId, options = {}) {
         longestStreak: 0,
         streakHistory: [],
         lastStreakReset: null,
-        resetReason: null
+        resetReason: null,
+        awardedMilestones: [], // Track which milestones have been awarded
       };
     }
 
     const activity = user.dailyActivity;
-    const lastActiveDate = activity.lastActiveDate ? new Date(activity.lastActiveDate) : null;
+    const lastActiveDate = activity.lastActiveDate
+      ? new Date(activity.lastActiveDate)
+      : null;
     const lastActiveStr = lastActiveDate ? getDateString(lastActiveDate) : null;
 
     // Check if user was already active today
@@ -58,11 +73,32 @@ async function trackUserActivity(userId, options = {}) {
 
       // Calculate streak (always recalculate when force tracking)
       await updateStreak(user, activity, todayStr, lastActiveStr);
+
+      // Check for milestone rewards after streak update
+      const rewardAwarded = await checkAndAwardMilestoneRewards(user, activity);
     } else {
       // User was already active today, just update lastActiveDate
       activity.lastActiveDate = today;
       // Still need to update streak in case it was reset to 0
       await updateStreak(user, activity, todayStr, lastActiveStr);
+
+      // Check for milestone rewards even if already active today (in case streak was updated)
+      const rewardAwarded = await checkAndAwardMilestoneRewards(user, activity);
+    }
+
+    // Store reward info for response
+    let milestoneRewardInfo = null;
+    const currentStreak = activity.currentStreak || 0;
+    if (
+      STREAK_MILESTONES.includes(currentStreak) &&
+      activity.awardedMilestones &&
+      activity.awardedMilestones.includes(currentStreak)
+    ) {
+      const lastAwarded =
+        activity.awardedMilestones[activity.awardedMilestones.length - 1];
+      if (lastAwarded === currentStreak) {
+        milestoneRewardInfo = STREAK_REWARDS[currentStreak];
+      }
     }
 
     await user.save();
@@ -70,22 +106,26 @@ async function trackUserActivity(userId, options = {}) {
     // Track achievements for daily activity
     setImmediate(async () => {
       try {
-        await trackAchievements(userId, 'daily_activity', {
+        await trackAchievements(userId, "daily_activity", {
           currentStreak: activity.currentStreak,
           totalActiveDays: activity.totalActiveDays,
           longestStreak: activity.longestStreak,
-          isNewDay: !isAlreadyActiveToday
+          isNewDay: !isAlreadyActiveToday,
         });
-        
+
         // Also track streak achievements
-        await trackAchievements(userId, 'streak', {
+        await trackAchievements(userId, "streak", {
           currentStreak: activity.currentStreak,
-          longestStreak: activity.longestStreak
+          longestStreak: activity.longestStreak,
         });
       } catch (error) {
-        console.error('Error tracking daily activity achievements:', error);
+        console.error("Error tracking daily activity achievements:", error);
       }
     });
+
+    // Check if a milestone reward was just awarded in this call
+    const justAwardedMilestone = milestoneRewardInfo !== null;
+    const milestoneReward = milestoneRewardInfo;
 
     return {
       success: true,
@@ -98,12 +138,22 @@ async function trackUserActivity(userId, options = {}) {
         isActiveToday: true,
         lastStreakReset: activity.lastStreakReset,
         resetReason: activity.resetReason,
-        isNewDay: !isAlreadyActiveToday
-      }
+        isNewDay: !isAlreadyActiveToday,
+        milestoneReached: justAwardedMilestone,
+        milestoneReward: milestoneReward
+          ? {
+              day: currentStreak,
+              coins: milestoneReward.coins,
+              xp: milestoneReward.xp,
+              badge: milestoneReward.badge,
+            }
+          : null,
+        newBalance: user.wallet?.balance || 0,
+        newXP: user.xp?.current || 0,
+      },
     };
-
   } catch (error) {
-    console.error('Error tracking user activity:', error);
+    console.error("Error tracking user activity:", error);
     throw error;
   }
 }
@@ -117,8 +167,7 @@ async function trackUserActivity(userId, options = {}) {
  */
 async function updateStreak(user, activity, todayStr, lastActiveStr) {
   const today = new Date();
-  
-  
+
   if (!lastActiveStr) {
     // First time user is active
     activity.currentStreak = 1;
@@ -132,13 +181,16 @@ async function updateStreak(user, activity, todayStr, lastActiveStr) {
   if (daysDiff === 1) {
     // Consecutive day - increment streak
     activity.currentStreak += 1;
-    activity.longestStreak = Math.max(activity.longestStreak, activity.currentStreak);
+    activity.longestStreak = Math.max(
+      activity.longestStreak,
+      activity.currentStreak
+    );
   } else if (daysDiff > 1) {
     // Streak broken - reset to 1
     await recordStreakHistory(user, activity);
     activity.currentStreak = 1;
     activity.lastStreakReset = today;
-    activity.resetReason = 'missed_day';
+    activity.resetReason = "missed_day";
   } else if (daysDiff === 0) {
     // Same day - if streak is 0 (after reset), set it to 1
     if (activity.currentStreak === 0) {
@@ -161,12 +213,15 @@ async function recordStreakHistory(user, activity) {
     startDate.setDate(startDate.getDate() - (activity.currentStreak - 1));
 
     // Only record streak history if it's a meaningful streak (more than 1 day or spans multiple days)
-    if (activity.currentStreak > 1 || startDate.getTime() !== endDate.getTime()) {
+    if (
+      activity.currentStreak > 1 ||
+      startDate.getTime() !== endDate.getTime()
+    ) {
       activity.streakHistory.push({
         startDate: startDate,
         endDate: endDate,
         days: activity.currentStreak,
-        brokenAt: new Date()
+        brokenAt: new Date(),
       });
 
       // Keep only last 10 streak records to prevent document bloat
@@ -184,7 +239,7 @@ async function recordStreakHistory(user, activity) {
  */
 async function getUserActivityStats(userId) {
   try {
-    const user = await User.findById(userId).select('dailyActivity');
+    const user = await User.findById(userId).select("dailyActivity");
     if (!user || !user.dailyActivity) {
       return {
         currentStreak: 0,
@@ -192,7 +247,7 @@ async function getUserActivityStats(userId) {
         longestStreak: 0,
         lastActiveDate: null,
         streakHistory: [],
-        isActiveToday: false
+        isActiveToday: false,
       };
     }
 
@@ -202,7 +257,7 @@ async function getUserActivityStats(userId) {
 
     // Clean up any invalid streak history entries
     cleanupStreakHistory(activity);
-    
+
     // Save the cleaned up data
     if (activity.streakHistory) {
       await user.save();
@@ -216,11 +271,10 @@ async function getUserActivityStats(userId) {
       streakHistory: activity.streakHistory,
       isActiveToday: isActiveToday,
       lastStreakReset: activity.lastStreakReset,
-      resetReason: activity.resetReason
+      resetReason: activity.resetReason,
     };
-
   } catch (error) {
-    console.error('Error getting user activity stats:', error);
+    console.error("Error getting user activity stats:", error);
     throw error;
   }
 }
@@ -232,9 +286,14 @@ async function getUserActivityStats(userId) {
  */
 async function getActivityLeaderboard(limit = 10) {
   try {
-    const users = await User.find({ 'dailyActivity.currentStreak': { $gt: 0 } })
-      .select('firstName lastName dailyActivity.currentStreak dailyActivity.totalActiveDays')
-      .sort({ 'dailyActivity.currentStreak': -1, 'dailyActivity.totalActiveDays': -1 })
+    const users = await User.find({ "dailyActivity.currentStreak": { $gt: 0 } })
+      .select(
+        "firstName lastName dailyActivity.currentStreak dailyActivity.totalActiveDays"
+      )
+      .sort({
+        "dailyActivity.currentStreak": -1,
+        "dailyActivity.totalActiveDays": -1,
+      })
       .limit(limit);
 
     return users.map((user, index) => ({
@@ -242,11 +301,10 @@ async function getActivityLeaderboard(limit = 10) {
       userId: user._id,
       name: `${user.firstName} ${user.lastName}`,
       currentStreak: user.dailyActivity?.currentStreak || 0,
-      totalActiveDays: user.dailyActivity?.totalActiveDays || 0
+      totalActiveDays: user.dailyActivity?.totalActiveDays || 0,
     }));
-
   } catch (error) {
-    console.error('Error getting activity leaderboard:', error);
+    console.error("Error getting activity leaderboard:", error);
     throw error;
   }
 }
@@ -257,11 +315,11 @@ async function getActivityLeaderboard(limit = 10) {
  * @param {string} reason - Reason for reset
  * @returns {Promise<Object>} Result
  */
-async function resetUserStreak(userId, reason = 'admin_reset') {
+async function resetUserStreak(userId, reason = "admin_reset") {
   try {
     const user = await User.findById(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
     if (!user.dailyActivity) {
@@ -273,7 +331,7 @@ async function resetUserStreak(userId, reason = 'admin_reset') {
         longestStreak: 0,
         streakHistory: [],
         lastStreakReset: null,
-        resetReason: null
+        resetReason: null,
       };
     }
 
@@ -281,7 +339,7 @@ async function resetUserStreak(userId, reason = 'admin_reset') {
     if (user.dailyActivity.currentStreak > 1) {
       await recordStreakHistory(user, user.dailyActivity);
     }
-    
+
     user.dailyActivity.currentStreak = 0;
     user.dailyActivity.lastStreakReset = new Date();
     user.dailyActivity.resetReason = reason;
@@ -290,12 +348,11 @@ async function resetUserStreak(userId, reason = 'admin_reset') {
 
     return {
       success: true,
-      message: 'User streak reset successfully',
-      newStreak: 0
+      message: "User streak reset successfully",
+      newStreak: 0,
     };
-
   } catch (error) {
-    console.error('Error resetting user streak:', error);
+    console.error("Error resetting user streak:", error);
     throw error;
   }
 }
@@ -306,7 +363,7 @@ async function resetUserStreak(userId, reason = 'admin_reset') {
  * @returns {string} Date string
  */
 function getDateString(date) {
-  return date.toISOString().split('T')[0];
+  return date.toISOString().split("T")[0];
 }
 
 /**
@@ -316,7 +373,7 @@ function getDateString(date) {
 function cleanupStreakHistory(activity) {
   if (activity.streakHistory && activity.streakHistory.length > 0) {
     // Remove entries where startDate equals endDate (invalid entries)
-    activity.streakHistory = activity.streakHistory.filter(entry => {
+    activity.streakHistory = activity.streakHistory.filter((entry) => {
       const startTime = new Date(entry.startDate).getTime();
       const endTime = new Date(entry.endDate).getTime();
       return startTime !== endTime || entry.days > 1;
@@ -332,16 +389,89 @@ function cleanupStreakHistory(activity) {
  */
 async function wasUserActiveOnDate(userId, dateStr) {
   try {
-    const user = await User.findById(userId).select('dailyActivity');
+    const user = await User.findById(userId).select("dailyActivity");
     if (!user || !user.dailyActivity) {
       return false;
     }
 
     return user.dailyActivity.activeDates.includes(dateStr);
-
   } catch (error) {
-    console.error('Error checking user activity on date:', error);
+    console.error("Error checking user activity on date:", error);
     return false;
+  }
+}
+
+async function checkAndAwardMilestoneRewards(user, activity) {
+  try {
+    const currentStreak = activity.currentStreak || 0;
+
+    // Initialize awardedMilestones if it doesn't exist
+    if (!activity.awardedMilestones) {
+      activity.awardedMilestones = [];
+    }
+
+    // Check if current streak matches any milestone
+    if (STREAK_MILESTONES.includes(currentStreak)) {
+      // Check if this milestone has already been awarded
+      if (!activity.awardedMilestones.includes(currentStreak)) {
+        const reward = STREAK_REWARDS[currentStreak];
+
+        if (reward) {
+          // Award coins and XP
+          if (!user.wallet) user.wallet = { balance: 0 };
+          if (!user.xp) user.xp = { current: 0, total: 0 };
+
+          user.wallet.balance = (user.wallet.balance || 0) + reward.coins;
+          user.wallet.lastUpdated = new Date();
+          user.xp.current = (user.xp.current || 0) + reward.xp;
+          user.xp.total = (user.xp.total || 0) + reward.xp;
+
+          // Add badge to user profile
+          if (!user.badges) user.badges = [];
+          if (!user.badges.includes(reward.badge)) {
+            user.badges.push(reward.badge);
+          }
+
+          // Create transaction record
+          const transaction = new Transaction({
+            user: user._id,
+            type: "credit",
+            balanceType: "coins",
+            amount: reward.coins,
+            description: `Streak Milestone Reward - Day ${currentStreak} (${reward.badge})`,
+            status: "completed",
+            referenceId: `STREAK-MILESTONE-${currentStreak}-${Date.now()}`,
+            metadata: {
+              milestoneDay: currentStreak,
+              rewardType: "streak_milestone",
+              xp: reward.xp,
+              badge: reward.badge,
+            },
+          });
+
+          await transaction.save();
+
+          // Mark milestone as awarded
+          activity.awardedMilestones.push(currentStreak);
+
+          console.log(
+            `✅ Milestone reward awarded: Day ${currentStreak} - ${reward.coins} coins, ${reward.xp} XP, ${reward.badge}`
+          );
+
+          return {
+            day: currentStreak,
+            coins: reward.coins,
+            xp: reward.xp,
+            badge: reward.badge,
+          };
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error checking and awarding milestone rewards:", error);
+    return null;
   }
 }
 
@@ -352,5 +482,5 @@ module.exports = {
   resetUserStreak,
   wasUserActiveOnDate,
   getDateString,
-  cleanupStreakHistory
+  cleanupStreakHistory,
 };

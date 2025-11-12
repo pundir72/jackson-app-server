@@ -9,6 +9,8 @@ const TremendousOrganization = require('../models/TremendousOrganization');
 const tremendous = require('../utils/tremendous');
 const verisoul = require('../utils/verisoul');
 const PayoutMethod = require('../models/PayoutMethod');
+const PayoutRequest = require('../models/PayoutRequest');
+const { sendPayoutRequestConfirmationEmail } = require('../utils/email');
 
 // Get available payout methods
 router.get('/methods', protect, async (req, res) => {
@@ -314,39 +316,11 @@ router.post('/create', protect, async (req, res) => {
       tremendousOrderPayload.reward.delivery.status = deliveryStatus;
     }
 
-    // Add payment details if provided
-    if (subtotal !== undefined || total !== undefined || fees !== undefined || channel) {
-      tremendousOrderPayload.payment = {};
-      
-      if (subtotal !== undefined) tremendousOrderPayload.payment.subtotal = subtotal;
-      if (total !== undefined) tremendousOrderPayload.payment.total = total;
-      if (fees !== undefined) tremendousOrderPayload.payment.fees = fees;
-      if (channel) tremendousOrderPayload.payment.channel = channel;
-      
-      if (refundTotal !== undefined) {
-        tremendousOrderPayload.payment.refund = { total: refundTotal };
-      }
-    }
-    // Create order with Tremendous
-    const orderResult = await tremendous.createOrder(tremendousOrderPayload);
-    
-    if (!orderResult.success) {
-      return res.status(400).json({
-        success: false,
-        error: orderResult.error || 'Failed to create order'
-      });
-    }
-
-    // Deduct coins from user balance
-    user.wallet.balance = userBalance - requiredCoins;
-    user.wallet.lastUpdated = new Date();
-
-    // Create Tremendous order record
-    const tremendousOrder = new TremendousOrder({
-      tremendousOrderId: orderResult.data.order.id,
-      externalId: externalId,
+    // Create pending payout request (NOT processing immediately)
+    // Coins are held but not deducted until approval
+    const payoutRequest = new PayoutRequest({
       userId: user._id,
-      status: orderResult.data.order.status || 'PENDING',
+      status: 'pending',
       payment: {
         fundingSourceId: funding_source_id,
         amount: denomination,
@@ -354,8 +328,7 @@ router.post('/create', protect, async (req, res) => {
         subtotal: subtotal,
         total: total,
         fees: fees,
-        channel: channel,
-        refund: refundTotal ? { total: refundTotal } : undefined
+        channel: channel
       },
       reward: {
         value: {
@@ -363,8 +336,7 @@ router.post('/create', protect, async (req, res) => {
           currency_code: currency_code
         },
         delivery: {
-          method: deliveryMethod,
-          status: deliveryStatus
+          method: deliveryMethod
         },
         recipient: {
           name: recipientName,
@@ -374,31 +346,32 @@ router.post('/create', protect, async (req, res) => {
         products: products,
         custom_fields: custom_fields
       },
-      tremendousData: orderResult.data,
+      coinsDeducted: requiredCoins,
       metadata: {
         source: 'app',
-        userAgent: req.headers['user-agent'],
-        ipAddress: req.ip,
         campaignId: campaign_id,
         invoiceId: invoice_id,
-        rewardId: rewardId,
-        orderId: orderId,
-        createdAt: createdAt
+        externalId: externalId,
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip
       }
     });
 
-    // Create transaction record
+    // Deduct coins from user balance (held until approval/rejection)
+    user.wallet.balance = userBalance - requiredCoins;
+    user.wallet.lastUpdated = new Date();
+
+    // Create transaction record (status: pending)
     const transaction = new Transaction({
       user: user._id,
       type: 'debit',
       amount: requiredCoins,
-      description: `Payout request - $${denomination} ${currency_code}`,
+      description: `Payout request - $${denomination} ${currency_code} (Pending Approval)`,
       status: 'pending',
-      referenceId: orderResult.data.order.id,
-      tremendousOrderId: orderResult.data.order.id,
+      referenceId: payoutRequest._id.toString(),
       paymentProvider: 'tremendous',
       metadata: {
-        orderId: orderResult.data.order.id,
+        payoutRequestId: payoutRequest._id.toString(),
         products: products,
         amount: denomination,
         currency: currency_code,
@@ -416,17 +389,30 @@ router.post('/create', protect, async (req, res) => {
 
     await Promise.all([
       user.save(),
-      tremendousOrder.save(),
+      payoutRequest.save(),
       transaction.save()
     ]);
+
+    // Send confirmation email to user
+    try {
+      const userName = user.firstName || user.profile?.firstName || 'User';
+      await sendPayoutRequestConfirmationEmail(
+        user.email || recipientEmail,
+        userName,
+        denomination,
+        currency_code
+      );
+    } catch (emailError) {
+      console.error('Error sending confirmation email:', emailError);
+      // Don't fail the request if email fails
+    }
 
     res.json({
       success: true,
       data: {
-        message: 'Payout request created successfully!',
-        orderId: orderResult.data.order.id,
-        tremendousOrderId: orderResult.data.order.id,
-        status: orderResult.data.order.status,
+        message: 'Payout request submitted successfully and is under review!',
+        requestId: payoutRequest._id,
+        status: 'pending',
         payment: {
           fundingSourceId: funding_source_id,
           amount: denomination,
@@ -434,8 +420,7 @@ router.post('/create', protect, async (req, res) => {
           subtotal: subtotal,
           total: total,
           fees: fees,
-          channel: channel,
-          refund: refundTotal ? { total: refundTotal } : undefined
+          channel: channel
         },
         reward: {
           value: {
@@ -443,8 +428,7 @@ router.post('/create', protect, async (req, res) => {
             currency_code: currency_code
           },
           delivery: {
-            method: deliveryMethod,
-            status: deliveryStatus
+            method: deliveryMethod
           },
           recipient: {
             name: recipientName,
@@ -455,7 +439,8 @@ router.post('/create', protect, async (req, res) => {
           custom_fields: custom_fields
         },
         newBalance: user.wallet.balance,
-        tremendousData: orderResult.data
+        coinsHeld: requiredCoins,
+        note: 'Your request is under review. You will receive an email notification once it has been processed.'
       }
     });
   } catch (error) {

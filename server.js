@@ -179,6 +179,7 @@ mongoose.connect(config.MONGODB_URI, {
         const adminCreativesRoutes = require('./routes/admin-creatives');
         const adminTransactionsRoutes = require('./routes/admin-transactions');
         const adminSpinWheelRoutes = require('./routes/admin-spin-wheel');
+        const adminPayoutsRoutes = require('./routes/admin-payouts');
         const referralRoutes = require('./routes/referral');
         const ticketsRoutes = require('./routes/tickets');
         const adminTicketsRoutes = require('./routes/admin-tickets');
@@ -248,6 +249,7 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/admin/creatives', adminCreativesRoutes);
         app.use('/api/admin/transactions', adminTransactionsRoutes);
         app.use('/api/admin/spin-wheel', adminSpinWheelRoutes);
+        app.use('/api/admin/payouts', adminPayoutsRoutes);
         app.use('/api/referral', referralRoutes);
         app.use('/api/tickets', ticketsRoutes);
         app.use('/api/admin/tickets', adminTicketsRoutes);

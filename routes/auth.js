@@ -12,6 +12,7 @@ const {
   findOTPByPhone,
   findVerifiedOTPByPhone,
 } = require("../utils/phoneUtils");
+const { turnstileVerify } = require("../middleware/turnstile");
 
 // 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
@@ -284,6 +285,7 @@ router.post("/verify-otp", async (req, res) => {
 // Sign up
 router.post(
   "/signup",
+  turnstileVerify, // Cloudflare Turnstile verification
   body("firstName").trim().notEmpty(),
   body("lastName").trim().notEmpty(),
   body("email").isEmail(),
@@ -565,6 +567,7 @@ const loginLimiter = rateLimit({
 router.post(
   "/login",
   // loginLimiter,
+  turnstileVerify, // Cloudflare Turnstile verification
   body("emailOrMobile").trim().notEmpty(),
   body("password").trim().notEmpty(),
   async (req, res) => {
@@ -891,13 +894,15 @@ router.get(
         expiresIn: "24h",
       });
 
-      // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=google&userId=${user._id}`;
+      // Redirect to mobile app with token (frontend is mobile app, web is for testing only)
+      const mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.jackson.app';
+      const redirectUrl = `${mobileScheme}://auth/callback?token=${token}&provider=google&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Google OAuth callback error:", error);
+      const mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.jackson.app';
       res.redirect(
-        `com.jackson.app://auth/error?message=Google authentication failed`
+        `${mobileScheme}://auth/error?message=Google authentication failed`
       );
     }
   }
@@ -924,13 +929,15 @@ router.get(
         expiresIn: "24h",
       });
 
-      // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
+      // Redirect to mobile app with token (frontend is mobile app, web is for testing only)
+      const mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.jackson.app';
+      const redirectUrl = `${mobileScheme}://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Facebook OAuth callback error:", error);
+      const mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.jackson.app';
       res.redirect(
-        `com.jackson.app://auth/error?message=Facebook authentication failed`
+        `${mobileScheme}://auth/error?message=Facebook authentication failed`
       );
     }
   }
@@ -1089,7 +1096,10 @@ router.post(
       if (isEmail) {
         // Send email with reset link
         try {
-          const resetUrl = `https://jacksonrewardsapp.vercel.app/reset-password?token=${resetToken}`;
+          // Use mobile app deep link (frontend is mobile app, web is for testing only)
+          const mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.jackson.app';
+          const resetPath = process.env.MOBILE_RESET_PASSWORD_PATH || 'reset-password';
+          const resetUrl = `${mobileScheme}://${resetPath}?token=${resetToken}`;
 
           // Send password reset email
           await sendPasswordResetEmail(

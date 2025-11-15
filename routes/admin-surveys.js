@@ -8,6 +8,7 @@ const SurveySDK = require('../models/SurveySDK');
 const SurveyOffer = require('../models/SurveyOffer');
 const SurveyAnalytics = require('../models/SurveyAnalytics');
 const User = require('../models/User');
+const { triggerOfferRefresh } = require('../utils/offerRefresh');
 
 // Admin authentication middleware
 const { adminAuth } = require('../middleware/adminAuth');
@@ -1099,6 +1100,26 @@ router.get('/performance/segmented', adminAuth, [
     res.status(500).json({
       success: false,
       message: 'Failed to get segmented performance',
+      error: error.message
+    });
+  }
+});
+
+// Manual refresh all offers from SDKs (AC5 - Auto-refresh manual trigger)
+router.post('/offers/refresh-all', adminAuth, async (req, res) => {
+  try {
+    const results = await triggerOfferRefresh();
+    
+    res.json({
+      success: true,
+      message: 'Offer refresh completed',
+      data: results
+    });
+  } catch (error) {
+    console.error('Error refreshing offers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to refresh offers',
       error: error.message
     });
   }

@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { resetDailyProgress } = require('../middleware/dailyProgressReset');
 const UserChallengeProgress = require('../models/UserChallengeProgress');
+const { refreshOffersFromSDKs } = require('./offerRefresh');
 
 /**
  * Scheduler for My Account Overview daily tasks
@@ -19,6 +20,9 @@ class Scheduler {
     
     // Expire old daily challenges
     this.scheduleExpireOldChallenges();
+    
+    // Refresh offers from SDKs (AC5 - Auto-refresh)
+    this.scheduleOfferRefresh();
     
     console.log('Scheduler started successfully');
   }
@@ -102,6 +106,44 @@ class Scheduler {
       return result;
     } catch (error) {
       console.error('Error in manual daily challenge expiration:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule offer refresh from SDKs (AC5 - Auto-refresh mechanism)
+   * Runs every 6 hours to keep offers fresh
+   */
+  scheduleOfferRefresh() {
+    // Run every 6 hours (at 00:00, 06:00, 12:00, 18:00)
+    const job = cron.schedule('0 */6 * * *', async () => {
+      console.log('Running offer refresh from SDKs...');
+      try {
+        const results = await refreshOffersFromSDKs();
+        console.log('Offer refresh completed:', results);
+      } catch (error) {
+        console.error('Error in offer refresh:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+
+    this.jobs.push(job);
+    console.log('Offer refresh scheduled every 6 hours');
+  }
+
+  /**
+   * Manually trigger offer refresh (for testing/admin)
+   */
+  async triggerOfferRefresh() {
+    console.log('Manually triggering offer refresh...');
+    try {
+      const results = await refreshOffersFromSDKs();
+      console.log('Manual offer refresh completed:', results);
+      return results;
+    } catch (error) {
+      console.error('Error in manual offer refresh:', error);
       throw error;
     }
   }

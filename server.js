@@ -196,6 +196,8 @@ mongoose.connect(config.MONGODB_URI, {
         const gameTipsRoutes = require('./routes/game-tips');
         const adminGameTipsRoutes = require('./routes/admin-game-tips');
         const zohoRoutes = require('./routes/zoho');
+        const sdkStatusRoutes = require('./routes/sdk-status');
+        const nonGamingOffersRoutes = require('./routes/non-gaming-offers');
 
         // API Routes
         app.use('/api/auth', authRoutes);
@@ -266,6 +268,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/game-tips', gameTipsRoutes);
         app.use('/api/admin/game-tips', adminGameTipsRoutes);
         app.use('/api/zoho', zohoRoutes);
+        app.use('/api/sdk', sdkStatusRoutes);
+        app.use('/api/offers/non-gaming', nonGamingOffersRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

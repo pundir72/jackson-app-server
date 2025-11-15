@@ -42,6 +42,24 @@ router.get('/', protect, async (req, res) => {
     // Get non-gaming offers
     const nonGamingOffers = await getNonGamingOffers(user);
     
+    // Track OfferViewed event when offers are displayed (Analytics)
+    if (nonGamingOffers.totalAvailable > 0) {
+      const analytics = require('../utils/analytics');
+      const allOfferIds = [
+        ...nonGamingOffers.surveys.map(s => s.id),
+        ...nonGamingOffers.otherOffers.map(o => o.id)
+      ];
+      
+      analytics.log('OfferViewed', {
+        userId: user._id,
+        offerIds: allOfferIds,
+        provider: 'all',
+        timestamp: new Date(),
+        action: 'offers_displayed',
+        totalOffers: nonGamingOffers.totalAvailable
+      }).catch(err => console.error('Failed to log OfferViewed event:', err));
+    }
+    
     // Get AI assistant status
     const aiAssistantStatus = await getAIAssistantStatus(user._id);
 
@@ -569,17 +587,35 @@ async function getBoosterRewardStatus(userId) {
 }
 
 async function getNonGamingOffers(user) {
-  // Get available survey offers
-  const surveyOffers = await getSurveyOffers(user);
-  
-  // Get other non-gaming offers
-  const otherOffers = await getOtherOffers(user);
-  
-  return {
-    surveys: surveyOffers,
-    otherOffers: otherOffers,
-    totalAvailable: surveyOffers.length + otherOffers.length
-  };
+  try {
+    // Get available survey offers
+    const surveyOffers = await getSurveyOffers(user);
+    
+    // Get other non-gaming offers
+    const otherOffers = await getOtherOffers(user);
+    
+    const totalAvailable = surveyOffers.length + otherOffers.length;
+    
+    return {
+      surveys: surveyOffers,
+      otherOffers: otherOffers,
+      totalAvailable: totalAvailable,
+      // AC6: Empty feed handling - provide message if no offers
+      message: totalAvailable === 0 ? 'Check back later for new offers...' : null,
+      lastUpdated: new Date(),
+      hasOffers: totalAvailable > 0
+    };
+  } catch (error) {
+    console.error('Error getting non-gaming offers:', error);
+    return {
+      surveys: [],
+      otherOffers: [],
+      totalAvailable: 0,
+      message: 'Check back later for new offers...',
+      lastUpdated: new Date(),
+      hasOffers: false
+    };
+  }
 }
 
 async function getAIAssistantStatus(userId) {
@@ -803,30 +839,147 @@ async function getGameContext(gameId) {
 }
 
 async function getSurveyOffers(user) {
-  // This would integrate with existing survey system
-  return [
-    {
-      id: 'survey-1',
-      title: 'Consumer Survey',
-      description: 'Share your opinions and earn coins',
-      reward: { coins: 25, xp: 10 },
-      estimatedTime: '5 min',
-      provider: 'BitLabs'
+  try {
+    const bitlabs = require('../utils/bitlabs');
+    
+    // Check if Bitlabs is configured
+    if (!process.env.BITLABS_API_KEY || !process.env.BITLABS_PUBLISHER_ID) {
+      return [];
     }
-  ];
+
+    // Get real surveys from Bitlabs SDK
+    const bitlabsResult = await bitlabs.getSurveys({
+      userId: user._id.toString(),
+      userProfile: {
+        age: user.profile?.age || user.onboarding?.ageRange ? parseInt(user.onboarding.ageRange.split('-')[0]) : 25,
+        gender: user.onboarding?.gender || user.profile?.gender || 'other',
+        country: user.location?.current?.country || 'US',
+        language: user.preferences?.language || 'en',
+        platform: 'mobile'
+      }
+    });
+
+    if (!bitlabsResult.success || !bitlabsResult.surveys || bitlabsResult.surveys.length === 0) {
+      return [];
+    }
+
+    // Format surveys for display
+    return bitlabsResult.surveys.map(survey => ({
+      id: survey.id || survey.surveyId,
+      title: survey.title || 'Survey',
+      description: survey.description || 'Complete this survey to earn coins',
+      reward: {
+        coins: survey.reward?.coins || survey.coinReward || 0,
+        xp: survey.reward?.xp || Math.round((survey.coinReward || 0) * 0.5)
+      },
+      estimatedTime: survey.estimatedTime ? `${survey.estimatedTime} min` : '5 min',
+      provider: 'BitLabs',
+      category: survey.category || 'survey',
+      imageUrl: survey.imageUrl || null,
+      deepLink: survey.deepLink || null
+    }));
+  } catch (error) {
+    console.error('Error getting survey offers:', error);
+    return []; // Return empty array on error
+  }
 }
 
 async function getOtherOffers(user) {
-  return [
-    {
-      id: 'offer-1',
-      title: 'Download App',
-      description: 'Download and try new apps',
-      reward: { coins: 100, xp: 50 },
-      estimatedTime: '10 min',
-      provider: 'Everflow'
+  try {
+    const besitos = require('../utils/besitos');
+    const SurveySDK = require('../models/SurveySDK');
+    
+    const offers = [];
+
+    // Get non-gaming offers from Besitos (if configured)
+    if (process.env.BESITOS_API_TOKEN || process.env.BESITOS_API_KEY) {
+      try {
+        const besitosResult = await besitos.getGameOffers({
+          userId: user._id.toString(),
+          userProfile: {
+            age: user.profile?.age || user.onboarding?.ageRange ? parseInt(user.onboarding.ageRange.split('-')[0]) : 25,
+            gender: user.onboarding?.gender || user.profile?.gender || 'other',
+            country: user.location?.current?.country || 'US',
+            language: user.preferences?.language || 'en',
+            platform: 'mobile'
+          }
+        });
+
+        if (besitosResult.success && besitosResult.offers) {
+          // Filter for non-gaming offers (bank apps, financial products, etc.)
+          // You can add category filtering here if Besitos provides category info
+          const nonGamingOffers = besitosResult.offers
+            .filter(offer => {
+              // Filter out pure gaming offers - keep surveys, apps, financial products
+              const category = offer.category?.toLowerCase() || '';
+              return category !== 'game' && category !== 'gaming' && category !== 'arcade';
+            })
+            .map(offer => ({
+              id: offer.id || offer.gameId,
+              title: offer.title || 'Offer',
+              description: offer.description || 'Complete this offer to earn coins',
+              reward: {
+                coins: offer.reward?.coins || 0,
+                xp: offer.reward?.xp || 0
+              },
+              estimatedTime: offer.estimatedTime ? `${offer.estimatedTime} min` : '10 min',
+              provider: 'Besitos',
+              category: offer.category || 'offer',
+              imageUrl: offer.banner || offer.icon || null,
+              deepLink: offer.deepLink || offer.downloadUrl || null
+            }));
+
+          offers.push(...nonGamingOffers);
+        }
+      } catch (error) {
+        console.error('Error getting Besitos non-gaming offers:', error);
+      }
     }
-  ];
+
+    // Get offers from SurveySDK entries (other survey providers)
+    try {
+      const activeSDKs = await SurveySDK.find({ isActive: true }).lean();
+      
+      for (const sdk of activeSDKs) {
+        // Skip Bitlabs as it's handled separately
+        if (sdk.name.toLowerCase() === 'bitlabs') continue;
+
+        // For now, return offers from database if they exist
+        // In future, can call SDK APIs directly
+        const SurveyOffer = require('../models/SurveyOffer');
+        const sdkOffers = await SurveyOffer.find({
+          sdkId: sdk._id,
+          status: 'live'
+        })
+        .limit(10)
+        .lean();
+
+        const formattedOffers = sdkOffers.map(offer => ({
+          id: offer.externalId || offer._id.toString(),
+          title: offer.title || 'Survey Offer',
+          description: offer.description || 'Complete this offer to earn coins',
+          reward: {
+            coins: offer.coinReward || 0,
+            xp: Math.round((offer.coinReward || 0) * 0.5)
+          },
+          estimatedTime: offer.estimatedTime ? `${offer.estimatedTime} min` : '5 min',
+          provider: sdk.displayName || sdk.name,
+          category: offer.category || 'survey',
+          imageUrl: null,
+          deepLink: null
+        }));
+
+        offers.push(...formattedOffers);
+      }
+    } catch (error) {
+      console.error('Error getting SurveySDK offers:', error);
+    }
+
+    return offers;
+  } catch (error) {
+    console.error('Error getting other offers:', error);
+    return []; // Return empty array on error
+  }
 }
 
 module.exports = router;

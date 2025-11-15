@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const besitos = require('../utils/besitos');
 const verisoul = require('../utils/verisoul');
+const analytics = require('../utils/analytics');
 
 // Get available game offers
 router.get('/offers', protect, async (req, res) => {
@@ -409,6 +410,17 @@ router.post('/callback/besitos', async (req, res) => {
       user.save(),
       transaction.save()
     ]);
+
+    // Track OfferCompleted event (Analytics)
+    await analytics.log('OfferCompleted', {
+      userId: userId,
+      offerId: offerId,
+      provider: 'besitos',
+      reward: finalReward,
+      xpReward: xpReward,
+      timestamp: new Date(),
+      action: 'offer_completed'
+    }).catch(err => console.error('Failed to log OfferCompleted event:', err));
 
     res.json({
       success: true,

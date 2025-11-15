@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const bitlabs = require('../utils/bitlabs');
 const verisoul = require('../utils/verisoul');
+const analytics = require('../utils/analytics');
 
 // Survey SDK configuration
 const SURVEY_CONFIG = {
@@ -316,6 +317,18 @@ router.post('/callback/:providerId', async (req, res) => {
         user.save(),
         transaction.save()
       ]);
+
+      // Track OfferCompleted event (Analytics)
+      await analytics.log('OfferCompleted', {
+        userId: user._id,
+        offerId: surveyId,
+        provider: providerId,
+        reward: finalReward,
+        xpReward: Math.round(finalReward * 0.5),
+        timestamp: new Date(),
+        action: 'survey_completed',
+        offerType: 'survey'
+      }).catch(err => console.error('Failed to log OfferCompleted event:', err));
 
       res.json({
         success: true,

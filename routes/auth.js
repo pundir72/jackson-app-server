@@ -81,6 +81,56 @@ async function generateBiometricToken(user) {
   }
 }
 
+// Helper function to calculate age from dateOfBirth
+function calculateAge(dateOfBirth) {
+  if (!dateOfBirth) return null;
+  const today = new Date();
+  const birthDate = new Date(dateOfBirth);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+// Helper function to format user response with additional fields
+function formatUserResponse(user) {
+  // Calculate age from dateOfBirth or use ageRange
+  let age = null;
+  if (user.dateOfBirth) {
+    age = calculateAge(user.dateOfBirth);
+  } else if (user.onboarding?.ageRange) {
+    // Extract numeric age from ageRange if available (e.g., "18-25" -> 21)
+    const ageRange = user.onboarding.ageRange;
+    if (ageRange.includes('-')) {
+      const [min, max] = ageRange.split('-').map(Number);
+      age = Math.floor((min + max) / 2); // Use midpoint as approximate age
+    }
+  }
+
+  // Get gender from onboarding
+  const gender = user.onboarding?.gender || user.gender || null;
+
+  // Format location from location.current
+  const location = user.location?.current ? {
+    country: user.location.current.country || null,
+    city: user.location.current.city || null,
+    latitude: user.location.current.latitude || null,
+    longitude: user.location.current.longitude || null
+  } : null;
+
+  // Permission status (using disclosureAccepted as permission status)
+  const permissionStatus = user.disclosureAccepted || false;
+
+  return {
+    age,
+    gender,
+    location,
+    permissionStatus
+  };
+}
+
 // Generate and send OTP
 router.post("/send-otp", async (req, res) => {
   try {
@@ -480,6 +530,9 @@ router.post(
         expiresIn: "24h",
       });
 
+      // Get additional fields for response
+      const additionalFields = formatUserResponse(user);
+
       res.status(201).json({
         message: "Registration completed successfully! Welcome to the app!",
         token,
@@ -489,7 +542,6 @@ router.post(
           lastName: user.lastName,
           email: user.email,
           mobile: user.mobile,
-          gender: user.gender,
           ageRange: user.ageRange,
           gamePreferences: user.gamePreferences,
           gameStyle: user.gameStyle,
@@ -501,6 +553,11 @@ router.post(
           redemption: user.redemption,
           xp: user.xp,
           wallet: user.wallet,
+          // Additional fields
+          age: additionalFields.age,
+          gender: additionalFields.gender,
+          location: additionalFields.location,
+          permissionStatus: additionalFields.permissionStatus,
         },
         referral: referralResult
           ? {
@@ -692,9 +749,18 @@ router.post(
           },
         };
         await User.findByIdAndUpdate(user._id, updateData);
+        
+        // Refresh user data after update to get latest location
+        const updatedUser = await User.findById(user._id);
+        if (updatedUser) {
+          user = updatedUser;
+        }
       } catch (e) {
         console.error("Failed to update login analytics:", e.message);
       }
+
+      // Get additional fields for response
+      const additionalFields = formatUserResponse(user);
 
       res.status(200).json({
         token,
@@ -706,6 +772,11 @@ router.post(
           email: user.email,
           mobile: user.mobile,
           role: user.role,
+          // Additional fields
+          age: additionalFields.age,
+          gender: additionalFields.gender,
+          location: additionalFields.location,
+          permissionStatus: additionalFields.permissionStatus,
         },
       });
     } catch (error) {

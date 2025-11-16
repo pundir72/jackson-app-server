@@ -81,6 +81,14 @@ module.exports = {
     BESITOS_PARTNER_ID: process.env.BESITOS_PARTNER_ID,
     BESITOS_API_TOKEN: process.env.BESITOS_API_TOKEN,
     
+    // Bitlabs - Game Offers & Surveys Platform
+    // Base URL should NOT include /v1 - it will be added to the endpoint path
+    BITLABS_BASE_URL: process.env.BITLABS_BASE_URL || 'https://api.bitlabs.ai',
+    BITLABS_API_TOKEN: process.env.BITLABS_API_TOKEN,
+    BITLABS_SECRET_KEY: process.env.BITLABS_SECRET_KEY,
+    BITLABS_SERVER_TO_SERVER_KEY: process.env.BITLABS_SERVER_TO_SERVER_KEY,
+    BITLABS_REFRESH_INTERVAL_MINUTES: parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
+    
     // Error Codes
     ERROR_CODES: {
         INVALID_CREDENTIALS: 401,

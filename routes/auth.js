@@ -786,24 +786,48 @@ router.post(
   }
 );
 
-// Login
+// Admin Login
 router.post(
   "/admin-login",
   loginLimiter,
-  body("email").trim().notEmpty(),
-  body("password").trim().notEmpty(),
+  body("password").trim().notEmpty().withMessage("Password is required"),
   async (req, res) => {
     try {
+      // Manual validation - check password first
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { email, password } = req.body;
-      // Try to find user by email first
-      let user = await User.findOne({ email: email, role: "ADMIN" });
+      const { emailOrMobile, email, password } = req.body;
+      
+      // Validate that at least one identifier is provided
+      const identifier = (emailOrMobile && emailOrMobile.trim()) || (email && email.trim());
+      
+      if (!identifier) {
+        return res.status(400).json({ 
+          errors: [{
+            type: "field",
+            value: "",
+            msg: "emailOrMobile or email is required",
+            path: "emailOrMobile",
+            location: "body"
+          }]
+        });
+      }
+
+      // Try to find admin user by email first
+      let user = await User.findOne({ email: identifier, role: "ADMIN" });
 
       // If not found by email, try by phone number
+      if (!user) {
+        user = await findUserByPhone(User, identifier);
+        // Make sure it's an admin user
+        if (user && user.role !== "ADMIN") {
+          user = null;
+        }
+      }
+      
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }

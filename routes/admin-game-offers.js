@@ -14,6 +14,7 @@ const GameDisplayRule = require('../models/GameDisplayRule');
 const TaskProgressionRule = require('../models/TaskProgressionRule');
 const WelcomeBonusTimer = require('../models/WelcomeBonusTimer');
 const besitosController = require('../controllers/besitos.controller');
+const bitlabsController = require('../controllers/bitlabs.controller');
 
 // Admin authentication middleware
 const { adminAuth } = require('../middleware/adminAuth');
@@ -829,29 +830,138 @@ router.post('/games',
   ]),
   async (req, res) => {
     try {
-      // Fetch external details (Besitos) by gameId without sending headers
-      req.query.offer_id = req.body.gameId;
-      const captureGame = () => {
-        let payload = null; let code = 200;
-        return {
-          res: {
-            status(c){ code = c; return this; },
-            json(obj){ payload = obj; return this; }
-          },
-          get(){ return payload || { success: false, data: [] }; }
+      // Fetch external details based on SDK provider
+      const sdkProvider = req.body.sdkProvider || 'besitos';
+      let external = null;
+
+      if (sdkProvider === 'besitos') {
+        req.query.offer_id = req.body.gameId;
+        const captureGame = () => {
+          let payload = null; let code = 200;
+          return {
+            res: {
+              status(c){ code = c; return this; },
+              json(obj){ payload = obj; return this; }
+            },
+            get(){ return payload || { success: false, data: [] }; }
+          };
         };
-      };
-      const cap2 = captureGame();
-      await besitosController.getOffers(req, cap2.res);
-      const ext = cap2.get();
-      if (!ext || ext.success !== true || !Array.isArray(ext.data) || ext.data.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'External game not found for the provided gameId',
-          error: 'EXTERNAL_GAME_NOT_FOUND'
-        });
+        const cap2 = captureGame();
+        await besitosController.getOffers(req, cap2.res);
+        const ext = cap2.get();
+        if (!ext || ext.success !== true || !Array.isArray(ext.data) || ext.data.length === 0) {
+          return res.status(404).json({
+            success: false,
+            message: 'External game not found for the provided gameId in Besitos',
+            error: 'EXTERNAL_GAME_NOT_FOUND'
+          });
+        }
+        external = ext.data[0];
+      } else if (sdkProvider === 'bitlabs') {
+        // Fetch from Bitlabs using cached offers
+        const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
+        const gameIdToFind = req.body.gameId?.toString().trim();
+        
+        if (!gameIdToFind) {
+          return res.status(400).json({
+            success: false,
+            message: 'gameId is required for Bitlabs games',
+            error: 'MISSING_GAME_ID'
+          });
+        }
+        
+        console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
+        
+        // Helper function to check if offer matches gameId
+        const matchesGameId = (offer) => {
+          const offerId = offer.id?.toString() || offer.offer_id?.toString() || offer.game_id?.toString() || '';
+          const productId = offer.product_id?.toString() || offer.productId?.toString() || '';
+          const appId = offer.app_metadata?.app_id?.toString() || '';
+          
+          return offerId === gameIdToFind || 
+                 productId === gameIdToFind || 
+                 appId === gameIdToFind;
+        };
+        
+        // Try multiple query combinations to find the game
+        const queryCombinations = [
+          {}, // No filters (most likely to have the game)
+          { is_game: true }, // Game offers only
+          { is_game: true, devices: ['android'] }, // Android games
+          { is_game: true, devices: ['iphone'] }, // iPhone games
+          { is_game: true, devices: ['android', 'iphone'] }, // Mobile games
+        ];
+        
+        let offers = [];
+        let found = false;
+        
+        // Try each query combination
+        for (const queryParams of queryCombinations) {
+          try {
+            console.log(`Trying query: ${JSON.stringify(queryParams)}`);
+            offers = await bitlabsOfferCache.getOffers(queryParams);
+            console.log(`Found ${offers.length} offers with query: ${JSON.stringify(queryParams)}`);
+            
+            // Search in current offers
+            external = offers.find(matchesGameId);
+            
+            if (external) {
+              console.log(`✅ Found game in Bitlabs: ${JSON.stringify({ id: external.id, gameId: external.gameId, title: external.title })}`);
+              found = true;
+              break;
+            }
+            
+            // If not found, try refreshing cache for this query
+            console.log(`Game not found in cache, refreshing for query: ${JSON.stringify(queryParams)}`);
+            const refreshedOffers = await bitlabsOfferCache.refreshOffers(queryParams);
+            console.log(`Refreshed ${refreshedOffers.length} offers`);
+            
+            external = refreshedOffers.find(matchesGameId);
+            
+            if (external) {
+              console.log(`✅ Found game after refresh: ${JSON.stringify({ id: external.id, gameId: external.gameId, title: external.title })}`);
+              found = true;
+              break;
+            }
+          } catch (error) {
+            console.error(`Error fetching offers for query ${JSON.stringify(queryParams)}:`, error.message);
+            // Continue to next query combination
+          }
+        }
+        
+        if (!found || !external) {
+          // Log available offer IDs for debugging
+          const sampleIds = offers.slice(0, 5).map(o => ({
+            id: o.id,
+            gameId: o.gameId,
+            productId: o.productId,
+            title: o.title
+          }));
+          
+          console.error(`❌ Game not found. Searched ${offers.length} offers. Sample IDs:`, sampleIds);
+          
+          return res.status(404).json({
+            success: false,
+            message: `External game not found for the provided gameId "${gameIdToFind}" in Bitlabs. Searched ${offers.length} offers.`,
+            error: 'EXTERNAL_GAME_NOT_FOUND',
+            searchedGameId: gameIdToFind,
+            offersSearched: offers.length,
+            sampleOfferIds: sampleIds
+          });
+        }
+      } else {
+        // For other SDKs, allow creation without external validation
+        external = {
+          id: req.body.gameId,
+          title: req.body.title,
+          description: req.body.description,
+          image: '',
+          square_image: '',
+          large_image: '',
+          category: req.body.genre || 'General',
+          url: ''
+        };
       }
-      const external = ext.data[0];
 
       // Parse JSON fields from form-data
       const parsedCountries = JSON.parse(req.body.countries || '[]');
@@ -1821,6 +1931,8 @@ router.get('/games/by-sdk/:sdk', adminAuth, async (req, res) => {
     const { sdk } = req.params;
     if (sdk === "besitos") {
       await besitosController.getOffers(req, res);
+    } else if (sdk === "bitlabs") {
+      await bitlabsController.getOffers(req, res);
     } else {
       res.status(404).json({
         success: false,
@@ -1832,6 +1944,66 @@ router.get('/games/by-sdk/:sdk', adminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'An error occurred while fetching the game list.',
+      error: error.message
+    });
+  }
+});
+
+// Get non-game offers from Bitlabs (surveys, magic receipts, cashback, shopping)
+router.get('/non-game-offers/by-sdk/:sdk', adminAuth, async (req, res) => {
+  try {
+    const { sdk } = req.params;
+    const { type = 'all', devices, is_game = false } = req.query;
+    
+    if (sdk === "bitlabs") {
+      const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
+      const bitlabsNonGames = require('../utils/bitlabs-non-games');
+      
+      // Build query parameters
+      const queryParams = {
+        is_game: false // Only non-game offers
+      };
+      
+      // Add device filter if provided
+      if (devices) {
+        queryParams.devices = Array.isArray(devices) ? devices : [devices];
+      }
+      
+      // Get offers
+      const result = await bitlabsNonGames.getNonGameOffers({
+        userId: 'admin-preview',
+        userProfile: {},
+        type: type || 'all',
+        category: 'all'
+      });
+      
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          message: result.error || 'Failed to fetch non-game offers',
+          data: []
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: result.offers,
+        categorized: result.categorized,
+        breakdown: result.breakdown,
+        total: result.totalOffers,
+        estimatedEarnings: result.estimatedEarnings
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: 'Non-game offers are only available from Bitlabs SDK.'
+      });
+    }
+  } catch (error) {
+    console.error('Error while fetching non-game offers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching non-game offers.',
       error: error.message
     });
   }

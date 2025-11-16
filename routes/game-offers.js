@@ -4,12 +4,14 @@ const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const besitos = require('../utils/besitos');
+const bitlabsGames = require('../utils/bitlabs-games');
+const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
 const verisoul = require('../utils/verisoul');
 
 // Get available game offers
 router.get('/offers', protect, async (req, res) => {
   try {
-    const { category, page = 1, limit = 20 } = req.query;
+    const { category, page = 1, limit = 20, provider = 'all' } = req.query;
     const user = await User.findById(req.user.userId).select('xp vip profile location preferences');
     
     if (!user) {
@@ -19,34 +21,74 @@ router.get('/offers', protect, async (req, res) => {
       });
     }
 
-    // Get Besitos game offers
-    const besitosResult = await besitos.getGameOffers({
-      userId: user._id.toString(),
-      userProfile: {
-        age: user.profile?.age || 25,
-        gender: user.profile?.gender || 'other',
-        country: user.location?.country || 'US',
-        language: user.preferences?.language || 'en',
-        interests: user.preferences?.interests || [],
-        gamingPreferences: user.preferences?.gamingPreferences || [],
-        platform: 'mobile',
-        osVersion: 'iOS 15.0',
-        appVersion: '1.0.0',
-        deviceModel: 'iPhone 13'
-      }
-    });
+    const allOffers = [];
+    let totalOffers = 0;
+    let estimatedEarnings = 0;
 
-    if (!besitosResult.success) {
-      return res.status(500).json({
-        success: false,
-        error: besitosResult.error || 'Failed to get game offers'
+    // Get Besitos game offers (if provider is 'all' or 'besitos')
+    if (provider === 'all' || provider === 'besitos') {
+      const besitosResult = await besitos.getGameOffers({
+        userId: user._id.toString(),
+        userProfile: {
+          age: user.profile?.age || 25,
+          gender: user.profile?.gender || 'other',
+          country: user.location?.country || 'US',
+          language: user.preferences?.language || 'en',
+          interests: user.preferences?.interests || [],
+          gamingPreferences: user.preferences?.gamingPreferences || [],
+          platform: 'mobile',
+          osVersion: 'iOS 15.0',
+          appVersion: '1.0.0',
+          deviceModel: 'iPhone 13'
+        }
       });
+
+      if (besitosResult.success && besitosResult.offers) {
+        // Add provider tag to each offer
+        const besitosOffers = besitosResult.offers.map(offer => ({
+          ...offer,
+          provider: 'besitos'
+        }));
+        allOffers.push(...besitosOffers);
+        totalOffers += besitosResult.totalOffers || 0;
+        estimatedEarnings += besitosResult.estimatedEarnings || 0;
+      }
+    }
+
+    // Get Bitlabs game offers (if provider is 'all' or 'bitlabs')
+    if (provider === 'all' || provider === 'bitlabs') {
+      const bitlabsResult = await bitlabsGames.getGameOffers({
+        userId: user._id.toString(),
+        userProfile: {
+          age: user.profile?.age || 25,
+          gender: user.profile?.gender || 'other',
+          country: user.location?.country || 'US',
+          language: user.preferences?.language || 'en',
+          interests: user.preferences?.interests || [],
+          gamingPreferences: user.preferences?.gamingPreferences || [],
+          platform: 'mobile',
+          osVersion: 'iOS 15.0',
+          appVersion: '1.0.0',
+          deviceModel: 'iPhone 13'
+        }
+      });
+
+      if (bitlabsResult.success && bitlabsResult.offers) {
+        // Add provider tag to each offer
+        const bitlabsOffers = bitlabsResult.offers.map(offer => ({
+          ...offer,
+          provider: 'bitlabs'
+        }));
+        allOffers.push(...bitlabsOffers);
+        totalOffers += bitlabsResult.totalOffers || 0;
+        estimatedEarnings += bitlabsResult.estimatedEarnings || 0;
+      }
     }
 
     // Filter by category if specified
-    let offers = besitosResult.offers;
+    let offers = allOffers;
     if (category && category !== 'all') {
-      offers = offers.filter(offer => offer.category === category);
+      offers = offers.filter(offer => offer.category === category || offer.genre === category);
     }
 
     // Paginate results
@@ -65,8 +107,9 @@ router.get('/offers', protect, async (req, res) => {
           pages: Math.ceil(offers.length / limit)
         },
         category: category || 'all',
-        totalOffers: besitosResult.totalOffers,
-        estimatedEarnings: besitosResult.estimatedEarnings
+        provider: provider || 'all',
+        totalOffers: totalOffers || offers.length,
+        estimatedEarnings: estimatedEarnings
       }
     });
   } catch (error) {
@@ -81,7 +124,7 @@ router.get('/offers', protect, async (req, res) => {
 // Track game installation
 router.post('/install', protect, async (req, res) => {
   try {
-    const { offerId, gameId } = req.body;
+    const { offerId, gameId, provider = 'besitos' } = req.body;
     const user = await User.findById(req.user.userId).select('profile location');
     
     if (!user) {
@@ -91,19 +134,37 @@ router.post('/install', protect, async (req, res) => {
       });
     }
 
-    // Track installation with Besitos
-    const trackingResult = await besitos.trackInstallation({
-      userId: user._id.toString(),
-      offerId: offerId,
-      gameId: gameId,
-      deviceInfo: {
-        platform: 'mobile',
-        osVersion: 'iOS 15.0',
-        appVersion: '1.0.0',
-        deviceId: req.headers['x-device-id'] || 'unknown',
-        ipAddress: req.ip
-      }
-    });
+    let trackingResult;
+
+    // Track installation based on provider
+    if (provider === 'bitlabs') {
+      trackingResult = await bitlabsGames.trackInstallation({
+        userId: user._id.toString(),
+        offerId: offerId,
+        gameId: gameId,
+        deviceInfo: {
+          platform: 'mobile',
+          osVersion: 'iOS 15.0',
+          appVersion: '1.0.0',
+          deviceId: req.headers['x-device-id'] || 'unknown',
+          ipAddress: req.ip
+        }
+      });
+    } else {
+      // Default to Besitos
+      trackingResult = await besitos.trackInstallation({
+        userId: user._id.toString(),
+        offerId: offerId,
+        gameId: gameId,
+        deviceInfo: {
+          platform: 'mobile',
+          osVersion: 'iOS 15.0',
+          appVersion: '1.0.0',
+          deviceId: req.headers['x-device-id'] || 'unknown',
+          ipAddress: req.ip
+        }
+      });
+    }
 
     if (!trackingResult.success) {
       return res.status(400).json({
@@ -152,7 +213,7 @@ router.post('/install', protect, async (req, res) => {
 // Track game completion
 router.post('/complete', protect, async (req, res) => {
   try {
-    const { offerId, gameId, completionData } = req.body;
+    const { offerId, gameId, completionData, provider = 'besitos' } = req.body;
     const user = await User.findById(req.user.userId).select('xp vip wallet games');
     
     if (!user) {
@@ -162,19 +223,38 @@ router.post('/complete', protect, async (req, res) => {
       });
     }
 
-    // Track completion with Besitos
-    const completionResult = await besitos.trackCompletion({
-      userId: user._id.toString(),
-      offerId: offerId,
-      gameId: gameId,
-      completionData: {
-        levelReached: completionData.levelReached || 1,
-        score: completionData.score || 0,
-        timePlayedMinutes: completionData.timePlayedMinutes || 0,
-        tasksCompleted: completionData.tasksCompleted || [],
-        achievements: completionData.achievements || []
-      }
-    });
+    let completionResult;
+
+    // Track completion based on provider
+    if (provider === 'bitlabs') {
+      completionResult = await bitlabsGames.trackCompletion({
+        userId: user._id.toString(),
+        offerId: offerId,
+        gameId: gameId,
+        completionData: {
+          levelReached: completionData.levelReached || 1,
+          score: completionData.score || 0,
+          timePlayedMinutes: completionData.timePlayedMinutes || 0,
+          tasksCompleted: completionData.tasksCompleted || [],
+          achievements: completionData.achievements || [],
+          reward: completionData.reward || 0
+        }
+      });
+    } else {
+      // Default to Besitos
+      completionResult = await besitos.trackCompletion({
+        userId: user._id.toString(),
+        offerId: offerId,
+        gameId: gameId,
+        completionData: {
+          levelReached: completionData.levelReached || 1,
+          score: completionData.score || 0,
+          timePlayedMinutes: completionData.timePlayedMinutes || 0,
+          tasksCompleted: completionData.tasksCompleted || [],
+          achievements: completionData.achievements || []
+        }
+      });
+    }
 
     if (!completionResult.success) {
       return res.status(400).json({
@@ -344,6 +424,86 @@ router.get('/earnings', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get earnings summary'
+    });
+  }
+});
+
+// Game offer completion callback (called by Bitlabs)
+router.post('/callback/bitlabs', async (req, res) => {
+  try {
+    const { userId, offerId, trackingId, signature, reward } = req.body;
+    
+    // Verify callback with Bitlabs
+    const verification = await bitlabsGames.verifyCallback({
+      userId: userId,
+      offerId: offerId,
+      trackingId: trackingId,
+      signature: signature,
+      reward: reward
+    });
+
+    if (!verification.success || !verification.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid callback data'
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId).select('xp vip wallet games');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Calculate final reward with VIP multiplier
+    const vipMultiplier = await getVIPMultiplier(user);
+    const finalReward = Math.round((verification.reward || reward || 0) * vipMultiplier);
+    const xpReward = Math.round(finalReward * 0.5);
+
+    // Update user wallet and XP
+    user.wallet.balance = (user.wallet.balance || 0) + finalReward;
+    user.wallet.lastUpdated = new Date();
+    user.xp.current = (user.xp.current || 0) + xpReward;
+    user.xp.total = (user.xp.total || 0) + xpReward;
+
+    // Update game status
+    const gameIndex = user.games.findIndex(g => g.offerId === offerId);
+    if (gameIndex >= 0) {
+      user.games[gameIndex].completed = true;
+      user.games[gameIndex].completedAt = new Date();
+    }
+
+    // Create transaction record
+    const transaction = new Transaction({
+      user: user._id,
+      type: 'credit',
+      amount: finalReward,
+      description: `Game offer completed - ${offerId} (Bitlabs)`,
+      status: 'completed',
+      referenceId: `OFFER-${offerId}-${Date.now()}`
+    });
+
+    await Promise.all([
+      user.save(),
+      transaction.save()
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Game offer completed successfully!',
+        reward: finalReward,
+        newBalance: user.wallet.balance
+      }
+    });
+  } catch (error) {
+    console.error('Error processing game offer callback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process game offer callback'
     });
   }
 });

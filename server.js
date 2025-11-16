@@ -172,6 +172,8 @@ mongoose.connect(config.MONGODB_URI, {
         const adminSurveysRoutes = require('./routes/admin-surveys');
         const adminDailyChallengesRoutes = require('./routes/admin-daily-challenges');
         const besitosRoutes = require('./routes/besitos');
+        const bitlabsRoutes = require('./routes/bitlabs');
+        const nonGameOffersRoutes = require('./routes/non-game-offers');
         const dailyChallengeRoutes = require('./routes/daily-challenge');
         const webhookRoutes = require('./routes/webhooks');
         const dailyRewardsRoutes = require('./routes/daily-rewards');
@@ -242,6 +244,8 @@ mongoose.connect(config.MONGODB_URI, {
         app.use('/api/admin/surveys', adminSurveysRoutes);
         app.use('/api/admin/daily-challenges', adminDailyChallengesRoutes);
         app.use('/api/besitos', besitosRoutes);
+        app.use('/api/bitlabs', bitlabsRoutes);
+        app.use('/api/non-game-offers', nonGameOffersRoutes);
         app.use('/api/daily-challenge', dailyChallengeRoutes);
         app.use('/api/webhooks', webhookRoutes);
         app.use('/api/daily-rewards', dailyRewardsRoutes);

@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 
-const surveyOfferSchema = new mongoose.Schema(
+/**
+ * Non-Game Offer Model
+ * Handles cashback, magic receipts, shopping, and other non-gaming offers from BitLab
+ * Note: Surveys use SurveyOffer model (different API endpoint)
+ */
+const nonGameOfferSchema = new mongoose.Schema(
   {
     sdkId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -37,8 +42,7 @@ const surveyOfferSchema = new mongoose.Schema(
     },
     offerType: {
       type: String,
-      enum: ["survey"],
-      default: "survey",
+      enum: ["cashback", "shopping", "magic_receipt", "other"],
       required: true,
     },
     coinReward: {
@@ -104,27 +108,21 @@ const surveyOfferSchema = new mongoose.Schema(
         default: false,
       },
     },
-    content: {
-      instructions: String,
-      questions: [
-        {
-          id: String,
-          text: String,
-          type: {
-            type: String,
-            enum: ["multiple_choice", "text", "rating", "yes_no"],
-          },
-          options: [String],
-          required: {
-            type: Boolean,
-            default: true,
-          },
-        },
-      ],
-      completionCriteria: {
-        type: String,
-        default: "complete_all_questions",
+    // Non-gaming specific fields
+    offerDetails: {
+      // For cashback offers
+      cashbackPercentage: Number,
+      minPurchaseAmount: Number,
+      maxCashbackAmount: Number,
+      // For shopping offers
+      storeName: String,
+      discountCode: String,
+      // For magic receipt offers
+      receiptRequired: {
+        type: Boolean,
+        default: false,
       },
+      minReceiptAmount: Number,
     },
     analytics: {
       views: {
@@ -198,7 +196,7 @@ const surveyOfferSchema = new mongoose.Schema(
 );
 
 // Update the updatedAt field before saving
-surveyOfferSchema.pre("save", function (next) {
+nonGameOfferSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
 
   // Calculate conversion rate
@@ -211,26 +209,28 @@ surveyOfferSchema.pre("save", function (next) {
 });
 
 // Indexes for efficient queries
-surveyOfferSchema.index({ sdkId: 1, externalId: 1 }, { unique: true });
-surveyOfferSchema.index({ status: 1 });
-surveyOfferSchema.index({ category: 1 });
-surveyOfferSchema.index({ coinReward: 1 });
-surveyOfferSchema.index({ createdAt: -1 });
-surveyOfferSchema.index({ "analytics.lastUpdated": -1 });
+nonGameOfferSchema.index({ sdkId: 1, externalId: 1 }, { unique: true });
+nonGameOfferSchema.index({ status: 1 });
+nonGameOfferSchema.index({ category: 1 });
+nonGameOfferSchema.index({ offerType: 1 });
+nonGameOfferSchema.index({ coinReward: 1 });
+nonGameOfferSchema.index({ createdAt: -1 });
+nonGameOfferSchema.index({ "analytics.lastUpdated": -1 });
 
 // Compound indexes for filtering
-surveyOfferSchema.index({ status: 1, category: 1 });
-surveyOfferSchema.index({ sdkId: 1, status: 1 });
-surveyOfferSchema.index({ expiryDate: 1, status: 1 });
+nonGameOfferSchema.index({ status: 1, category: 1 });
+nonGameOfferSchema.index({ sdkId: 1, status: 1 });
+nonGameOfferSchema.index({ offerType: 1, status: 1 });
+nonGameOfferSchema.index({ expiryDate: 1, status: 1 });
 
 // Static methods
-surveyOfferSchema.statics.findLive = function () {
+nonGameOfferSchema.statics.findLive = function () {
   return this.find({ status: "live" })
     .populate("sdkId", "name displayName")
     .sort({ "metadata.priority": -1, createdAt: -1 });
 };
 
-surveyOfferSchema.statics.findBySDK = function (sdkId, status = null) {
+nonGameOfferSchema.statics.findBySDK = function (sdkId, status = null) {
   const query = { sdkId };
   if (status) {
     query.status = status;
@@ -241,13 +241,19 @@ surveyOfferSchema.statics.findBySDK = function (sdkId, status = null) {
     .sort({ createdAt: -1 });
 };
 
-surveyOfferSchema.statics.findByCategory = function (category) {
+nonGameOfferSchema.statics.findByType = function (offerType, status = "live") {
+  return this.find({ offerType, status })
+    .populate("sdkId", "name displayName")
+    .sort({ "metadata.priority": -1, createdAt: -1 });
+};
+
+nonGameOfferSchema.statics.findByCategory = function (category) {
   return this.find({ category, status: "live" })
     .populate("sdkId", "name displayName")
     .sort({ "metadata.priority": -1, createdAt: -1 });
 };
 
-surveyOfferSchema.statics.getTopPerformers = function (limit = 10) {
+nonGameOfferSchema.statics.getTopPerformers = function (limit = 10) {
   return this.find({ status: "live" })
     .populate("sdkId", "name displayName")
     .sort({ "analytics.conversionRate": -1, "analytics.completions": -1 })
@@ -255,7 +261,7 @@ surveyOfferSchema.statics.getTopPerformers = function (limit = 10) {
 };
 
 // Instance methods
-surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
+nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
   // Check age requirements
   if (this.requirements.minAge && userProfile.age < this.requirements.minAge) {
     return false;
@@ -309,7 +315,7 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
   return true;
 };
 
-surveyOfferSchema.methods.getAgeGroup = function (age) {
+nonGameOfferSchema.methods.getAgeGroup = function (age) {
   if (age >= 18 && age <= 24) return "18-24";
   if (age >= 25 && age <= 34) return "25-34";
   if (age >= 35 && age <= 44) return "35-44";
@@ -319,19 +325,19 @@ surveyOfferSchema.methods.getAgeGroup = function (age) {
   return "18-24"; // Default
 };
 
-surveyOfferSchema.methods.recordView = function () {
+nonGameOfferSchema.methods.recordView = function () {
   this.analytics.views += 1;
   this.analytics.lastUpdated = Date.now();
   return this.save();
 };
 
-surveyOfferSchema.methods.recordStart = function () {
+nonGameOfferSchema.methods.recordStart = function () {
   this.analytics.starts += 1;
   this.analytics.lastUpdated = Date.now();
   return this.save();
 };
 
-surveyOfferSchema.methods.recordCompletion = function (
+nonGameOfferSchema.methods.recordCompletion = function (
   completionTime,
   coinsIssued
 ) {
@@ -350,19 +356,19 @@ surveyOfferSchema.methods.recordCompletion = function (
   return this.save();
 };
 
-surveyOfferSchema.methods.recordAbandonment = function () {
+nonGameOfferSchema.methods.recordAbandonment = function () {
   this.analytics.abandonment += 1;
   this.analytics.lastUpdated = Date.now();
   return this.save();
 };
 
-surveyOfferSchema.methods.updateStatus = function (status) {
+nonGameOfferSchema.methods.updateStatus = function (status) {
   this.status = status;
   this.analytics.lastUpdated = Date.now();
   return this.save();
 };
 
-surveyOfferSchema.methods.getEngagementFunnel = function () {
+nonGameOfferSchema.methods.getEngagementFunnel = function () {
   return {
     views: this.analytics.views,
     starts: this.analytics.starts,
@@ -373,6 +379,10 @@ surveyOfferSchema.methods.getEngagementFunnel = function () {
   };
 };
 
-const SurveyOffer = mongoose.model("SurveyOffer", surveyOfferSchema);
+const NonGameOffer = mongoose.model("NonGameOffer", nonGameOfferSchema);
 
-module.exports = SurveyOffer;
+module.exports = NonGameOffer;
+
+
+
+

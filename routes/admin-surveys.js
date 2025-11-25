@@ -390,6 +390,7 @@ router.post('/offers', adminAuth, [
 
     const offerData = {
       ...req.body,
+      offerType: "survey", // SurveyOffer only supports surveys
       createdBy: req.user.userId
     };
 
@@ -496,6 +497,7 @@ router.post('/offers/sync/:sdkId', adminAuth, async (req, res) => {
           // Update existing offer
           Object.assign(offer, {
             ...externalOffer,
+            offerType: "survey", // SurveyOffer only supports surveys
             updatedBy: req.user.userId,
             status: 'live' // Reactivate when syncing
           });
@@ -506,6 +508,7 @@ router.post('/offers/sync/:sdkId', adminAuth, async (req, res) => {
           const newOffer = new SurveyOffer({
             ...externalOffer,
             sdkId: req.params.sdkId,
+            offerType: "survey", // SurveyOffer only supports surveys
             status: 'live',
             createdBy: req.user.userId
           });
@@ -611,6 +614,7 @@ router.post('/offers/bulk', adminAuth, [
         const newOffer = new SurveyOffer({
           ...offerData,
           sdkId: sdkId,
+          offerType: "survey", // SurveyOffer only supports surveys
           status: offerData.status || 'live',
           createdBy: req.user.userId
         });

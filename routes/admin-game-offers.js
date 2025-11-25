@@ -1,28 +1,28 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { body, validationResult } = require('express-validator');
-const mongoose = require('mongoose');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { body, validationResult } = require("express-validator");
+const mongoose = require("mongoose");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 // Import models
-const Offer = require('../models/Offer');
-const Game = require('../models/Game');
-const GameTask = require('../models/GameTask');
-const GameDisplayRule = require('../models/GameDisplayRule');
-const TaskProgressionRule = require('../models/TaskProgressionRule');
-const WelcomeBonusTimer = require('../models/WelcomeBonusTimer');
-const besitosController = require('../controllers/besitos.controller');
-const bitlabsController = require('../controllers/bitlabs.controller');
+const Offer = require("../models/Offer");
+const Game = require("../models/Game");
+const GameTask = require("../models/GameTask");
+const GameDisplayRule = require("../models/GameDisplayRule");
+const TaskProgressionRule = require("../models/TaskProgressionRule");
+const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
+const besitosController = require("../controllers/besitos.controller");
+const bitlabsController = require("../controllers/bitlabs.controller");
 
 // Admin authentication middleware
-const { adminAuth } = require('../middleware/adminAuth');
+const { adminAuth } = require("../middleware/adminAuth");
 
 // Configure multer for offer creative uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../uploads/offer-creatives');
+    const uploadPath = path.join(__dirname, "../uploads/offer-creatives");
     // Create directory if it doesn't exist
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
@@ -30,9 +30,9 @@ const storage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
+  },
 });
 
 const upload = multer({
@@ -40,31 +40,37 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp|svg/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const extname = allowedTypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
     const mimetype = allowedTypes.test(file.mimetype);
 
     if (extname && mimetype) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed (jpeg, jpg, png, gif, webp, svg)'));
+      cb(
+        new Error(
+          "Only image files are allowed (jpeg, jpg, png, gif, webp, svg)"
+        )
+      );
     }
-  }
+  },
 });
 
 // ==================== OFFERS MANAGEMENT ====================
 
 // Get all offers with filtering and pagination
-router.get('/offers', adminAuth, async (req, res) => {
+router.get("/offers", adminAuth, async (req, res) => {
   try {
     const {
       page = 1,
       limit = 10,
-      search = '',
-      country = '',
-      sdkProvider = '',
-      xptr = '',
-      adOffer = '',
-      status = 'all'
+      search = "",
+      country = "",
+      sdkProvider = "",
+      xptr = "",
+      adOffer = "",
+      status = "all",
     } = req.query;
 
     let query = {};
@@ -72,8 +78,8 @@ router.get('/offers', adminAuth, async (req, res) => {
     // Search functionality
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -89,17 +95,17 @@ router.get('/offers', adminAuth, async (req, res) => {
 
     // XPTR filter
     if (xptr) {
-      query.xptrRule = { $regex: xptr, $options: 'i' };
+      query.xptrRule = { $regex: xptr, $options: "i" };
     }
 
     // Ad Offer filter
-    if (adOffer !== '') {
-      query.isAdSupported = adOffer === 'true';
+    if (adOffer !== "") {
+      query.isAdSupported = adOffer === "true";
     }
 
     // Status filter
-    if (status !== 'all') {
-      query.isActive = status === 'active';
+    if (status !== "all") {
+      query.isActive = status === "active";
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -108,7 +114,7 @@ router.get('/offers', adminAuth, async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('sdkProvider', 'name')
+      .populate("sdkProvider", "name")
       .lean();
 
     const total = await Offer.countDocuments(query);
@@ -121,106 +127,108 @@ router.get('/offers', adminAuth, async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
           totalItems: total,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
-    console.error('Error getting offers:', error);
+    console.error("Error getting offers:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get offers',
-      error: error.message
+      message: "Failed to get offers",
+      error: error.message,
     });
   }
 });
 
 // Get available UI sections/screens for games and offers
-router.get('/ui-sections', adminAuth, async (req, res) => {
+router.get("/ui-sections", adminAuth, async (req, res) => {
   try {
     // Get distinct uiSection values from both Games and Offers
     const [gameSections, offerSections] = await Promise.all([
-      Game.distinct('uiSection'),
-      Offer.distinct('uiSection')
+      Game.distinct("uiSection"),
+      Offer.distinct("uiSection"),
     ]);
 
     // Combine and deduplicate sections
     const allSections = [...new Set([...gameSections, ...offerSections])]
-      .filter(section => section && section.trim() !== '') // Remove empty/null values
+      .filter((section) => section && section.trim() !== "") // Remove empty/null values
       .sort();
 
     // Common screen/section names based on segments.json
     const commonSections = [
-      'Swipe',
-      'Most Played',
-      'Most Played Screen',
-      'Highest Earning',
-      'Cash Coach Recommendation',
-      'Leadership',
-      'Featured',
-      'Banner',
-      'Carousel',
-      'Home',
-      'Games',
-      'Wallet',
-      'Discover'
+      "Swipe",
+      "Most Played",
+      "Most Played Screen",
+      "Highest Earning",
+      "Cash Coach Recommendation",
+      "Leadership",
+      "Featured",
+      "Banner",
+      "Carousel",
+      "Home",
+      "Games",
+      "Wallet",
+      "Discover",
     ];
 
     // Combine common sections with existing ones
-    const allAvailableSections = [...new Set([...commonSections, ...allSections])]
-      .filter(section => section && section.trim() !== '')
+    const allAvailableSections = [
+      ...new Set([...commonSections, ...allSections]),
+    ]
+      .filter((section) => section && section.trim() !== "")
       .sort();
 
     res.json({
       success: true,
       data: {
         sections: allAvailableSections,
-        gameSections: gameSections.filter(s => s && s.trim() !== ''),
-        offerSections: offerSections.filter(s => s && s.trim() !== '')
-      }
+        gameSections: gameSections.filter((s) => s && s.trim() !== ""),
+        offerSections: offerSections.filter((s) => s && s.trim() !== ""),
+      },
     });
   } catch (error) {
-    console.error('Error getting UI sections:', error);
+    console.error("Error getting UI sections:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get UI sections',
-      error: error.message
+      message: "Failed to get UI sections",
+      error: error.message,
     });
   }
 });
 
 // Get single offer by ID
-router.get('/offers/:id', adminAuth, async (req, res) => {
+router.get("/offers/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
     const offer = await Offer.findById(id)
-      .populate('sdkProvider', 'name')
+      .populate("sdkProvider", "name")
       .lean();
 
     if (!offer) {
       return res.status(404).json({
         success: false,
-        message: 'Offer not found'
+        message: "Offer not found",
       });
     }
 
     res.json({
       success: true,
-      data: offer
+      data: offer,
     });
   } catch (error) {
-    console.error('Error getting offer:', error);
+    console.error("Error getting offer:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get offer',
-      error: error.message
+      message: "Failed to get offer",
+      error: error.message,
     });
   }
 });
 
 // Check if offer ID is available
-router.get('/offers/check-id/:offerId', adminAuth, async (req, res) => {
+router.get("/offers/check-id/:offerId", adminAuth, async (req, res) => {
   try {
     const { offerId } = req.params;
 
@@ -230,58 +238,79 @@ router.get('/offers/check-id/:offerId', adminAuth, async (req, res) => {
       success: true,
       available: !existingOffer,
       message: existingOffer
-        ? 'This offer ID is already taken'
-        : 'This offer ID is available'
+        ? "This offer ID is already taken"
+        : "This offer ID is available",
     });
   } catch (error) {
-    console.error('Error checking offer ID:', error);
+    console.error("Error checking offer ID:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to check offer ID',
-      error: error.message
+      message: "Failed to check offer ID",
+      error: error.message,
     });
   }
 });
 
 // Create or update offer variant with file uploads (upsert by offerId+gender+uiSection+ageGroup)
-router.post('/offers',
+router.post(
+  "/offers",
   adminAuth,
   upload.fields([
-    { name: 'offerCardImage', maxCount: 1 },
-    { name: 'additionalAssets', maxCount: 5 }
+    { name: "offerCardImage", maxCount: 1 },
+    { name: "additionalAssets", maxCount: 5 },
   ]),
   async (req, res) => {
     try {
       // Lookup offer from Besitos by offerId provided without sending headers
       req.query.offer_id = req.body.offerId;
       const captureOffer = () => {
-        let payload = null; let code = 200;
+        let payload = null;
+        let code = 200;
         return {
           res: {
-            status(c){ code = c; return this; },
-            json(obj){ payload = obj; return this; }
+            status(c) {
+              code = c;
+              return this;
+            },
+            json(obj) {
+              payload = obj;
+              return this;
+            },
           },
-          get(){ return payload || { success: false, data: [] }; }
+          get() {
+            return payload || { success: false, data: [] };
+          },
         };
       };
       const cap1 = captureOffer();
       await besitosController.getOffers(req, cap1.res);
       const getOffer = cap1.get();
       // If external offer lookup fails or returns empty, stop processing
-      if (!getOffer || getOffer.success !== true || !Array.isArray(getOffer.data) || getOffer.data.length === 0) {
+      if (
+        !getOffer ||
+        getOffer.success !== true ||
+        !Array.isArray(getOffer.data) ||
+        getOffer.data.length === 0
+      ) {
         return res.status(404).json({
           success: false,
-          message: 'External offer not found for the provided offerId',
-          error: 'EXTERNAL_OFFER_NOT_FOUND'
+          message: "External offer not found for the provided offerId",
+          error: "EXTERNAL_OFFER_NOT_FOUND",
         });
       }
 
       // Parse JSON fields from form-data
-      const parsedCountries = JSON.parse(req.body.countries || '[]');
-      const parsedAgeGroups = req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [];
-      const targetGender = (req.body.gender || 'all').toLowerCase();
-      const targetUiSection = req.body.uiSection || '';
-      const targetAgeGroup = req.body.ageGroup || (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0 ? parsedAgeGroups[0] : '');
+      const parsedCountries = JSON.parse(req.body.countries || "[]");
+      const parsedAgeGroups = req.body.ageGroups
+        ? JSON.parse(req.body.ageGroups)
+        : [];
+      const targetGender = (req.body.gender || "all").toLowerCase();
+      const targetUiSection = req.body.uiSection || "";
+      const targetAgeGroup =
+        req.body.ageGroup ||
+        (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
+          ? parsedAgeGroups[0]
+          : "");
 
       const offerData = {
         offerId: req.body.offerId,
@@ -292,61 +321,72 @@ router.post('/offers',
         expiryDate: req.body.expiryDate,
         countries: parsedCountries,
         cities: req.body.cities ? JSON.parse(req.body.cities) : [],
-        tierAccess: JSON.parse(req.body.tierAccess || '[]'),
+        tierAccess: JSON.parse(req.body.tierAccess || "[]"),
         ageGroups: parsedAgeGroups,
         gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
-        isActive: req.body.isActive === 'true',
-        isDefaultFallback: req.body.isDefaultFallback === 'true',
-        isAdSupported: req.body.isAdSupported === 'true',
+        isActive: req.body.isActive === "true",
+        isDefaultFallback: req.body.isDefaultFallback === "true",
+        isAdSupported: req.body.isAdSupported === "true",
         xptrRule: req.body.xptrRule,
         reward: {
           coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0,
-          xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0
+          xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
         },
         metadata: {
-          estimatedTimeMinutes: req.body.estimatedTime ? parseInt(req.body.estimatedTime) : 5,
-          difficulty: req.body.difficulty || 'easy',
-          category: req.body.category || 'survey',
+          estimatedTimeMinutes: req.body.estimatedTime
+            ? parseInt(req.body.estimatedTime)
+            : 5,
+          difficulty: req.body.difficulty || "easy",
+          category: req.body.category || "survey",
           deepLink: req.body.deepLink,
-          trackingId: req.body.trackingId
+          trackingId: req.body.trackingId,
         },
         createdBy: req.user.userId,
-        deviceType: req.body.deviceType || 'android',
+        deviceType: req.body.deviceType || "android",
         uiSection: targetUiSection,
-        ageGroup: targetAgeGroup
+        ageGroup: targetAgeGroup,
       };
 
       // Map external offer details into gameDetails snapshot
       const external = getOffer.data[0];
       offerData.gameDetails = {
-        id: external.id || '',
+        id: external.id || "",
         name: external.title || external.name || offerData.name,
         description: external.description || offerData.description,
-        image: external.image || external.large_image || '',
-        square_image: external.square_image || '',
-        large_image: external.large_image || external.image || '',
-        category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
-        downloadUrl: external.url || ''
+        image: external.image || external.large_image || "",
+        square_image: external.square_image || "",
+        large_image: external.large_image || external.image || "",
+        category:
+          Array.isArray(external.categories) &&
+          external.categories[0] &&
+          external.categories[0].name
+            ? external.categories[0].name
+            : external.category || "",
+        downloadUrl: external.url || "",
       };
 
       // Handle uploaded offer card image
-      if (req.files && req.files.offerCardImage && req.files.offerCardImage[0]) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+      if (
+        req.files &&
+        req.files.offerCardImage &&
+        req.files.offerCardImage[0]
+      ) {
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         const imageUrl = `${baseUrl}/uploads/offer-creatives/${req.files.offerCardImage[0].filename}`;
 
         offerData.creative = {
           offerCard: {
             imageUrl: imageUrl,
-            layout: req.body.cardLayout || 'standard',
+            layout: req.body.cardLayout || "standard",
             dimensions: {
               width: req.body.cardWidth ? parseInt(req.body.cardWidth) : 320,
-              height: req.body.cardHeight ? parseInt(req.body.cardHeight) : 180
-            }
+              height: req.body.cardHeight ? parseInt(req.body.cardHeight) : 180,
+            },
           },
-          additionalAssets: []
+          additionalAssets: [],
         };
 
         // Store image URL in metadata as well for backward compatibility
@@ -355,16 +395,16 @@ router.post('/offers',
 
       // Handle additional asset uploads
       if (req.files && req.files.additionalAssets) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         if (!offerData.creative) {
           offerData.creative = { additionalAssets: [] };
         }
 
         req.files.additionalAssets.forEach((file, index) => {
           offerData.creative.additionalAssets.push({
-            type: req.body[`assetType_${index}`] || 'banner',
+            type: req.body[`assetType_${index}`] || "banner",
             url: `${baseUrl}/uploads/offer-creatives/${file.filename}`,
-            altText: req.body[`assetAlt_${index}`] || `Asset ${index + 1}`
+            altText: req.body[`assetAlt_${index}`] || `Asset ${index + 1}`,
           });
         });
       }
@@ -374,7 +414,7 @@ router.post('/offers',
         offerId: offerData.offerId,
         gender: targetGender,
         uiSection: targetUiSection,
-        ageGroup: targetAgeGroup
+        ageGroup: targetAgeGroup,
       };
       const update = {
         $set: {
@@ -401,56 +441,62 @@ router.post('/offers',
           uiSection: targetUiSection,
           ageGroup: targetAgeGroup,
           gameDetails: offerData.gameDetails,
-          creative: offerData.creative
+          creative: offerData.creative,
         },
         $setOnInsert: {
           offerId: offerData.offerId,
-          createdBy: req.user.userId
-        }
+          createdBy: req.user.userId,
+        },
       };
 
-      const upserted = await Offer.findOneAndUpdate(filter, update, { upsert: true, new: true });
+      const upserted = await Offer.findOneAndUpdate(filter, update, {
+        upsert: true,
+        new: true,
+      });
 
       res.status(201).json({
         success: true,
-        message: 'Offer created/updated successfully',
-        data: upserted
+        message: "Offer created/updated successfully",
+        data: upserted,
       });
     } catch (error) {
-      console.error('Error creating offer:', error);
+      console.error("Error creating offer:", error);
 
       // Handle multer errors
-      if (error.code === 'LIMIT_FILE_SIZE') {
+      if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
-          message: 'File size too large. Maximum size is 5MB',
-          error: error.message
+          message: "File size too large. Maximum size is 5MB",
+          error: error.message,
         });
       }
 
       // Handle MongoDB duplicate key error (compound key)
-      if (error.code === 11000 || error.name === 'MongoServerError') {
+      if (error.code === 11000 || error.name === "MongoServerError") {
         return res.status(400).json({
           success: false,
-          message: 'An offer variant with the same offerId, gender, uiSection and ageGroup already exists.',
-          error: 'DUPLICATE_OFFER_VARIANT'
+          message:
+            "An offer variant with the same offerId, gender, uiSection and ageGroup already exists.",
+          error: "DUPLICATE_OFFER_VARIANT",
         });
       }
 
       res.status(500).json({
         success: false,
-        message: 'Failed to create offer',
-        error: error.message
+        message: "Failed to create offer",
+        error: error.message,
       });
     }
-  });
+  }
+);
 
 // Update offer with file uploads
-router.put('/offers/:id',
+router.put(
+  "/offers/:id",
   adminAuth,
   upload.fields([
-    { name: 'offerCardImage', maxCount: 1 },
-    { name: 'additionalAssets', maxCount: 5 }
+    { name: "offerCardImage", maxCount: 1 },
+    { name: "additionalAssets", maxCount: 5 },
   ]),
   async (req, res) => {
     try {
@@ -461,7 +507,7 @@ router.put('/offers/:id',
       if (!existingOffer) {
         return res.status(404).json({
           success: false,
-          message: 'Offer not found'
+          message: "Offer not found",
         });
       }
 
@@ -469,14 +515,15 @@ router.put('/offers/:id',
       if (req.body.offerId && req.body.offerId !== existingOffer.offerId) {
         const duplicateOffer = await Offer.findOne({
           offerId: req.body.offerId,
-          _id: { $ne: id } // Exclude current offer
+          _id: { $ne: id }, // Exclude current offer
         });
 
         if (duplicateOffer) {
           return res.status(400).json({
             success: false,
-            message: 'An offer with this ID already exists. The offerId field must be unique.',
-            error: 'DUPLICATE_OFFER_ID'
+            message:
+              "An offer with this ID already exists. The offerId field must be unique.",
+            error: "DUPLICATE_OFFER_ID",
           });
         }
       }
@@ -484,7 +531,7 @@ router.put('/offers/:id',
       // Build update data
       const updateData = {
         updatedBy: req.user.userId,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       // Update basic fields if provided
@@ -494,56 +541,88 @@ router.put('/offers/:id',
       if (req.body.sdkProvider) updateData.sdkProvider = req.body.sdkProvider;
       if (req.body.startDate) updateData.startDate = req.body.startDate;
       if (req.body.expiryDate) updateData.expiryDate = req.body.expiryDate;
-      if (req.body.countries) updateData.countries = JSON.parse(req.body.countries);
+      if (req.body.countries)
+        updateData.countries = JSON.parse(req.body.countries);
       if (req.body.cities) updateData.cities = JSON.parse(req.body.cities);
-      if (req.body.tierAccess) updateData.tierAccess = JSON.parse(req.body.tierAccess);
-      if (req.body.ageGroups) updateData.ageGroups = JSON.parse(req.body.ageGroups);
+      if (req.body.tierAccess)
+        updateData.tierAccess = JSON.parse(req.body.tierAccess);
+      if (req.body.ageGroups)
+        updateData.ageGroups = JSON.parse(req.body.ageGroups);
       if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
-      if (req.body.uiSection !== undefined) updateData.uiSection = req.body.uiSection || '';
-      if (req.body.marketingChannel) updateData.marketingChannel = req.body.marketingChannel;
-      if (req.body.campaignName) updateData.campaignName = req.body.campaignName;
+      if (req.body.uiSection !== undefined)
+        updateData.uiSection = req.body.uiSection || "";
+      if (req.body.marketingChannel)
+        updateData.marketingChannel = req.body.marketingChannel;
+      if (req.body.campaignName)
+        updateData.campaignName = req.body.campaignName;
       if (req.body.xpTier) updateData.xpTier = parseInt(req.body.xpTier);
-      if (req.body.isActive !== undefined) updateData.isActive = req.body.isActive === 'true';
-      if (req.body.isDefaultFallback !== undefined) updateData.isDefaultFallback = req.body.isDefaultFallback === 'true';
-      if (req.body.isAdSupported !== undefined) updateData.isAdSupported = req.body.isAdSupported === 'true';
+      if (req.body.isActive !== undefined)
+        updateData.isActive = req.body.isActive === "true";
+      if (req.body.isDefaultFallback !== undefined)
+        updateData.isDefaultFallback = req.body.isDefaultFallback === "true";
+      if (req.body.isAdSupported !== undefined)
+        updateData.isAdSupported = req.body.isAdSupported === "true";
       if (req.body.xptrRule) updateData.xptrRule = req.body.xptrRule;
 
       // Update rewards
       if (req.body.rewardCoins || req.body.rewardXP) {
         updateData.reward = {
-          coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : existingOffer.reward?.coins || 0,
-          xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : existingOffer.reward?.xp || 0
+          coins: req.body.rewardCoins
+            ? parseFloat(req.body.rewardCoins)
+            : existingOffer.reward?.coins || 0,
+          xp: req.body.rewardXP
+            ? parseFloat(req.body.rewardXP)
+            : existingOffer.reward?.xp || 0,
         };
       }
 
       // Update metadata
-      if (req.body.estimatedTime || req.body.difficulty || req.body.category || req.body.deepLink || req.body.trackingId) {
+      if (
+        req.body.estimatedTime ||
+        req.body.difficulty ||
+        req.body.category ||
+        req.body.deepLink ||
+        req.body.trackingId
+      ) {
         updateData.metadata = {
           ...existingOffer.metadata?.toObject(),
-          estimatedTimeMinutes: req.body.estimatedTime ? parseInt(req.body.estimatedTime) : existingOffer.metadata?.estimatedTimeMinutes,
+          estimatedTimeMinutes: req.body.estimatedTime
+            ? parseInt(req.body.estimatedTime)
+            : existingOffer.metadata?.estimatedTimeMinutes,
           difficulty: req.body.difficulty || existingOffer.metadata?.difficulty,
           category: req.body.category || existingOffer.metadata?.category,
           deepLink: req.body.deepLink || existingOffer.metadata?.deepLink,
-          trackingId: req.body.trackingId || existingOffer.metadata?.trackingId
+          trackingId: req.body.trackingId || existingOffer.metadata?.trackingId,
         };
       }
 
       // Handle new uploaded offer card image
-      if (req.files && req.files.offerCardImage && req.files.offerCardImage[0]) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+      if (
+        req.files &&
+        req.files.offerCardImage &&
+        req.files.offerCardImage[0]
+      ) {
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         const imageUrl = `${baseUrl}/uploads/offer-creatives/${req.files.offerCardImage[0].filename}`;
 
         updateData.creative = {
           ...existingOffer.creative?.toObject(),
           offerCard: {
             imageUrl: imageUrl,
-            layout: req.body.cardLayout || existingOffer.creative?.offerCard?.layout || 'standard',
+            layout:
+              req.body.cardLayout ||
+              existingOffer.creative?.offerCard?.layout ||
+              "standard",
             dimensions: {
-              width: req.body.cardWidth ? parseInt(req.body.cardWidth) : existingOffer.creative?.offerCard?.dimensions?.width || 320,
-              height: req.body.cardHeight ? parseInt(req.body.cardHeight) : existingOffer.creative?.offerCard?.dimensions?.height || 180
-            }
-          }
+              width: req.body.cardWidth
+                ? parseInt(req.body.cardWidth)
+                : existingOffer.creative?.offerCard?.dimensions?.width || 320,
+              height: req.body.cardHeight
+                ? parseInt(req.body.cardHeight)
+                : existingOffer.creative?.offerCard?.dimensions?.height || 180,
+            },
+          },
         };
 
         // Update metadata imageUrl for backward compatibility
@@ -553,64 +632,66 @@ router.put('/offers/:id',
 
       // Handle new additional asset uploads
       if (req.files && req.files.additionalAssets) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         if (!updateData.creative) {
           updateData.creative = existingOffer.creative?.toObject() || {};
         }
 
-        updateData.creative.additionalAssets = existingOffer.creative?.additionalAssets || [];
+        updateData.creative.additionalAssets =
+          existingOffer.creative?.additionalAssets || [];
 
         req.files.additionalAssets.forEach((file, index) => {
           updateData.creative.additionalAssets.push({
-            type: req.body[`assetType_${index}`] || 'banner',
+            type: req.body[`assetType_${index}`] || "banner",
             url: `${baseUrl}/uploads/offer-creatives/${file.filename}`,
-            altText: req.body[`assetAlt_${index}`] || `Asset ${index + 1}`
+            altText: req.body[`assetAlt_${index}`] || `Asset ${index + 1}`,
           });
         });
       }
 
-      const offer = await Offer.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      );
+      const offer = await Offer.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
 
       res.json({
         success: true,
-        message: 'Offer updated successfully',
-        data: offer
+        message: "Offer updated successfully",
+        data: offer,
       });
     } catch (error) {
-      console.error('Error updating offer:', error);
+      console.error("Error updating offer:", error);
 
       // Handle multer errors
-      if (error.code === 'LIMIT_FILE_SIZE') {
+      if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
-          message: 'File size too large. Maximum size is 5MB',
-          error: error.message
+          message: "File size too large. Maximum size is 5MB",
+          error: error.message,
         });
       }
 
       // Handle MongoDB duplicate key error
-      if (error.code === 11000 || error.name === 'MongoServerError') {
+      if (error.code === 11000 || error.name === "MongoServerError") {
         return res.status(400).json({
           success: false,
-          message: 'An offer with this ID already exists. The offerId field must be unique.',
-          error: 'DUPLICATE_OFFER_ID'
+          message:
+            "An offer with this ID already exists. The offerId field must be unique.",
+          error: "DUPLICATE_OFFER_ID",
         });
       }
 
       res.status(500).json({
         success: false,
-        message: 'Failed to update offer',
-        error: error.message
+        message: "Failed to update offer",
+        error: error.message,
       });
     }
-  });
+  }
+);
 
 // Delete offer
-router.delete('/offers/:id', adminAuth, async (req, res) => {
+router.delete("/offers/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -619,26 +700,26 @@ router.delete('/offers/:id', adminAuth, async (req, res) => {
     if (!offer) {
       return res.status(404).json({
         success: false,
-        message: 'Offer not found'
+        message: "Offer not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Offer deleted successfully'
+      message: "Offer deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting offer:', error);
+    console.error("Error deleting offer:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete offer',
-      error: error.message
+      message: "Failed to delete offer",
+      error: error.message,
     });
   }
 });
 
 // Toggle offer status
-router.patch('/offers/:id/toggle-status', adminAuth, async (req, res) => {
+router.patch("/offers/:id/toggle-status", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -647,7 +728,7 @@ router.patch('/offers/:id/toggle-status', adminAuth, async (req, res) => {
     if (!offer) {
       return res.status(404).json({
         success: false,
-        message: 'Offer not found'
+        message: "Offer not found",
       });
     }
 
@@ -659,15 +740,17 @@ router.patch('/offers/:id/toggle-status', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      message: `Offer ${offer.isActive ? 'activated' : 'deactivated'} successfully`,
-      data: { isActive: offer.isActive }
+      message: `Offer ${
+        offer.isActive ? "activated" : "deactivated"
+      } successfully`,
+      data: { isActive: offer.isActive },
     });
   } catch (error) {
-    console.error('Error toggling offer status:', error);
+    console.error("Error toggling offer status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to toggle offer status',
-      error: error.message
+      message: "Failed to toggle offer status",
+      error: error.message,
     });
   }
 });
@@ -675,17 +758,17 @@ router.patch('/offers/:id/toggle-status', adminAuth, async (req, res) => {
 // ==================== GAMES MANAGEMENT ====================
 
 // Get all games with filtering and pagination
-router.get('/games', adminAuth, async (req, res) => {
+router.get("/games", adminAuth, async (req, res) => {
   try {
     const {
       page = 1,
       limit = 10,
-      search = '',
-      country = '',
-      sdkProvider = '',
-      xptr = '',
-      adGame = '',
-      status = 'all'
+      search = "",
+      country = "",
+      sdkProvider = "",
+      xptr = "",
+      adGame = "",
+      status = "all",
     } = req.query;
 
     let query = {};
@@ -693,8 +776,8 @@ router.get('/games', adminAuth, async (req, res) => {
     // Search functionality
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { title: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -710,17 +793,17 @@ router.get('/games', adminAuth, async (req, res) => {
 
     // XPTR filter
     if (xptr) {
-      query.xptrRules = { $regex: xptr, $options: 'i' };
+      query.xptrRules = { $regex: xptr, $options: "i" };
     }
 
     // Ad Game filter
-    if (adGame !== '') {
-      query.isAdSupported = adGame === 'true';
+    if (adGame !== "") {
+      query.isAdSupported = adGame === "true";
     }
 
     // Status filter
-    if (status !== 'all') {
-      query.isActive = status === 'active';
+    if (status !== "all") {
+      query.isActive = status === "active";
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -729,7 +812,7 @@ router.get('/games', adminAuth, async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('sdkProvider', 'name')
+      .populate("sdkProvider", "name")
       .lean();
 
     // Add task count for each game
@@ -750,33 +833,31 @@ router.get('/games', adminAuth, async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
           totalItems: total,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
-    console.error('Error getting games:', error);
+    console.error("Error getting games:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get games',
-      error: error.message
+      message: "Failed to get games",
+      error: error.message,
     });
   }
 });
 
 // Get single game by ID
-router.get('/games/:id', adminAuth, async (req, res) => {
+router.get("/games/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    console.log({ id })
-    const game = await Game.findById(id)
-      .populate('sdkProvider', 'name')
-      .lean();
+    console.log({ id });
+    const game = await Game.findById(id).populate("sdkProvider", "name").lean();
 
     if (!game) {
       return res.status(404).json({
         success: false,
-        message: 'Game not found'
+        message: "Game not found",
       });
     }
 
@@ -786,20 +867,20 @@ router.get('/games/:id', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      data: game
+      data: game,
     });
   } catch (error) {
-    console.error('Error getting game:', error);
+    console.error("Error getting game:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get game',
-      error: error.message
+      message: "Failed to get game",
+      error: error.message,
     });
   }
 });
 
 // Check if game ID is available
-router.get('/games/check-id/:gameId', adminAuth, async (req, res) => {
+router.get("/games/check-id/:gameId", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
 
@@ -809,144 +890,193 @@ router.get('/games/check-id/:gameId', adminAuth, async (req, res) => {
       success: true,
       available: !existingGame,
       message: existingGame
-        ? 'This game ID is already taken'
-        : 'This game ID is available'
+        ? "This game ID is already taken"
+        : "This game ID is available",
     });
   } catch (error) {
-    console.error('Error checking game ID:', error);
+    console.error("Error checking game ID:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to check game ID',
-      error: error.message
+      message: "Failed to check game ID",
+      error: error.message,
     });
   }
 });
 
 // Create new game with file uploads
-router.post('/games',
+router.post(
+  "/games",
   adminAuth,
-  upload.fields([
-    { name: 'gameThumbnail', maxCount: 1 }
-  ]),
+  upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
       // Fetch external details based on SDK provider
-      const sdkProvider = req.body.sdkProvider || 'besitos';
+      const sdkProvider = req.body.sdkProvider || "besitos";
       let external = null;
 
-      if (sdkProvider === 'besitos') {
+      if (sdkProvider === "besitos") {
         req.query.offer_id = req.body.gameId;
         const captureGame = () => {
-          let payload = null; let code = 200;
+          let payload = null;
+          let code = 200;
           return {
             res: {
-              status(c){ code = c; return this; },
-              json(obj){ payload = obj; return this; }
+              status(c) {
+                code = c;
+                return this;
+              },
+              json(obj) {
+                payload = obj;
+                return this;
+              },
             },
-            get(){ return payload || { success: false, data: [] }; }
+            get() {
+              return payload || { success: false, data: [] };
+            },
           };
         };
         const cap2 = captureGame();
         await besitosController.getOffers(req, cap2.res);
         const ext = cap2.get();
-        if (!ext || ext.success !== true || !Array.isArray(ext.data) || ext.data.length === 0) {
+        if (
+          !ext ||
+          ext.success !== true ||
+          !Array.isArray(ext.data) ||
+          ext.data.length === 0
+        ) {
           return res.status(404).json({
             success: false,
-            message: 'External game not found for the provided gameId in Besitos',
-            error: 'EXTERNAL_GAME_NOT_FOUND'
+            message:
+              "External game not found for the provided gameId in Besitos",
+            error: "EXTERNAL_GAME_NOT_FOUND",
           });
         }
         external = ext.data[0];
-      } else if (sdkProvider === 'bitlabs') {
+      } else if (sdkProvider === "bitlabs") {
         // Fetch from Bitlabs using cached offers
-        const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
+        const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
         const gameIdToFind = req.body.gameId?.toString().trim();
-        
+
         if (!gameIdToFind) {
           return res.status(400).json({
             success: false,
-            message: 'gameId is required for Bitlabs games',
-            error: 'MISSING_GAME_ID'
+            message: "gameId is required for Bitlabs games",
+            error: "MISSING_GAME_ID",
           });
         }
-        
+
         console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
-        
+
         // Helper function to check if offer matches gameId
         const matchesGameId = (offer) => {
-          const offerId = offer.id?.toString() || offer.offer_id?.toString() || offer.game_id?.toString() || '';
-          const productId = offer.product_id?.toString() || offer.productId?.toString() || '';
-          const appId = offer.app_metadata?.app_id?.toString() || '';
-          
-          return offerId === gameIdToFind || 
-                 productId === gameIdToFind || 
-                 appId === gameIdToFind;
+          const offerId =
+            offer.id?.toString() ||
+            offer.offer_id?.toString() ||
+            offer.game_id?.toString() ||
+            "";
+          const productId =
+            offer.product_id?.toString() || offer.productId?.toString() || "";
+          const appId = offer.app_metadata?.app_id?.toString() || "";
+
+          return (
+            offerId === gameIdToFind ||
+            productId === gameIdToFind ||
+            appId === gameIdToFind
+          );
         };
-        
+
         // Try multiple query combinations to find the game
         const queryCombinations = [
           {}, // No filters (most likely to have the game)
           { is_game: true }, // Game offers only
-          { is_game: true, devices: ['android'] }, // Android games
-          { is_game: true, devices: ['iphone'] }, // iPhone games
-          { is_game: true, devices: ['android', 'iphone'] }, // Mobile games
+          { is_game: true, devices: ["android"] }, // Android games
+          { is_game: true, devices: ["iphone"] }, // iPhone games
+          { is_game: true, devices: ["android", "iphone"] }, // Mobile games
         ];
-        
+
         let offers = [];
         let found = false;
-        
+
         // Try each query combination
         for (const queryParams of queryCombinations) {
           try {
             console.log(`Trying query: ${JSON.stringify(queryParams)}`);
             offers = await bitlabsOfferCache.getOffers(queryParams);
-            console.log(`Found ${offers.length} offers with query: ${JSON.stringify(queryParams)}`);
-            
+            console.log(
+              `Found ${offers.length} offers with query: ${JSON.stringify(
+                queryParams
+              )}`
+            );
+
             // Search in current offers
             external = offers.find(matchesGameId);
-            
+
             if (external) {
-              console.log(`✅ Found game in Bitlabs: ${JSON.stringify({ id: external.id, gameId: external.gameId, title: external.title })}`);
+              console.log(
+                `✅ Found game in Bitlabs: ${JSON.stringify({
+                  id: external.id,
+                  gameId: external.gameId,
+                  title: external.title,
+                })}`
+              );
               found = true;
               break;
             }
-            
+
             // If not found, try refreshing cache for this query
-            console.log(`Game not found in cache, refreshing for query: ${JSON.stringify(queryParams)}`);
-            const refreshedOffers = await bitlabsOfferCache.refreshOffers(queryParams);
+            console.log(
+              `Game not found in cache, refreshing for query: ${JSON.stringify(
+                queryParams
+              )}`
+            );
+            const refreshedOffers = await bitlabsOfferCache.refreshOffers(
+              queryParams
+            );
             console.log(`Refreshed ${refreshedOffers.length} offers`);
-            
+
             external = refreshedOffers.find(matchesGameId);
-            
+
             if (external) {
-              console.log(`✅ Found game after refresh: ${JSON.stringify({ id: external.id, gameId: external.gameId, title: external.title })}`);
+              console.log(
+                `✅ Found game after refresh: ${JSON.stringify({
+                  id: external.id,
+                  gameId: external.gameId,
+                  title: external.title,
+                })}`
+              );
               found = true;
               break;
             }
           } catch (error) {
-            console.error(`Error fetching offers for query ${JSON.stringify(queryParams)}:`, error.message);
+            console.error(
+              `Error fetching offers for query ${JSON.stringify(queryParams)}:`,
+              error.message
+            );
             // Continue to next query combination
           }
         }
-        
+
         if (!found || !external) {
           // Log available offer IDs for debugging
-          const sampleIds = offers.slice(0, 5).map(o => ({
+          const sampleIds = offers.slice(0, 5).map((o) => ({
             id: o.id,
             gameId: o.gameId,
             productId: o.productId,
-            title: o.title
+            title: o.title,
           }));
-          
-          console.error(`❌ Game not found. Searched ${offers.length} offers. Sample IDs:`, sampleIds);
-          
+
+          console.error(
+            `❌ Game not found. Searched ${offers.length} offers. Sample IDs:`,
+            sampleIds
+          );
+
           return res.status(404).json({
             success: false,
             message: `External game not found for the provided gameId "${gameIdToFind}" in Bitlabs. Searched ${offers.length} offers.`,
-            error: 'EXTERNAL_GAME_NOT_FOUND',
+            error: "EXTERNAL_GAME_NOT_FOUND",
             searchedGameId: gameIdToFind,
             offersSearched: offers.length,
-            sampleOfferIds: sampleIds
+            sampleOfferIds: sampleIds,
           });
         }
       } else {
@@ -955,20 +1085,26 @@ router.post('/games',
           id: req.body.gameId,
           title: req.body.title,
           description: req.body.description,
-          image: '',
-          square_image: '',
-          large_image: '',
-          category: req.body.genre || 'General',
-          url: ''
+          image: "",
+          square_image: "",
+          large_image: "",
+          category: req.body.genre || "General",
+          url: "",
         };
       }
 
       // Parse JSON fields from form-data
-      const parsedCountries = JSON.parse(req.body.countries || '[]');
-      const parsedAgeGroups = req.body.ageGroups ? JSON.parse(req.body.ageGroups) : [];
-      const targetGender = (req.body.gender || 'all').toLowerCase();
-      const targetUiSection = req.body.uiSection || '';
-      const targetAgeGroup = req.body.ageGroup || (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0 ? parsedAgeGroups[0] : '');
+      const parsedCountries = JSON.parse(req.body.countries || "[]");
+      const parsedAgeGroups = req.body.ageGroups
+        ? JSON.parse(req.body.ageGroups)
+        : [];
+      const targetGender = (req.body.gender || "all").toLowerCase();
+      const targetUiSection = req.body.uiSection || "";
+      const targetAgeGroup =
+        req.body.ageGroup ||
+        (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
+          ? parsedAgeGroups[0]
+          : "");
 
       const gameData = {
         gameId: req.body.gameId,
@@ -979,56 +1115,69 @@ router.post('/games',
         xptrRules: req.body.xptrRules,
         rewards: {
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
-          coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0
+          coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0,
         },
-        defaultTaskCount: req.body.defaultTaskCount ? parseInt(req.body.defaultTaskCount) : 0,
+        defaultTaskCount: req.body.defaultTaskCount
+          ? parseInt(req.body.defaultTaskCount)
+          : 0,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
-        isDefaultFallback: req.body.isDefaultFallback === 'true',
+        isDefaultFallback: req.body.isDefaultFallback === "true",
         ageGroups: parsedAgeGroups,
         gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         tierRestrictions: {
-          minTier: req.body.tier || 'free',
-          maxTier: 'platinum'
+          minTier: req.body.tier || "free",
+          maxTier: "platinum",
         },
         metadata: {
-          genre: req.body.genre || 'puzzle',
-          difficulty: req.body.difficulty || 'easy',
+          genre: req.body.genre || "puzzle",
+          difficulty: req.body.difficulty || "easy",
           rating: req.body.rating ? parseFloat(req.body.rating) : 3.0,
-          estimatedPlayTime: req.body.estimatedPlayTime ? parseInt(req.body.estimatedPlayTime) : 10
+          estimatedPlayTime: req.body.estimatedPlayTime
+            ? parseInt(req.body.estimatedPlayTime)
+            : 10,
         },
-        isActive: req.body.isActive === 'true',
-        isAdSupported: req.body.isAdSupported === 'true',
+        isActive: req.body.isActive === "true",
+        isAdSupported: req.body.isAdSupported === "true",
         createdBy: req.user.userId,
-        deviceType: req.body.deviceType || 'android',
-        uiSection: targetUiSection
+        deviceType: req.body.deviceType || "android",
+        uiSection: targetUiSection,
       };
 
       // Map external details into gameDetails snapshot
       gameData.gameDetails = {
-        id: external.id || '',
+        id: external.id || "",
         name: external.title || external.name || gameData.title,
         description: external.description || gameData.description,
-        image: external.image || external.large_image || '',
-        square_image: external.square_image || '',
-        large_image: external.large_image || external.image || '',
-        category: (Array.isArray(external.categories) && external.categories[0] && external.categories[0].name) ? external.categories[0].name : (external.category || ''),
-        downloadUrl: external.url || ''
+        image: external.image || external.large_image || "",
+        square_image: external.square_image || "",
+        large_image: external.large_image || external.image || "",
+        category:
+          Array.isArray(external.categories) &&
+          external.categories[0] &&
+          external.categories[0].name
+            ? external.categories[0].name
+            : external.category || "",
+        downloadUrl: external.url || "",
       };
 
       // Handle uploaded game thumbnail
       if (req.files && req.files.gameThumbnail && req.files.gameThumbnail[0]) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         const imageUrl = `${baseUrl}/uploads/offer-creatives/${req.files.gameThumbnail[0].filename}`;
 
         gameData.metadata.thumbnail = {
           url: imageUrl,
           dimensions: {
-            width: req.body.thumbnailWidth ? parseInt(req.body.thumbnailWidth) : 300,
-            height: req.body.thumbnailHeight ? parseInt(req.body.thumbnailHeight) : 300
+            width: req.body.thumbnailWidth
+              ? parseInt(req.body.thumbnailWidth)
+              : 300,
+            height: req.body.thumbnailHeight
+              ? parseInt(req.body.thumbnailHeight)
+              : 300,
           },
-          altText: req.body.thumbnailAltText || gameData.title
+          altText: req.body.thumbnailAltText || gameData.title,
         };
 
         // Store image URL in metadata as well for backward compatibility
@@ -1040,7 +1189,7 @@ router.post('/games',
         gameId: gameData.gameId,
         gender: targetGender,
         uiSection: targetUiSection,
-        ageGroup: targetAgeGroup
+        ageGroup: targetAgeGroup,
       };
       const update = {
         $set: {
@@ -1058,55 +1207,59 @@ router.post('/games',
           uiSection: targetUiSection,
           gender: targetGender,
           ageGroup: targetAgeGroup,
-          ageGroups: parsedAgeGroups
+          ageGroups: parsedAgeGroups,
         },
         $setOnInsert: {
-          createdBy: req.user.userId
-        }
+          createdBy: req.user.userId,
+        },
       };
 
-      const upserted = await Game.findOneAndUpdate(filter, update, { upsert: true, new: true });
+      const upserted = await Game.findOneAndUpdate(filter, update, {
+        upsert: true,
+        new: true,
+      });
 
       res.status(201).json({
         success: true,
-        message: 'Game created/updated successfully',
-        data: upserted
+        message: "Game created/updated successfully",
+        data: upserted,
       });
     } catch (error) {
-      console.error('Error creating game:', error);
+      console.error("Error creating game:", error);
 
       // Handle multer errors
-      if (error.code === 'LIMIT_FILE_SIZE') {
+      if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
-          message: 'File size too large. Maximum size is 5MB',
-          error: error.message
+          message: "File size too large. Maximum size is 5MB",
+          error: error.message,
         });
       }
 
       // Handle MongoDB duplicate key error (compound key)
-      if (error.code === 11000 || error.name === 'MongoServerError') {
+      if (error.code === 11000 || error.name === "MongoServerError") {
         return res.status(400).json({
           success: false,
-          message: 'A game variant with the same gameId, gender, uiSection and ageGroup already exists.',
-          error: 'DUPLICATE_GAME_VARIANT'
+          message:
+            "A game variant with the same gameId, gender, uiSection and ageGroup already exists.",
+          error: "DUPLICATE_GAME_VARIANT",
         });
       }
 
       res.status(500).json({
         success: false,
-        message: 'Failed to create game',
-        error: error.message
+        message: "Failed to create game",
+        error: error.message,
       });
     }
-  });
+  }
+);
 
 // Update game with file uploads
-router.put('/games/:id',
+router.put(
+  "/games/:id",
   adminAuth,
-  upload.fields([
-    { name: 'gameThumbnail', maxCount: 1 }
-  ]),
+  upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -1116,14 +1269,14 @@ router.put('/games/:id',
       if (!existingGame) {
         return res.status(404).json({
           success: false,
-          message: 'Game not found'
+          message: "Game not found",
         });
       }
 
       // Build update data
       const updateData = {
         updatedBy: req.user.userId,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       // Update basic fields if provided
@@ -1131,25 +1284,38 @@ router.put('/games/:id',
       if (req.body.title) updateData.title = req.body.title;
       if (req.body.description) updateData.description = req.body.description;
       if (req.body.sdkProvider) updateData.sdkProvider = req.body.sdkProvider;
-      if (req.body.countries) updateData.countries = JSON.parse(req.body.countries);
+      if (req.body.countries)
+        updateData.countries = JSON.parse(req.body.countries);
       if (req.body.xptrRules) updateData.xptrRules = req.body.xptrRules;
-      if (req.body.ageGroups) updateData.ageGroups = JSON.parse(req.body.ageGroups);
+      if (req.body.ageGroups)
+        updateData.ageGroups = JSON.parse(req.body.ageGroups);
       if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
-      if (req.body.uiSection !== undefined) updateData.uiSection = req.body.uiSection || '';
-      if (req.body.marketingChannel) updateData.marketingChannel = req.body.marketingChannel;
-      if (req.body.campaignName) updateData.campaignName = req.body.campaignName;
+      if (req.body.uiSection !== undefined)
+        updateData.uiSection = req.body.uiSection || "";
+      if (req.body.marketingChannel)
+        updateData.marketingChannel = req.body.marketingChannel;
+      if (req.body.campaignName)
+        updateData.campaignName = req.body.campaignName;
       if (req.body.xpTier) updateData.xpTier = parseInt(req.body.xpTier);
-      if (req.body.defaultTaskCount) updateData.defaultTaskCount = parseInt(req.body.defaultTaskCount);
-      if (req.body.isActive !== undefined) updateData.isActive = req.body.isActive === 'true';
-      if (req.body.isDefaultFallback !== undefined) updateData.isDefaultFallback = req.body.isDefaultFallback === 'true';
-      if (req.body.isAdSupported !== undefined) updateData.isAdSupported = req.body.isAdSupported === 'true';
+      if (req.body.defaultTaskCount)
+        updateData.defaultTaskCount = parseInt(req.body.defaultTaskCount);
+      if (req.body.isActive !== undefined)
+        updateData.isActive = req.body.isActive === "true";
+      if (req.body.isDefaultFallback !== undefined)
+        updateData.isDefaultFallback = req.body.isDefaultFallback === "true";
+      if (req.body.isAdSupported !== undefined)
+        updateData.isAdSupported = req.body.isAdSupported === "true";
 
       // Update rewards
       if (req.body.rewardXP || req.body.rewardCoins) {
         updateData.rewards = {
-          xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : existingGame.rewards?.xp || 0,
-          coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : existingGame.rewards?.coins || 0
+          xp: req.body.rewardXP
+            ? parseFloat(req.body.rewardXP)
+            : existingGame.rewards?.xp || 0,
+          coins: req.body.rewardCoins
+            ? parseFloat(req.body.rewardCoins)
+            : existingGame.rewards?.coins || 0,
         };
       }
 
@@ -1158,82 +1324,96 @@ router.put('/games/:id',
         updateData.tierRestrictions = {
           ...existingGame.tierRestrictions?.toObject(),
           minTier: req.body.tier,
-          maxTier: 'platinum'
+          maxTier: "platinum",
         };
       }
 
       // Update metadata
-      if (req.body.genre || req.body.difficulty || req.body.rating || req.body.estimatedPlayTime) {
+      if (
+        req.body.genre ||
+        req.body.difficulty ||
+        req.body.rating ||
+        req.body.estimatedPlayTime
+      ) {
         updateData.metadata = {
           ...existingGame.metadata?.toObject(),
           genre: req.body.genre || existingGame.metadata?.genre,
           difficulty: req.body.difficulty || existingGame.metadata?.difficulty,
-          rating: req.body.rating ? parseFloat(req.body.rating) : existingGame.metadata?.rating,
-          estimatedPlayTime: req.body.estimatedPlayTime ? parseInt(req.body.estimatedPlayTime) : existingGame.metadata?.estimatedPlayTime
+          rating: req.body.rating
+            ? parseFloat(req.body.rating)
+            : existingGame.metadata?.rating,
+          estimatedPlayTime: req.body.estimatedPlayTime
+            ? parseInt(req.body.estimatedPlayTime)
+            : existingGame.metadata?.estimatedPlayTime,
         };
       }
 
       // Handle new uploaded game thumbnail
       if (req.files && req.files.gameThumbnail && req.files.gameThumbnail[0]) {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
         const imageUrl = `${baseUrl}/uploads/offer-creatives/${req.files.gameThumbnail[0].filename}`;
 
         if (!updateData.metadata) updateData.metadata = {};
         updateData.metadata.thumbnail = {
           url: imageUrl,
           dimensions: {
-            width: req.body.thumbnailWidth ? parseInt(req.body.thumbnailWidth) : existingGame.metadata?.thumbnail?.dimensions?.width || 300,
-            height: req.body.thumbnailHeight ? parseInt(req.body.thumbnailHeight) : existingGame.metadata?.thumbnail?.dimensions?.height || 300
+            width: req.body.thumbnailWidth
+              ? parseInt(req.body.thumbnailWidth)
+              : existingGame.metadata?.thumbnail?.dimensions?.width || 300,
+            height: req.body.thumbnailHeight
+              ? parseInt(req.body.thumbnailHeight)
+              : existingGame.metadata?.thumbnail?.dimensions?.height || 300,
           },
-          altText: req.body.thumbnailAltText || existingGame.title
+          altText: req.body.thumbnailAltText || existingGame.title,
         };
 
         // Update metadata imageUrl for backward compatibility
         updateData.metadata.imageUrl = imageUrl;
       }
 
-      const game = await Game.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      );
+      const game = await Game.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
 
       res.json({
         success: true,
-        message: 'Game updated successfully',
-        data: game
+        message: "Game updated successfully",
+        data: game,
       });
     } catch (error) {
-      console.error('Error updating game:', error);
+      console.error("Error updating game:", error);
 
       // Handle multer errors
-      if (error.code === 'LIMIT_FILE_SIZE') {
+      if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
-          message: 'File size too large. Maximum size is 5MB',
-          error: error.message
+          message: "File size too large. Maximum size is 5MB",
+          error: error.message,
         });
       }
 
       // Handle MongoDB duplicate key error
-      if (error.code === 11000 || error.name === 'MongoServerError') {
+      if (error.code === 11000 || error.name === "MongoServerError") {
         return res.status(400).json({
           success: false,
-          message: 'A game with this ID already exists. The gameId must be unique.',
-          error: 'DUPLICATE_GAME_ID'
+          message:
+            "A game with this ID already exists. The gameId must be unique.",
+          error: "DUPLICATE_GAME_ID",
         });
       }
 
       res.status(500).json({
         success: false,
-        message: 'Failed to update game',
-        error: error.message
+        message: "Failed to update game",
+        error: error.message,
       });
     }
-  });
+  }
+);
 
 // Delete game
-router.delete('/games/:id', adminAuth, async (req, res) => {
+router.delete("/games/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1242,7 +1422,7 @@ router.delete('/games/:id', adminAuth, async (req, res) => {
     if (taskCount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete game with existing tasks. Delete tasks first.'
+        message: "Cannot delete game with existing tasks. Delete tasks first.",
       });
     }
 
@@ -1251,20 +1431,20 @@ router.delete('/games/:id', adminAuth, async (req, res) => {
     if (!game) {
       return res.status(404).json({
         success: false,
-        message: 'Game not found'
+        message: "Game not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Game deleted successfully'
+      message: "Game deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting game:', error);
+    console.error("Error deleting game:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete game',
-      error: error.message
+      message: "Failed to delete game",
+      error: error.message,
     });
   }
 });
@@ -1272,22 +1452,18 @@ router.delete('/games/:id', adminAuth, async (req, res) => {
 // ==================== TASKS MANAGEMENT ====================
 
 // Get all tasks for a specific game
-router.get('/games/:gameId/tasks', adminAuth, async (req, res) => {
+router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    const {
-      page = 1,
-      limit = 10,
-      search = ''
-    } = req.query;
+    const { page = 1, limit = 10, search = "" } = req.query;
 
     let query = { gameId };
 
     // Search functionality
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { completionRule: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { completionRule: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -1309,22 +1485,22 @@ router.get('/games/:gameId/tasks', adminAuth, async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
           totalItems: total,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
-    console.error('Error getting tasks:', error);
+    console.error("Error getting tasks:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get tasks',
-      error: error.message
+      message: "Failed to get tasks",
+      error: error.message,
     });
   }
 });
 
 // Get single task by ID
-router.get('/tasks/:id', adminAuth, async (req, res) => {
+router.get("/tasks/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1333,128 +1509,150 @@ router.get('/tasks/:id', adminAuth, async (req, res) => {
     if (!task) {
       return res.status(404).json({
         success: false,
-        message: 'Task not found'
+        message: "Task not found",
       });
     }
 
     res.json({
       success: true,
-      data: task
+      data: task,
     });
   } catch (error) {
-    console.error('Error getting task:', error);
+    console.error("Error getting task:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get task',
-      error: error.message
+      message: "Failed to get task",
+      error: error.message,
     });
   }
 });
 
 // Create new task
-router.post('/games/:gameId/tasks', adminAuth, [
-  body('name').notEmpty().withMessage('Task name is required'),
-  body('completionRule').notEmpty().withMessage('Completion rule is required'),
-  body('rewardType').isIn(['xp', 'coins']).withMessage('Reward type must be xp or coins'),
-  body('rewardValue').isNumeric().withMessage('Reward value must be numeric')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.post(
+  "/games/:gameId/tasks",
+  adminAuth,
+  [
+    body("name").notEmpty().withMessage("Task name is required"),
+    body("completionRule")
+      .notEmpty()
+      .withMessage("Completion rule is required"),
+    body("rewardType")
+      .isIn(["xp", "coins"])
+      .withMessage("Reward type must be xp or coins"),
+    body("rewardValue").isNumeric().withMessage("Reward value must be numeric"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { gameId } = req.params;
+
+      // Verify game exists
+      const game = await Game.findById(gameId);
+      if (!game) {
+        return res.status(404).json({
+          success: false,
+          message: "Game not found",
+        });
+      }
+
+      const taskData = {
+        ...req.body,
+        gameId,
+        createdBy: req.user.userId,
+      };
+
+      const task = new GameTask(taskData);
+      await task.save();
+
+      res.status(201).json({
+        success: true,
+        message: "Task created successfully",
+        data: task,
+      });
+    } catch (error) {
+      console.error("Error creating task:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to create task",
+        error: error.message,
       });
     }
-
-    const { gameId } = req.params;
-
-    // Verify game exists
-    const game = await Game.findById(gameId);
-    if (!game) {
-      return res.status(404).json({
-        success: false,
-        message: 'Game not found'
-      });
-    }
-
-    const taskData = {
-      ...req.body,
-      gameId,
-      createdBy: req.user.userId
-    };
-
-    const task = new GameTask(taskData);
-    await task.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'Task created successfully',
-      data: task
-    });
-  } catch (error) {
-    console.error('Error creating task:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create task',
-      error: error.message
-    });
   }
-});
+);
 
 // Update task
-router.put('/tasks/:id', adminAuth, [
-  body('name').optional().notEmpty().withMessage('Task name cannot be empty'),
-  body('completionRule').optional().notEmpty().withMessage('Completion rule cannot be empty'),
-  body('rewardType').optional().isIn(['xp', 'coins']).withMessage('Reward type must be xp or coins'),
-  body('rewardValue').optional().isNumeric().withMessage('Reward value must be numeric')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.put(
+  "/tasks/:id",
+  adminAuth,
+  [
+    body("name").optional().notEmpty().withMessage("Task name cannot be empty"),
+    body("completionRule")
+      .optional()
+      .notEmpty()
+      .withMessage("Completion rule cannot be empty"),
+    body("rewardType")
+      .optional()
+      .isIn(["xp", "coins"])
+      .withMessage("Reward type must be xp or coins"),
+    body("rewardValue")
+      .optional()
+      .isNumeric()
+      .withMessage("Reward value must be numeric"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { id } = req.params;
+      const updateData = req.body;
+      updateData.updatedBy = req.user.userId;
+      updateData.updatedAt = new Date();
+
+      const task = await GameTask.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
+
+      if (!task) {
+        return res.status(404).json({
+          success: false,
+          message: "Task not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Task updated successfully",
+        data: task,
+      });
+    } catch (error) {
+      console.error("Error updating task:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to update task",
+        error: error.message,
       });
     }
-
-    const { id } = req.params;
-    const updateData = req.body;
-    updateData.updatedBy = req.user.userId;
-    updateData.updatedAt = new Date();
-
-    const task = await GameTask.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!task) {
-      return res.status(404).json({
-        success: false,
-        message: 'Task not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Task updated successfully',
-      data: task
-    });
-  } catch (error) {
-    console.error('Error updating task:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update task',
-      error: error.message
-    });
   }
-});
+);
 
 // Delete task
-router.delete('/tasks/:id', adminAuth, async (req, res) => {
+router.delete("/tasks/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1463,26 +1661,26 @@ router.delete('/tasks/:id', adminAuth, async (req, res) => {
     if (!task) {
       return res.status(404).json({
         success: false,
-        message: 'Task not found'
+        message: "Task not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Task deleted successfully'
+      message: "Task deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting task:', error);
+    console.error("Error deleting task:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete task',
-      error: error.message
+      message: "Failed to delete task",
+      error: error.message,
     });
   }
 });
 
 // Toggle task override
-router.patch('/tasks/:id/toggle-override', adminAuth, async (req, res) => {
+router.patch("/tasks/:id/toggle-override", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1491,7 +1689,7 @@ router.patch('/tasks/:id/toggle-override', adminAuth, async (req, res) => {
     if (!task) {
       return res.status(404).json({
         success: false,
-        message: 'Task not found'
+        message: "Task not found",
       });
     }
 
@@ -1503,15 +1701,17 @@ router.patch('/tasks/:id/toggle-override', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      message: `Task override ${task.isOverride ? 'enabled' : 'disabled'} successfully`,
-      data: { isOverride: task.isOverride }
+      message: `Task override ${
+        task.isOverride ? "enabled" : "disabled"
+      } successfully`,
+      data: { isOverride: task.isOverride },
     });
   } catch (error) {
-    console.error('Error toggling task override:', error);
+    console.error("Error toggling task override:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to toggle task override',
-      error: error.message
+      message: "Failed to toggle task override",
+      error: error.message,
     });
   }
 });
@@ -1519,7 +1719,7 @@ router.patch('/tasks/:id/toggle-override', adminAuth, async (req, res) => {
 // ==================== GAME DISPLAY RULES ====================
 
 // Get game display rules
-router.get('/display-rules', adminAuth, async (req, res) => {
+router.get("/display-rules", adminAuth, async (req, res) => {
   try {
     const rules = await GameDisplayRule.find({ isEnabled: true })
       .sort({ order: 1, createdAt: -1 })
@@ -1527,222 +1727,263 @@ router.get('/display-rules', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      data: rules
+      data: rules,
     });
   } catch (error) {
-    console.error('Error getting display rules:', error);
+    console.error("Error getting display rules:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get display rules',
-      error: error.message
+      message: "Failed to get display rules",
+      error: error.message,
     });
   }
 });
 
 // Create game display rule
-router.post('/display-rules', adminAuth, [
-  body('userMilestone').notEmpty().withMessage('User milestone is required'),
-  body('maxGamesToShow').isNumeric().withMessage('Max games to show must be numeric'),
-  body('isEnabled').isBoolean().withMessage('Enabled status must be boolean')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.post(
+  "/display-rules",
+  adminAuth,
+  [
+    body("userMilestone").notEmpty().withMessage("User milestone is required"),
+    body("maxGamesToShow")
+      .isNumeric()
+      .withMessage("Max games to show must be numeric"),
+    body("isEnabled").isBoolean().withMessage("Enabled status must be boolean"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const ruleData = {
+        ...req.body,
+        createdBy: req.user.userId,
+      };
+
+      const rule = new GameDisplayRule(ruleData);
+      await rule.save();
+
+      res.status(201).json({
+        success: true,
+        message: "Display rule created successfully",
+        data: rule,
+      });
+    } catch (error) {
+      console.error("Error creating display rule:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to create display rule",
+        error: error.message,
       });
     }
-
-    const ruleData = {
-      ...req.body,
-      createdBy: req.user.userId
-    };
-
-    const rule = new GameDisplayRule(ruleData);
-    await rule.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'Display rule created successfully',
-      data: rule
-    });
-  } catch (error) {
-    console.error('Error creating display rule:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create display rule',
-      error: error.message
-    });
   }
-});
+);
 
 // Update game display rule
-router.put('/display-rules/:id', adminAuth, [
-  body('maxGamesToShow').optional().isNumeric().withMessage('Max games to show must be numeric'),
-  body('isEnabled').optional().isBoolean().withMessage('Enabled status must be boolean')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.put(
+  "/display-rules/:id",
+  adminAuth,
+  [
+    body("maxGamesToShow")
+      .optional()
+      .isNumeric()
+      .withMessage("Max games to show must be numeric"),
+    body("isEnabled")
+      .optional()
+      .isBoolean()
+      .withMessage("Enabled status must be boolean"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { id } = req.params;
+      const updateData = req.body;
+      updateData.updatedBy = req.user.userId;
+      updateData.updatedAt = new Date();
+
+      const rule = await GameDisplayRule.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
+
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "Display rule not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Display rule updated successfully",
+        data: rule,
+      });
+    } catch (error) {
+      console.error("Error updating display rule:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to update display rule",
+        error: error.message,
       });
     }
-
-    const { id } = req.params;
-    const updateData = req.body;
-    updateData.updatedBy = req.user.userId;
-    updateData.updatedAt = new Date();
-
-    const rule = await GameDisplayRule.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!rule) {
-      return res.status(404).json({
-        success: false,
-        message: 'Display rule not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Display rule updated successfully',
-      data: rule
-    });
-  } catch (error) {
-    console.error('Error updating display rule:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update display rule',
-      error: error.message
-    });
   }
-});
+);
 
 // ==================== TASK PROGRESSION RULES ====================
 
 // Get task progression rules
-router.get('/progression-rules', adminAuth, async (req, res) => {
+router.get("/progression-rules", adminAuth, async (req, res) => {
   try {
     const rules = await TaskProgressionRule.find({ isActive: true })
       .sort({ createdAt: -1 })
-      .populate('taskId', 'name')
+      .populate("taskId", "name")
       .lean();
 
     res.json({
       success: true,
-      data: rules
+      data: rules,
     });
   } catch (error) {
-    console.error('Error getting progression rules:', error);
+    console.error("Error getting progression rules:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get progression rules',
-      error: error.message
+      message: "Failed to get progression rules",
+      error: error.message,
     });
   }
 });
 
 // Create task progression rule
-router.post('/progression-rules', adminAuth, [
-  body('taskId').notEmpty().withMessage('Task ID is required'),
-  body('unlockCondition').notEmpty().withMessage('Unlock condition is required'),
-  body('lockType').isIn(['sequential', 'timed', 'manual']).withMessage('Invalid lock type'),
-  body('rewardTriggerRule').notEmpty().withMessage('Reward trigger rule is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.post(
+  "/progression-rules",
+  adminAuth,
+  [
+    body("taskId").notEmpty().withMessage("Task ID is required"),
+    body("unlockCondition")
+      .notEmpty()
+      .withMessage("Unlock condition is required"),
+    body("lockType")
+      .isIn(["sequential", "timed", "manual"])
+      .withMessage("Invalid lock type"),
+    body("rewardTriggerRule")
+      .notEmpty()
+      .withMessage("Reward trigger rule is required"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const ruleData = {
+        ...req.body,
+        createdBy: req.user.userId,
+      };
+
+      const rule = new TaskProgressionRule(ruleData);
+      await rule.save();
+
+      res.status(201).json({
+        success: true,
+        message: "Progression rule created successfully",
+        data: rule,
+      });
+    } catch (error) {
+      console.error("Error creating progression rule:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to create progression rule",
+        error: error.message,
       });
     }
-
-    const ruleData = {
-      ...req.body,
-      createdBy: req.user.userId
-    };
-
-    const rule = new TaskProgressionRule(ruleData);
-    await rule.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'Progression rule created successfully',
-      data: rule
-    });
-  } catch (error) {
-    console.error('Error creating progression rule:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create progression rule',
-      error: error.message
-    });
   }
-});
+);
 
 // Update task progression rule
-router.put('/progression-rules/:id', adminAuth, [
-  body('unlockCondition').optional().notEmpty().withMessage('Unlock condition cannot be empty'),
-  body('lockType').optional().isIn(['sequential', 'timed', 'manual']).withMessage('Invalid lock type'),
-  body('rewardTriggerRule').optional().notEmpty().withMessage('Reward trigger rule cannot be empty')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.put(
+  "/progression-rules/:id",
+  adminAuth,
+  [
+    body("unlockCondition")
+      .optional()
+      .notEmpty()
+      .withMessage("Unlock condition cannot be empty"),
+    body("lockType")
+      .optional()
+      .isIn(["sequential", "timed", "manual"])
+      .withMessage("Invalid lock type"),
+    body("rewardTriggerRule")
+      .optional()
+      .notEmpty()
+      .withMessage("Reward trigger rule cannot be empty"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { id } = req.params;
+      const updateData = req.body;
+      updateData.updatedBy = req.user.userId;
+      updateData.updatedAt = new Date();
+
+      const rule = await TaskProgressionRule.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
+
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "Progression rule not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Progression rule updated successfully",
+        data: rule,
+      });
+    } catch (error) {
+      console.error("Error updating progression rule:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to update progression rule",
+        error: error.message,
       });
     }
-
-    const { id } = req.params;
-    const updateData = req.body;
-    updateData.updatedBy = req.user.userId;
-    updateData.updatedAt = new Date();
-
-    const rule = await TaskProgressionRule.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!rule) {
-      return res.status(404).json({
-        success: false,
-        message: 'Progression rule not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Progression rule updated successfully',
-      data: rule
-    });
-  } catch (error) {
-    console.error('Error updating progression rule:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update progression rule',
-      error: error.message
-    });
   }
-});
+);
 
 // ==================== WELCOME BONUS TIMER RULES ====================
 
 // Get welcome bonus timer rules
-router.get('/welcome-bonus-timer', adminAuth, async (req, res) => {
+router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   try {
     const rules = await WelcomeBonusTimer.find({ isActive: true })
       .sort({ createdAt: -1 })
@@ -1750,183 +1991,192 @@ router.get('/welcome-bonus-timer', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      data: rules
+      data: rules,
     });
   } catch (error) {
-    console.error('Error getting welcome bonus timer rules:', error);
+    console.error("Error getting welcome bonus timer rules:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get welcome bonus timer rules',
-      error: error.message
+      message: "Failed to get welcome bonus timer rules",
+      error: error.message,
     });
   }
 });
 
 // Update welcome bonus timer rules
-router.put('/welcome-bonus-timer', adminAuth, [
-  body('unlockTimeHours').isNumeric().withMessage('Unlock time must be numeric'),
-  body('completionDeadlineDays').isNumeric().withMessage('Completion deadline must be numeric')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.put(
+  "/welcome-bonus-timer",
+  adminAuth,
+  [
+    body("unlockTimeHours")
+      .isNumeric()
+      .withMessage("Unlock time must be numeric"),
+    body("completionDeadlineDays")
+      .isNumeric()
+      .withMessage("Completion deadline must be numeric"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      // Find existing rule or create new one
+      let rule = await WelcomeBonusTimer.findOne({ isActive: true });
+
+      if (rule) {
+        rule.unlockTimeHours = req.body.unlockTimeHours;
+        rule.completionDeadlineDays = req.body.completionDeadlineDays;
+        rule.gameOverrides = req.body.gameOverrides || [];
+        rule.xpTierOverrides = req.body.xpTierOverrides || [];
+        rule.updatedBy = req.user.userId;
+        rule.updatedAt = new Date();
+      } else {
+        rule = new WelcomeBonusTimer({
+          ...req.body,
+          createdBy: req.user.userId,
+        });
+      }
+
+      await rule.save();
+
+      res.json({
+        success: true,
+        message: "Welcome bonus timer rules updated successfully",
+        data: rule,
+      });
+    } catch (error) {
+      console.error("Error updating welcome bonus timer rules:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to update welcome bonus timer rules",
+        error: error.message,
       });
     }
-
-    // Find existing rule or create new one
-    let rule = await WelcomeBonusTimer.findOne({ isActive: true });
-
-    if (rule) {
-      rule.unlockTimeHours = req.body.unlockTimeHours;
-      rule.completionDeadlineDays = req.body.completionDeadlineDays;
-      rule.gameOverrides = req.body.gameOverrides || [];
-      rule.xpTierOverrides = req.body.xpTierOverrides || [];
-      rule.updatedBy = req.user.userId;
-      rule.updatedAt = new Date();
-    } else {
-      rule = new WelcomeBonusTimer({
-        ...req.body,
-        createdBy: req.user.userId
-      });
-    }
-
-    await rule.save();
-
-    res.json({
-      success: true,
-      message: 'Welcome bonus timer rules updated successfully',
-      data: rule
-    });
-  } catch (error) {
-    console.error('Error updating welcome bonus timer rules:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update welcome bonus timer rules',
-      error: error.message
-    });
   }
-});
+);
 
 // ==================== MASTER DATA ENDPOINTS ====================
 
 // Get countries list
-router.get('/master-data/countries', adminAuth, async (req, res) => {
+router.get("/master-data/countries", adminAuth, async (req, res) => {
   try {
     const countries = [
-      { code: 'US', name: 'United States' },
-      { code: 'IN', name: 'India' },
-      { code: 'GB', name: 'United Kingdom' },
-      { code: 'CA', name: 'Canada' },
-      { code: 'AU', name: 'Australia' },
-      { code: 'DE', name: 'Germany' },
-      { code: 'FR', name: 'France' },
-      { code: 'BR', name: 'Brazil' },
-      { code: 'MX', name: 'Mexico' },
-      { code: 'JP', name: 'Japan' }
+      { code: "US", name: "United States" },
+      { code: "IN", name: "India" },
+      { code: "GB", name: "United Kingdom" },
+      { code: "CA", name: "Canada" },
+      { code: "AU", name: "Australia" },
+      { code: "DE", name: "Germany" },
+      { code: "FR", name: "France" },
+      { code: "BR", name: "Brazil" },
+      { code: "MX", name: "Mexico" },
+      { code: "JP", name: "Japan" },
     ];
 
     res.json({
       success: true,
-      data: countries
+      data: countries,
     });
   } catch (error) {
-    console.error('Error getting countries:', error);
+    console.error("Error getting countries:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get countries',
-      error: error.message
+      message: "Failed to get countries",
+      error: error.message,
     });
   }
 });
 
 // Get SDK providers list
-router.get('/master-data/sdk-providers', adminAuth, async (req, res) => {
+router.get("/master-data/sdk-providers", adminAuth, async (req, res) => {
   try {
     const providers = [
-      { id: 'bitlabs', name: 'BitLabs' },
-      { id: 'adgem', name: 'AdGem' },
-      { id: 'besitos', name: 'Besitos' },
-      { id: 'cpx', name: 'CPX Research' },
-      { id: 'ayet', name: 'Ayet Studios' },
-      { id: 'unity', name: 'Unity Ads' },
-      { id: 'ironsource', name: 'IronSource' }
+      { id: "bitlabs", name: "BitLabs" },
+      { id: "adgem", name: "AdGem" },
+      { id: "besitos", name: "Besitos" },
+      { id: "cpx", name: "CPX Research" },
+      { id: "ayet", name: "Ayet Studios" },
+      { id: "unity", name: "Unity Ads" },
+      { id: "ironsource", name: "IronSource" },
     ];
 
     res.json({
       success: true,
-      data: providers
+      data: providers,
     });
   } catch (error) {
-    console.error('Error getting SDK providers:', error);
+    console.error("Error getting SDK providers:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get SDK providers',
-      error: error.message
+      message: "Failed to get SDK providers",
+      error: error.message,
     });
   }
 });
 
 // Get XPTR values list
-router.get('/master-data/xptr-values', adminAuth, async (req, res) => {
+router.get("/master-data/xptr-values", adminAuth, async (req, res) => {
   try {
     const xptrValues = [
-      'Play 5 minutes',
-      'Play 10 minutes',
-      'Play 15 minutes',
-      'Watch Ad',
-      'Complete Level 1',
-      'Complete Level 3',
-      'Complete Level 5',
-      'Install Game',
-      'Open Event',
-      'Video Completed'
+      "Play 5 minutes",
+      "Play 10 minutes",
+      "Play 15 minutes",
+      "Watch Ad",
+      "Complete Level 1",
+      "Complete Level 3",
+      "Complete Level 5",
+      "Install Game",
+      "Open Event",
+      "Video Completed",
     ];
 
     res.json({
       success: true,
-      data: xptrValues
+      data: xptrValues,
     });
   } catch (error) {
-    console.error('Error getting XPTR values:', error);
+    console.error("Error getting XPTR values:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get XPTR values',
-      error: error.message
+      message: "Failed to get XPTR values",
+      error: error.message,
     });
   }
 });
 
 // Get tier access list
-router.get('/master-data/tier-access', adminAuth, async (req, res) => {
+router.get("/master-data/tier-access", adminAuth, async (req, res) => {
   try {
     const tiers = [
-      { id: 'free', name: 'Free' },
-      { id: 'bronze', name: 'Bronze' },
-      { id: 'silver', name: 'Silver' },
-      { id: 'gold', name: 'Gold' },
-      { id: 'platinum', name: 'Platinum' }
+      { id: "free", name: "Free" },
+      { id: "bronze", name: "Bronze" },
+      { id: "silver", name: "Silver" },
+      { id: "gold", name: "Gold" },
+      { id: "platinum", name: "Platinum" },
     ];
 
     res.json({
       success: true,
-      data: tiers
+      data: tiers,
     });
   } catch (error) {
-    console.error('Error getting tier access:', error);
+    console.error("Error getting tier access:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get tier access',
-      error: error.message
+      message: "Failed to get tier access",
+      error: error.message,
     });
   }
 });
 
 // Check if game ID is available
-router.get('/games/by-sdk/:sdk', adminAuth, async (req, res) => {
+router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
   try {
     const { sdk } = req.params;
     if (sdk === "besitos") {
@@ -1936,75 +2186,578 @@ router.get('/games/by-sdk/:sdk', adminAuth, async (req, res) => {
     } else {
       res.status(404).json({
         success: false,
-        message: 'No games found for the selected SDK.'
+        message: "No games found for the selected SDK.",
       });
     }
   } catch (error) {
-    console.error('Error while fetching game list:', error);
+    console.error("Error while fetching game list:", error);
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching the game list.',
-      error: error.message
+      message: "An error occurred while fetching the game list.",
+      error: error.message,
     });
   }
 });
 
+/**
+ * Get configured non-gaming offers from database
+ * GET /api/admin/game-offers/non-game-offers/configured/bitlabs
+ * Query: {
+ *   offerType: 'survey' | 'cashback' | 'shopping' | 'magic_receipt' | 'all',
+ *   status: 'live' | 'paused' | 'all'
+ * }
+ */
+router.get(
+  "/non-game-offers/configured/bitlabs",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const SurveySDK = require("../models/SurveySDK");
+      const SurveyOffer = require("../models/SurveyOffer");
+      const NonGameOffer = require("../models/NonGameOffer");
+
+      const { offerType = "all", status = "all" } = req.query;
+
+      // Find BitLab SDK
+      const bitlabSDK = await SurveySDK.findOne({
+        name: { $regex: /bitlab/i },
+      });
+
+      if (!bitlabSDK) {
+        return res.json({
+          success: true,
+          data: {
+            configuredOffers: [],
+            breakdown: {
+              surveys: 0,
+              cashback: 0,
+              shopping: 0,
+              magicReceipts: 0,
+              other: 0,
+            },
+            total: 0,
+          },
+        });
+      }
+
+      // Build base query
+      const baseQuery = {
+        sdkId: bitlabSDK._id,
+      };
+
+      if (status !== "all") {
+        baseQuery.status = status;
+      }
+
+      // Fetch from both models based on offerType
+      let allOffers = [];
+
+      if (offerType === "all" || offerType === "survey") {
+        // Get surveys from SurveyOffer
+        const surveyQuery = { ...baseQuery, offerType: "survey" };
+        const surveys = await SurveyOffer.find(surveyQuery)
+          .populate("sdkId", "name displayName")
+          .sort({ createdAt: -1 })
+          .lean();
+        allOffers.push(...surveys);
+      }
+
+      if (
+        offerType === "all" ||
+        offerType === "cashback" ||
+        offerType === "shopping" ||
+        offerType === "magic_receipt"
+      ) {
+        // Get non-gaming offers from NonGameOffer
+        const nonGameQuery = { ...baseQuery };
+        if (offerType !== "all") {
+          nonGameQuery.offerType = offerType;
+        }
+        const nonGameOffers = await NonGameOffer.find(nonGameQuery)
+          .populate("sdkId", "name displayName")
+          .sort({ createdAt: -1 })
+          .lean();
+        allOffers.push(...nonGameOffers);
+      }
+
+      // Sort all offers by createdAt
+      allOffers.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+      // Group by type
+      const breakdown = {
+        surveys: 0,
+        cashback: 0,
+        shopping: 0,
+        magicReceipts: 0,
+        other: 0,
+      };
+
+      allOffers.forEach((offer) => {
+        if (offer.offerType === "survey") breakdown.surveys++;
+        else if (offer.offerType === "cashback") breakdown.cashback++;
+        else if (offer.offerType === "shopping") breakdown.shopping++;
+        else if (offer.offerType === "magic_receipt") breakdown.magicReceipts++;
+        else breakdown.other++;
+      });
+
+      res.json({
+        success: true,
+        data: {
+          configuredOffers: allOffers.map((offer) => ({
+            id: offer._id,
+            externalId: offer.externalId,
+            title: offer.title,
+            description: offer.description,
+            category: offer.category,
+            offerType: offer.offerType,
+            coinReward: offer.coinReward,
+            estimatedTime: offer.estimatedTime,
+            status: offer.status,
+            targetAudience: offer.targetAudience,
+            metadata: offer.metadata,
+            createdAt: offer.createdAt,
+            updatedAt: offer.updatedAt,
+          })),
+          breakdown,
+          total: allOffers.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting configured offers:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get configured offers",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // Get non-game offers from Bitlabs (surveys, magic receipts, cashback, shopping)
-router.get('/non-game-offers/by-sdk/:sdk', adminAuth, async (req, res) => {
+router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
   try {
     const { sdk } = req.params;
-    const { type = 'all', devices, is_game = false } = req.query;
-    
+    const { type = "all", devices, is_game = false, country } = req.query;
+
     if (sdk === "bitlabs") {
-      const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
-      const bitlabsNonGames = require('../utils/bitlabs-non-games');
-      
+      const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+      const bitlabsNonGames = require("../utils/bitlabs-non-games");
+
       // Build query parameters
       const queryParams = {
-        is_game: false // Only non-game offers
+        is_game: false, // Only non-game offers
       };
-      
+
       // Add device filter if provided
       if (devices) {
         queryParams.devices = Array.isArray(devices) ? devices : [devices];
       }
-      
-      // Get offers
+
+      // Build userProfile with country and device support
+      // CRITICAL: Offers are often country-specific!
+      // If testing from India but offers target US, specify country=US
+      const userProfile = {};
+      if (country) {
+        userProfile.country = country;
+        console.log(
+          `🌍 Admin request: Using country "${country}" for non-game offers`
+        );
+      } else {
+        console.log(
+          `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
+        );
+        console.log(
+          `   To test with India-targeted offers, add ?country=IN to the request URL`
+        );
+      }
+
+      // Convert devices array to platform for userProfile
+      // This ensures surveys and cashback APIs get device filtering
+      if (devices) {
+        const devicesArray = Array.isArray(devices) ? devices : [devices];
+        if (
+          devicesArray.includes("android") &&
+          devicesArray.includes("iphone")
+        ) {
+          userProfile.platform = "mobile"; // Both platforms
+        } else if (devicesArray.includes("android")) {
+          userProfile.platform = "android";
+        } else if (devicesArray.includes("iphone")) {
+          userProfile.platform = "ios"; // or "iphone"
+        } else if (devicesArray.includes("ipad")) {
+          userProfile.platform = "ipad";
+        } else {
+          userProfile.platform = "mobile"; // Default to mobile
+        }
+        console.log(
+          `📱 Admin request: Using platform "${
+            userProfile.platform
+          }" for devices: ${devicesArray.join(", ")}`
+        );
+      }
+
+      // Get offers - also pass devices directly for general offers API
       const result = await bitlabsNonGames.getNonGameOffers({
-        userId: 'admin-preview',
-        userProfile: {},
-        type: type || 'all',
-        category: 'all'
+        userId: "admin-preview",
+        userProfile: userProfile,
+        type: type || "all",
+        category: "all",
+        devices: queryParams.devices, // Pass devices for shopping/magic receipts
       });
-      
+
       if (!result.success) {
         return res.status(500).json({
           success: false,
-          message: result.error || 'Failed to fetch non-game offers',
-          data: []
+          message: result.error || "Failed to fetch non-game offers",
+          data: [],
         });
       }
-      
+
       res.json({
         success: true,
         data: result.offers,
         categorized: result.categorized,
         breakdown: result.breakdown,
         total: result.totalOffers,
-        estimatedEarnings: result.estimatedEarnings
+        estimatedEarnings: result.estimatedEarnings,
       });
     } else {
       res.status(404).json({
         success: false,
-        message: 'Non-game offers are only available from Bitlabs SDK.'
+        message: "Non-game offers are only available from Bitlabs SDK.",
       });
     }
   } catch (error) {
-    console.error('Error while fetching non-game offers:', error);
+    console.error("Error while fetching non-game offers:", error);
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching non-game offers.',
-      error: error.message
+      message: "An error occurred while fetching non-game offers.",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Delete/Unsync a configured non-gaming offer
+ * DELETE /api/admin/game-offers/non-game-offers/configured/:id
+ */
+router.delete(
+  "/non-game-offers/configured/:id",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const SurveyOffer = require("../models/SurveyOffer");
+      const NonGameOffer = require("../models/NonGameOffer");
+
+      // Try to find in SurveyOffer first (surveys)
+      let offer = await SurveyOffer.findById(req.params.id);
+
+      if (offer) {
+        await SurveyOffer.findByIdAndDelete(req.params.id);
+        return res.json({
+          success: true,
+          message: "Survey offer removed successfully",
+        });
+      }
+
+      // If not found, try NonGameOffer (cashback, shopping, magic receipts)
+      offer = await NonGameOffer.findById(req.params.id);
+
+      if (offer) {
+        await NonGameOffer.findByIdAndDelete(req.params.id);
+        return res.json({
+          success: true,
+          message: "Non-game offer removed successfully",
+        });
+      }
+
+      // Not found in either model
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    } catch (error) {
+      console.error("Error deleting offer:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to delete offer",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Sync BitLab non-gaming offers to database
+ * Surveys → SurveyOffer model
+ * Cashback, Magic Receipts, Shopping → NonGameOffer model
+ * POST /api/admin/game-offers/non-game-offers/sync/bitlabs
+ * Body: {
+ *   offerIds: ['survey_123', 'cashback_456', ...], // Optional: specific offers to sync
+ *   offerType: 'all' | 'survey' | 'cashback' | 'shopping' | 'magic_receipt', // Optional
+ *   autoActivate: true // Auto set status to 'live'
+ * }
+ */
+router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
+  try {
+    const SurveySDK = require("../models/SurveySDK");
+    const SurveyOffer = require("../models/SurveyOffer");
+    const NonGameOffer = require("../models/NonGameOffer");
+    const bitlabsNonGames = require("../utils/bitlabs-non-games");
+
+    // Get or create BitLab SDK
+    let bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
+    if (!bitlabSDK) {
+      // Create BitLab SDK if doesn't exist
+      bitlabSDK = new SurveySDK({
+        name: "bitlabs",
+        displayName: "BitLab",
+        apiKey: process.env.BITLABS_API_TOKEN || "",
+        baseUrl: process.env.BITLABS_BASE_URL || "https://api.bitlabs.ai",
+        isActive: true,
+        createdBy: req.user.userId,
+      });
+      await bitlabSDK.save();
+    }
+
+    const {
+      offerIds,
+      offerType = "all",
+      autoActivate = true,
+      devices,
+      country, // Add country support for syncing
+    } = req.body;
+
+    // Build userProfile with country and device support
+    // CRITICAL: Offers are often country-specific!
+    const userProfile = {};
+    if (country) {
+      userProfile.country = country;
+      console.log(
+        `🌍 Sync request: Using country "${country}" for BitLabs offers`
+      );
+    } else {
+      console.log(
+        `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
+      );
+    }
+
+    // Convert devices array to platform for userProfile
+    // This ensures surveys and cashback APIs get device filtering
+    if (devices && devices.length > 0) {
+      const devicesArray = Array.isArray(devices) ? devices : [devices];
+      if (devicesArray.includes("android") && devicesArray.includes("iphone")) {
+        userProfile.platform = "mobile"; // Both platforms
+      } else if (devicesArray.includes("android")) {
+        userProfile.platform = "android";
+      } else if (devicesArray.includes("iphone")) {
+        userProfile.platform = "ios";
+      } else if (devicesArray.includes("ipad")) {
+        userProfile.platform = "ipad";
+      } else {
+        userProfile.platform = "mobile"; // Default to mobile
+      }
+      console.log(
+        `📱 Sync request: Using platform "${
+          userProfile.platform
+        }" for devices: ${devicesArray.join(", ")}`
+      );
+    }
+
+    // Fetch offers from BitLab
+    const result = await bitlabsNonGames.getNonGameOffers({
+      userId: "admin-preview",
+      userProfile: userProfile,
+      type: offerType,
+      category: "all",
+      devices: devices, // Pass devices filter to BitLab API
+    });
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || "Failed to fetch offers from BitLab",
+        error: result.error,
+      });
+    }
+
+    const allOffers = [];
+
+    // Collect all offers by type
+    if (offerType === "all" || offerType === "survey") {
+      allOffers.push(
+        ...(result.categorized.surveys || []).map((o) => ({
+          ...o,
+          offerType: "survey",
+        }))
+      );
+    }
+    if (offerType === "all" || offerType === "cashback") {
+      allOffers.push(
+        ...(result.categorized.cashback || []).map((o) => ({
+          ...o,
+          offerType: "cashback",
+        }))
+      );
+    }
+    if (offerType === "all" || offerType === "shopping") {
+      allOffers.push(
+        ...(result.categorized.shopping || []).map((o) => ({
+          ...o,
+          offerType: "shopping",
+        }))
+      );
+    }
+    if (offerType === "all" || offerType === "magic_receipt") {
+      allOffers.push(
+        ...(result.categorized.magicReceipts || []).map((o) => ({
+          ...o,
+          offerType: "magic_receipt",
+        }))
+      );
+    }
+
+    // Filter by offerIds if provided
+    const offersToSync =
+      offerIds && offerIds.length > 0
+        ? allOffers.filter((o) =>
+            offerIds.includes(o.id || o.surveyId || o.offerId)
+          )
+        : allOffers;
+
+    let syncedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    for (const offer of offersToSync) {
+      try {
+        const externalId =
+          offer.id || offer.surveyId || offer.offerId || offer.externalId;
+        if (!externalId) {
+          skippedCount++;
+          continue;
+        }
+
+        // Determine which model to use based on offer type
+        const isSurvey = offer.offerType === "survey";
+        const OfferModel = isSurvey ? SurveyOffer : NonGameOffer;
+
+        // Check if already exists
+        const existing = await OfferModel.findOne({
+          sdkId: bitlabSDK._id,
+          externalId: externalId,
+        });
+
+        // Extract proper values from offer data
+        let coinReward = 0;
+
+        if (typeof offer.reward === "object") {
+          // Try to get coins from reward object
+          coinReward = offer.reward?.coins || 0;
+
+          // If coins is 0, try to use payout field as fallback
+          if (coinReward === 0 && offer.reward?.payout) {
+            coinReward = parseFloat(offer.reward.payout) || 0;
+          }
+        } else {
+          coinReward = offer.reward || 0;
+        }
+
+        const category =
+          typeof offer.category === "object"
+            ? offer.category?.name_internal || offer.category?.name || "other"
+            : offer.category || "other";
+
+        // Map category names to valid enum values
+        const categoryMap = {
+          General: "other",
+          Other: "other",
+          Finance: "finance",
+          Shopping: "shopping",
+          Entertainment: "entertainment",
+          Technology: "technology",
+          Health: "health",
+          Travel: "travel",
+          Education: "education",
+        };
+        const mappedCategory = categoryMap[category] || category.toLowerCase();
+
+        // Allow offers with 0 coins to show raw API values
+        // (Previously skipped offers with coinReward < 1)
+
+        // Determine offer type - default based on which model we're using
+        const defaultOfferType = isSurvey
+          ? "survey"
+          : offer.offerType || "other";
+
+        const offerData = {
+          sdkId: bitlabSDK._id,
+          externalId: externalId,
+          title: offer.title || offer.name || "Untitled Offer",
+          description: offer.description || "",
+          category: mappedCategory,
+          offerType: offer.offerType || defaultOfferType,
+          coinReward: coinReward,
+          estimatedTime: offer.estimatedTime || offer.duration || 5,
+          status: autoActivate ? "live" : "paused",
+          targetAudience: {
+            countries: offer.countries || [],
+            minXP: offer.minXP || 0,
+          },
+          metadata: {
+            externalUrl: offer.clickUrl || offer.surveyUrl || offer.url,
+            thumbnail: offer.icon || offer.banner,
+            priority: offer.priority || 0,
+          },
+          updatedBy: req.user.userId,
+        };
+
+        if (existing) {
+          // Update existing
+          Object.assign(existing, offerData);
+          await existing.save();
+          updatedCount++;
+        } else {
+          // Create new
+          const newOffer = new OfferModel({
+            ...offerData,
+            createdBy: req.user.userId,
+          });
+          await newOffer.save();
+          syncedCount++;
+        }
+      } catch (error) {
+        errors.push({
+          offerId: offer.id || offer.surveyId,
+          error: error.message,
+        });
+      }
+    }
+
+    // Update SDK analytics
+    bitlabSDK.analytics.totalOffers = syncedCount + updatedCount;
+    bitlabSDK.analytics.lastSyncAt = new Date();
+    await bitlabSDK.save();
+
+    res.json({
+      success: true,
+      message: "Offers synced successfully",
+      data: {
+        syncedCount,
+        updatedCount,
+        skippedCount,
+        errorCount: errors.length,
+        totalProcessed: offersToSync.length,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+  } catch (error) {
+    console.error("Error syncing BitLab offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to sync offers",
+      error: error.message,
     });
   }
 });
@@ -2018,47 +2771,49 @@ router.get('/non-game-offers/by-sdk/:sdk', adminAuth, async (req, res) => {
  *   device: 'android'
  * }
  */
-router.post('/seed-games', adminAuth, async (req, res) => {
+router.post("/seed-games", adminAuth, async (req, res) => {
   try {
-    const { segments, region = 'US', device = 'android' } = req.body;
+    const { segments, region = "US", device = "android" } = req.body;
 
-    if (!segments || typeof segments !== 'object') {
+    if (!segments || typeof segments !== "object") {
       return res.status(400).json({
         success: false,
-        message: 'segments object is required in request body'
+        message: "segments object is required in request body",
       });
     }
 
-    const besitosService = require('../services/besitos.service');
-    
+    const besitosService = require("../services/besitos.service");
+
     // Helper to normalize titles for matching
-    const normalizeTitle = (title = '') => {
+    const normalizeTitle = (title = "") => {
       return String(title)
         .toLowerCase()
-        .replace(/®|\u00ae/g, '')
-        .replace(/[^a-z0-9\s:-]/g, '')
-        .replace(/\s+/g, ' ')
+        .replace(/®|\u00ae/g, "")
+        .replace(/[^a-z0-9\s:-]/g, "")
+        .replace(/\s+/g, " ")
         .trim();
     };
 
-    const stripHtml = (html = '') => {
-      return String(html).replace(/<[^>]*>/g, '').trim();
+    const stripHtml = (html = "") => {
+      return String(html)
+        .replace(/<[^>]*>/g, "")
+        .trim();
     };
 
     // Fetch all Besitos offers once
     console.log(`Fetching Besitos offers for ${device}/${region}...`);
     let offersPayload;
     try {
-      offersPayload = await besitosService.getOffers({ 
-        platform: device === 'ios' ? 'iOS' : 'Android', 
-        country: region 
+      offersPayload = await besitosService.getOffers({
+        platform: device === "ios" ? "iOS" : "Android",
+        country: region,
       });
     } catch (e) {
-      console.error('Failed to fetch Besitos offers:', e);
+      console.error("Failed to fetch Besitos offers:", e);
       return res.status(503).json({
         success: false,
-        message: 'Failed to fetch offers from Besitos API',
-        error: e.message || 'Service unavailable'
+        message: "Failed to fetch offers from Besitos API",
+        error: e.message || "Service unavailable",
       });
     }
 
@@ -2066,7 +2821,7 @@ router.post('/seed-games', adminAuth, async (req, res) => {
     if (offers.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No offers found from Besitos API'
+        message: "No offers found from Besitos API",
       });
     }
 
@@ -2074,7 +2829,7 @@ router.post('/seed-games', adminAuth, async (req, res) => {
 
     // Build a normalized lookup map
     const offerMap = new Map();
-    offers.forEach(offer => {
+    offers.forEach((offer) => {
       const norm = normalizeTitle(offer.title || offer.name);
       if (norm) {
         offerMap.set(norm, offer);
@@ -2088,7 +2843,7 @@ router.post('/seed-games', adminAuth, async (req, res) => {
       skipped: 0,
       errors: [],
       matched: [],
-      unmatched: []
+      unmatched: [],
     };
 
     for (const [genderKey, ageRanges] of Object.entries(segments)) {
@@ -2103,7 +2858,12 @@ router.post('/seed-games', adminAuth, async (req, res) => {
             const external = offerMap.get(norm);
 
             if (!external) {
-              results.unmatched.push({ title, gender, ageRange: ageRangeKey, uiSection: uiSectionKey });
+              results.unmatched.push({
+                title,
+                gender,
+                ageRange: ageRangeKey,
+                uiSection: uiSectionKey,
+              });
               results.skipped++;
               continue;
             }
@@ -2114,64 +2874,76 @@ router.post('/seed-games', adminAuth, async (req, res) => {
             const gameData = {
               gameId: external.id,
               title: external.title || external.name || title,
-              description: stripHtml(external.description || '') || 'No description available',
-              category: (Array.isArray(external.categories) && external.categories[0]?.name) 
-                ? external.categories[0].name 
-                : (external.category || 'General'),
-              
-              sdkProvider: 'besitos',
+              description:
+                stripHtml(external.description || "") ||
+                "No description available",
+              category:
+                Array.isArray(external.categories) &&
+                external.categories[0]?.name
+                  ? external.categories[0].name
+                  : external.category || "General",
+
+              sdkProvider: "besitos",
               countries: [region],
-              xptrRules: 'default',
-              platform: device === 'ios' ? 'iOS' : 'Android',
-              status: 'active',
-              
+              xptrRules: "default",
+              platform: device === "ios" ? "iOS" : "Android",
+              status: "active",
+
               rewards: {
                 coins: 50,
-                xp: 100
+                xp: 100,
               },
 
               metadata: {
-                genre: (Array.isArray(external.categories) && external.categories[0]?.name) 
-                  ? external.categories[0].name 
-                  : (external.category || 'General'),
+                genre:
+                  Array.isArray(external.categories) &&
+                  external.categories[0]?.name
+                    ? external.categories[0].name
+                    : external.category || "General",
                 thumbnail: {
-                  url: external.large_image || external.image || external.square_image || '',
+                  url:
+                    external.large_image ||
+                    external.image ||
+                    external.square_image ||
+                    "",
                   dimensions: { width: 512, height: 512 },
-                  altText: `${external.title || title} thumbnail`
+                  altText: `${external.title || title} thumbnail`,
                 },
                 images: {
-                  icon: external.square_image || external.image || '',
-                  banner: external.large_image || external.image || '',
-                  screenshots: []
+                  icon: external.square_image || external.image || "",
+                  banner: external.large_image || external.image || "",
+                  screenshots: [],
                 },
-                packageName: external.bundle_id || '',
-                developer: '',
+                packageName: external.bundle_id || "",
+                developer: "",
                 rating: 4.0,
-                downloads: '1M+',
-                size: '',
-                version: '',
+                downloads: "1M+",
+                size: "",
+                version: "",
                 lastUpdated: new Date(),
-                ageRating: '12+'
+                ageRating: "12+",
               },
 
               gameDetails: {
-                id: external.id || '',
+                id: external.id || "",
                 name: external.title || external.name || title,
-                description: stripHtml(external.description || ''),
-                image: external.image || external.large_image || '',
-                square_image: external.square_image || '',
-                large_image: external.large_image || external.image || '',
-                category: (Array.isArray(external.categories) && external.categories[0]?.name) 
-                  ? external.categories[0].name 
-                  : (external.category || ''),
-                downloadUrl: external.url || ''
+                description: stripHtml(external.description || ""),
+                image: external.image || external.large_image || "",
+                square_image: external.square_image || "",
+                large_image: external.large_image || external.image || "",
+                category:
+                  Array.isArray(external.categories) &&
+                  external.categories[0]?.name
+                    ? external.categories[0].name
+                    : external.category || "",
+                downloadUrl: external.url || "",
               },
 
               uiSection: uiSectionKey,
               gender: gender,
               ageGroup: ageRangeKey,
               ageGroups: [ageRangeKey],
-              createdBy: req.user.userId
+              createdBy: req.user.userId,
             };
 
             try {
@@ -2180,7 +2952,7 @@ router.post('/seed-games', adminAuth, async (req, res) => {
                 gameId: external.id,
                 gender: gender,
                 uiSection: uiSectionKey,
-                ageGroup: ageRangeKey
+                ageGroup: ageRangeKey,
               };
               const update = {
                 $set: {
@@ -2199,13 +2971,15 @@ router.post('/seed-games', adminAuth, async (req, res) => {
                   uiSection: uiSectionKey,
                   gender: gender,
                   ageGroup: ageRangeKey,
-                  ageGroups: [ageRangeKey]
+                  ageGroups: [ageRangeKey],
                 },
                 $setOnInsert: {
-                  createdBy: req.user.userId
-                }
+                  createdBy: req.user.userId,
+                },
               };
-              const result = await Game.updateOne(filter, update, { upsert: true });
+              const result = await Game.updateOne(filter, update, {
+                upsert: true,
+              });
               if (result.upsertedCount && result.upsertedCount > 0) {
                 results.created++;
               } else if (result.modifiedCount && result.modifiedCount > 0) {
@@ -2215,11 +2989,14 @@ router.post('/seed-games', adminAuth, async (req, res) => {
                 results.skipped++;
               }
             } catch (err) {
-              console.error(`Error upserting game ${external.id}:`, err.message);
+              console.error(
+                `Error upserting game ${external.id}:`,
+                err.message
+              );
               results.errors.push({
                 title,
                 gameId: external.id,
-                error: err.message
+                error: err.message,
               });
             }
           }
@@ -2227,34 +3004,32 @@ router.post('/seed-games', adminAuth, async (req, res) => {
       }
     }
 
-    console.log('Seed complete:', results);
+    console.log("Seed complete:", results);
 
     res.json({
       success: true,
-      message: 'Game seeding completed',
+      message: "Game seeding completed",
       data: {
         summary: {
           totalProcessed: results.created + results.updated + results.skipped,
           created: results.created,
           updated: results.updated,
           skipped: results.skipped,
-          errors: results.errors.length
+          errors: results.errors.length,
         },
         matched: results.matched.length,
         unmatched: results.unmatched,
-        errors: results.errors
-      }
+        errors: results.errors,
+      },
     });
-
   } catch (error) {
-    console.error('Error seeding games:', error);
+    console.error("Error seeding games:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to seed games',
-      error: error.message
+      message: "Failed to seed games",
+      error: error.message,
     });
   }
 });
-
 
 module.exports = router;

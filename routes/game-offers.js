@@ -27,21 +27,21 @@ router.get('/offers', protect, async (req, res) => {
 
     // Get Besitos game offers (if provider is 'all' or 'besitos')
     if (provider === 'all' || provider === 'besitos') {
-      const besitosResult = await besitos.getGameOffers({
-        userId: user._id.toString(),
-        userProfile: {
-          age: user.profile?.age || 25,
-          gender: user.profile?.gender || 'other',
-          country: user.location?.country || 'US',
-          language: user.preferences?.language || 'en',
-          interests: user.preferences?.interests || [],
-          gamingPreferences: user.preferences?.gamingPreferences || [],
-          platform: 'mobile',
-          osVersion: 'iOS 15.0',
-          appVersion: '1.0.0',
-          deviceModel: 'iPhone 13'
-        }
-      });
+    const besitosResult = await besitos.getGameOffers({
+      userId: user._id.toString(),
+      userProfile: {
+        age: user.profile?.age || 25,
+        gender: user.profile?.gender || 'other',
+        country: user.location?.country || 'US',
+        language: user.preferences?.language || 'en',
+        interests: user.preferences?.interests || [],
+        gamingPreferences: user.preferences?.gamingPreferences || [],
+        platform: 'mobile',
+        osVersion: 'iOS 15.0',
+        appVersion: '1.0.0',
+        deviceModel: 'iPhone 13'
+      }
+    });
 
       if (besitosResult.success && besitosResult.offers) {
         // Add provider tag to each offer
@@ -153,17 +153,17 @@ router.post('/install', protect, async (req, res) => {
     } else {
       // Default to Besitos
       trackingResult = await besitos.trackInstallation({
-        userId: user._id.toString(),
-        offerId: offerId,
-        gameId: gameId,
-        deviceInfo: {
-          platform: 'mobile',
-          osVersion: 'iOS 15.0',
-          appVersion: '1.0.0',
-          deviceId: req.headers['x-device-id'] || 'unknown',
-          ipAddress: req.ip
-        }
-      });
+      userId: user._id.toString(),
+      offerId: offerId,
+      gameId: gameId,
+      deviceInfo: {
+        platform: 'mobile',
+        osVersion: 'iOS 15.0',
+        appVersion: '1.0.0',
+        deviceId: req.headers['x-device-id'] || 'unknown',
+        ipAddress: req.ip
+      }
+    });
     }
 
     if (!trackingResult.success) {
@@ -243,17 +243,17 @@ router.post('/complete', protect, async (req, res) => {
     } else {
       // Default to Besitos
       completionResult = await besitos.trackCompletion({
-        userId: user._id.toString(),
-        offerId: offerId,
-        gameId: gameId,
-        completionData: {
-          levelReached: completionData.levelReached || 1,
-          score: completionData.score || 0,
-          timePlayedMinutes: completionData.timePlayedMinutes || 0,
-          tasksCompleted: completionData.tasksCompleted || [],
-          achievements: completionData.achievements || []
-        }
-      });
+      userId: user._id.toString(),
+      offerId: offerId,
+      gameId: gameId,
+      completionData: {
+        levelReached: completionData.levelReached || 1,
+        score: completionData.score || 0,
+        timePlayedMinutes: completionData.timePlayedMinutes || 0,
+        tasksCompleted: completionData.tasksCompleted || [],
+        achievements: completionData.achievements || []
+      }
+    });
     }
 
     if (!completionResult.success) {

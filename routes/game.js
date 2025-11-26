@@ -4,6 +4,9 @@ const mongoose = require('mongoose');
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Game = require('../models/Game');
+const GameTask = require('../models/GameTask');
+const WelcomeBonusTimer = require('../models/WelcomeBonusTimer');
+const TaskProgressionRule = require('../models/TaskProgressionRule');
 const besitosController = require('../controllers/besitos.controller');
 const { trackAchievements } = require('../utils/achievements');
 // Get user's games (downloaded/installed games list)
@@ -581,6 +584,861 @@ router.get('/downloaded/:gameId', protect, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to get downloaded game',
+            error: error.message
+        });
+    }
+});
+
+// ==================== GAME TASKS ENDPOINTS ====================
+
+// Get normal tasks for a game (excluding bonus tasks)
+router.get('/:gameId/tasks', protect, async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify game exists
+        const game = await Game.findById(gameId);
+        if (!game) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found'
+            });
+        }
+
+        // Get bonus tasks configuration to exclude them
+        const rule = await WelcomeBonusTimer.findOne({ 
+            isActive: true,
+            'gameBonusTasks.gameId': gameId,
+            'gameBonusTasks.isEnabled': true
+        });
+
+        let query = { gameId: gameId, isActive: true };
+
+        // Exclude bonus tasks from normal task list
+        if (rule) {
+            const gameBonusConfig = rule.gameBonusTasks.find(
+                config => config.gameId.toString() === gameId.toString() && config.isEnabled
+            );
+            
+            if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
+                const bonusTaskIds = gameBonusConfig.bonusTasks.map(bt => bt.taskId);
+                query._id = { $nin: bonusTaskIds };
+            }
+        }
+
+        // Get user's completed tasks and progression data
+        const user = await User.findById(userId).select('tasks taskProgression xp vip').lean();
+        const completedTaskIds = user?.tasks?.filter(t => t.completed).map(t => t.taskId) || [];
+
+        // Get progression rule
+        const progressionRule = await TaskProgressionRule.findByGame(gameId);
+
+        // Get user's progression data for this game
+        const gameIdString = gameId.toString();
+        const progression = user?.taskProgression?.get?.(gameIdString) || {
+            completedTasks: 0,
+            thresholdReached: false,
+            rewardTransferred: false,
+            coinBoxBalance: 0
+        };
+
+        const completedTasksCount = progression.completedTasks || 0;
+        const thresholdReached = progression.thresholdReached || false;
+        const rewardTransferred = progression.rewardTransferred || false;
+
+        // Fetch normal tasks
+        const tasks = await GameTask.find(query)
+            .sort({ order: 1, createdAt: 1 })
+            .lean();
+
+        // Format tasks with completion status and unlock status
+        const formattedTasks = tasks.map((task, index) => {
+            const taskIdString = task._id.toString();
+            const isCompleted = completedTaskIds.includes(taskIdString);
+            
+            // Determine unlock status
+            let isUnlocked = true;
+            let unlockReason = '';
+
+            if (progressionRule && !isCompleted) {
+                // Check if this is a post-threshold task
+                const postThresholdTask = progressionRule.postThresholdTasks.find(
+                    pt => pt.taskId.toString() === taskIdString && pt.isEnabled
+                );
+
+                if (postThresholdTask) {
+                    // Post-threshold task - check all conditions
+                    const unlockCheck = progressionRule.canUnlockTask(
+                        user,
+                        taskIdString,
+                        completedTasksCount,
+                        rewardTransferred
+                    );
+                    isUnlocked = unlockCheck.canUnlock;
+                    unlockReason = unlockCheck.reason;
+                } else {
+                    // Regular sequential task - check if previous tasks are completed
+                    if (index > 0) {
+                        const previousTask = tasks[index - 1];
+                        const previousTaskCompleted = completedTaskIds.includes(previousTask._id.toString());
+                        if (!previousTaskCompleted) {
+                            isUnlocked = false;
+                            unlockReason = `Complete previous task first`;
+                        }
+                    }
+                }
+            } else if (!isCompleted && index > 0) {
+                // Sequential unlock for regular tasks
+                const previousTask = tasks[index - 1];
+                const previousTaskCompleted = completedTaskIds.includes(previousTask._id.toString());
+                if (!previousTaskCompleted) {
+                    isUnlocked = false;
+                    unlockReason = `Complete previous task first`;
+                }
+            }
+
+            return {
+                _id: task._id,
+                name: task.name,
+                description: task.description,
+                completionRule: task.completionRule,
+                rewardType: task.rewardType,
+                rewardValue: task.rewardValue,
+                order: task.order,
+                isCompleted: isCompleted,
+                isBonusTask: false,
+                isUnlocked: isUnlocked,
+                unlockReason: unlockReason
+            };
+        });
+
+        res.json({
+            success: true,
+            data: {
+                tasks: formattedTasks,
+                totalTasks: formattedTasks.length
+            }
+        });
+    } catch (error) {
+        console.error('Error getting game tasks:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get game tasks',
+            error: error.message
+        });
+    }
+});
+
+// Get bonus tasks for a game with unlock status
+router.get('/:gameId/bonus-tasks', protect, async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify game exists
+        const game = await Game.findById(gameId);
+        if (!game) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found'
+            });
+        }
+
+        // Get user data
+        const user = await User.findById(userId).select('games tasks').lean();
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Get user's game data
+        const userGame = user.games?.find(g => {
+            // Try to match by MongoDB _id if gameId is ObjectId
+            if (mongoose.Types.ObjectId.isValid(gameId)) {
+                return g.gameId === gameId || String(g.gameId) === String(gameId);
+            }
+            return String(g.gameId) === String(gameId);
+        });
+
+        if (!userGame) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found in user\'s games'
+            });
+        }
+
+        // Get bonus tasks configuration
+        const rule = await WelcomeBonusTimer.findOne({ 
+            isActive: true,
+            'gameBonusTasks.gameId': gameId,
+            'gameBonusTasks.isEnabled': true
+        })
+        .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+        .lean();
+
+        if (!rule) {
+            return res.json({
+                success: true,
+                data: {
+                    hasBonusTasks: false,
+                    bonusTasks: [],
+                    message: 'No bonus tasks configured for this game'
+                }
+            });
+        }
+
+        const gameBonusConfig = rule.gameBonusTasks.find(
+            config => config.gameId.toString() === gameId.toString() && config.isEnabled
+        );
+
+        if (!gameBonusConfig || !gameBonusConfig.bonusTasks || gameBonusConfig.bonusTasks.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    hasBonusTasks: false,
+                    bonusTasks: [],
+                    message: 'No bonus tasks configured for this game'
+                }
+            });
+        }
+
+        // Get user's completed tasks and unlock timestamps
+        const userTasks = user.tasks || [];
+        const completedTaskIds = userTasks.filter(t => t.completed).map(t => t.taskId.toString());
+        
+        // Get bonus task unlock timestamps from user's tasks
+        const bonusTaskUnlocks = {};
+        userTasks.forEach(t => {
+            if (t.isBonusTask && t.unlockedAt) {
+                bonusTaskUnlocks[t.taskId] = t.unlockedAt;
+            }
+        });
+
+        // Calculate user's internal events (this should be tracked separately - using playCount as placeholder)
+        // TODO: Replace with actual internal events tracking
+        const userInternalEvents = userGame.playCount || 0;
+        const minimumEventThreshold = gameBonusConfig.minimumEventThreshold;
+
+        // Get game download/install time
+        const gameDownloadTime = userGame.installedAt || userGame.firstPlayed || userGame.date || new Date();
+
+        // Format bonus tasks with unlock status
+        const formattedBonusTasks = gameBonusConfig.bonusTasks
+            .filter(bt => bt.isEnabled)
+            .sort((a, b) => a.order - b.order)
+            .map((bt, index) => {
+                const taskId = bt.taskId._id || bt.taskId;
+                const taskIdString = taskId.toString();
+                const userTask = userTasks.find(t => t.taskId === taskIdString);
+                const isCompleted = userTask?.completed || false;
+                const completedAt = userTask?.completedAt || null;
+
+                // Calculate unlock status based on ACTUAL completion
+                let isUnlocked = false;
+                let unlockReason = '';
+                let unlockTime = bonusTaskUnlocks[taskIdString] || null;
+
+                if (index === 0) {
+                    // Task 1: Unlocks immediately (check if already unlocked or unlock now)
+                    if (!unlockTime) {
+                        // First time viewing - unlock it
+                        isUnlocked = true;
+                        unlockTime = new Date();
+                        unlockReason = 'Unlocks immediately';
+                    } else {
+                        isUnlocked = true;
+                        unlockReason = 'Unlocked';
+                    }
+                } else {
+                    // Task 2 and 3: Require previous task completion AND event threshold
+                    const previousTask = gameBonusConfig.bonusTasks.find(t => t.order === bt.order - 1);
+                    const previousTaskId = previousTask?.taskId._id || previousTask?.taskId;
+                    const previousTaskIdString = previousTaskId.toString();
+                    const previousUserTask = userTasks.find(t => t.taskId === previousTaskIdString);
+                    const previousTaskCompleted = previousUserTask?.completed || false;
+                    const eventThresholdMet = userInternalEvents >= minimumEventThreshold;
+
+                    if (unlockTime) {
+                        // Already unlocked
+                        isUnlocked = true;
+                        unlockReason = 'Unlocked';
+                    } else if (previousTaskCompleted && eventThresholdMet) {
+                        // Should unlock now
+                        isUnlocked = true;
+                        unlockTime = new Date();
+                        unlockReason = 'Previous task completed and event threshold met';
+                    } else if (!previousTaskCompleted) {
+                        unlockReason = `Complete Bonus Task ${bt.order - 1} first`;
+                    } else if (!eventThresholdMet) {
+                        unlockReason = `Reach ${minimumEventThreshold} internal events (current: ${userInternalEvents})`;
+                    }
+                }
+
+                // Calculate completion deadline (24 hours from unlock time)
+                const completionDeadline = unlockTime ? new Date(unlockTime.getTime() + (24 * 60 * 60 * 1000)) : null;
+                const now = new Date();
+                const isExpired = completionDeadline ? now > completionDeadline : false;
+                const timeRemaining = completionDeadline ? Math.max(0, completionDeadline.getTime() - now.getTime()) : null;
+
+                return {
+                    taskId: taskIdString,
+                    order: bt.order,
+                    name: bt.taskId.name || null,
+                    description: bt.taskId.description || null,
+                    completionRule: bt.taskId.completionRule || null,
+                    rewardType: bt.taskId.rewardType || null,
+                    rewardValue: bt.taskId.rewardValue || null,
+                    unlockCondition: bt.unlockCondition || "Unlock this Bonus Task after Minimum Event Threshold is met.",
+                    isUnlocked: isUnlocked,
+                    isCompleted: isCompleted,
+                    completedAt: completedAt,
+                    isExpired: isExpired,
+                    unlockReason: unlockReason,
+                    unlockTime: unlockTime,
+                    completionDeadlineHours: 24,
+                    completionDeadline: completionDeadline,
+                    timeRemaining: timeRemaining,
+                    minimumEventThreshold: minimumEventThreshold,
+                    userInternalEvents: userInternalEvents
+                };
+            });
+
+        // Save unlock timestamps for newly unlocked tasks
+        const userDoc = await User.findById(userId);
+        let needsSave = false;
+        
+        formattedBonusTasks.forEach(bt => {
+            if (bt.isUnlocked && bt.unlockTime && !bonusTaskUnlocks[bt.taskId]) {
+                // Newly unlocked - save the unlock timestamp
+                const existingTask = userDoc.tasks.find(t => t.taskId === bt.taskId);
+                if (existingTask) {
+                    existingTask.unlockedAt = bt.unlockTime;
+                    existingTask.isBonusTask = true;
+                    existingTask.gameId = gameId;
+                } else {
+                    if (!userDoc.tasks) {
+                        userDoc.tasks = [];
+                    }
+                    userDoc.tasks.push({
+                        taskId: bt.taskId,
+                        type: 'bonus',
+                        completed: false,
+                        isBonusTask: true,
+                        gameId: gameId,
+                        unlockedAt: bt.unlockTime
+                    });
+                }
+                needsSave = true;
+            }
+        });
+
+        if (needsSave) {
+            await userDoc.save();
+        }
+
+        res.json({
+            success: true,
+            data: {
+                hasBonusTasks: true,
+                gameId: gameId,
+                minimumEventThreshold: minimumEventThreshold,
+                completionDeadlineHours: 24,
+                taskLogic: "sequential",
+                bonusTasks: formattedBonusTasks,
+                userProgress: {
+                    internalEvents: userInternalEvents,
+                    eventThresholdMet: userInternalEvents >= minimumEventThreshold,
+                    gameDownloadTime: gameDownloadTime
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error getting bonus tasks:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get bonus tasks',
+            error: error.message
+        });
+    }
+});
+
+// Complete a game task (normal or bonus)
+router.post('/:gameId/tasks/:taskId/complete', protect, async (req, res) => {
+    try {
+        const { gameId, taskId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify game exists
+        const game = await Game.findById(gameId);
+        if (!game) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found'
+            });
+        }
+
+        // Verify task exists and belongs to game
+        const task = await GameTask.findOne({ _id: taskId, gameId: gameId, isActive: true });
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found or inactive'
+            });
+        }
+
+        // Get user data
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Check if task is already completed
+        const existingTask = user.tasks?.find(t => t.taskId === taskId.toString());
+        if (existingTask && existingTask.completed) {
+            return res.status(400).json({
+                success: false,
+                message: 'Task already completed'
+            });
+        }
+
+        // Get progression rule for this game
+        const progressionRule = await TaskProgressionRule.findByGame(gameId);
+        
+        // Get user's progression data for this game
+        const gameIdString = gameId.toString();
+        if (!user.taskProgression) {
+            user.taskProgression = new Map();
+        }
+        const progression = user.taskProgression.get(gameIdString) || {
+            completedTasks: 0,
+            thresholdReached: false,
+            rewardTransferred: false,
+            coinBoxBalance: 0
+        };
+
+        // Get bonus tasks configuration to check if this is a bonus task
+        const rule = await WelcomeBonusTimer.findOne({ 
+            isActive: true,
+            'gameBonusTasks.gameId': gameId,
+            'gameBonusTasks.isEnabled': true
+        })
+        .populate('gameBonusTasks.bonusTasks.taskId')
+        .lean();
+
+        let isBonusTask = false;
+        let bonusTaskOrder = null;
+        let nextBonusTaskUnlocked = false;
+        let nextBonusTaskId = null;
+
+        if (rule) {
+            const gameBonusConfig = rule.gameBonusTasks.find(
+                config => config.gameId.toString() === gameId.toString() && config.isEnabled
+            );
+
+            if (gameBonusConfig) {
+                const bonusTask = gameBonusConfig.bonusTasks.find(
+                    bt => (bt.taskId._id || bt.taskId).toString() === taskId.toString()
+                );
+
+                if (bonusTask) {
+                    isBonusTask = true;
+                    bonusTaskOrder = bonusTask.order;
+
+                    // Check if next bonus task should unlock
+                    if (bonusTaskOrder < 3) {
+                        const nextBonusTask = gameBonusConfig.bonusTasks.find(
+                            bt => bt.order === bonusTaskOrder + 1
+                        );
+
+                        if (nextBonusTask) {
+                            // Get user's game data for event threshold check
+                            const userGame = user.games?.find(g => {
+                                if (mongoose.Types.ObjectId.isValid(gameId)) {
+                                    return g.gameId === gameId || String(g.gameId) === String(gameId);
+                                }
+                                return String(g.gameId) === String(gameId);
+                            });
+
+                            const userInternalEvents = userGame?.playCount || 0;
+                            const minimumEventThreshold = gameBonusConfig.minimumEventThreshold;
+                            const eventThresholdMet = userInternalEvents >= minimumEventThreshold;
+
+                            // Next task unlocks if event threshold is met
+                            if (eventThresholdMet) {
+                                nextBonusTaskUnlocked = true;
+                                nextBonusTaskId = (nextBonusTask.taskId._id || nextBonusTask.taskId).toString();
+                                
+                                // Actually unlock the next bonus task by saving unlock timestamp
+                                const nextTaskIdString = nextBonusTaskId;
+                                const existingNextTask = user.tasks?.find(t => t.taskId === nextTaskIdString);
+                                const unlockTime = new Date();
+                                
+                                if (existingNextTask) {
+                                    if (!existingNextTask.unlockedAt) {
+                                        existingNextTask.unlockedAt = unlockTime;
+                                        existingNextTask.isBonusTask = true;
+                                        existingNextTask.gameId = gameId;
+                                    }
+                                } else {
+                                    if (!user.tasks) {
+                                        user.tasks = [];
+                                    }
+                                    user.tasks.push({
+                                        taskId: nextTaskIdString,
+                                        type: 'bonus',
+                                        completed: false,
+                                        isBonusTask: true,
+                                        gameId: gameId,
+                                        unlockedAt: unlockTime
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Mark task as completed in user's tasks array
+        if (existingTask) {
+            existingTask.completed = true;
+            existingTask.completedAt = new Date();
+            existingTask.date = new Date();
+            if (isBonusTask) {
+                existingTask.isBonusTask = true;
+                existingTask.gameId = gameId;
+            }
+        } else {
+            if (!user.tasks) {
+                user.tasks = [];
+            }
+            user.tasks.push({
+                taskId: taskId.toString(),
+                type: isBonusTask ? 'bonus' : 'normal',
+                completed: true,
+                completedAt: new Date(),
+                xpReward: task.rewardValue || 0,
+                date: new Date(),
+                isBonusTask: isBonusTask,
+                gameId: gameId
+            });
+        }
+
+        // Handle Task Progression Rules and Coin Box
+        // Note: progressionRule already declared at line 1011
+        let coinBoxAccumulated = false;
+        let thresholdReached = false;
+
+        if (progressionRule && !isBonusTask) {
+            // Initialize task progression if needed
+            if (!user.taskProgression) {
+                user.taskProgression = new Map();
+            }
+
+            const gameIdString = gameId.toString();
+            const progression = user.taskProgression.get(gameIdString) || {
+                completedTasks: 0,
+                thresholdReached: false,
+                rewardTransferred: false,
+                coinBoxBalance: 0,
+                coinBoxTransferredAt: null
+            };
+
+            // Increment completed tasks count
+            progression.completedTasks = (progression.completedTasks || 0) + 1;
+
+            // Check if threshold is reached
+            if (progression.completedTasks >= progressionRule.minimumEventThreshold) {
+                progression.thresholdReached = true;
+                thresholdReached = true;
+            }
+
+            // If threshold not reached or reward not transferred, accumulate in coin box
+            if (!progression.thresholdReached || !progression.rewardTransferred) {
+                if (task.rewardType === 'coins') {
+                    progression.coinBoxBalance = (progression.coinBoxBalance || 0) + (task.rewardValue || 0);
+                    coinBoxAccumulated = true;
+                }
+            }
+
+            // Save progression
+            user.taskProgression.set(gameIdString, progression);
+        }
+
+        // Award rewards (to wallet if not in coin box, XP always to wallet)
+        if (task.rewardType === 'xp') {
+            user.xp.current = (user.xp.current || 0) + (task.rewardValue || 0);
+            user.xp.total = (user.xp.total || 0) + (task.rewardValue || 0);
+        } else if (task.rewardType === 'coins') {
+            // Only add to wallet if not accumulating in coin box
+            if (!coinBoxAccumulated) {
+                user.wallet.balance = (user.wallet.balance || 0) + (task.rewardValue || 0);
+                user.wallet.lastUpdated = new Date();
+            }
+        }
+
+        await user.save();
+
+        // Prepare response
+        const response = {
+            success: true,
+            message: 'Task completed successfully',
+            data: {
+                taskId: taskId,
+                taskName: task.name,
+                isBonusTask: isBonusTask,
+                reward: {
+                    type: task.rewardType,
+                    value: task.rewardValue
+                },
+                nextBonusTaskUnlocked: nextBonusTaskUnlocked,
+                coinBoxAccumulated: coinBoxAccumulated,
+                thresholdReached: thresholdReached
+            }
+        };
+
+        // Add coin box info if applicable
+        if (progressionRule && !isBonusTask) {
+            const gameIdString = gameId.toString();
+            const progression = user.taskProgression?.get(gameIdString);
+            if (progression) {
+                response.data.coinBox = {
+                    balance: progression.coinBoxBalance || 0,
+                    thresholdReached: progression.thresholdReached || false,
+                    rewardTransferred: progression.rewardTransferred || false,
+                    canTransfer: (progression.thresholdReached && !progression.rewardTransferred && progression.coinBoxBalance > 0)
+                };
+            }
+        }
+
+        if (nextBonusTaskUnlocked && nextBonusTaskId) {
+            response.data.nextBonusTask = {
+                taskId: nextBonusTaskId,
+                message: 'Next bonus task unlocked! You have 24 hours to complete it.'
+            };
+        } else if (isBonusTask && bonusTaskOrder < 3) {
+            // Get user's game data for event threshold info
+            const userGame = user.games?.find(g => {
+                if (mongoose.Types.ObjectId.isValid(gameId)) {
+                    return g.gameId === gameId || String(g.gameId) === String(gameId);
+                }
+                return String(g.gameId) === String(gameId);
+            });
+
+            const userInternalEvents = userGame?.playCount || 0;
+            const gameBonusConfig = rule.gameBonusTasks.find(
+                config => config.gameId.toString() === gameId.toString() && config.isEnabled
+            );
+            const minimumEventThreshold = gameBonusConfig?.minimumEventThreshold || 0;
+
+            response.data.nextBonusTask = {
+                message: `Reach ${minimumEventThreshold} internal events to unlock next bonus task (current: ${userInternalEvents})`
+            };
+        }
+
+        res.json(response);
+    } catch (error) {
+        console.error('Error completing task:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to complete task',
+            error: error.message
+        });
+    }
+});
+
+// Get My Coin Box status for a game
+router.get('/:gameId/coin-box', protect, async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify game exists
+        const game = await Game.findById(gameId);
+        if (!game) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found'
+            });
+        }
+
+        // Get user data
+        const user = await User.findById(userId).select('taskProgression wallet');
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Get progression rule
+        const rule = await TaskProgressionRule.findByGame(gameId);
+
+        if (!rule) {
+            return res.json({
+                success: true,
+                data: {
+                    hasProgressionRule: false,
+                    coinBoxBalance: 0,
+                    thresholdReached: false,
+                    rewardTransferred: false,
+                    canTransfer: false,
+                    minimumEventThreshold: null,
+                    completedTasks: 0
+                }
+            });
+        }
+
+        // Get user's progression data for this game
+        const gameIdString = gameId.toString();
+        const progression = user.taskProgression?.get(gameIdString) || {
+            completedTasks: 0,
+            thresholdReached: false,
+            rewardTransferred: false,
+            coinBoxBalance: 0,
+            coinBoxTransferredAt: null
+        };
+
+        const completedTasks = progression.completedTasks || 0;
+        const thresholdReached = progression.thresholdReached || false;
+        const rewardTransferred = progression.rewardTransferred || false;
+        const coinBoxBalance = progression.coinBoxBalance || 0;
+
+        // Check if user can transfer
+        const canTransfer = thresholdReached && !rewardTransferred && coinBoxBalance > 0;
+
+        res.json({
+            success: true,
+            data: {
+                hasProgressionRule: true,
+                gameId: gameId,
+                minimumEventThreshold: rule.minimumEventThreshold,
+                completedTasks: completedTasks,
+                thresholdReached: thresholdReached,
+                rewardTransferred: rewardTransferred,
+                coinBoxBalance: coinBoxBalance,
+                canTransfer: canTransfer,
+                progress: {
+                    completed: completedTasks,
+                    required: rule.minimumEventThreshold,
+                    percentage: Math.min(100, Math.round((completedTasks / rule.minimumEventThreshold) * 100))
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error getting coin box status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get coin box status',
+            error: error.message
+        });
+    }
+});
+
+// Transfer rewards from My Coin Box to wallet
+router.post('/:gameId/coin-box/transfer', protect, async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify game exists
+        const game = await Game.findById(gameId);
+        if (!game) {
+            return res.status(404).json({
+                success: false,
+                message: 'Game not found'
+            });
+        }
+
+        // Get user data
+        const user = await User.findById(userId).select('taskProgression wallet');
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Get progression rule
+        const rule = await TaskProgressionRule.findByGame(gameId);
+
+        if (!rule) {
+            return res.status(404).json({
+                success: false,
+                message: 'No progression rule configured for this game'
+            });
+        }
+
+        // Get user's progression data for this game
+        const gameIdString = gameId.toString();
+        if (!user.taskProgression) {
+            user.taskProgression = new Map();
+        }
+
+        const progression = user.taskProgression.get(gameIdString) || {
+            completedTasks: 0,
+            thresholdReached: false,
+            rewardTransferred: false,
+            coinBoxBalance: 0,
+            coinBoxTransferredAt: null
+        };
+
+        // Check if threshold is reached
+        if (!progression.thresholdReached) {
+            return res.status(400).json({
+                success: false,
+                message: `Complete ${rule.minimumEventThreshold} tasks first to unlock transfer (current: ${progression.completedTasks || 0})`
+            });
+        }
+
+        // Check if already transferred
+        if (progression.rewardTransferred) {
+            return res.status(400).json({
+                success: false,
+                message: 'Rewards have already been transferred'
+            });
+        }
+
+        // Check if there's balance to transfer
+        const coinBoxBalance = progression.coinBoxBalance || 0;
+        if (coinBoxBalance <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No rewards to transfer'
+            });
+        }
+
+        // Transfer to wallet
+        user.wallet.balance = (user.wallet.balance || 0) + coinBoxBalance;
+        user.wallet.lastUpdated = new Date();
+
+        // Update progression
+        progression.rewardTransferred = true;
+        progression.coinBoxTransferredAt = new Date();
+        user.taskProgression.set(gameIdString, progression);
+
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'Rewards transferred successfully',
+            data: {
+                transferredAmount: coinBoxBalance,
+                newWalletBalance: user.wallet.balance,
+                transferredAt: progression.coinBoxTransferredAt
+            }
+        });
+    } catch (error) {
+        console.error('Error transferring coin box:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to transfer rewards',
             error: error.message
         });
     }

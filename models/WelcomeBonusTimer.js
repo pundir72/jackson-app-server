@@ -54,6 +54,50 @@ const welcomeBonusTimerSchema = new mongoose.Schema({
       default: true
     }
   }],
+  // Game-specific bonus tasks configuration
+  gameBonusTasks: [{
+    gameId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Game',
+      required: true
+    },
+    minimumEventThreshold: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 0
+    },
+    bonusTasks: [{
+      taskId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'GameTask',
+        required: true
+      },
+      order: {
+        type: Number,
+        required: true,
+        min: 1,
+        max: 3,
+        enum: [1, 2, 3]
+      },
+      unlockCondition: {
+        type: String,
+        default: "Unlock this Bonus Task after Minimum Event Threshold is met."
+      },
+      isEnabled: {
+        type: Boolean,
+        default: true
+      }
+    }],
+    isEnabled: {
+      type: Boolean,
+      default: true
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   isActive: {
     type: Boolean,
     default: true
@@ -96,6 +140,7 @@ welcomeBonusTimerSchema.pre('save', function(next) {
 // Indexes for efficient queries
 welcomeBonusTimerSchema.index({ isActive: 1 });
 welcomeBonusTimerSchema.index({ 'gameOverrides.gameId': 1 });
+welcomeBonusTimerSchema.index({ 'gameBonusTasks.gameId': 1 });
 welcomeBonusTimerSchema.index({ createdAt: -1 });
 
 // Static methods
@@ -223,7 +268,56 @@ welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
     }
   }
   
+  // Validate game bonus tasks
+  for (const gameBonus of this.gameBonusTasks) {
+    if (gameBonus.bonusTasks && gameBonus.bonusTasks.length > 3) {
+      return false;
+    }
+    
+    // Check for duplicate orders
+    if (gameBonus.bonusTasks) {
+      const orders = gameBonus.bonusTasks.map(bt => bt.order).sort();
+      const uniqueOrders = [...new Set(orders)];
+      if (orders.length !== uniqueOrders.length) {
+        return false;
+      }
+      
+      // Check for sequential order
+      const expectedOrders = [1, 2, 3].slice(0, orders.length);
+      if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+        return false;
+      }
+    }
+  }
+  
   return true;
+};
+
+/**
+ * Get bonus tasks for a specific game
+ */
+welcomeBonusTimerSchema.methods.getBonusTasksForGame = function(gameId) {
+  const gameBonus = this.gameBonusTasks.find(
+    gb => gb.gameId.toString() === gameId.toString() && gb.isEnabled
+  );
+  
+  if (!gameBonus || !gameBonus.bonusTasks || gameBonus.bonusTasks.length === 0) {
+    return null;
+  }
+  
+  return {
+    gameId: gameBonus.gameId,
+    minimumEventThreshold: gameBonus.minimumEventThreshold,
+    bonusTasks: gameBonus.bonusTasks
+      .filter(bt => bt.isEnabled)
+      .sort((a, b) => a.order - b.order)
+      .map(bt => ({
+        taskId: bt.taskId,
+        order: bt.order,
+        unlockCondition: bt.unlockCondition,
+        completionDeadlineHours: 24 // Fixed 24 hours
+      }))
+  };
 };
 
 welcomeBonusTimerSchema.methods.getTimerInfo = function(gameId, userXp, gameDownloadTime) {

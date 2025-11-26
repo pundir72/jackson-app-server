@@ -1452,11 +1452,12 @@ router.delete("/games/:id", adminAuth, async (req, res) => {
 
 // ==================== TASKS MANAGEMENT ====================
 
-// Get all tasks for a specific game
+// Get all tasks for a specific game (for admin to select bonus tasks)
+// This endpoint returns ALL tasks, including those that might be configured as bonus tasks
 router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    const { page = 1, limit = 10, search = "" } = req.query;
+    const { page = 1, limit = 100, search = "", excludeBonus = "false" } = req.query;
 
     let query = { gameId };
 
@@ -1466,6 +1467,26 @@ router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
         { name: { $regex: search, $options: "i" } },
         { completionRule: { $regex: search, $options: "i" } },
       ];
+    }
+
+    // If excludeBonus is true, exclude tasks that are configured as bonus tasks
+    if (excludeBonus === "true") {
+      const rule = await WelcomeBonusTimer.findOne({ 
+        isActive: true,
+        'gameBonusTasks.gameId': gameId,
+        'gameBonusTasks.isEnabled': true
+      });
+      
+      if (rule) {
+        const gameBonusConfig = rule.gameBonusTasks.find(
+          config => config.gameId.toString() === gameId && config.isEnabled
+        );
+        
+        if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
+          const bonusTaskIds = gameBonusConfig.bonusTasks.map(bt => bt.taskId);
+          query._id = { $nin: bonusTaskIds };
+        }
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -2074,43 +2095,92 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
 
 // ==================== TASK PROGRESSION RULES ====================
 
-// Get task progression rules
-router.get("/progression-rules", adminAuth, async (req, res) => {
+// Get task progression rule for a specific game
+router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
   try {
-    const rules = await TaskProgressionRule.find({ isActive: true })
-      .sort({ createdAt: -1 })
-      .populate("taskId", "name")
+    const { gameId } = req.params;
+
+    const rule = await TaskProgressionRule.findByGame(gameId)
+      .populate('gameId', 'title gameId')
+      .populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order')
       .lean();
+
+    if (!rule) {
+      return res.json({
+        success: true,
+        data: null,
+        message: "No progression rule configured for this game"
+      });
+    }
+
+    // Format response
+    const formattedData = {
+      gameId: rule.gameId._id || rule.gameId,
+      gameTitle: rule.gameId.title || null,
+      gameGameId: rule.gameId.gameId || null,
+      minimumEventThreshold: rule.minimumEventThreshold,
+      postThresholdTasks: rule.postThresholdTasks
+        .filter(pt => pt.isEnabled)
+        .sort((a, b) => a.order - b.order)
+        .map(pt => ({
+          taskId: pt.taskId._id || pt.taskId,
+          order: pt.order,
+          name: pt.taskId.name || null,
+          description: pt.taskId.description || null,
+          completionRule: pt.taskId.completionRule || null,
+          rewardType: pt.taskId.rewardType || null,
+          rewardValue: pt.taskId.rewardValue || null,
+          requiredXpTier: pt.requiredXpTier,
+          requiredMembershipTier: pt.requiredMembershipTier,
+          isEnabled: pt.isEnabled
+        })),
+      isActive: rule.isActive,
+      createdAt: rule.createdAt,
+      updatedAt: rule.updatedAt
+    };
 
     res.json({
       success: true,
-      data: rules,
+      data: formattedData,
     });
   } catch (error) {
-    console.error("Error getting progression rules:", error);
+    console.error("Error getting progression rule for game:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to get progression rules",
+      message: "Failed to get progression rule",
       error: error.message,
     });
   }
 });
 
-// Create task progression rule
+// Create or update task progression rule for a game
 router.post(
-  "/progression-rules",
+  "/progression-rules/game/:gameId",
   adminAuth,
   [
-    body("taskId").notEmpty().withMessage("Task ID is required"),
-    body("unlockCondition")
-      .notEmpty()
-      .withMessage("Unlock condition is required"),
-    body("lockType")
-      .isIn(["sequential", "timed", "manual"])
-      .withMessage("Invalid lock type"),
-    body("rewardTriggerRule")
-      .notEmpty()
-      .withMessage("Reward trigger rule is required"),
+    body("minimumEventThreshold")
+      .isInt({ min: 1 })
+      .withMessage("Minimum event threshold must be at least 1"),
+    body("postThresholdTasks")
+      .optional()
+      .isArray()
+      .withMessage("Post threshold tasks must be an array"),
+    body("postThresholdTasks.*.taskId")
+      .optional()
+      .isMongoId()
+      .withMessage("Invalid task ID"),
+    body("postThresholdTasks.*.order")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Order must be at least 1"),
+    body("postThresholdTasks.*.requiredXpTier")
+      .optional()
+      .isIn(['junior', 'mid', 'senior', null])
+      .withMessage("Invalid XP tier"),
+    body("postThresholdTasks.*.requiredMembershipTier")
+      .optional()
+      .isIn(['bronze', 'gold', 'platinum', null])
+      .withMessage("Invalid membership tier"),
   ],
   async (req, res) => {
     try {
@@ -2123,91 +2193,173 @@ router.post(
         });
       }
 
-      const ruleData = {
-        ...req.body,
-        createdBy: req.user.userId,
-      };
+      const { gameId } = req.params;
+      const { minimumEventThreshold, postThresholdTasks = [] } = req.body;
 
-      const rule = new TaskProgressionRule(ruleData);
-      await rule.save();
-
-      res.status(201).json({
-        success: true,
-        message: "Progression rule created successfully",
-        data: rule,
-      });
-    } catch (error) {
-      console.error("Error creating progression rule:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to create progression rule",
-        error: error.message,
-      });
-    }
-  }
-);
-
-// Update task progression rule
-router.put(
-  "/progression-rules/:id",
-  adminAuth,
-  [
-    body("unlockCondition")
-      .optional()
-      .notEmpty()
-      .withMessage("Unlock condition cannot be empty"),
-    body("lockType")
-      .optional()
-      .isIn(["sequential", "timed", "manual"])
-      .withMessage("Invalid lock type"),
-    body("rewardTriggerRule")
-      .optional()
-      .notEmpty()
-      .withMessage("Reward trigger rule cannot be empty"),
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Validation failed",
-          errors: errors.array(),
-        });
-      }
-
-      const { id } = req.params;
-      const updateData = req.body;
-      updateData.updatedBy = req.user.userId;
-      updateData.updatedAt = new Date();
-
-      const rule = await TaskProgressionRule.findByIdAndUpdate(id, updateData, {
-        new: true,
-        runValidators: true,
-      });
-
-      if (!rule) {
+      // Verify game exists
+      const game = await Game.findById(gameId);
+      if (!game) {
         return res.status(404).json({
           success: false,
-          message: "Progression rule not found",
+          message: "Game not found",
         });
       }
+
+      // Validate post threshold tasks if provided
+      if (postThresholdTasks.length > 0) {
+        // Check for duplicate task IDs
+        const taskIds = postThresholdTasks.map(pt => pt.taskId.toString());
+        const uniqueTaskIds = [...new Set(taskIds)];
+        if (taskIds.length !== uniqueTaskIds.length) {
+          return res.status(400).json({
+            success: false,
+            message: "Duplicate task IDs are not allowed",
+          });
+        }
+
+        // Validate that all task IDs exist and belong to this game
+        const existingTasks = await GameTask.find({
+          _id: { $in: taskIds },
+          gameId: gameId
+        });
+
+        if (existingTasks.length !== taskIds.length) {
+          return res.status(400).json({
+            success: false,
+            message: "One or more task IDs are invalid or do not belong to this game",
+          });
+        }
+      }
+
+      // Find or create rule
+      let rule = await TaskProgressionRule.findByGame(gameId);
+
+      if (rule) {
+        // Update existing rule
+        rule.minimumEventThreshold = minimumEventThreshold;
+        rule.postThresholdTasks = postThresholdTasks.map(pt => ({
+          taskId: pt.taskId,
+          order: pt.order,
+          requiredXpTier: pt.requiredXpTier || null,
+          requiredMembershipTier: pt.requiredMembershipTier || null,
+          isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
+        }));
+        rule.updatedBy = req.user.userId;
+        rule.updatedAt = new Date();
+      } else {
+        // Create new rule
+        rule = new TaskProgressionRule({
+          gameId: gameId,
+          minimumEventThreshold: minimumEventThreshold,
+          postThresholdTasks: postThresholdTasks.map(pt => ({
+            taskId: pt.taskId,
+            order: pt.order,
+            requiredXpTier: pt.requiredXpTier || null,
+            requiredMembershipTier: pt.requiredMembershipTier || null,
+            isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
+          })),
+          createdBy: req.user.userId,
+        });
+      }
+
+      // Validate configuration
+      if (!rule.isValidConfiguration()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid configuration. Please check your post threshold tasks setup.",
+        });
+      }
+
+      await rule.save();
+
+      // Populate before returning
+      await rule.populate('gameId', 'title gameId');
+      await rule.populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order');
+
+      // Format response
+      const formattedData = {
+        gameId: rule.gameId._id || rule.gameId,
+        gameTitle: rule.gameId.title || null,
+        gameGameId: rule.gameId.gameId || null,
+        minimumEventThreshold: rule.minimumEventThreshold,
+        postThresholdTasks: rule.postThresholdTasks
+          .filter(pt => pt.isEnabled)
+          .sort((a, b) => a.order - b.order)
+          .map(pt => ({
+            taskId: pt.taskId._id || pt.taskId,
+            order: pt.order,
+            name: pt.taskId.name || null,
+            description: pt.taskId.description || null,
+            completionRule: pt.taskId.completionRule || null,
+            rewardType: pt.taskId.rewardType || null,
+            rewardValue: pt.taskId.rewardValue || null,
+            requiredXpTier: pt.requiredXpTier,
+            requiredMembershipTier: pt.requiredMembershipTier,
+            isEnabled: pt.isEnabled
+          })),
+        isActive: rule.isActive
+      };
 
       res.json({
         success: true,
-        message: "Progression rule updated successfully",
-        data: rule,
+        message: rule.isNew ? "Progression rule created successfully" : "Progression rule updated successfully",
+        data: formattedData,
       });
     } catch (error) {
-      console.error("Error updating progression rule:", error);
+      console.error("Error saving progression rule:", error);
       res.status(500).json({
         success: false,
-        message: "Failed to update progression rule",
+        message: "Failed to save progression rule",
         error: error.message,
       });
     }
   }
 );
+
+// Delete task progression rule for a game
+router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { confirm } = req.query;
+
+    if (confirm !== "true") {
+      return res.status(400).json({
+        success: false,
+        message: "Please confirm deletion by adding ?confirm=true to the URL",
+      });
+    }
+
+    const rule = await TaskProgressionRule.findByGame(gameId);
+
+    if (!rule) {
+      return res.status(404).json({
+        success: false,
+        message: "Progression rule not found for this game",
+      });
+    }
+
+    rule.isActive = false;
+    rule.updatedBy = req.user.userId;
+    rule.updatedAt = new Date();
+    await rule.save();
+
+    res.json({
+      success: true,
+      message: "Progression rule deleted successfully",
+      data: {
+        id: rule._id,
+        gameId: rule.gameId,
+      },
+    });
+  } catch (error) {
+    console.error("Error deleting progression rule:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete progression rule",
+      error: error.message,
+    });
+  }
+});
 
 // ==================== WELCOME BONUS TIMER RULES ====================
 
@@ -2215,6 +2367,8 @@ router.put(
 router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   try {
     const rules = await WelcomeBonusTimer.find({ isActive: true })
+      .populate('gameBonusTasks.gameId', 'title gameId')
+      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -2232,15 +2386,90 @@ router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   }
 });
 
-// Update welcome bonus timer rules
+// Get welcome bonus timer rule for a specific game
+router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    
+    const rule = await WelcomeBonusTimer.findOne({ 
+      isActive: true,
+      'gameBonusTasks.gameId': gameId,
+      'gameBonusTasks.isEnabled': true
+    })
+      .populate('gameBonusTasks.gameId', 'title gameId')
+      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+      .lean();
+
+    if (!rule) {
+      return res.json({
+        success: true,
+        data: null,
+        message: "No bonus tasks configured for this game"
+      });
+    }
+
+    const gameBonusConfig = rule.gameBonusTasks.find(
+      config => config.gameId._id.toString() === gameId && config.isEnabled
+    );
+
+    if (!gameBonusConfig) {
+      return res.json({
+        success: true,
+        data: null,
+        message: "No bonus tasks configured for this game"
+      });
+    }
+
+    // Format response for frontend
+    const formattedData = {
+      gameId: gameBonusConfig.gameId._id || gameBonusConfig.gameId,
+      gameTitle: gameBonusConfig.gameId.title || null,
+      gameGameId: gameBonusConfig.gameId.gameId || null,
+      minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
+      completionDeadlineHours: 24, // Fixed 24 hours
+      taskLogic: "sequential", // Always sequential
+      bonusTasks: gameBonusConfig.bonusTasks
+        .filter(bt => bt.isEnabled)
+        .sort((a, b) => a.order - b.order)
+        .map(bt => ({
+          taskId: bt.taskId._id || bt.taskId,
+          order: bt.order,
+          name: bt.taskId.name || null,
+          description: bt.taskId.description || null,
+          completionRule: bt.taskId.completionRule || null,
+          rewardType: bt.taskId.rewardType || null,
+          rewardValue: bt.taskId.rewardValue || null,
+          unlockCondition: bt.unlockCondition,
+          isEnabled: bt.isEnabled
+        })),
+      isEnabled: gameBonusConfig.isEnabled
+    };
+
+    res.json({
+      success: true,
+      data: formattedData,
+    });
+  } catch (error) {
+    console.error("Error getting welcome bonus timer rule for game:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get welcome bonus timer rule for game",
+      error: error.message,
+    });
+  }
+});
+
+// Update welcome bonus timer rules (legacy - for backward compatibility)
 router.put(
   "/welcome-bonus-timer",
   adminAuth,
   [
     body("unlockTimeHours")
+      .optional()
       .isNumeric()
       .withMessage("Unlock time must be numeric"),
     body("completionDeadlineDays")
+      .optional()
       .isNumeric()
       .withMessage("Completion deadline must be numeric"),
   ],
@@ -2259,15 +2488,26 @@ router.put(
       let rule = await WelcomeBonusTimer.findOne({ isActive: true });
 
       if (rule) {
-        rule.unlockTimeHours = req.body.unlockTimeHours;
-        rule.completionDeadlineDays = req.body.completionDeadlineDays;
-        rule.gameOverrides = req.body.gameOverrides || [];
-        rule.xpTierOverrides = req.body.xpTierOverrides || [];
+        if (req.body.unlockTimeHours !== undefined) {
+          rule.unlockTimeHours = req.body.unlockTimeHours;
+        }
+        if (req.body.completionDeadlineDays !== undefined) {
+          rule.completionDeadlineDays = req.body.completionDeadlineDays;
+        }
+        if (req.body.gameOverrides !== undefined) {
+          rule.gameOverrides = req.body.gameOverrides;
+        }
+        if (req.body.xpTierOverrides !== undefined) {
+          rule.xpTierOverrides = req.body.xpTierOverrides;
+        }
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
       } else {
         rule = new WelcomeBonusTimer({
-          ...req.body,
+          unlockTimeHours: req.body.unlockTimeHours || 24,
+          completionDeadlineDays: req.body.completionDeadlineDays || 7,
+          gameOverrides: req.body.gameOverrides || [],
+          xpTierOverrides: req.body.xpTierOverrides || [],
           createdBy: req.user.userId,
         });
       }
@@ -2284,6 +2524,239 @@ router.put(
       res.status(500).json({
         success: false,
         message: "Failed to update welcome bonus timer rules",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Create or update game bonus tasks configuration
+router.post(
+  "/welcome-bonus-timer/game/:gameId/bonus-tasks",
+  adminAuth,
+  [
+    body("minimumEventThreshold")
+      .isInt({ min: 0 })
+      .withMessage("Minimum event threshold must be a non-negative integer"),
+    body("bonusTasks")
+      .isArray({ max: 3 })
+      .withMessage("Maximum 3 bonus tasks allowed"),
+    body("bonusTasks.*.taskId")
+      .isMongoId()
+      .withMessage("Invalid task ID"),
+    body("bonusTasks.*.order")
+      .isInt({ min: 1, max: 3 })
+      .withMessage("Order must be between 1 and 3"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { gameId } = req.params;
+      const { minimumEventThreshold, bonusTasks } = req.body;
+
+      // Validate at least 1 task
+      if (!bonusTasks || bonusTasks.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "At least one bonus task is required",
+        });
+      }
+
+      // Validate bonus tasks
+      if (bonusTasks.length > 3) {
+        return res.status(400).json({
+          success: false,
+          message: "Maximum 3 bonus tasks allowed",
+        });
+      }
+
+      // Validate that order values are unique and sequential
+      const orders = bonusTasks.map(bt => bt.order).sort();
+      const expectedOrders = [1, 2, 3].slice(0, bonusTasks.length);
+      if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+        return res.status(400).json({
+          success: false,
+          message: "Bonus tasks must have sequential order (1, 2, 3)",
+        });
+      }
+
+      // Validate no duplicate task IDs
+      const taskIdsForDuplicateCheck = bonusTasks.map(bt => bt.taskId);
+      const uniqueTaskIds = [...new Set(taskIdsForDuplicateCheck.map(id => id.toString()))];
+      if (taskIdsForDuplicateCheck.length !== uniqueTaskIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Duplicate task IDs are not allowed. Each task can only be selected once.",
+        });
+      }
+
+      // Validate that all task IDs exist
+      const taskIds = bonusTasks.map(bt => bt.taskId);
+      const existingTasks = await GameTask.find({ 
+        _id: { $in: taskIds },
+        gameId: gameId
+      });
+      
+      if (existingTasks.length !== taskIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: "One or more task IDs are invalid or do not belong to this game",
+        });
+      }
+
+      // Find or create active rule
+      let rule = await WelcomeBonusTimer.findOne({ isActive: true });
+      
+      if (!rule) {
+        rule = new WelcomeBonusTimer({
+          unlockTimeHours: 24,
+          completionDeadlineDays: 7,
+          createdBy: req.user.userId,
+        });
+      }
+
+      // Find existing game bonus task configuration
+      const existingGameIndex = rule.gameBonusTasks.findIndex(
+        config => config.gameId.toString() === gameId
+      );
+
+      const bonusTasksData = bonusTasks.map(bt => ({
+        taskId: bt.taskId,
+        order: bt.order,
+        unlockCondition: "Unlock this Bonus Task after Minimum Event Threshold is met.",
+        isEnabled: true
+      }));
+
+      if (existingGameIndex >= 0) {
+        // Update existing configuration
+        rule.gameBonusTasks[existingGameIndex].minimumEventThreshold = minimumEventThreshold;
+        rule.gameBonusTasks[existingGameIndex].bonusTasks = bonusTasksData;
+        rule.gameBonusTasks[existingGameIndex].isEnabled = true;
+        rule.gameBonusTasks[existingGameIndex].updatedAt = new Date();
+      } else {
+        // Add new configuration
+        rule.gameBonusTasks.push({
+          gameId: gameId,
+          minimumEventThreshold: minimumEventThreshold,
+          bonusTasks: bonusTasksData,
+          isEnabled: true
+        });
+      }
+
+      rule.updatedBy = req.user.userId;
+      rule.updatedAt = new Date();
+
+      // Validate configuration
+      if (!rule.isValidConfiguration()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid configuration. Please check your bonus tasks setup.",
+        });
+      }
+
+      await rule.save();
+
+      // Populate before returning
+      await rule.populate('gameBonusTasks.gameId', 'title gameId');
+      await rule.populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue');
+
+      const gameBonusConfig = rule.gameBonusTasks.find(
+        config => config.gameId._id.toString() === gameId
+      );
+
+      // Format response for frontend
+      const formattedData = {
+        gameId: gameBonusConfig.gameId._id || gameBonusConfig.gameId,
+        gameTitle: gameBonusConfig.gameId.title || null,
+        gameGameId: gameBonusConfig.gameId.gameId || null,
+        minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
+        completionDeadlineHours: 24, // Fixed 24 hours
+        taskLogic: "sequential", // Always sequential
+        bonusTasks: gameBonusConfig.bonusTasks
+          .filter(bt => bt.isEnabled)
+          .sort((a, b) => a.order - b.order)
+          .map(bt => ({
+            taskId: bt.taskId._id || bt.taskId,
+            order: bt.order,
+            name: bt.taskId.name || null,
+            description: bt.taskId.description || null,
+            completionRule: bt.taskId.completionRule || null,
+            rewardType: bt.taskId.rewardType || null,
+            rewardValue: bt.taskId.rewardValue || null,
+            unlockCondition: bt.unlockCondition,
+            isEnabled: bt.isEnabled
+          })),
+        isEnabled: gameBonusConfig.isEnabled
+      };
+
+      res.json({
+        success: true,
+        message: "Game bonus tasks configured successfully",
+        data: formattedData,
+      });
+    } catch (error) {
+      console.error("Error updating game bonus tasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update game bonus tasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Delete game bonus tasks configuration
+router.delete(
+  "/welcome-bonus-timer/game/:gameId/bonus-tasks",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const { gameId } = req.params;
+
+      const rule = await WelcomeBonusTimer.findOne({ isActive: true });
+      
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "No active welcome bonus timer rule found",
+        });
+      }
+
+      const gameIndex = rule.gameBonusTasks.findIndex(
+        config => config.gameId.toString() === gameId
+      );
+
+      if (gameIndex < 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No bonus tasks configuration found for this game",
+        });
+      }
+
+      // Remove the game bonus tasks configuration
+      rule.gameBonusTasks.splice(gameIndex, 1);
+      rule.updatedBy = req.user.userId;
+      rule.updatedAt = new Date();
+
+      await rule.save();
+
+      res.json({
+        success: true,
+        message: "Game bonus tasks configuration deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting game bonus tasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to delete game bonus tasks",
         error: error.message,
       });
     }

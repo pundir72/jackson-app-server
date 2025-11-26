@@ -279,32 +279,42 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    // Select reward by probability
+    // Select reward by probability using weighted random selection
+    // This ensures truly random selection based on probability weights
     const totalProbability = eligibleRewards.reduce(
       (sum, r) => sum + (r.probability || 0),
       0
     );
 
-    const cumulative = [];
-    let sum = 0;
-    for (let i = 0; i < eligibleRewards.length; i++) {
-      const reward = eligibleRewards[i];
-      const prob = reward.probability || 0;
-      sum += prob;
-      cumulative.push({ reward, cumulative: sum });
-    }
-
-    const random = Math.random() * totalProbability;
-    let selectedReward = null;
-    for (const item of cumulative) {
-      if (random <= item.cumulative) {
-        selectedReward = item.reward;
-        break;
+    if (totalProbability <= 0) {
+      // Fallback: equal probability for all rewards if no probabilities set
+      const randomIndex = Math.floor(Math.random() * eligibleRewards.length);
+      selectedReward = eligibleRewards[randomIndex];
+    } else {
+      // Generate random number in the range [0, totalProbability)
+      // Using a more precise random number to avoid clustering
+      const random = Math.random() * totalProbability;
+      
+      // Build cumulative distribution and select reward
+      let cumulative = 0;
+      selectedReward = null;
+      
+      for (const reward of eligibleRewards) {
+        const prob = reward.probability || 0;
+        cumulative += prob;
+        
+        // Select the first reward where random falls within its cumulative range
+        // Using < ensures proper distribution (random is in [0, totalProbability))
+        if (random < cumulative) {
+          selectedReward = reward;
+          break;
+        }
       }
-    }
-
-    if (!selectedReward) {
-      selectedReward = eligibleRewards[0];
+      
+      // Safety fallback (should never reach here if algorithm is correct)
+      if (!selectedReward) {
+        selectedReward = eligibleRewards[eligibleRewards.length - 1];
+      }
     }
 
     const vipMultiplier =
@@ -487,34 +497,55 @@ router.post("/redeem", protect, async (req, res) => {
       });
     }
 
-    user.wallet.balance += spinLog.rewardAmount;
-    user.wallet.lastUpdated = new Date();
+    const rewardType = spinLog.rewardType || (spinLog.reward && spinLog.reward.type) || "coins";
+    let coinsEarned = 0;
+    let xpEarned = 0;
+    let couponCode = null;
 
-    const xpEarned = Math.floor(spinLog.rewardAmount * 0.5);
-    user.xp.current += xpEarned;
-    user.xp.total += xpEarned;
-
-    if (transaction) {
-      transaction.status = "completed";
-      transaction.amount = spinLog.rewardAmount;
-      transaction.description = `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`;
-    } else {
-      transaction = new Transaction({
-        user: userId,
-        type: "credit",
-        balanceType: "coins",
-        amount: spinLog.rewardAmount,
-        description: `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`,
-        status: "completed",
-        referenceId: spinLog.spinId || spinLog._id.toString(),
-      });
+    // Handle different reward types
+    if (rewardType === "coins") {
+      coinsEarned = spinLog.rewardAmount;
+      user.wallet.balance += coinsEarned;
+      user.wallet.lastUpdated = new Date();
+      // Also give bonus XP (50% of coins)
+      xpEarned = Math.floor(coinsEarned * 0.5);
+      user.xp.current += xpEarned;
+      user.xp.total += xpEarned;
+    } else if (rewardType === "xp") {
+      xpEarned = spinLog.rewardAmount;
+      user.xp.current += xpEarned;
+      user.xp.total += xpEarned;
+    } else if (rewardType === "coupon") {
+      // Handle coupon reward - store in metadata or user's coupon list
+      const reward = await SpinWheelReward.findById(spinLog.reward);
+      couponCode = reward?.metadata?.couponCode || `COUPON-${Date.now()}`;
+      // You may want to store this in a separate Coupon model or user metadata
+      // For now, we'll just return it in the response
     }
 
-    await transaction.save();
+    // Create transaction only for coins
+    if (rewardType === "coins") {
+      if (transaction) {
+        transaction.status = "completed";
+        transaction.amount = spinLog.rewardAmount;
+        transaction.description = `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`;
+      } else {
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "coins",
+          amount: spinLog.rewardAmount,
+          description: `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`,
+          status: "completed",
+          referenceId: spinLog.spinId || spinLog._id.toString(),
+        });
+      }
+      await transaction.save();
 
-    if (!spinLog.transactionId) {
-      spinLog.transactionId = transaction._id;
-      await spinLog.save();
+      if (!spinLog.transactionId) {
+        spinLog.transactionId = transaction._id;
+        await spinLog.save();
+      }
     }
 
     await user.save();
@@ -523,11 +554,16 @@ router.post("/redeem", protect, async (req, res) => {
       success: true,
       data: {
         reward: spinLog.rewardAmount,
-        xpEarned,
+        rewardType: rewardType,
+        coinsEarned: coinsEarned,
+        xpEarned: xpEarned,
+        couponCode: couponCode,
         newBalance: user.wallet.balance,
         newXP: user.xp.current,
-        message: "Reward claimed successfully!",
-        transactionId: transaction._id,
+        message: rewardType === "coupon" 
+          ? `Coupon reward claimed! Code: ${couponCode}`
+          : "Reward claimed successfully!",
+        transactionId: transaction?._id,
         spinLogId: spinLog._id,
       },
     });

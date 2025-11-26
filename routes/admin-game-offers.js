@@ -105,7 +105,12 @@ router.get("/offers", adminAuth, async (req, res) => {
 
     // Status filter
     if (status !== "all") {
-      query.isActive = status === "active";
+      const statusLower = status.toLowerCase();
+      if (statusLower === "active") {
+        query.isActive = true;
+      } else if (statusLower === "inactive") {
+        query.isActive = false;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -767,6 +772,7 @@ router.get("/games", adminAuth, async (req, res) => {
       country = "",
       sdkProvider = "",
       xptr = "",
+      xpTier = "",
       adGame = "",
       status = "all",
     } = req.query;
@@ -796,6 +802,14 @@ router.get("/games", adminAuth, async (req, res) => {
       query.xptrRules = { $regex: xptr, $options: "i" };
     }
 
+    // XP Tier filter
+    if (xpTier && xpTier !== "") {
+      const xpTierNum = parseInt(xpTier);
+      if (!isNaN(xpTierNum)) {
+        query.xpTier = xpTierNum;
+      }
+    }
+
     // Ad Game filter
     if (adGame !== "") {
       query.isAdSupported = adGame === "true";
@@ -803,7 +817,12 @@ router.get("/games", adminAuth, async (req, res) => {
 
     // Status filter
     if (status !== "all") {
-      query.isActive = status === "active";
+      const statusLower = status.toLowerCase();
+      if (statusLower === "active") {
+        query.isActive = true;
+      } else if (statusLower === "inactive") {
+        query.isActive = false;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);

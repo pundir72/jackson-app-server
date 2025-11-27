@@ -11,6 +11,7 @@ const BesitosConversion = require('../models/BesitosConversion');
 const DailyChallenge = require('../models/DailyChallenge');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const AdjustAttribution = require('../models/AdjustAttribution');
 
 /**
  * @route   POST /api/webhooks/besitos/conversion
@@ -303,6 +304,107 @@ router.post('/bitlabs/completion', async (req, res) => {
       success: false,
       error: 'Failed to process webhook'
     });
+  }
+});
+
+/**
+ * @route   POST /api/webhooks/adjust/attribution
+ * @desc    Handle Adjust attribution webhook callback
+ * @body    Adjust attribution callback data
+ * @access  Public (but should verify signature in production)
+ */
+router.post('/adjust/attribution', async (req, res) => {
+  try {
+    const attributionData = req.body;
+    
+    console.log('Adjust attribution webhook received:', {
+      adjustId: attributionData.adjust_id,
+      network: attributionData.network,
+      campaign: attributionData.campaign
+    });
+
+    // Extract user ID from callback params if available
+    const userId = attributionData.callback_params?.user_id || attributionData.user_id;
+    
+    if (!userId) {
+      console.warn('Adjust webhook: No user_id found in callback params');
+      return res.status(200).json({ received: true }); // Still return 200 to Adjust
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      console.warn(`Adjust webhook: User not found: ${userId}`);
+      return res.status(200).json({ received: true });
+    }
+
+    // Map Adjust webhook data to our schema
+    const mappedData = {
+      userId: user._id,
+      adjustId: attributionData.adjust_id,
+      network: attributionData.network,
+      campaign: attributionData.campaign,
+      adgroup: attributionData.adgroup,
+      creative: attributionData.creative,
+      clickLabel: attributionData.click_label,
+      trackerToken: attributionData.tracker_token,
+      trackerName: attributionData.tracker_name,
+      campaignId: attributionData.campaign_id,
+      adgroupId: attributionData.adgroup_id,
+      creativeId: attributionData.creative_id,
+      idfa: attributionData.idfa,
+      idfv: attributionData.idfv,
+      gpsAdid: attributionData.gps_adid,
+      androidId: attributionData.android_id,
+      fireAdid: attributionData.fire_adid,
+      windowsAdid: attributionData.windows_adid,
+      amazonAdid: attributionData.amazon_adid,
+      appToken: attributionData.app_token,
+      appVersion: attributionData.app_version,
+      appName: attributionData.app_name,
+      deviceType: attributionData.device_type,
+      deviceName: attributionData.device_name,
+      osName: attributionData.os_name,
+      osVersion: attributionData.os_version,
+      environment: attributionData.environment || 'production',
+      country: attributionData.country,
+      region: attributionData.region,
+      city: attributionData.city,
+      language: attributionData.language,
+      ipAddress: attributionData.ip_address,
+      attributionType: attributionData.attribution_type,
+      clickTime: attributionData.click_time ? new Date(attributionData.click_time) : null,
+      installTime: attributionData.install_time ? new Date(attributionData.install_time) : null,
+      impressionTime: attributionData.impression_time ? new Date(attributionData.impression_time) : null,
+      isOrganic: attributionData.is_organic === 'true' || attributionData.is_organic === true,
+      isReattributed: attributionData.is_reattributed === 'true' || attributionData.is_reattributed === true,
+      metadata: {
+        raw: attributionData
+      }
+    };
+
+    // Check if attribution already exists
+    const existingAttribution = await AdjustAttribution.findOne({
+      userId: user._id,
+      isActive: true
+    });
+
+    if (existingAttribution) {
+      // Update existing attribution
+      Object.assign(existingAttribution, mappedData);
+      await existingAttribution.save();
+    } else {
+      // Create new attribution
+      const newAttribution = new AdjustAttribution(mappedData);
+      await newAttribution.save();
+    }
+
+    res.status(200).json({ received: true });
+
+  } catch (error) {
+    console.error('Adjust attribution webhook error:', error);
+    // Still return 200 to Adjust to prevent retries
+    res.status(200).json({ received: true });
   }
 });
 

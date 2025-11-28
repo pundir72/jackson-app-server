@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const { body, validationResult, query } = require("express-validator");
 const protect = require("../middleware/auth");
 const VIPTier = require("../models/VIPTier");
@@ -978,6 +979,91 @@ router.get("/users/:id", adminAuth, async (req, res) => {
         ? Math.round((totalChallengesCompleted / totalChallengeAttempts) * 100)
         : 0;
 
+    // Calculate age from dateOfBirth if available, otherwise use ageRange
+    let ageValue = "N/A";
+
+    // Debug: Log what we have
+    console.log("🔍 [User Details] Age calculation debug:", {
+      userId: user._id,
+      hasDateOfBirth: !!user.dateOfBirth,
+      dateOfBirth: user.dateOfBirth,
+      onboardingAgeRange: safeOnboarding.ageRange,
+      onboardingObject: safeOnboarding,
+    });
+
+    if (user.dateOfBirth) {
+      try {
+        const today = new Date();
+        const birthDate = new Date(user.dateOfBirth);
+        console.log("🔍 [User Details] Date calculation:", {
+          today: today.toISOString(),
+          birthDate: birthDate.toISOString(),
+          isValid: !isNaN(birthDate.getTime()),
+        });
+
+        if (!isNaN(birthDate.getTime())) {
+          let age = today.getFullYear() - birthDate.getFullYear();
+          const monthDiff = today.getMonth() - birthDate.getMonth();
+          if (
+            monthDiff < 0 ||
+            (monthDiff === 0 && today.getDate() < birthDate.getDate())
+          ) {
+            age--;
+          }
+          console.log("🔍 [User Details] Calculated age:", age);
+
+          // Convert to age range format
+          if (age >= 13 && age <= 17) ageValue = "13-17";
+          else if (age >= 18 && age <= 24) ageValue = "18-24";
+          else if (age >= 25 && age <= 34) ageValue = "25-34";
+          else if (age >= 35 && age <= 44) ageValue = "35-44";
+          else if (age >= 45 && age <= 54) ageValue = "45-54";
+          else if (age >= 55 && age <= 64) ageValue = "55-64";
+          else if (age >= 65) ageValue = "65+";
+          else ageValue = "N/A";
+
+          console.log(
+            "🔍 [User Details] Age range from dateOfBirth:",
+            ageValue
+          );
+        } else {
+          console.log(
+            "🔍 [User Details] Invalid dateOfBirth, cannot calculate age"
+          );
+        }
+      } catch (error) {
+        console.error(
+          "❌ [User Details] Error calculating age from dateOfBirth:",
+          error
+        );
+      }
+    } else {
+      console.log(
+        "🔍 [User Details] No dateOfBirth field, checking onboarding.ageRange"
+      );
+    }
+
+    // Fallback to ageRange from onboarding if dateOfBirth not available or calculation failed
+    if (
+      ageValue === "N/A" &&
+      safeOnboarding.ageRange &&
+      safeOnboarding.ageRange !== "N/A"
+    ) {
+      console.log(
+        "🔍 [User Details] Using onboarding.ageRange:",
+        safeOnboarding.ageRange
+      );
+      ageValue = safeOnboarding.ageRange;
+    } else {
+      console.log("🔍 [User Details] Final ageValue:", ageValue, {
+        wasN_A: ageValue === "N/A",
+        hasAgeRange: !!safeOnboarding.ageRange,
+        ageRangeValue: safeOnboarding.ageRange,
+      });
+    }
+
+    console.log("✅ [User Details] Final age value:", ageValue);
+
     const transformedUser = {
       // === Profile Tab ===
       id: user._id,
@@ -990,7 +1076,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
         ? safeOnboarding.gender.charAt(0).toUpperCase() +
           safeOnboarding.gender.slice(1)
         : "N/A",
-      age: safeOnboarding.ageRange || "N/A",
+      age: ageValue,
       registrationDate: user.createdAt,
       country:
         safeLocation.country && safeLocation.country.trim()
@@ -1652,23 +1738,38 @@ router.post(
         });
       }
 
-      // Here you would integrate with your notification service
-      // For now, we'll just log the notification
+      // Store notification in user document
+      const notification = {
+        _id: new mongoose.Types.ObjectId(),
+        message,
+        type,
+        sentAt: new Date(),
+        read: false,
+        dismissed: false,
+      };
+
+      // Initialize notifications array if it doesn't exist
+      if (!user.notifications) {
+        user.notifications = [];
+      }
+
+      // Add notification to user's notifications array
+      user.notifications.push(notification);
+      await user.save();
+
       console.log(
         `Sending ${type} notification to user ${user.firstName} ${user.lastName}: ${message}`
       );
-
-      // You could store the notification in a database or send via push notification service
-      // For example: await Notification.create({ userId: id, message, type, sentAt: new Date() });
 
       res.json({
         success: true,
         message: "Notification sent successfully",
         data: {
           userId: id,
+          notificationId: notification._id,
           message,
           type,
-          sentAt: new Date(),
+          sentAt: notification.sentAt,
         },
       });
     } catch (error) {

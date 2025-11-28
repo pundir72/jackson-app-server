@@ -291,7 +291,14 @@ router.post('/complete', protect, async (req, res) => {
       amount: finalReward,
       description: `Game completed - ${gameId}`,
       status: 'completed',
-      referenceId: `GAME-${gameId}-${Date.now()}`
+      referenceId: `GAME-${gameId}-${Date.now()}`,
+      gameId,
+      metadata: {
+        gameId,
+        offerId,
+        provider,
+        completionSource: provider,
+      },
     });
 
     await Promise.all([
@@ -483,7 +490,13 @@ router.post('/callback/bitlabs', async (req, res) => {
       amount: finalReward,
       description: `Game offer completed - ${offerId} (Bitlabs)`,
       status: 'completed',
-      referenceId: `OFFER-${offerId}-${Date.now()}`
+      referenceId: `OFFER-${offerId}-${Date.now()}`,
+      gameId: offerId,
+      metadata: {
+        offerId,
+        provider: 'bitlabs',
+        gameId: offerId
+      },
     });
 
     await Promise.all([
@@ -562,7 +575,13 @@ router.post('/callback/besitos', async (req, res) => {
       amount: finalReward,
       description: `Game offer completed - ${offerId}`,
       status: 'completed',
-      referenceId: `OFFER-${offerId}-${Date.now()}`
+      referenceId: `OFFER-${offerId}-${Date.now()}`,
+      gameId: offerId,
+      metadata: {
+        offerId,
+        provider: 'besitos',
+        gameId: offerId
+      },
     });
 
     await Promise.all([

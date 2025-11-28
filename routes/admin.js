@@ -2045,109 +2045,9 @@ router.get(
       }
 
       // ==================== REVENUE VS REWARD COST BY GAME ====================
-      const gamesWithRevenue = await Game.find({ isActive: true })
-        .select("gameId title metadata analytics")
-        .lean();
-
-      const revenueTable = await Promise.all(
-        gamesWithRevenue.map(async (game) => {
-          // Build game-specific transaction filter (without gameId filter to avoid conflict)
-          const gameTransactionFilter = { ...transactionFilter };
-          if (gameTransactionFilter.$or) {
-            delete gameTransactionFilter.$or;
-          }
-          gameTransactionFilter.$or = [
-            { "metadata.gameId": game.gameId },
-            { referenceId: new RegExp(game.gameId, "i") },
-            { description: new RegExp(game.gameId, "i") },
-          ];
-
-          // Get revenue from transactions (offer completions, etc.)
-          const revenueData = await Transaction.aggregate([
-            {
-              $match: {
-                ...gameTransactionFilter,
-                type: { $in: ["credit", "reward"] },
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                revenue: { $sum: "$amount" },
-              },
-            },
-          ]);
-
-          // Get reward cost from transactions
-          const rewardCostData = await Transaction.aggregate([
-            {
-              $match: {
-                ...gameTransactionFilter,
-                type: "reward",
-                balanceType: "coins",
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                cost: { $sum: "$amount" },
-              },
-            },
-          ]);
-
-          const revenue =
-            revenueData[0]?.revenue || game.metadata?.revenue || 0;
-          const rewardCost =
-            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
-          const margin = revenue - rewardCost;
-          const marginPercent =
-            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
-
-          // Calculate D7 retention for this game (apply user filter)
-          const gameUsersForRetention = await User.find({
-            "games.gameId": game.gameId,
-            "games.installedAt": { $exists: true },
-            ...userFilter,
-          })
-            .select("dailyActivity createdAt")
-            .lean();
-
-          let d7Retention = 0;
-          if (gameUsersForRetention.length > 0) {
-            const retained = gameUsersForRetention.filter((user) => {
-              if (!user.dailyActivity?.activeDates) return false;
-              const userCreatedAt = new Date(user.createdAt);
-              const d7Date = new Date(userCreatedAt);
-              d7Date.setDate(d7Date.getDate() + 7);
-              const d7DateStr = `${d7Date.getFullYear()}-${String(
-                d7Date.getMonth() + 1
-              ).padStart(2, "0")}-${String(d7Date.getDate()).padStart(2, "0")}`;
-              return user.dailyActivity.activeDates.includes(d7DateStr);
-            }).length;
-            d7Retention = (
-              (retained / gameUsersForRetention.length) *
-              100
-            ).toFixed(2);
-          }
-
-          return {
-            gameId: game.gameId,
-            title: game.title,
-            revenue: revenue,
-            rewardCost: rewardCost,
-            margin: margin,
-            marginPercent: parseFloat(marginPercent),
-            d7Retention: parseFloat(d7Retention),
-            performance:
-              parseFloat(marginPercent) > 0 ? "positive" : "negative",
-          };
-        })
-      );
-
-      // Sort by revenue descending
-      revenueTable.sort((a, b) => b.revenue - a.revenue);
+      // NOTE: Temporarily disabled due to heavy aggregation cost. We'll expose
+      // a dedicated endpoint for this table to keep the dashboard fast.
+      const revenueTable = [];
 
       // ==================== ATTRIBUTION PERFORMANCE ====================
       // Get all users and calculate sources properly - MUST use same date filters as userFilter
@@ -2529,5 +2429,279 @@ function getStatusColor(status) {
       return "#066657";
   }
 }
+
+/**
+ * Get Revenue vs Reward Cost by Game
+ * @route   GET /api/admin/revenue-by-game
+ * @query   {string} startDate - Start date (ISO format)
+ * @query   {string} endDate - End date (ISO format)
+ * @query   {string} gameId - Filter by game ID (optional)
+ * @query   {string} source - Filter by acquisition source
+ * @query   {string} age - Filter by age group
+ * @query   {string} gender - Filter by gender
+ * @access  Admin
+ */
+router.get(
+  "/revenue-by-game",
+  adminAuth,
+  [
+    query("startDate")
+      .optional()
+      .isISO8601()
+      .withMessage("Invalid start date format"),
+    query("endDate")
+      .optional()
+      .isISO8601()
+      .withMessage("Invalid end date format"),
+    query("gameId").optional().isString(),
+    query("source").optional().isString(),
+    query("age").optional().isString(),
+    query("gender").optional().isIn(["male", "female", "other"]),
+    query("page").optional().isInt({ min: 1 }),
+    query("limit").optional().isInt({ min: 1, max: 200 }),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      const {
+        startDate,
+        endDate,
+        gameId,
+        source,
+        age,
+        gender,
+        page = 1,
+        limit = 25,
+      } = req.query;
+
+      const pageNumber = parseInt(page, 10) || 1;
+      const pageSize = parseInt(limit, 10) || 25;
+
+      // Default to last 30 days if no date range provided
+      const end = endDate ? new Date(endDate) : new Date();
+      const start = startDate
+        ? new Date(startDate)
+        : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const filters = {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        gameId,
+        source,
+        age,
+        gender,
+      };
+
+      // Build user filter to get filtered user IDs
+      const userFilter = await buildUserFilter(filters);
+      let filteredUserIds = [];
+      if (Object.keys(userFilter).length > 0) {
+        const filteredUsers = await User.find(userFilter)
+          .select("_id")
+          .lean();
+        filteredUserIds = filteredUsers.map((u) => u._id);
+      }
+
+      // Build transaction date filter
+      const transactionDateFilter = {};
+      if (filters.startDate || filters.endDate) {
+        transactionDateFilter.createdAt = {};
+        if (filters.startDate) {
+          transactionDateFilter.createdAt.$gte = new Date(filters.startDate);
+        }
+        if (filters.endDate) {
+          transactionDateFilter.createdAt.$lte = new Date(filters.endDate);
+        }
+      }
+
+      // Get games to process
+      const gameQuery = { isActive: true };
+      if (gameId) {
+        gameQuery.gameId = gameId;
+      }
+
+      const games = await Game.find(gameQuery)
+        .select("gameId title metadata")
+        .lean();
+
+      if (games.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            revenueByGame: [],
+            filters: {
+              startDate: filters.startDate,
+              endDate: filters.endDate,
+              gameId: filters.gameId || null,
+              source: filters.source || null,
+              age: filters.age || null,
+              gender: filters.gender || null,
+            },
+          },
+        });
+      }
+
+      // Process each game
+      const revenueTable = await Promise.all(
+        games.map(async (game) => {
+          // Build game-specific transaction filter
+          const gameIdRegex = new RegExp(game.gameId, "i");
+          const gameTransactionFilter = {
+            ...transactionDateFilter,
+            $or: [
+              { game: game._id },
+              { gameId: game.gameId },
+              { "metadata.gameId": game.gameId },
+              { referenceId: gameIdRegex },
+              { description: gameIdRegex },
+            ],
+          };
+
+          // Apply user filter if available
+          if (filteredUserIds.length > 0) {
+            gameTransactionFilter.user = { $in: filteredUserIds };
+          } else if (filters.source || filters.gender || filters.age) {
+            // If filters are applied but no users match, set empty array
+            gameTransactionFilter.user = { $in: [] };
+          }
+
+          // Calculate revenue from internal transaction logs (currency earnings)
+          const revenueMatch = {
+            ...gameTransactionFilter,
+            status: "completed",
+            type: { $in: ["credit", "conversion", "payout", "reward"] },
+          };
+
+          const revenueData = await Transaction.aggregate([
+            { $match: revenueMatch },
+            {
+              $group: {
+                _id: null,
+                revenue: { $sum: "$amount" },
+              },
+            },
+          ]);
+
+          const revenue =
+            revenueData[0]?.revenue || game.metadata?.revenue || 0;
+
+          // Reward cost = sum of coin rewards (same dataset filtered to balanceType === 'coins' + type === 'reward')
+          const rewardCostData = await Transaction.aggregate([
+            {
+              $match: {
+                ...revenueMatch,
+                type: "reward",
+                balanceType: "coins",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                cost: { $sum: "$amount" },
+              },
+            },
+          ]);
+
+          const rewardCost =
+            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
+
+          // Calculate margin
+          const margin = revenue - rewardCost;
+          const marginPercent =
+            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
+
+          // Calculate D7 retention for this game
+          const retentionUserQuery = {
+            "games.gameId": game.gameId,
+            "games.installedAt": { $exists: true },
+            ...userFilter,
+          };
+
+          const gameUsersForRetention = await User.find(retentionUserQuery)
+            .select("dailyActivity createdAt")
+            .lean();
+
+          let d7Retention = 0;
+          if (gameUsersForRetention.length > 0) {
+            const retained = gameUsersForRetention.filter((user) => {
+              if (!user.dailyActivity?.activeDates || !user.createdAt) {
+                return false;
+              }
+              const userCreatedAt = new Date(user.createdAt);
+              const d7Date = new Date(userCreatedAt);
+              d7Date.setDate(d7Date.getDate() + 7);
+              const d7DateStr = `${d7Date.getFullYear()}-${String(
+                d7Date.getMonth() + 1
+              ).padStart(2, "0")}-${String(d7Date.getDate()).padStart(2, "0")}`;
+              return user.dailyActivity.activeDates.includes(d7DateStr);
+            }).length;
+            d7Retention = (
+              (retained / gameUsersForRetention.length) *
+              100
+            ).toFixed(2);
+          }
+
+          return {
+            gameId: game.gameId,
+            title: game.title,
+            revenue: revenue,
+            rewardCost: rewardCost,
+            margin: margin,
+            marginPercent: parseFloat(marginPercent),
+            d7Retention: parseFloat(d7Retention),
+            performance:
+              parseFloat(marginPercent) > 0 ? "positive" : "negative",
+          };
+        })
+      );
+
+      // Sort by revenue descending
+      revenueTable.sort((a, b) => b.revenue - a.revenue);
+
+      const totalGames = revenueTable.length;
+      const totalPages = Math.ceil(totalGames / pageSize) || 1;
+      const startIndex = (pageNumber - 1) * pageSize;
+      const paginatedGames = revenueTable.slice(
+        startIndex,
+        startIndex + pageSize
+      );
+
+      res.json({
+        success: true,
+        data: {
+          revenueByGame: paginatedGames,
+          pagination: {
+            page: pageNumber,
+            limit: pageSize,
+            totalItems: totalGames,
+            totalPages,
+          },
+          filters: {
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            gameId: filters.gameId || null,
+            source: filters.source || null,
+            age: filters.age || null,
+            gender: filters.gender || null,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Error getting revenue by game:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get revenue by game data",
+        error: error.message,
+      });
+    }
+  }
+);
 
 module.exports = router;

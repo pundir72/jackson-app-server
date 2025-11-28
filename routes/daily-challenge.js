@@ -1353,20 +1353,53 @@ router.post("/complete", protect, async (req, res) => {
     });
 
     // Create transaction record
+    let linkedGameObjectId =
+      challenge.assignedGame?.gameId &&
+      typeof challenge.assignedGame.gameId === "object"
+        ? challenge.assignedGame.gameId._id || challenge.assignedGame.gameId
+        : challenge.assignedGame?.gameId || null;
+
+    let linkedGameCode =
+      challenge.gameId ||
+      challenge.gameDetails?.id ||
+      (typeof progress.selectedGame?.gameId === "string"
+        ? progress.selectedGame.gameId
+        : null);
+
+    if (!linkedGameCode && linkedGameObjectId) {
+      const linkedGameDoc = await Game.findById(linkedGameObjectId).select(
+        "gameId"
+      );
+      if (linkedGameDoc?.gameId) {
+        linkedGameCode = linkedGameDoc.gameId;
+      }
+    }
+
+    const transactionMetadata = {
+      challengeId: challenge._id,
+      challengeType: challenge.type,
+      xpEarned: totalXP,
+      bonusCoins,
+      bonusXP,
+    };
+
+    if (linkedGameCode) {
+      transactionMetadata.gameId = linkedGameCode;
+    }
+    if (linkedGameObjectId) {
+      transactionMetadata.gameRef = linkedGameObjectId;
+    }
+
     const transaction = new Transaction({
       user: userId,
       type: "credit",
       amount: totalCoins,
       description: `Daily Challenge: ${challenge.title}`,
       status: "completed",
-      metadata: {
-        challengeId: challenge._id,
-        challengeType: challenge.type,
-        xpEarned: totalXP,
-        bonusCoins,
-        bonusXP,
-      },
       referenceId: `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`,
+      game: linkedGameObjectId,
+      gameId: linkedGameCode,
+      metadata: transactionMetadata,
     });
 
     await transaction.save();

@@ -336,7 +336,16 @@ router.put(
       .withMessage("Reward name cannot be empty"),
     body("type")
       .optional()
-      .isIn(["coins", "xp", "coupon", "bonus_task", "premium_feature"])
+      .custom((value) => {
+        const validTypes = [
+          "coins", "Coins",
+          "xp", "XP",
+          "coupon", "Coupon", "Coupons",
+          "bonus_task", "Bonus Task",
+          "premium_feature", "Premium", "premium"
+        ];
+        return validTypes.includes(value);
+      })
       .withMessage("Invalid reward type"),
     body("amount")
       .optional()
@@ -408,6 +417,25 @@ router.put(
         updatePayload.amount = Number(updatePayload.amount);
       if (updatePayload.probability !== undefined)
         updatePayload.probability = Number(updatePayload.probability);
+
+      // Normalize type field (same as POST endpoint)
+      if (updatePayload.type !== undefined) {
+        const typeMap = {
+          Coins: "coins",
+          coins: "coins",
+          XP: "xp",
+          xp: "xp",
+          Coupon: "coupon",
+          Coupons: "coupon", // Handle plural form
+          coupon: "coupon",
+          "Bonus Task": "bonus_task",
+          bonus_task: "bonus_task",
+          Premium: "premium_feature",
+          premium: "premium_feature",
+          premium_feature: "premium_feature",
+        };
+        updatePayload.type = typeMap[updatePayload.type] || updatePayload.type;
+      }
 
       // Normalize eligible tiers arrays
       if (updatePayload["eligibleTiers[]"] && !updatePayload.eligibleTiers) {

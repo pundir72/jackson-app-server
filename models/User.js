@@ -1105,7 +1105,31 @@ const userSchema = new mongoose.Schema({
             type: Number,
             default: 0
         }
-    }
+    },
+    // Admin notifications
+    notifications: [{
+        message: {
+            type: String,
+            required: true
+        },
+        type: {
+            type: String,
+            enum: ['info', 'warning', 'success', 'error'],
+            default: 'info'
+        },
+        sentAt: {
+            type: Date,
+            default: Date.now
+        },
+        read: {
+            type: Boolean,
+            default: false
+        },
+        dismissed: {
+            type: Boolean,
+            default: false
+        }
+    }]
 }, {
     timestamps: true,
     toJSON: {

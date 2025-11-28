@@ -3,6 +3,7 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const Game = require('../models/Game');
 const besitos = require('../utils/besitos');
 const bitlabsGames = require('../utils/bitlabs-games');
 const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
@@ -284,15 +285,23 @@ router.post('/complete', protect, async (req, res) => {
       user.games[gameIndex].timePlayed = completionData.timePlayedMinutes || 0;
     }
 
+    // Find Game document to get ObjectId for proper linking
+    let gameDoc = null;
+    if (gameId) {
+      gameDoc = await Game.findOne({ gameId: gameId }).select('_id').lean();
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game completed - ${gameId}`,
       status: 'completed',
       referenceId: `GAME-${gameId}-${Date.now()}`,
       gameId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
       metadata: {
         gameId,
         offerId,
@@ -483,15 +492,33 @@ router.post('/callback/bitlabs', async (req, res) => {
       user.games[gameIndex].completedAt = new Date();
     }
 
+    // Find Game document to get ObjectId for proper linking
+    // Try to find by offerId first (in case offerId is the gameId), then try to find by any matching gameId
+    let gameDoc = null;
+    if (offerId) {
+      gameDoc = await Game.findOne({ gameId: offerId }).select('_id').lean();
+      // If not found, try to find by checking if offerId matches any game's metadata
+      if (!gameDoc) {
+        gameDoc = await Game.findOne({ 
+          $or: [
+            { 'gameDetails.id': offerId },
+            { 'metadata.packageName': offerId }
+          ]
+        }).select('_id').lean();
+      }
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game offer completed - ${offerId} (Bitlabs)`,
       status: 'completed',
       referenceId: `OFFER-${offerId}-${Date.now()}`,
       gameId: offerId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
       metadata: {
         offerId,
         provider: 'bitlabs',
@@ -568,15 +595,33 @@ router.post('/callback/besitos', async (req, res) => {
       user.games[gameIndex].completedAt = new Date();
     }
 
+    // Find Game document to get ObjectId for proper linking
+    // Try to find by offerId first (in case offerId is the gameId), then try to find by any matching gameId
+    let gameDoc = null;
+    if (offerId) {
+      gameDoc = await Game.findOne({ gameId: offerId }).select('_id').lean();
+      // If not found, try to find by checking if offerId matches any game's metadata
+      if (!gameDoc) {
+        gameDoc = await Game.findOne({ 
+          $or: [
+            { 'gameDetails.id': offerId },
+            { 'metadata.packageName': offerId }
+          ]
+        }).select('_id').lean();
+      }
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game offer completed - ${offerId}`,
       status: 'completed',
       referenceId: `OFFER-${offerId}-${Date.now()}`,
       gameId: offerId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
       metadata: {
         offerId,
         provider: 'besitos',

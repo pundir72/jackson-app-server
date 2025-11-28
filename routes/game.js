@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Game = require('../models/Game');
+const Transaction = require('../models/Transaction');
 const GameTask = require('../models/GameTask');
 const WelcomeBonusTimer = require('../models/WelcomeBonusTimer');
 const TaskProgressionRule = require('../models/TaskProgressionRule');
@@ -320,7 +321,36 @@ router.post('/earn', protect, async (req, res) => {
       }
     }
 
-    await user.save();
+    // Find Game document to get ObjectId for proper linking (if gameId provided)
+    let gameDoc = null;
+    if (gameId) {
+      gameDoc = await Game.findOne({ gameId: gameId }).select('_id').lean();
+    }
+
+    // Create transaction record for revenue tracking
+    const transaction = new Transaction({
+      user: user._id,
+      type: 'credit',
+      amount: coinsNum,
+      balanceType: 'coins',
+      description: gameId ? `Game earnings - ${gameId}` : `Manual game earnings${reason ? ` - ${reason}` : ''}`,
+      status: 'completed',
+      referenceId: `GAME-EARN-${gameId || 'manual'}-${Date.now()}`,
+      gameId: gameId || null,
+      game: gameDoc?._id || null,
+      metadata: {
+        gameId: gameId || null,
+        offerId: offerId || null,
+        reason: reason || null,
+        source: 'game_earn',
+        xpEarned: xpNum
+      },
+    });
+
+    await Promise.all([
+      user.save(),
+      transaction.save()
+    ]);
 
     // Track achievements for game earnings
     setImmediate(async () => {
@@ -1180,6 +1210,33 @@ router.post('/:gameId/tasks/:taskId/complete', protect, async (req, res) => {
             if (!coinBoxAccumulated) {
                 user.wallet.balance = (user.wallet.balance || 0) + (task.rewardValue || 0);
                 user.wallet.lastUpdated = new Date();
+                
+                // Create transaction record for revenue tracking
+                let gameDoc = null;
+                if (gameId) {
+                    gameDoc = await Game.findById(gameId).select('_id gameId').lean();
+                }
+                
+                const transaction = new Transaction({
+                    user: user._id,
+                    type: 'credit',
+                    amount: task.rewardValue || 0,
+                    balanceType: 'coins',
+                    description: `Game task completed - ${gameId || 'unknown'}`,
+                    status: 'completed',
+                    referenceId: `GAME-TASK-${gameId || 'unknown'}-${taskId}-${Date.now()}`,
+                    gameId: gameDoc?.gameId || gameId || null,
+                    game: gameDoc?._id || gameId || null,
+                    metadata: {
+                        gameId: gameDoc?.gameId || gameId || null,
+                        taskId: taskId,
+                        taskType: isBonusTask ? 'bonus' : 'normal',
+                        rewardType: task.rewardType,
+                        source: 'game_task_completion'
+                    },
+                });
+                
+                await transaction.save();
             }
         }
 
@@ -1423,7 +1480,34 @@ router.post('/:gameId/coin-box/transfer', protect, async (req, res) => {
         progression.coinBoxTransferredAt = new Date();
         user.taskProgression.set(gameIdString, progression);
 
-        await user.save();
+        // Create transaction record for revenue tracking
+        let gameDoc = null;
+        if (gameId) {
+            gameDoc = await Game.findById(gameId).select('_id gameId').lean();
+        }
+        
+        const transaction = new Transaction({
+            user: user._id,
+            type: 'credit',
+            amount: coinBoxBalance,
+            balanceType: 'coins',
+            description: `Coin box transfer - ${gameId || 'unknown'}`,
+            status: 'completed',
+            referenceId: `COIN-BOX-${gameId || 'unknown'}-${Date.now()}`,
+            gameId: gameDoc?.gameId || gameId || null,
+            game: gameDoc?._id || gameId || null,
+            metadata: {
+                gameId: gameDoc?.gameId || gameId || null,
+                source: 'coin_box_transfer',
+                coinBoxBalance: coinBoxBalance,
+                thresholdReached: progression.thresholdReached
+            },
+        });
+
+        await Promise.all([
+            user.save(),
+            transaction.save()
+        ]);
 
         res.json({
             success: true,

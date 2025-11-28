@@ -1394,6 +1394,7 @@ router.post("/complete", protect, async (req, res) => {
       user: userId,
       type: "credit",
       amount: totalCoins,
+      balanceType: "coins",
       description: `Daily Challenge: ${challenge.title}`,
       status: "completed",
       referenceId: `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`,

@@ -2653,13 +2653,15 @@ router.get(
       const revenueTable = await Promise.all(
         games.map(async (game) => {
           // Build game-specific transaction filter
-          const gameIdRegex = new RegExp(game.gameId, "i");
+          // Use case-insensitive regex for better matching
+          const gameIdRegex = new RegExp(game.gameId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
           const gameTransactionFilter = {
             ...transactionDateFilter,
             $or: [
               { game: game._id },
-              { gameId: game.gameId },
-              { "metadata.gameId": game.gameId },
+              { gameId: { $regex: gameIdRegex } }, // Case-insensitive match
+              { "metadata.gameId": { $regex: gameIdRegex } },
+              { "metadata.offerId": { $regex: gameIdRegex } },
               { referenceId: gameIdRegex },
               { description: gameIdRegex },
             ],
@@ -2686,32 +2688,56 @@ router.get(
               $group: {
                 _id: null,
                 revenue: { $sum: "$amount" },
+                transactionCount: { $sum: 1 },
               },
             },
           ]);
 
-          const revenue =
-            revenueData[0]?.revenue || game.metadata?.revenue || 0;
+          const revenue = revenueData[0]?.revenue || 0;
+          const transactionCount = revenueData[0]?.transactionCount || 0;
+          
+          // Log for debugging if no revenue found
+          if (revenue === 0 && transactionCount === 0) {
+            // Check if there are any transactions at all for this game (without date filter)
+            const testMatch = {
+              $or: [
+                { game: game._id },
+                { gameId: { $regex: gameIdRegex } },
+                { "metadata.gameId": { $regex: gameIdRegex } },
+                { "metadata.offerId": { $regex: gameIdRegex } },
+              ],
+              status: "completed",
+              type: { $in: ["credit", "conversion", "payout", "reward"] },
+            };
+            const testCount = await Transaction.countDocuments(testMatch);
+            if (testCount > 0) {
+              console.log(`⚠️  Game ${game.gameId} has ${testCount} transactions but 0 in date range ${filters.startDate} to ${filters.endDate}`);
+            }
+          }
 
-          // Reward cost = sum of coin rewards (same dataset filtered to balanceType === 'coins' + type === 'reward')
+          // Reward cost = sum of coin rewards (type === 'reward' with balanceType === 'coins')
+          // This represents the cost of rewards given to users
+          const rewardCostMatch = {
+            ...gameTransactionFilter,
+            status: "completed",
+            type: "reward",
+            balanceType: "coins",
+          };
+
           const rewardCostData = await Transaction.aggregate([
             {
-              $match: {
-                ...revenueMatch,
-                type: "reward",
-                balanceType: "coins",
-              },
+              $match: rewardCostMatch,
             },
             {
               $group: {
                 _id: null,
                 cost: { $sum: "$amount" },
+                transactionCount: { $sum: 1 },
               },
             },
           ]);
 
-          const rewardCost =
-            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
+          const rewardCost = rewardCostData[0]?.cost || 0;
 
           // Calculate margin
           const margin = revenue - rewardCost;

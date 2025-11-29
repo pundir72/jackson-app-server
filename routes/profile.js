@@ -75,6 +75,7 @@ router.put("/", protect, async (req, res) => {
       email,
       socialTag,
       username,
+      notifications,
     } = req.body;
 
     const user = await User.findById(req.user.userId);
@@ -89,6 +90,9 @@ router.put("/", protect, async (req, res) => {
     if (bio) user.profile.bio = bio;
     if (theme && ["light", "dark"].includes(theme)) {
       user.profile.theme = theme;
+    }
+    if (notifications !== undefined) {
+      user.profile.notifications = Boolean(notifications);
     }
     if (socialTag !== undefined) user.socialTag = socialTag;
     // Update username with validation & uniqueness

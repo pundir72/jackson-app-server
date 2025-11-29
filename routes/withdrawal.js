@@ -239,6 +239,19 @@ router.post('/process', protect, async (req, res) => {
       user.wallet.balance -= withdrawal.requiredCoins;
       user.wallet.lastUpdated = new Date();
       
+      // Update redemption tracking
+      if (!user.redemption) {
+        user.redemption = {
+          preference: withdrawal.method || 'none',
+          count: 0,
+          totalCoinsRedeemed: 0
+        };
+      }
+      user.redemption.count = (user.redemption.count || 0) + 1;
+      user.redemption.totalCoinsRedeemed = (user.redemption.totalCoinsRedeemed || 0) + withdrawal.requiredCoins;
+      user.redemption.lastRedeemedAt = new Date();
+      user.redemption.preference = withdrawal.method || user.redemption.preference || 'none';
+      
       // Update withdrawal status
       withdrawal.status = 'approved';
       withdrawal.processedAt = new Date();

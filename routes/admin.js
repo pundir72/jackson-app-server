@@ -905,6 +905,12 @@ router.get("/users/:id", adminAuth, async (req, res) => {
       avatar: "",
       notifications: true,
     };
+    // Ensure notifications is properly read from user.profile (default to true if not set)
+    if (user.profile) {
+      safeProfile.notifications = user.profile.notifications !== undefined 
+        ? user.profile.notifications 
+        : true;
+    }
     const safeOnboarding = user.onboarding || {};
     const safeWallet = user.wallet || { balance: 0 };
     const safeXp = user.xp || { current: 0, tier: 1, total: 0 };
@@ -920,6 +926,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     };
     const safeRedemption = user.redemption || { preference: "none", count: 0 };
     const safeAnalytics = user.analytics || {};
+    
     const fullName =
       `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
     const tierText = safeVip.level || "free";
@@ -982,24 +989,10 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     // Calculate age from dateOfBirth if available, otherwise use ageRange
     let ageValue = "N/A";
 
-    // Debug: Log what we have
-    console.log("🔍 [User Details] Age calculation debug:", {
-      userId: user._id,
-      hasDateOfBirth: !!user.dateOfBirth,
-      dateOfBirth: user.dateOfBirth,
-      onboardingAgeRange: safeOnboarding.ageRange,
-      onboardingObject: safeOnboarding,
-    });
-
     if (user.dateOfBirth) {
       try {
         const today = new Date();
         const birthDate = new Date(user.dateOfBirth);
-        console.log("🔍 [User Details] Date calculation:", {
-          today: today.toISOString(),
-          birthDate: birthDate.toISOString(),
-          isValid: !isNaN(birthDate.getTime()),
-        });
 
         if (!isNaN(birthDate.getTime())) {
           let age = today.getFullYear() - birthDate.getFullYear();
@@ -1010,7 +1003,6 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           ) {
             age--;
           }
-          console.log("🔍 [User Details] Calculated age:", age);
 
           // Convert to age range format
           if (age >= 13 && age <= 17) ageValue = "13-17";
@@ -1021,26 +1013,13 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           else if (age >= 55 && age <= 64) ageValue = "55-64";
           else if (age >= 65) ageValue = "65+";
           else ageValue = "N/A";
-
-          console.log(
-            "🔍 [User Details] Age range from dateOfBirth:",
-            ageValue
-          );
-        } else {
-          console.log(
-            "🔍 [User Details] Invalid dateOfBirth, cannot calculate age"
-          );
         }
       } catch (error) {
         console.error(
-          "❌ [User Details] Error calculating age from dateOfBirth:",
+          "Error calculating age from dateOfBirth:",
           error
         );
       }
-    } else {
-      console.log(
-        "🔍 [User Details] No dateOfBirth field, checking onboarding.ageRange"
-      );
     }
 
     // Fallback to ageRange from onboarding if dateOfBirth not available or calculation failed
@@ -1049,20 +1028,116 @@ router.get("/users/:id", adminAuth, async (req, res) => {
       safeOnboarding.ageRange &&
       safeOnboarding.ageRange !== "N/A"
     ) {
-      console.log(
-        "🔍 [User Details] Using onboarding.ageRange:",
-        safeOnboarding.ageRange
-      );
       ageValue = safeOnboarding.ageRange;
-    } else {
-      console.log("🔍 [User Details] Final ageValue:", ageValue, {
-        wasN_A: ageValue === "N/A",
-        hasAgeRange: !!safeOnboarding.ageRange,
-        ageRangeValue: safeOnboarding.ageRange,
-      });
     }
 
-    console.log("✅ [User Details] Final age value:", ageValue);
+    // Fetch redemption history from PayoutRequest
+    let redemptionHistory = [];
+    try {
+      const PayoutRequest = require('../models/PayoutRequest');
+      const payouts = await PayoutRequest.find({
+        userId: user._id,
+        status: { $in: ['completed', 'approved'] }
+      })
+      .select('coinsDeducted createdAt approvedAt payment reward status tremendousOrderId metadata')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+      
+      redemptionHistory = payouts.map(payout => ({
+        id: payout._id.toString(),
+        redemptionId: payout.metadata?.externalId || payout._id.toString().slice(-8),
+        amount: payout.payment?.amount || payout.reward?.value?.denomination || 0,
+        currency: payout.payment?.currency || payout.reward?.value?.currency_code || 'USD',
+        coinsDeducted: payout.coinsDeducted || 0,
+        method: payout.reward?.delivery?.method || 'N/A',
+        status: payout.status,
+        createdAt: payout.createdAt,
+        approvedAt: payout.approvedAt,
+        tremendousOrderId: payout.tremendousOrderId || null
+      }));
+    } catch (error) {
+      console.error('Error fetching redemption history:', error);
+    }
+
+    // Calculate spin count - use user.spinCount if available, otherwise count from SpinWheelLog
+    let spinCount = typeof user.spinCount === "number" ? user.spinCount : 0;
+    let lastSpinAt = user.lastSpinAt || null;
+    
+    // If spinCount is 0 or not set, try to get from SpinWheelLog
+    if (spinCount === 0 || !user.spinCount) {
+      try {
+        const SpinWheelLog = require('../models/SpinWheelLog');
+        const actualSpinCount = await SpinWheelLog.countDocuments({ user: user._id });
+        if (actualSpinCount > 0) {
+          spinCount = actualSpinCount;
+          // Update user.spinCount for future queries (async, don't wait)
+          User.findByIdAndUpdate(user._id, { 
+            $set: { spinCount: actualSpinCount } 
+          }).catch(err => console.error('Error updating user spinCount:', err));
+        }
+        
+        // Get last spin time if not set
+        if (!lastSpinAt) {
+          const lastSpin = await SpinWheelLog.findOne({ user: user._id })
+            .sort({ createdAt: -1 })
+            .select('createdAt')
+            .lean();
+          if (lastSpin) {
+            lastSpinAt = lastSpin.createdAt;
+            // Update user.lastSpinAt for future queries (async, don't wait)
+            User.findByIdAndUpdate(user._id, { 
+              $set: { lastSpinAt: lastSpin.createdAt } 
+            }).catch(err => console.error('Error updating user lastSpinAt:', err));
+          }
+        }
+      } catch (error) {
+        console.error('Error calculating spin count from logs:', error);
+      }
+    }
+
+    // Calculate redemption count - use user.redemption.count if available, otherwise count from PayoutRequest
+    let redemptionCount = typeof safeRedemption.count === "number" ? safeRedemption.count : 0;
+    let totalCoinsRedeemed = typeof safeRedemption.totalCoinsRedeemed === "number" ? safeRedemption.totalCoinsRedeemed : 0;
+    let lastRedeemedAt = safeRedemption.lastRedeemedAt || null;
+    
+    // If redemption count is 0, try to get from PayoutRequest collection (where Tremendous payouts are stored)
+    if (redemptionCount === 0 || !safeRedemption.count) {
+      try {
+        const PayoutRequest = require('../models/PayoutRequest');
+        // Count completed payout requests (approved redemptions)
+        const completedPayouts = await PayoutRequest.find({
+          userId: user._id,
+          status: { $in: ['completed', 'approved'] }
+        }).select('coinsDeducted createdAt approvedAt').lean();
+        
+        if (completedPayouts.length > 0) {
+          redemptionCount = completedPayouts.length;
+          totalCoinsRedeemed = completedPayouts.reduce((sum, payout) => sum + (payout.coinsDeducted || 0), 0);
+          
+          // Get last redemption date (use approvedAt if available, otherwise createdAt)
+          const lastRedemption = completedPayouts.sort((a, b) => {
+            const dateA = a.approvedAt || a.createdAt;
+            const dateB = b.approvedAt || b.createdAt;
+            return new Date(dateB) - new Date(dateA);
+          })[0];
+          if (lastRedemption) {
+            lastRedeemedAt = lastRedemption.approvedAt || lastRedemption.createdAt;
+          }
+          
+          // Update user.redemption for future queries (async, don't wait)
+          User.findByIdAndUpdate(user._id, { 
+            $set: { 
+              'redemption.count': redemptionCount,
+              'redemption.totalCoinsRedeemed': totalCoinsRedeemed,
+              'redemption.lastRedeemedAt': lastRedeemedAt
+            } 
+          }).catch(err => console.error('Error updating user redemption count:', err));
+        }
+      } catch (error) {
+        console.error('Error calculating redemption count from PayoutRequest:', error);
+      }
+    }
 
     const transformedUser = {
       // === Profile Tab ===
@@ -1090,7 +1165,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           : "N/A",
       appVersion: user.appVersion || "N/A",
       accountStatus: statusText.charAt(0).toUpperCase() + statusText.slice(1),
-      faceVerification: user.isVerified ? "Verified" : "Not Verified",
+      faceVerification: (user.biometric?.faceVerification?.verified === true) ? "Verified" : "Not Verified",
       deviceType:
         `${safeDevice.type} - ${safeDevice.model}` !== "Unknown - Unknown"
           ? `${safeDevice.type} - ${safeDevice.model}`
@@ -1167,12 +1242,11 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           ? safeAnalytics.totalCoinsEarned
           : 0,
       totalXPEarned: typeof safeXp.total === "number" ? safeXp.total : 0,
-      redemptionsMade:
-        typeof safeRedemption.count === "number" ? safeRedemption.count : 0,
+      redemptionsMade: redemptionCount,
       redemptionBreakdown: {
-        count: safeRedemption.count || 0,
-        totalCoins: safeRedemption.totalCoinsRedeemed || 0,
-        lastRedeemed: safeRedemption.lastRedeemedAt || null,
+        count: redemptionCount,
+        totalCoins: totalCoinsRedeemed,
+        lastRedeemed: lastRedeemedAt,
       },
       challengeProgress: {
         currentStreak: currentStreak,
@@ -1197,8 +1271,11 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           progress: cp.progress?.percentage || 0,
         })),
       },
-      spinUsage: typeof user.spinCount === "number" ? user.spinCount : 0,
-      lastSpinAt: user.lastSpinAt || null,
+      spinUsage: spinCount,
+      lastSpinAt: lastSpinAt,
+
+      // Redemption history/map
+      redemptionHistory: redemptionHistory,
 
       // === Legacy & Full Objects ===
       status: statusText.charAt(0).toUpperCase() + statusText.slice(1),
@@ -2146,9 +2223,109 @@ router.get(
       }
 
       // ==================== REVENUE VS REWARD COST BY GAME ====================
-      // NOTE: Temporarily disabled due to heavy aggregation cost. We'll expose
-      // a dedicated endpoint for this table to keep the dashboard fast.
-      const revenueTable = [];
+      const gamesWithRevenue = await Game.find({ isActive: true })
+        .select("gameId title metadata analytics")
+        .lean();
+
+      const revenueTable = await Promise.all(
+        gamesWithRevenue.map(async (game) => {
+          // Build game-specific transaction filter (without gameId filter to avoid conflict)
+          const gameTransactionFilter = { ...transactionFilter };
+          if (gameTransactionFilter.$or) {
+            delete gameTransactionFilter.$or;
+          }
+          gameTransactionFilter.$or = [
+            { "metadata.gameId": game.gameId },
+            { referenceId: new RegExp(game.gameId, "i") },
+            { description: new RegExp(game.gameId, "i") },
+          ];
+
+          // Get revenue from transactions (offer completions, etc.)
+          const revenueData = await Transaction.aggregate([
+            {
+              $match: {
+                ...gameTransactionFilter,
+                type: { $in: ["credit", "reward"] },
+                status: "completed",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                revenue: { $sum: "$amount" },
+              },
+            },
+          ]);
+
+          // Get reward cost from transactions
+          const rewardCostData = await Transaction.aggregate([
+            {
+              $match: {
+                ...gameTransactionFilter,
+                type: "reward",
+                balanceType: "coins",
+                status: "completed",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                cost: { $sum: "$amount" },
+              },
+            },
+          ]);
+
+          const revenue =
+            revenueData[0]?.revenue || game.metadata?.revenue || 0;
+          const rewardCost =
+            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
+          const margin = revenue - rewardCost;
+          const marginPercent =
+            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
+
+          // Calculate D7 retention for this game (apply user filter)
+          const gameUsersForRetention = await User.find({
+            "games.gameId": game.gameId,
+            "games.installedAt": { $exists: true },
+            ...userFilter,
+          })
+            .select("dailyActivity createdAt")
+            .lean();
+
+          let d7Retention = 0;
+          if (gameUsersForRetention.length > 0) {
+            const retained = gameUsersForRetention.filter((user) => {
+              if (!user.dailyActivity?.activeDates) return false;
+              const userCreatedAt = new Date(user.createdAt);
+              const d7Date = new Date(userCreatedAt);
+              d7Date.setDate(d7Date.getDate() + 7);
+              const d7DateStr = `${d7Date.getFullYear()}-${String(
+                d7Date.getMonth() + 1
+              ).padStart(2, "0")}-${String(d7Date.getDate()).padStart(2, "0")}`;
+              return user.dailyActivity.activeDates.includes(d7DateStr);
+            }).length;
+            d7Retention = (
+              (retained / gameUsersForRetention.length) *
+              100
+            ).toFixed(2);
+          }
+
+          return {
+            gameId: game.gameId,
+            title: game.title,
+            revenue: revenue,
+            rewardCost: rewardCost,
+            margin: margin,
+            marginPercent: parseFloat(marginPercent),
+            d7Retention: parseFloat(d7Retention),
+            performance:
+              parseFloat(marginPercent) > 0 ? "positive" : "negative",
+          };
+        })
+      );
+
+      // Sort by revenue descending
+      revenueTable.sort((a, b) => b.revenue - a.revenue);
 
       // ==================== ATTRIBUTION PERFORMANCE ====================
       // Get all users and calculate sources properly - MUST use same date filters as userFilter
@@ -2532,11 +2709,11 @@ function getStatusColor(status) {
 }
 
 /**
- * Get Revenue vs Reward Cost by Game
+ * Get revenue by game - Separate endpoint for revenue data only
  * @route   GET /api/admin/revenue-by-game
  * @query   {string} startDate - Start date (ISO format)
  * @query   {string} endDate - End date (ISO format)
- * @query   {string} gameId - Filter by game ID (optional)
+ * @query   {string} gameId - Filter by game ID
  * @query   {string} source - Filter by acquisition source
  * @query   {string} age - Filter by age group
  * @query   {string} gender - Filter by gender
@@ -2558,8 +2735,6 @@ router.get(
     query("source").optional().isString(),
     query("age").optional().isString(),
     query("gender").optional().isIn(["male", "female", "other"]),
-    query("page").optional().isInt({ min: 1 }),
-    query("limit").optional().isInt({ min: 1, max: 200 }),
   ],
   async (req, res) => {
     try {
@@ -2571,19 +2746,7 @@ router.get(
         });
       }
 
-      const {
-        startDate,
-        endDate,
-        gameId,
-        source,
-        age,
-        gender,
-        page = 1,
-        limit = 25,
-      } = req.query;
-
-      const pageNumber = parseInt(page, 10) || 1;
-      const pageSize = parseInt(limit, 10) || 25;
+      const { startDate, endDate, gameId, source, age, gender } = req.query;
 
       // Default to last 30 days if no date range provided
       const end = endDate ? new Date(endDate) : new Date();
@@ -2600,167 +2763,98 @@ router.get(
         gender,
       };
 
-      // Build user filter to get filtered user IDs
       const userFilter = await buildUserFilter(filters);
+
+      // Get filtered user IDs to apply to transaction queries
       let filteredUserIds = [];
       if (Object.keys(userFilter).length > 0) {
-        const filteredUsers = await User.find(userFilter)
-          .select("_id")
-          .lean();
+        const filteredUsers = await User.find(userFilter).select("_id").lean();
         filteredUserIds = filteredUsers.map((u) => u._id);
       }
 
-      // Build transaction date filter
-      const transactionDateFilter = {};
-      if (filters.startDate || filters.endDate) {
-        transactionDateFilter.createdAt = {};
-        if (filters.startDate) {
-          transactionDateFilter.createdAt.$gte = new Date(filters.startDate);
-        }
-        if (filters.endDate) {
-          transactionDateFilter.createdAt.$lte = new Date(filters.endDate);
-        }
+      // Build transaction filter with user IDs if source/gender/age filters are applied
+      const transactionFilter = buildTransactionFilter(filters);
+      if (filteredUserIds.length > 0) {
+        transactionFilter.user = { $in: filteredUserIds };
+      } else if (filters.source || filters.gender || filters.age) {
+        // If filters are applied but no users match, set empty array to return 0
+        transactionFilter.user = { $in: [] };
       }
 
-      // Get games to process
-      const gameQuery = { isActive: true };
-      if (gameId) {
-        gameQuery.gameId = gameId;
-      }
-
-      const games = await Game.find(gameQuery)
-        .select("gameId title metadata")
+      // ==================== REVENUE VS REWARD COST BY GAME ====================
+      const gamesWithRevenue = await Game.find({ isActive: true })
+        .select("gameId title metadata analytics")
         .lean();
 
-      if (games.length === 0) {
-        return res.json({
-          success: true,
-          data: {
-            revenueByGame: [],
-            filters: {
-              startDate: filters.startDate,
-              endDate: filters.endDate,
-              gameId: filters.gameId || null,
-              source: filters.source || null,
-              age: filters.age || null,
-              gender: filters.gender || null,
-            },
-          },
-        });
-      }
-
-      // Process each game
       const revenueTable = await Promise.all(
-        games.map(async (game) => {
-          // Build game-specific transaction filter
-          // Use case-insensitive regex for better matching
-          const gameIdRegex = new RegExp(game.gameId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
-          const gameTransactionFilter = {
-            ...transactionDateFilter,
-            $or: [
-              { game: game._id },
-              { gameId: { $regex: gameIdRegex } }, // Case-insensitive match
-              { "metadata.gameId": { $regex: gameIdRegex } },
-              { "metadata.offerId": { $regex: gameIdRegex } },
-              { referenceId: gameIdRegex },
-              { description: gameIdRegex },
-            ],
-          };
-
-          // Apply user filter if available
-          if (filteredUserIds.length > 0) {
-            gameTransactionFilter.user = { $in: filteredUserIds };
-          } else if (filters.source || filters.gender || filters.age) {
-            // If filters are applied but no users match, set empty array
-            gameTransactionFilter.user = { $in: [] };
+        gamesWithRevenue.map(async (game) => {
+          // Build game-specific transaction filter (without gameId filter to avoid conflict)
+          const gameTransactionFilter = { ...transactionFilter };
+          if (gameTransactionFilter.$or) {
+            delete gameTransactionFilter.$or;
           }
+          gameTransactionFilter.$or = [
+            { "metadata.gameId": game.gameId },
+            { referenceId: new RegExp(game.gameId, "i") },
+            { description: new RegExp(game.gameId, "i") },
+          ];
 
-          // Calculate revenue from internal transaction logs (currency earnings)
-          const revenueMatch = {
-            ...gameTransactionFilter,
-            status: "completed",
-            type: { $in: ["credit", "conversion", "payout", "reward"] },
-          };
-
+          // Get revenue from transactions (offer completions, etc.)
           const revenueData = await Transaction.aggregate([
-            { $match: revenueMatch },
+            {
+              $match: {
+                ...gameTransactionFilter,
+                type: { $in: ["credit", "reward"] },
+                status: "completed",
+              },
+            },
             {
               $group: {
                 _id: null,
                 revenue: { $sum: "$amount" },
-                transactionCount: { $sum: 1 },
               },
             },
           ]);
 
-          const revenue = revenueData[0]?.revenue || 0;
-          const transactionCount = revenueData[0]?.transactionCount || 0;
-          
-          // Log for debugging if no revenue found
-          if (revenue === 0 && transactionCount === 0) {
-            // Check if there are any transactions at all for this game (without date filter)
-            const testMatch = {
-              $or: [
-                { game: game._id },
-                { gameId: { $regex: gameIdRegex } },
-                { "metadata.gameId": { $regex: gameIdRegex } },
-                { "metadata.offerId": { $regex: gameIdRegex } },
-              ],
-              status: "completed",
-              type: { $in: ["credit", "conversion", "payout", "reward"] },
-            };
-            const testCount = await Transaction.countDocuments(testMatch);
-            if (testCount > 0) {
-              console.log(`⚠️  Game ${game.gameId} has ${testCount} transactions but 0 in date range ${filters.startDate} to ${filters.endDate}`);
-            }
-          }
-
-          // Reward cost = sum of coin rewards (type === 'reward' with balanceType === 'coins')
-          // This represents the cost of rewards given to users
-          const rewardCostMatch = {
-            ...gameTransactionFilter,
-            status: "completed",
-            type: "reward",
-            balanceType: "coins",
-          };
-
+          // Get reward cost from transactions
           const rewardCostData = await Transaction.aggregate([
             {
-              $match: rewardCostMatch,
+              $match: {
+                ...gameTransactionFilter,
+                type: "reward",
+                balanceType: "coins",
+                status: "completed",
+              },
             },
             {
               $group: {
                 _id: null,
                 cost: { $sum: "$amount" },
-                transactionCount: { $sum: 1 },
               },
             },
           ]);
 
-          const rewardCost = rewardCostData[0]?.cost || 0;
-
-          // Calculate margin
+          const revenue =
+            revenueData[0]?.revenue || game.metadata?.revenue || 0;
+          const rewardCost =
+            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
           const margin = revenue - rewardCost;
           const marginPercent =
             revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
 
-          // Calculate D7 retention for this game
-          const retentionUserQuery = {
+          // Calculate D7 retention for this game (apply user filter)
+          const gameUsersForRetention = await User.find({
             "games.gameId": game.gameId,
             "games.installedAt": { $exists: true },
             ...userFilter,
-          };
-
-          const gameUsersForRetention = await User.find(retentionUserQuery)
+          })
             .select("dailyActivity createdAt")
             .lean();
 
           let d7Retention = 0;
           if (gameUsersForRetention.length > 0) {
             const retained = gameUsersForRetention.filter((user) => {
-              if (!user.dailyActivity?.activeDates || !user.createdAt) {
-                return false;
-              }
+              if (!user.dailyActivity?.activeDates) return false;
               const userCreatedAt = new Date(user.createdAt);
               const d7Date = new Date(userCreatedAt);
               d7Date.setDate(d7Date.getDate() + 7);
@@ -2792,23 +2886,28 @@ router.get(
       // Sort by revenue descending
       revenueTable.sort((a, b) => b.revenue - a.revenue);
 
-      const totalGames = revenueTable.length;
-      const totalPages = Math.ceil(totalGames / pageSize) || 1;
-      const startIndex = (pageNumber - 1) * pageSize;
-      const paginatedGames = revenueTable.slice(
-        startIndex,
-        startIndex + pageSize
+      // Calculate totals
+      const totalRevenue = revenueTable.reduce(
+        (sum, game) => sum + (game.revenue || 0),
+        0
       );
+      const totalRewardCost = revenueTable.reduce(
+        (sum, game) => sum + (game.rewardCost || 0),
+        0
+      );
+      const totalMargin = totalRevenue - totalRewardCost;
+      const totalMarginPercent =
+        totalRevenue > 0 ? ((totalMargin / totalRevenue) * 100).toFixed(2) : 0;
 
       res.json({
         success: true,
         data: {
-          revenueByGame: paginatedGames,
-          pagination: {
-            page: pageNumber,
-            limit: pageSize,
-            totalItems: totalGames,
-            totalPages,
+          revenueByGame: revenueTable,
+          totals: {
+            totalRevenue,
+            totalRewardCost,
+            totalMargin,
+            totalMarginPercent: parseFloat(totalMarginPercent),
           },
           filters: {
             startDate: filters.startDate,
@@ -2824,7 +2923,7 @@ router.get(
       console.error("Error getting revenue by game:", error);
       res.status(500).json({
         success: false,
-        message: "Failed to get revenue by game data",
+        message: "Failed to get revenue by game",
         error: error.message,
       });
     }

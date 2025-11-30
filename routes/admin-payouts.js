@@ -331,6 +331,25 @@ router.post('/:requestId/approve', adminAuth, async (req, res) => {
 
     await tremendousOrder.save();
 
+    // Update user redemption tracking
+    const user = await User.findById(userId);
+    if (user) {
+      if (!user.redemption) {
+        user.redemption = {
+          preference: payoutRequest.reward.delivery.method || 'none',
+          count: 0,
+          totalCoinsRedeemed: 0
+        };
+      }
+      user.redemption.count = (user.redemption.count || 0) + 1;
+      user.redemption.totalCoinsRedeemed = (user.redemption.totalCoinsRedeemed || 0) + (payoutRequest.coinsDeducted || 0);
+      user.redemption.lastRedeemedAt = new Date();
+      if (payoutRequest.reward.delivery.method) {
+        user.redemption.preference = payoutRequest.reward.delivery.method;
+      }
+      await user.save();
+    }
+
     // Send approval email to user
     try {
       const user = await User.findById(userId).select('email firstName profile').lean();

@@ -493,7 +493,7 @@ router.get("/today", protect, async (req, res) => {
       )
     );
 
-    const user = await User.findById(userId).select("xp age location vip");
+    const user = await User.findById(userId).select("xp age location vip onboarding.gender");
 
     console.log("Querying for challenge:", {
       normalizedStart: normalizedStart.toISOString(),
@@ -525,6 +525,7 @@ router.get("/today", protect, async (req, res) => {
       xp: user.xp?.current || 0,
       age: user.age,
       country: user.location?.current?.country,
+      gender: user.onboarding?.gender,
     });
 
     if (!canAccess) {

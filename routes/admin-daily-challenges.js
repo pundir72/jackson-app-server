@@ -324,17 +324,17 @@ router.post('/challenges', adminAuth, [
       }
     }
 
-    // Check for overlapping challenges on the same date (UTC day range)
+    // Check for any existing challenge on the same date (UTC day range)
+    // Only one daily challenge is allowed per calendar date
     const existingChallenge = await DailyChallenge.findOne({
       challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
-      type: req.body.type,
       status: { $in: ['scheduled', 'live'] }
     });
 
     if (existingChallenge) {
       return res.status(409).json({
         success: false,
-        message: 'A challenge of this type already exists for the selected date',
+        message: 'A daily challenge already exists for the selected date',
         data: { existingChallengeId: existingChallenge._id }
       });
     }
@@ -386,26 +386,47 @@ router.put('/challenges/:id', adminAuth, [
       updatedBy: req.user.userId
     };
 
+    let normalizedStart = null;
+    let normalizedEnd = null;
+
     // Auto-set scheduling times if challengeDate is being updated
     if (req.body.challengeDate) {
       const rawDate = new Date(req.body.challengeDate);
-      const normalizedStart = new Date(Date.UTC(
+      normalizedStart = new Date(Date.UTC(
         rawDate.getUTCFullYear(),
         rawDate.getUTCMonth(),
         rawDate.getUTCDate(),
         0, 0, 0, 0
       ));
-      const normalizedEnd = new Date(Date.UTC(
+      normalizedEnd = new Date(Date.UTC(
         rawDate.getUTCFullYear(),
         rawDate.getUTCMonth(),
         rawDate.getUTCDate(),
         23, 59, 59, 999
       ));
-      
+
+      updateData.challengeDate = normalizedStart;
       updateData.scheduling = {
         startTime: normalizedStart,
         endTime: normalizedEnd
       };
+    }
+
+    // If the date is being changed, ensure no other challenge exists on that date
+    if (normalizedStart && normalizedEnd) {
+      const conflictingChallenge = await DailyChallenge.findOne({
+        _id: { $ne: req.params.id },
+        challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
+        status: { $in: ['scheduled', 'live'] }
+      });
+
+      if (conflictingChallenge) {
+        return res.status(409).json({
+          success: false,
+          message: 'A daily challenge already exists for the selected date',
+          data: { existingChallengeId: conflictingChallenge._id }
+        });
+      }
     }
 
     // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided

@@ -1,17 +1,26 @@
 const mongoose = require('mongoose');
 
 const xpMultiplierSchema = new mongoose.Schema({
+  // Tier-based XP multiplier (new behaviour)
+  tier: {
+    type: String,
+    enum: ["JUNIOR", "MID", "SENIOR"],
+    required: false,
+    index: true,
+    unique: true,
+  },
+  // Legacy field: kept for backward compatibility but no longer used
   streakLength: {
     type: Number,
-    required: true,
+    required: false,
     min: 1,
     max: 365,
-    unique: true
+    unique: false,
   },
   multiplier: {
     type: Number,
     required: true,
-    min: 1.0,
+    min: 0.01,
     max: 10.0
   },
   vipBonusApplied: {
@@ -153,7 +162,8 @@ xpMultiplierSchema.pre('save', function(next) {
 });
 
 // Indexes for efficient queries
-xpMultiplierSchema.index({ streakLength: 1 });
+xpMultiplierSchema.index({ tier: 1 });
+xpMultiplierSchema.index({ streakLength: 1 }); // legacy
 xpMultiplierSchema.index({ isActive: 1 });
 xpMultiplierSchema.index({ 'conditions.userSegments': 1 });
 xpMultiplierSchema.index({ 'scheduling.startDate': 1, 'scheduling.endDate': 1 });
@@ -169,23 +179,22 @@ xpMultiplierSchema.statics.findActive = function() {
       { 'scheduling.endDate': null },
       { 'scheduling.endDate': { $gte: now } }
     ]
-  }).sort({ streakLength: 1 });
+  }).sort({ tier: 1, streakLength: 1 });
 };
 
+// Legacy streak-based helper – no longer used for new tier-based configuration
 xpMultiplierSchema.statics.findForStreak = function(streakLength, currentTime = new Date()) {
   const query = {
     streakLength: { $lte: streakLength },
     isActive: true,
-    'scheduling.startDate': { $lte: currentTime },
+    "scheduling.startDate": { $lte: currentTime },
     $or: [
-      { 'scheduling.endDate': null },
-      { 'scheduling.endDate': { $gte: currentTime } }
-    ]
+      { "scheduling.endDate": null },
+      { "scheduling.endDate": { $gte: currentTime } },
+    ],
   };
-  
-  return this.find(query)
-    .sort({ streakLength: -1 }) // Get the highest applicable multiplier
-    .limit(1);
+
+  return this.find(query).sort({ streakLength: -1 }).limit(1);
 };
 
 xpMultiplierSchema.statics.findForUser = function(userProfile, challengeType, currentTime = new Date()) {

@@ -290,9 +290,13 @@ async function claimReward(userId, milestone) {
     // Claim reward
     const reward = progress.claimReward(milestone);
     
-    // Update user's XP
-    user.xp.current = (user.xp.current || 0) + reward.xpEarned;
-    user.xp.total = (user.xp.total || 0) + reward.xpEarned;
+    // Update user's XP (apply tier multiplier)
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      reward.xpEarned || 0
+    );
+    user.xp.current = (user.xp.current || 0) + finalXP;
+    user.xp.total = (user.xp.total || 0) + finalXP;
     
     // Create transaction record
     const transaction = new Transaction({

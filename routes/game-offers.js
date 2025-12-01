@@ -267,11 +267,15 @@ router.post('/complete', protect, async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round(completionResult.totalReward * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 
@@ -477,11 +481,15 @@ router.post('/callback/bitlabs', async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round((verification.reward || reward || 0) * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 
@@ -580,11 +588,15 @@ router.post('/callback/besitos', async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round(verification.reward * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 

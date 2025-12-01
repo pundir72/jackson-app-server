@@ -15,6 +15,7 @@ const Transaction = require("../models/Transaction");
 const BesitosConversion = require("../models/BesitosConversion");
 const besitosService = require("../services/besitos.service");
 const { trackActivity } = require("../middleware/activityTracker");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // ==================== CALENDAR VIEW ====================
 
@@ -1316,12 +1317,18 @@ router.post("/complete", protect, async (req, res) => {
     }
 
     const totalCoins = coinReward + bonusCoins;
-    const totalXP = xpReward + bonusXP;
+    const baseXP = xpReward + bonusXP;
 
-    // Update user wallet and XP
+    // Update user wallet and XP (apply tier multiplier to XP)
     user.wallet.balance = (user.wallet.balance || 0) + totalCoins;
-    user.xp.current = (user.xp.current || 0) + totalXP;
-    user.xp.total = (user.xp.total || 0) + totalXP;
+
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      baseXP
+    );
+
+    user.xp.current = (user.xp.current || 0) + finalXP;
+    user.xp.total = (user.xp.total || 0) + finalXP;
 
     // Update streak
     const streak = user.streak || {};
@@ -1337,7 +1344,7 @@ router.post("/complete", protect, async (req, res) => {
 
     await user.save();
 
-    // Mark progress as completed
+    // Mark progress as completed (store base XP before tier multiplier)
     await progress.markCompleted({
       coins: coinReward,
       xp: xpReward,
@@ -1346,10 +1353,10 @@ router.post("/complete", protect, async (req, res) => {
     });
     await progress.claimRewards();
 
-    // Update challenge analytics
+    // Update challenge analytics (log final XP after tier multiplier)
     await challenge.updateAnalytics("complete", {
       coins: totalCoins,
-      xp: totalXP,
+      xp: finalXP,
     });
 
     // Create transaction record
@@ -1378,9 +1385,11 @@ router.post("/complete", protect, async (req, res) => {
     const transactionMetadata = {
       challengeId: challenge._id,
       challengeType: challenge.type,
-      xpEarned: totalXP,
+      baseXp: baseXP,
+      xpEarned: finalXP,
       bonusCoins,
       bonusXP,
+      tierMultiplier,
     };
 
     if (linkedGameCode) {

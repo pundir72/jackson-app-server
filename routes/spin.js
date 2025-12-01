@@ -6,6 +6,7 @@ const Transaction = require("../models/Transaction");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Default spin wheel configuration (fallback if no admin config exists)
 const DEFAULT_SPIN_CONFIG = {
@@ -452,9 +453,22 @@ router.post("/spin", protect, async (req, res) => {
 
         spinLog.transactionId = transaction._id;
       } else if (rewardType === "xp" || rewardType === "XP") {
-        xpEarned = finalAmount;
-        user.xp.current += xpEarned;
-        user.xp.total += xpEarned;
+        // Apply tier multiplier to XP rewards
+        const baseXp = finalAmount;
+        const { finalXP, multiplier: tierMultiplier } =
+          await applyTierMultiplierToXP(user, baseXp);
+
+        xpEarned = finalXP;
+        user.xp.current += finalXP;
+        user.xp.total += finalXP;
+
+        // Store XP details on spin log for transparency
+        spinLog.metadata = {
+          ...(spinLog.metadata || {}),
+          baseXp,
+          xpEarned: finalXP,
+          tierMultiplier,
+        };
       }
     }
 
@@ -650,11 +664,22 @@ router.post("/redeem", protect, async (req, res) => {
       // NO bonus XP for coin rewards
       xpEarned = 0;
     } else if (rewardType === "xp" || rewardType === "XP") {
-      // Only give XP for XP rewards - use exact configured amount (no multiplier)
-      xpEarned = spinLog.rewardAmount; // This is the exact configured amount, no multiplier applied
-      user.xp.current += xpEarned;
-      user.xp.total += xpEarned;
-      // Do NOT give coins for XP rewards
+      // Apply tier multiplier to XP rewards when redeeming
+      const baseXp = spinLog.rewardAmount;
+      const { finalXP, multiplier: tierMultiplier } =
+        await applyTierMultiplierToXP(user, baseXp);
+
+      xpEarned = finalXP;
+      user.xp.current += finalXP;
+      user.xp.total += finalXP;
+
+      // Store XP details for transparency
+      spinLog.metadata = {
+        ...(spinLog.metadata || {}),
+        baseXp,
+        xpEarned: finalXP,
+        tierMultiplier,
+      };
     } else if (rewardType === "coupon") {
       // Handle coupon reward - store in metadata or user's coupon list
       const reward = await SpinWheelReward.findById(spinLog.reward);

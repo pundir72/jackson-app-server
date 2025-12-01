@@ -121,10 +121,15 @@ router.post('/complete-task', protect, async (req, res) => {
     let rewardEarned = null;
     
     if (milestoneReward) {
-      // Award milestone reward
+      // Award milestone reward (apply tier multiplier to XP)
       user.wallet.balance = (user.wallet.balance || 0) + milestoneReward.coins;
-      user.xp.current = (user.xp.current || 0) + milestoneReward.xp;
-      user.xp.total = (user.xp.total || 0) + milestoneReward.xp;
+
+      const baseXp = milestoneReward.xp;
+      const { finalXP, multiplier: tierMultiplier } =
+        await applyTierMultiplierToXP(user, baseXp);
+
+      user.xp.current = (user.xp.current || 0) + finalXP;
+      user.xp.total = (user.xp.total || 0) + finalXP;
       
       // Add badge to user profile
       if (!user.badges) user.badges = [];

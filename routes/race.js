@@ -254,10 +254,14 @@ router.post('/progress', protect, async (req, res) => {
       race.totalReward.coins += levelReward.coins;
       race.totalReward.xp += levelReward.xp;
 
-      // Update user wallet and XP
+      // Update user wallet and XP (apply tier multiplier to XP)
       user.wallet.balance = (user.wallet.balance || 0) + levelReward.coins;
-      user.xp.current = (user.xp.current || 0) + levelReward.xp;
-      user.xp.total = (user.xp.total || 0) + levelReward.xp;
+
+      const { finalXP: levelFinalXP, multiplier: levelTierMultiplier } =
+        await applyTierMultiplierToXP(user, levelReward.xp || 0);
+
+      user.xp.current = (user.xp.current || 0) + levelFinalXP;
+      user.xp.total = (user.xp.total || 0) + levelFinalXP;
     }
 
     // Update bot progress
@@ -279,8 +283,12 @@ router.post('/progress', protect, async (req, res) => {
         race.totalReward.xp += bonusReward.xp;
         
         user.wallet.balance += bonusReward.coins;
-        user.xp.current += bonusReward.xp;
-        user.xp.total += bonusReward.xp;
+
+        const { finalXP: bonusFinalXP, multiplier: bonusTierMultiplier } =
+          await applyTierMultiplierToXP(user, bonusReward.xp || 0);
+
+        user.xp.current += bonusFinalXP;
+        user.xp.total += bonusFinalXP;
       }
       
       race.position = position;

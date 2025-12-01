@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const bitlabs = require('../utils/bitlabs');
 const verisoul = require('../utils/verisoul');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // Survey SDK configuration
 const SURVEY_CONFIG = {
@@ -299,8 +300,13 @@ router.post('/callback/:providerId', async (req, res) => {
       // Update user wallet and XP
       user.wallet.balance = (user.wallet.balance || 0) + finalReward;
       user.wallet.lastUpdated = new Date();
-      user.xp.current = (user.xp.current || 0) + Math.round(finalReward * 0.5);
-      user.xp.total = (user.xp.total || 0) + Math.round(finalReward * 0.5);
+
+      // Base XP for surveys is 50% of coin reward, then tier multiplier applies
+      const baseXp = Math.round(finalReward * 0.5);
+      const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(user, baseXp);
+
+      user.xp.current = (user.xp.current || 0) + finalXP;
+      user.xp.total = (user.xp.total || 0) + finalXP;
       
       // Create transaction record
       const transaction = new Transaction({
@@ -309,7 +315,13 @@ router.post('/callback/:providerId', async (req, res) => {
         amount: finalReward,
         description: `Survey completed - ${providerId === 'bitlabs' ? 'BitLabs' : 'Survey Provider'}`,
         status: 'completed',
-        referenceId: survey.id
+        referenceId: survey.id,
+        metadata: {
+          source: 'survey_complete',
+          baseXp,
+          xpEarned: finalXP,
+          tierMultiplier
+        }
       });
 
       await Promise.all([

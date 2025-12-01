@@ -971,14 +971,71 @@ router.post("/callback/bitlabs", async (req, res) => {
     }
 
     // Process callback data
-    const { userId, offerId, reward, status } = callbackData;
+    const { userId, offerId, reward, status, value } = callbackData;
 
-    if (userId && offerId && reward && status === "completed") {
+    if (userId && offerId && status === "completed") {
       // Find user and award reward
       const user = await User.findById(userId).select("wallet xp");
-      if (user) {
-        const coins = Math.round(reward);
-        const xp = Math.round(reward * 0.5);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: "User not found",
+        });
+      }
+
+      // Determine reward amount:
+      // 1. Check if admin-configured survey exists (use coinReward from database)
+      // 2. Use 'value' from callback (what Bitlabs gives publisher)
+      // 3. Fallback to 'reward' from callback
+      let coins = 0;
+
+      try {
+        const SurveySDK = require("../models/SurveySDK");
+        const SurveyOffer = require("../models/SurveyOffer");
+
+        const bitlabSDK = await SurveySDK.findOne({
+          name: { $regex: /bitlab/i },
+        });
+
+        if (bitlabSDK) {
+          const configuredOffer = await SurveyOffer.findOne({
+            sdkId: bitlabSDK._id,
+            externalId: offerId,
+            offerType: "survey",
+            status: "live",
+          });
+
+          if (configuredOffer) {
+            // Use admin-configured reward (may be adjusted from original 'value')
+            coins = configuredOffer.coinReward || 0;
+            console.log(
+              `✅ Using admin-configured reward: ${coins} coins for survey ${offerId}`
+            );
+          }
+        }
+      } catch (configError) {
+        console.error("Error checking admin-configured offer:", configError);
+      }
+
+      // If no admin config, use Bitlabs callback data
+      if (coins === 0) {
+        // Priority: 'value' field (what Bitlabs gives publisher)
+        if (value) {
+          coins = parseFloat(value) || 0;
+          console.log(
+            `✅ Using 'value' from callback: ${coins} coins for survey ${offerId}`
+          );
+        } else if (reward) {
+          // Fallback to 'reward' field
+          coins = Math.round(reward);
+          console.log(
+            `✅ Using 'reward' from callback: ${coins} coins for survey ${offerId}`
+          );
+        }
+      }
+
+      if (coins > 0) {
+        const xp = Math.round(coins * 0.5); // 50% of coins as XP
 
         user.wallet.balance = (user.wallet.balance || 0) + coins;
         user.wallet.lastUpdated = new Date();
@@ -989,12 +1046,21 @@ router.post("/callback/bitlabs", async (req, res) => {
           user: user._id,
           type: "credit",
           amount: coins,
-          description: `Bitlabs offer completed - ${offerId}`,
+          description: `Bitlabs survey completed - ${offerId}`,
           status: "completed",
           referenceId: offerId,
         });
 
         await Promise.all([user.save(), transaction.save()]);
+
+        console.log(
+          `✅ Rewarded user ${userId}: ${coins} coins + ${xp} XP for survey ${offerId}`
+        );
+      } else {
+        console.warn(
+          `⚠️ No reward amount found for survey ${offerId} - callback data:`,
+          callbackData
+        );
       }
     }
 

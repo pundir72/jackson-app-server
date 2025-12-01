@@ -27,6 +27,18 @@ async function getNonGameOffers(params = {}) {
       devices,
     } = params;
 
+    console.log(
+      "🟠 [BITLABS UTILITY] ========== getNonGameOffers called =========="
+    );
+    console.log("🟠 [BITLABS UTILITY] Input params:", {
+      userId,
+      userProfile,
+      type,
+      category,
+      devices,
+    });
+    console.log("🟠 [BITLABS UTILITY] Building queryParams for Bitlabs API...");
+
     // Build query parameters
     const queryParams = {};
 
@@ -82,6 +94,11 @@ async function getNonGameOffers(params = {}) {
       queryParams.client_ip = userProfile.ip;
     }
 
+    console.log(
+      "🟠 [BITLABS UTILITY] Final queryParams to send to Bitlabs API:",
+      JSON.stringify(queryParams, null, 2)
+    );
+
     const categorizedOffers = {
       surveys: [],
       magicReceipts: [],
@@ -95,17 +112,59 @@ async function getNonGameOffers(params = {}) {
 
     // Fetch surveys from dedicated endpoint
     if (type === "all" || type === "survey") {
+      console.log(
+        "🟠 [BITLABS UTILITY] Fetching surveys with queryParams:",
+        queryParams
+      );
       fetchPromises.push(
         bitlabsService
           .getSurveys(queryParams, userId)
           .then((result) => {
+            console.log(
+              "🟠 [BITLABS UTILITY] ========== Survey API Response Received =========="
+            );
+            console.log("🟠 [BITLABS UTILITY] Response summary:", {
+              success: result.success,
+              dataCount: result.data?.length || 0,
+              error: result.error,
+            });
             if (result.success && result.data) {
-              // Return raw Bitlabs format - preserve original structure
-              categorizedOffers.surveys = result.data;
+              // Normalize surveys to add userRewardCoins and userRewardXP fields
+              const normalizedSurveys = result.data.map((survey) =>
+                normalizeOffer(survey, userId)
+              );
+              categorizedOffers.surveys = normalizedSurveys;
+              console.log(
+                "🟠 [BITLABS UTILITY] ✅ Added",
+                normalizedSurveys.length,
+                "normalized surveys to categorizedOffers"
+              );
+              if (normalizedSurveys.length > 0) {
+                console.log("🟠 [BITLABS UTILITY] First survey sample:", {
+                  id: normalizedSurveys[0]?.id,
+                  value: normalizedSurveys[0]?.value,
+                  cpi: normalizedSurveys[0]?.cpi,
+                  country: normalizedSurveys[0]?.country,
+                  userRewardCoins: normalizedSurveys[0]?.userRewardCoins,
+                  userRewardXP: normalizedSurveys[0]?.userRewardXP,
+                  rewardCoins: normalizedSurveys[0]?.reward?.coins,
+                  rewardXP: normalizedSurveys[0]?.reward?.xp,
+                });
+              }
+            } else {
+              console.log(
+                "🟠 [BITLABS UTILITY] ⚠️ No surveys in response or request failed"
+              );
             }
+            console.log(
+              "🟠 [BITLABS UTILITY] ================================================="
+            );
           })
           .catch((err) => {
-            console.error("Error fetching surveys:", err.message);
+            console.error(
+              "🟠 [BITLABS UTILITY] Error fetching surveys:",
+              err.message
+            );
           })
       );
     }
@@ -139,6 +198,8 @@ async function getNonGameOffers(params = {}) {
         ...queryParams,
         // Ensure devices array is included for /v2/client/offers endpoint
         devices: devices || queryParams.devices || undefined,
+        // CRITICAL: Ensure country is included for non-game offers (Bitlabs API requires it)
+        country: queryParams.country || "US",
       };
 
       fetchPromises.push(
@@ -263,7 +324,7 @@ async function getNonGameOffers(params = {}) {
       return sum + (isNaN(coins) ? 0 : coins);
     }, 0);
 
-    return {
+    const result = {
       success: true,
       offers: filteredOffers,
       categorized: categorizedOffers,
@@ -277,6 +338,21 @@ async function getNonGameOffers(params = {}) {
         other: categorizedOffers.other.length,
       },
     };
+
+    console.log("🟠 [BITLABS UTILITY] ========== Returning result ==========");
+    console.log("🟠 [BITLABS UTILITY] Result summary:", {
+      success: result.success,
+      totalOffers: result.totalOffers,
+      surveysCount: result.breakdown.surveys,
+      cashbackCount: result.breakdown.cashback,
+      shoppingCount: result.breakdown.shopping,
+      magicReceiptsCount: result.breakdown.magicReceipts,
+      otherCount: result.breakdown.other,
+      estimatedEarnings: result.estimatedEarnings,
+    });
+    console.log("🟠 [BITLABS UTILITY] ======================================");
+
+    return result;
   } catch (error) {
     console.error("Error getting non-game offers:", error);
     return {
@@ -306,9 +382,20 @@ async function getSurveys(params = {}) {
   try {
     const { userId, userProfile = {}, category } = params;
 
+    // 🔍 DEBUG: Log input parameters
+    console.log("\n🔍 ========== getSurveys() - INPUT PARAMETERS ==========");
+    console.log("👤 User ID:", userId);
+    console.log("👤 User Profile:", JSON.stringify(userProfile, null, 2));
+    console.log("📂 Category Filter:", category);
+    console.log("==================================================\n");
+
     const queryParams = {};
     if (userProfile.platform) {
       queryParams.platform = userProfile.platform;
+    }
+    // CRITICAL: Add country parameter (surveys are country-specific)
+    if (userProfile.country) {
+      queryParams.country = userProfile.country;
     }
     if (userProfile.userAgent) {
       queryParams.client_user_agent = userProfile.userAgent;
@@ -316,6 +403,11 @@ async function getSurveys(params = {}) {
     if (userProfile.ip) {
       queryParams.client_ip = userProfile.ip;
     }
+
+    // 🔍 DEBUG: Log query params being sent
+    console.log("\n🔍 ========== getSurveys() - QUERY PARAMS ==========");
+    console.log("📋 Query Parameters:", JSON.stringify(queryParams, null, 2));
+    console.log("==================================================\n");
 
     const result = await bitlabsService.getSurveys(queryParams, userId);
 
@@ -337,21 +429,95 @@ async function getSurveys(params = {}) {
 
     let surveys = result.data || [];
 
+    // 🔍 DEBUG: Log raw surveys from service
+    console.log(
+      "\n🔍 ========== getSurveys() - RAW SURVEYS FROM SERVICE =========="
+    );
+    console.log(`📊 Total Surveys: ${surveys.length}`);
+    if (surveys.length > 0) {
+      surveys.forEach((survey, index) => {
+        console.log(`\n   Survey ${index + 1} (Before Normalization):`);
+        console.log(`     id: ${survey.id || "N/A"}`);
+        console.log(`     value: ${survey.value || "MISSING"}`);
+        console.log(`     cpi: ${survey.cpi || "MISSING"}`);
+        console.log(
+          `     category: ${survey.category?.name || survey.category || "N/A"}`
+        );
+      });
+    }
+    console.log("==================================================\n");
+
     // Filter by category if specified
     if (category && category !== "all") {
+      const beforeFilter = surveys.length;
       surveys = surveys.filter((survey) => {
         const surveyCategory = survey.category || "";
         return surveyCategory.toLowerCase().includes(category.toLowerCase());
       });
+      console.log(
+        `🔍 Filtered by category "${category}": ${beforeFilter} → ${surveys.length} surveys`
+      );
     }
 
-    const normalizedSurveys = surveys.map((survey) =>
-      normalizeOffer(survey, userId)
-    );
+    const normalizedSurveys = surveys.map((survey, index) => {
+      const normalized = normalizeOffer(survey, userId);
+
+      // 🔍 DEBUG: Log normalization for first survey
+      if (index === 0) {
+        console.log("\n🔍 ========== NORMALIZATION EXAMPLE ==========");
+        console.log("📋 Original Survey (from Bitlabs):");
+        console.log(`   value: ${survey.value}`);
+        console.log(`   cpi: ${survey.cpi}`);
+        console.log(`   id: ${survey.id}`);
+        console.log("\n📋 Normalized Survey:");
+        console.log(
+          `   reward.coins: ${normalized.reward?.coins || "MISSING"}`
+        );
+        console.log(
+          `   reward.currency: ${normalized.reward?.currency || "MISSING"}`
+        );
+        console.log(`   reward.xp: ${normalized.reward?.xp || "MISSING"}`);
+        console.log(
+          `   publisherRevenue.cpi: ${
+            normalized.publisherRevenue?.cpi || "MISSING"
+          }`
+        );
+        console.log(
+          `   publisherRevenue.value: ${
+            normalized.publisherRevenue?.value || "MISSING"
+          }`
+        );
+        console.log("==================================================\n");
+      }
+
+      return normalized;
+    });
+
     const estimatedEarnings = normalizedSurveys.reduce(
       (sum, s) => sum + (s.reward?.coins || 0),
       0
     );
+
+    // 🔍 DEBUG: Log final result
+    console.log("\n🔍 ========== getSurveys() - FINAL RESULT ==========");
+    console.log(`📊 Total Normalized Surveys: ${normalizedSurveys.length}`);
+    console.log(`💰 Estimated Earnings: ${estimatedEarnings} coins`);
+    normalizedSurveys.forEach((survey, index) => {
+      console.log(`\n   Survey ${index + 1}:`);
+      console.log(`     id: ${survey.id || survey.offerId || "N/A"}`);
+      console.log(`     reward.coins: ${survey.reward?.coins || "MISSING"}`);
+      console.log(
+        `     publisherRevenue.cpi: ${
+          survey.publisherRevenue?.cpi || "MISSING"
+        }`
+      );
+      console.log(
+        `     publisherRevenue.value: ${
+          survey.publisherRevenue?.value || "MISSING"
+        }`
+      );
+    });
+    console.log("==================================================\n");
 
     return {
       success: true,
@@ -670,6 +836,13 @@ function normalizeOffer(offer, userId = null) {
   // If offer already has type set (from dedicated endpoints), use it
   const offerType = offer.type || getOfferType(offer);
 
+  // Calculate user rewards with 20% margin (user gets 20% of value, admin keeps 80%)
+  // Bitlabs survey response: { value: "120", cpi: "1.2", ... }
+  // 'value' is what Bitlabs gives publisher - user gets 20% as reward coins
+  const publisherValue = parseFloat(offer.value) || 0;
+  const userRewardCoins = Math.round(publisherValue * 0.2); // 20% margin - user gets 20%
+  const userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of reward coins as XP
+
   return {
     id: offer.id || offer.offer_id || offer.surveyId,
     offerId:
@@ -692,8 +865,15 @@ function normalizeOffer(offer, userId = null) {
       offer.icon_url ||
       "",
 
-    // Rewards - Use ONLY exact values from reward object (NO fallbacks)
-    reward: offer.reward
+    // Rewards - Calculate with 20% user margin (user gets 20% of value, admin keeps 80%)
+    reward: offer.value
+      ? {
+          coins: userRewardCoins, // 20% of value (20% margin)
+          currency: "points",
+          xp: userRewardXP, // 50% of reward coins as XP
+          payout: publisherValue, // Full value from Bitlabs (for reference)
+        }
+      : offer.reward
       ? {
           coins: offer.reward.coins,
           currency: offer.reward.currency,
@@ -710,11 +890,25 @@ function normalizeOffer(offer, userId = null) {
 
     // Metadata
     estimatedTime:
-      offer.estimatedTime || offer.estimated_time || offer.duration || 0,
+      offer.estimatedTime ||
+      offer.estimated_time ||
+      offer.duration ||
+      offer.loi ||
+      0, // LOI = Length of Interview (minutes)
     confirmationTime: offer.confirmationTime || offer.confirmation_time || "",
     pendingTime: offer.pendingTime || offer.pending_time || 0,
     offerExpiresAt: offer.offer_expires_at || null,
     sessionHours: offer.session_hours || 0,
+
+    // Publisher revenue data (from Bitlabs)
+    publisherRevenue:
+      offer.cpi || offer.value
+        ? {
+            cpi: parseFloat(offer.cpi) || 0, // USD payment from Bitlabs
+            value: parseFloat(offer.value) || 0, // Points/currency received from Bitlabs
+            currency: "USD",
+          }
+        : null,
 
     // Requirements
     requirements: offer.requirements || "",
@@ -736,6 +930,36 @@ function normalizeOffer(offer, userId = null) {
     epc: offer.epc,
     lowestCapLeft: offer.lowest_cap_left,
     stats: offer.stats || {},
+
+    // Preserve Bitlabs-specific fields
+    cpi:
+      offer.cpi !== undefined && offer.cpi !== null
+        ? parseFloat(offer.cpi)
+        : undefined, // Cost per install (USD)
+    value:
+      offer.value !== undefined && offer.value !== null
+        ? parseFloat(offer.value)
+        : undefined, // Reward value (points)
+    cr:
+      offer.cr !== undefined && offer.cr !== null
+        ? parseFloat(offer.cr)
+        : undefined, // Conversion rate (0-1, e.g., 0.078 = 7.8%)
+    loi:
+      offer.loi !== undefined && offer.loi !== null
+        ? parseFloat(offer.loi)
+        : undefined, // Length of interview (minutes)
+    rating: offer.rating || undefined, // Survey rating
+    country: offer.country || undefined, // Survey country
+    language: offer.language || undefined, // Survey language
+    tags: offer.tags || [], // Survey tags
+
+    // User reward fields (calculated with 20% margin)
+    userRewardCoins:
+      publisherValue > 0 ? userRewardCoins : offer.reward?.coins || 0, // User gets 20% of value as coins
+    userRewardXP:
+      publisherValue > 0
+        ? userRewardXP
+        : offer.reward?.xp || Math.round((offer.reward?.coins || 0) * 0.5), // User gets 50% of coins as XP
   };
 }
 

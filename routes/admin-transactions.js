@@ -333,13 +333,14 @@ router.post("/redemptions/:id/approve", adminAuth, async (req, res) => {
     if (user) {
       if (!user.redemption) {
         user.redemption = {
-          preference: transaction.metadata?.redemptionMethod || 'none',
+          preference: transaction.metadata?.redemptionMethod || "none",
           count: 0,
-          totalCoinsRedeemed: 0
+          totalCoinsRedeemed: 0,
         };
       }
       user.redemption.count = (user.redemption.count || 0) + 1;
-      user.redemption.totalCoinsRedeemed = (user.redemption.totalCoinsRedeemed || 0) + (transaction.amount || 0);
+      user.redemption.totalCoinsRedeemed =
+        (user.redemption.totalCoinsRedeemed || 0) + (transaction.amount || 0);
       user.redemption.lastRedeemedAt = new Date();
       if (transaction.metadata?.redemptionMethod) {
         user.redemption.preference = transaction.metadata.redemptionMethod;

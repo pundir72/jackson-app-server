@@ -473,56 +473,60 @@ router.get("/notifications", protect, async (req, res) => {
 });
 
 // Dismiss notification (mark as dismissed permanently)
-router.post("/notifications/:notificationId/dismiss", protect, async (req, res) => {
-  try {
-    const { notificationId } = req.params;
-    const user = await User.findById(req.user.userId);
-    
-    if (!user) {
-      return res.status(404).json({
+router.post(
+  "/notifications/:notificationId/dismiss",
+  protect,
+  async (req, res) => {
+    try {
+      const { notificationId } = req.params;
+      const user = await User.findById(req.user.userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: "User not found",
+        });
+      }
+
+      // Find and update the notification
+      if (!user.notifications || user.notifications.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification not found",
+        });
+      }
+
+      const notification = user.notifications.id(notificationId);
+      if (!notification) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification not found",
+        });
+      }
+
+      // Mark as dismissed (permanently hide)
+      notification.dismissed = true;
+      notification.read = true;
+      await user.save();
+
+      res.json({
+        success: true,
+        message: "Notification dismissed successfully",
+        data: {
+          notificationId: notification._id,
+          dismissed: true,
+        },
+      });
+    } catch (error) {
+      console.error("Error dismissing notification:", error);
+      res.status(500).json({
         success: false,
-        error: "User not found",
+        error: "Failed to dismiss notification",
+        message: error.message,
       });
     }
-
-    // Find and update the notification
-    if (!user.notifications || user.notifications.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Notification not found",
-      });
-    }
-
-    const notification = user.notifications.id(notificationId);
-    if (!notification) {
-      return res.status(404).json({
-        success: false,
-        error: "Notification not found",
-      });
-    }
-
-    // Mark as dismissed (permanently hide)
-    notification.dismissed = true;
-    notification.read = true;
-    await user.save();
-
-    res.json({
-      success: true,
-      message: "Notification dismissed successfully",
-      data: {
-        notificationId: notification._id,
-        dismissed: true,
-      },
-    });
-  } catch (error) {
-    console.error("Error dismissing notification:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to dismiss notification",
-      message: error.message,
-    });
   }
-});
+);
 
 // Get user dashboard (optimized) - Complete mobile app dashboard
 router.get("/dashboard", protect, async (req, res) => {

@@ -907,9 +907,10 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     };
     // Ensure notifications is properly read from user.profile (default to true if not set)
     if (user.profile) {
-      safeProfile.notifications = user.profile.notifications !== undefined 
-        ? user.profile.notifications 
-        : true;
+      safeProfile.notifications =
+        user.profile.notifications !== undefined
+          ? user.profile.notifications
+          : true;
     }
     const safeOnboarding = user.onboarding || {};
     const safeWallet = user.wallet || { balance: 0 };
@@ -926,7 +927,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     };
     const safeRedemption = user.redemption || { preference: "none", count: 0 };
     const safeAnalytics = user.analytics || {};
-    
+
     const fullName =
       `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
     const tierText = safeVip.level || "free";
@@ -1015,10 +1016,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           else ageValue = "N/A";
         }
       } catch (error) {
-        console.error(
-          "Error calculating age from dateOfBirth:",
-          error
-        );
+        console.error("Error calculating age from dateOfBirth:", error);
       }
     }
 
@@ -1034,87 +1032,109 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     // Fetch redemption history from PayoutRequest
     let redemptionHistory = [];
     try {
-      const PayoutRequest = require('../models/PayoutRequest');
+      const PayoutRequest = require("../models/PayoutRequest");
       const payouts = await PayoutRequest.find({
         userId: user._id,
-        status: { $in: ['completed', 'approved'] }
+        status: { $in: ["completed", "approved"] },
       })
-      .select('coinsDeducted createdAt approvedAt payment reward status tremendousOrderId metadata')
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean();
-      
-      redemptionHistory = payouts.map(payout => ({
+        .select(
+          "coinsDeducted createdAt approvedAt payment reward status tremendousOrderId metadata"
+        )
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+      redemptionHistory = payouts.map((payout) => ({
         id: payout._id.toString(),
-        redemptionId: payout.metadata?.externalId || payout._id.toString().slice(-8),
-        amount: payout.payment?.amount || payout.reward?.value?.denomination || 0,
-        currency: payout.payment?.currency || payout.reward?.value?.currency_code || 'USD',
+        redemptionId:
+          payout.metadata?.externalId || payout._id.toString().slice(-8),
+        amount:
+          payout.payment?.amount || payout.reward?.value?.denomination || 0,
+        currency:
+          payout.payment?.currency ||
+          payout.reward?.value?.currency_code ||
+          "USD",
         coinsDeducted: payout.coinsDeducted || 0,
-        method: payout.reward?.delivery?.method || 'N/A',
+        method: payout.reward?.delivery?.method || "N/A",
         status: payout.status,
         createdAt: payout.createdAt,
         approvedAt: payout.approvedAt,
-        tremendousOrderId: payout.tremendousOrderId || null
+        tremendousOrderId: payout.tremendousOrderId || null,
       }));
     } catch (error) {
-      console.error('Error fetching redemption history:', error);
+      console.error("Error fetching redemption history:", error);
     }
 
     // Calculate spin count - use user.spinCount if available, otherwise count from SpinWheelLog
     let spinCount = typeof user.spinCount === "number" ? user.spinCount : 0;
     let lastSpinAt = user.lastSpinAt || null;
-    
+
     // If spinCount is 0 or not set, try to get from SpinWheelLog
     if (spinCount === 0 || !user.spinCount) {
       try {
-        const SpinWheelLog = require('../models/SpinWheelLog');
-        const actualSpinCount = await SpinWheelLog.countDocuments({ user: user._id });
+        const SpinWheelLog = require("../models/SpinWheelLog");
+        const actualSpinCount = await SpinWheelLog.countDocuments({
+          user: user._id,
+        });
         if (actualSpinCount > 0) {
           spinCount = actualSpinCount;
           // Update user.spinCount for future queries (async, don't wait)
-          User.findByIdAndUpdate(user._id, { 
-            $set: { spinCount: actualSpinCount } 
-          }).catch(err => console.error('Error updating user spinCount:', err));
+          User.findByIdAndUpdate(user._id, {
+            $set: { spinCount: actualSpinCount },
+          }).catch((err) =>
+            console.error("Error updating user spinCount:", err)
+          );
         }
-        
+
         // Get last spin time if not set
         if (!lastSpinAt) {
           const lastSpin = await SpinWheelLog.findOne({ user: user._id })
             .sort({ createdAt: -1 })
-            .select('createdAt')
+            .select("createdAt")
             .lean();
           if (lastSpin) {
             lastSpinAt = lastSpin.createdAt;
             // Update user.lastSpinAt for future queries (async, don't wait)
-            User.findByIdAndUpdate(user._id, { 
-              $set: { lastSpinAt: lastSpin.createdAt } 
-            }).catch(err => console.error('Error updating user lastSpinAt:', err));
+            User.findByIdAndUpdate(user._id, {
+              $set: { lastSpinAt: lastSpin.createdAt },
+            }).catch((err) =>
+              console.error("Error updating user lastSpinAt:", err)
+            );
           }
         }
       } catch (error) {
-        console.error('Error calculating spin count from logs:', error);
+        console.error("Error calculating spin count from logs:", error);
       }
     }
 
     // Calculate redemption count - use user.redemption.count if available, otherwise count from PayoutRequest
-    let redemptionCount = typeof safeRedemption.count === "number" ? safeRedemption.count : 0;
-    let totalCoinsRedeemed = typeof safeRedemption.totalCoinsRedeemed === "number" ? safeRedemption.totalCoinsRedeemed : 0;
+    let redemptionCount =
+      typeof safeRedemption.count === "number" ? safeRedemption.count : 0;
+    let totalCoinsRedeemed =
+      typeof safeRedemption.totalCoinsRedeemed === "number"
+        ? safeRedemption.totalCoinsRedeemed
+        : 0;
     let lastRedeemedAt = safeRedemption.lastRedeemedAt || null;
-    
+
     // If redemption count is 0, try to get from PayoutRequest collection (where Tremendous payouts are stored)
     if (redemptionCount === 0 || !safeRedemption.count) {
       try {
-        const PayoutRequest = require('../models/PayoutRequest');
+        const PayoutRequest = require("../models/PayoutRequest");
         // Count completed payout requests (approved redemptions)
         const completedPayouts = await PayoutRequest.find({
           userId: user._id,
-          status: { $in: ['completed', 'approved'] }
-        }).select('coinsDeducted createdAt approvedAt').lean();
-        
+          status: { $in: ["completed", "approved"] },
+        })
+          .select("coinsDeducted createdAt approvedAt")
+          .lean();
+
         if (completedPayouts.length > 0) {
           redemptionCount = completedPayouts.length;
-          totalCoinsRedeemed = completedPayouts.reduce((sum, payout) => sum + (payout.coinsDeducted || 0), 0);
-          
+          totalCoinsRedeemed = completedPayouts.reduce(
+            (sum, payout) => sum + (payout.coinsDeducted || 0),
+            0
+          );
+
           // Get last redemption date (use approvedAt if available, otherwise createdAt)
           const lastRedemption = completedPayouts.sort((a, b) => {
             const dateA = a.approvedAt || a.createdAt;
@@ -1122,20 +1142,26 @@ router.get("/users/:id", adminAuth, async (req, res) => {
             return new Date(dateB) - new Date(dateA);
           })[0];
           if (lastRedemption) {
-            lastRedeemedAt = lastRedemption.approvedAt || lastRedemption.createdAt;
+            lastRedeemedAt =
+              lastRedemption.approvedAt || lastRedemption.createdAt;
           }
-          
+
           // Update user.redemption for future queries (async, don't wait)
-          User.findByIdAndUpdate(user._id, { 
-            $set: { 
-              'redemption.count': redemptionCount,
-              'redemption.totalCoinsRedeemed': totalCoinsRedeemed,
-              'redemption.lastRedeemedAt': lastRedeemedAt
-            } 
-          }).catch(err => console.error('Error updating user redemption count:', err));
+          User.findByIdAndUpdate(user._id, {
+            $set: {
+              "redemption.count": redemptionCount,
+              "redemption.totalCoinsRedeemed": totalCoinsRedeemed,
+              "redemption.lastRedeemedAt": lastRedeemedAt,
+            },
+          }).catch((err) =>
+            console.error("Error updating user redemption count:", err)
+          );
         }
       } catch (error) {
-        console.error('Error calculating redemption count from PayoutRequest:', error);
+        console.error(
+          "Error calculating redemption count from PayoutRequest:",
+          error
+        );
       }
     }
 
@@ -1165,7 +1191,10 @@ router.get("/users/:id", adminAuth, async (req, res) => {
           : "N/A",
       appVersion: user.appVersion || "N/A",
       accountStatus: statusText.charAt(0).toUpperCase() + statusText.slice(1),
-      faceVerification: (user.biometric?.faceVerification?.verified === true) ? "Verified" : "Not Verified",
+      faceVerification:
+        user.biometric?.faceVerification?.verified === true
+          ? "Verified"
+          : "Not Verified",
       deviceType:
         `${safeDevice.type} - ${safeDevice.model}` !== "Unknown - Unknown"
           ? `${safeDevice.type} - ${safeDevice.model}`

@@ -16,14 +16,14 @@ let redis;
 try {
   redis = new Redis(config.REDIS_URL);
   redis.on("error", (error) => {
-    console.error("Redis connection error:", error);
+    // console.error("Redis connection error:", error);
     redis = null; // Set to null on connection error
   });
   redis.on("connect", () => {
-    console.log("Connected to Redis");
+    // console.log("Connected to Redis");
   });
 } catch (error) {
-  console.error("Failed to connect to Redis:", error);
+  // console.error("Failed to connect to Redis:", error);
   redis = null; // Set to null if Redis is not available
 }
 

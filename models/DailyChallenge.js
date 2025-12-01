@@ -90,6 +90,7 @@ const dailyChallengeSchema = new mongoose.Schema(
       },
     },
     requirements: {
+      // Generic requirements
       minStreak: {
         type: Number,
         default: 0,
@@ -98,9 +99,12 @@ const dailyChallengeSchema = new mongoose.Schema(
         type: Number,
         default: null,
       },
+      // Timer-based challenge: required time to complete, in minutes.
+      // For Game daily challenges this represents the required play time.
       timeLimit: {
         type: Number, // in minutes
         default: null,
+        min: 0,
       },
       prerequisites: [
         {

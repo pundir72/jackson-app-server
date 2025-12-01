@@ -301,6 +301,11 @@ router.post(
     body("claimType")
       .isIn(["watch_ad", "auto", "manual", "social_action"])
       .withMessage("Invalid claim type"),
+    // Timer-based game configuration
+    body("requirements.timeLimit")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Time limit (minutes) must be a non-negative integer"),
     body("scheduling.startTime")
       .optional()
       .isISO8601()
@@ -352,6 +357,24 @@ router.post(
           message: "Validation failed",
           errors: errors.array(),
         });
+      }
+
+      // Additional validation: for Game type, ensure timeLimit is provided
+      if (req.body.type === "game") {
+        const timeLimit =
+          req.body.requirements && req.body.requirements.timeLimit;
+        if (
+          timeLimit === undefined ||
+          timeLimit === null ||
+          Number.isNaN(Number(timeLimit)) ||
+          Number(timeLimit) <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Time-based Game challenges require a positive timeLimit (minutes)",
+          });
+        }
       }
 
       // Normalize provided date to UTC start-of-day to avoid timezone drift
@@ -568,6 +591,11 @@ router.put(
       .optional()
       .isString()
       .withMessage("SDK Provider must be a string"),
+    // Timer-based game configuration
+    body("requirements.timeLimit")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Time limit (minutes) must be a non-negative integer"),
     // Target audience / segmentation (optional; age/country/gender only)
     body("targetAudience.countries")
       .optional()
@@ -603,6 +631,25 @@ router.put(
           message: "Validation failed",
           errors: errors.array(),
         });
+      }
+
+      // If the type is being set/changed to game, ensure timeLimit is present
+      const nextType = req.body.type;
+      if (nextType === "game") {
+        const timeLimit =
+          req.body.requirements && req.body.requirements.timeLimit;
+        if (
+          timeLimit === undefined ||
+          timeLimit === null ||
+          Number.isNaN(Number(timeLimit)) ||
+          Number(timeLimit) <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Time-based Game challenges require a positive timeLimit (minutes)",
+          });
+        }
       }
 
       const updateData = {

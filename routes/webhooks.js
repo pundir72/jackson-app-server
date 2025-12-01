@@ -11,6 +11,7 @@ const BesitosConversion = require('../models/BesitosConversion');
 const DailyChallenge = require('../models/DailyChallenge');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
  * @route   POST /api/webhooks/besitos/conversion
@@ -123,10 +124,14 @@ router.post('/besitos/conversion', async (req, res) => {
           xp: challenge.xpReward
         });
         
-        // Credit user rewards
+        // Credit user rewards (apply tier multiplier to XP)
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
-        user.xp.current = (user.xp.current || 0) + challenge.xpReward;
-        user.xp.total = (user.xp.total || 0) + challenge.xpReward;
+        const baseXp = challenge.xpReward;
+        const { finalXP, multiplier: tierMultiplier } =
+          await applyTierMultiplierToXP(user, baseXp);
+
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
         
         // Update streak
         const todayStr = today.toISOString().split('T')[0];
@@ -149,7 +154,7 @@ router.post('/besitos/conversion', async (req, res) => {
         // Update challenge analytics
         await challenge.updateAnalytics('complete', {
           coins: challenge.coinReward,
-          xp: challenge.xpReward
+          xp: finalXP
         });
         
         // Create transaction record
@@ -171,7 +176,7 @@ router.post('/besitos/conversion', async (req, res) => {
         await transaction.save();
         
         // Update conversion with credits
-        await conversion.creditRewards(challenge.coinReward, challenge.xpReward);
+        await conversion.creditRewards(challenge.coinReward, baseXp);
         
         console.log(`Daily challenge completed via Besitos webhook for user ${userId}`);
       }
@@ -262,16 +267,20 @@ router.post('/bitlabs/completion', async (req, res) => {
           externalTaskId: surveyId
         };
         
-        // Complete the challenge
+        // Complete the challenge (store base XP)
         await progress.markCompleted({
           coins: challenge.coinReward,
           xp: challenge.xpReward
         });
         
-        // Credit user
+        // Credit user (apply tier multiplier to XP)
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
-        user.xp.current = (user.xp.current || 0) + challenge.xpReward;
-        user.xp.total = (user.xp.total || 0) + challenge.xpReward;
+        const baseXp2 = challenge.xpReward;
+        const { finalXP: finalXP2, multiplier: tierMultiplier2 } =
+          await applyTierMultiplierToXP(user, baseXp2);
+
+        user.xp.current = (user.xp.current || 0) + finalXP2;
+        user.xp.total = (user.xp.total || 0) + finalXP2;
         
         // Update streak
         const todayStr = today.toISOString().split('T')[0];

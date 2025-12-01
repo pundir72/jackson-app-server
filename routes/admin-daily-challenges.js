@@ -925,184 +925,245 @@ router.patch('/pause-rules/:id/status', adminAuth, async (req, res) => {
   }
 });
 
-// ==================== XP MULTIPLIER SETUP ====================
+// ==================== XP MULTIPLIER SETUP (Tier-Based) ====================
 
-// Get XP multipliers
-router.get('/xp-multipliers', adminAuth, async (req, res) => {
+// Get XP multipliers (all, both active and inactive)
+router.get("/xp-multipliers", adminAuth, async (req, res) => {
   try {
-    const xpMultipliers = await XPMultiplier.find({ isActive: true })
-      .sort({ streakLength: 1 })
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const xpMultipliers = await XPMultiplier.find({ tier: { $exists: true } })
+      .sort({ tier: 1 })
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email");
 
     res.json({
       success: true,
-      data: xpMultipliers
+      data: xpMultipliers,
     });
   } catch (error) {
-    console.error('Error getting XP multipliers:', error);
+    console.error("Error getting XP multipliers:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get XP multipliers',
-      error: error.message
+      message: "Failed to get XP multipliers",
+      error: error.message,
     });
   }
 });
 
 // Get specific XP multiplier
-router.get('/xp-multipliers/:id', adminAuth, async (req, res) => {
+router.get("/xp-multipliers/:id", adminAuth, async (req, res) => {
   try {
     const xpMultiplier = await XPMultiplier.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email");
 
     if (!xpMultiplier) {
       return res.status(404).json({
         success: false,
-        message: 'XP multiplier not found'
+        message: "XP multiplier not found",
       });
     }
 
     res.json({
       success: true,
-      data: xpMultiplier
+      data: xpMultiplier,
     });
   } catch (error) {
-    console.error('Error getting XP multiplier:', error);
+    console.error("Error getting XP multiplier:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get XP multiplier',
-      error: error.message
+      message: "Failed to get XP multiplier",
+      error: error.message,
     });
   }
 });
 
-// Create XP multiplier
-router.post('/xp-multipliers', adminAuth, [
-  body('streakLength').isInt({ min: 1, max: 365 }).withMessage('Streak length must be between 1 and 365'),
-  body('multiplier').isFloat({ min: 1.0, max: 10.0 }).withMessage('Multiplier must be between 1.0 and 10.0'),
-  body('vipBonusApplied').optional().isBoolean().withMessage('VIP bonus applied must be boolean'),
-  body('isActive').optional().isBoolean().withMessage('Active status must be boolean')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+// Create XP multiplier (tier-based)
+router.post(
+  "/xp-multipliers",
+  adminAuth,
+  [
+    body("tier")
+      .isIn(["JUNIOR", "MID", "SENIOR"])
+      .withMessage("Tier must be one of JUNIOR, MID, SENIOR"),
+    body("multiplier")
+      .isFloat({ min: 0.01, max: 10.0 })
+      .withMessage("Multiplier must be greater than 0 and at most 10.0"),
+    body("isActive")
+      .optional()
+      .isBoolean()
+      .withMessage("Active status must be boolean"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { tier, multiplier, isActive } = req.body;
+
+      // Prevent duplicate tier configuration
+      const existing = await XPMultiplier.findOne({ tier });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: `A multiplier for tier ${tier} already exists`,
+        });
+      }
+
+      const multiplierData = {
+        tier,
+        multiplier,
+        isActive: typeof isActive === "boolean" ? isActive : true,
+        createdBy: req.user.userId,
+        // Reset legacy/advanced fields to safe defaults
+        conditions: {},
+        scheduling: {},
+        vipOverlay: {},
+        metadata: {},
+      };
+
+      const xpMultiplier = new XPMultiplier(multiplierData);
+      await xpMultiplier.save();
+
+      res.status(201).json({
+        success: true,
+        message: "XP multiplier created successfully",
+        data: xpMultiplier,
+      });
+    } catch (error) {
+      console.error("Error creating XP multiplier:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to create XP multiplier",
+        error: error.message,
       });
     }
-
-    const multiplierData = {
-      ...req.body,
-      createdBy: req.user.userId
-    };
-
-    const xpMultiplier = new XPMultiplier(multiplierData);
-    await xpMultiplier.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'XP multiplier created successfully',
-      data: xpMultiplier
-    });
-  } catch (error) {
-    console.error('Error creating XP multiplier:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create XP multiplier',
-      error: error.message
-    });
   }
-});
+);
 
 // Update XP multiplier
-router.put('/xp-multipliers/:id', adminAuth, [
-  body('streakLength').optional().isInt({ min: 1, max: 365 }).withMessage('Streak length must be between 1 and 365'),
-  body('multiplier').optional().isFloat({ min: 1.0, max: 10.0 }).withMessage('Multiplier must be between 1.0 and 10.0'),
-  body('vipBonusApplied').optional().isBoolean().withMessage('VIP bonus applied must be boolean'),
-  body('isActive').optional().isBoolean().withMessage('Active status must be boolean')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
+router.put(
+  "/xp-multipliers/:id",
+  adminAuth,
+  [
+    body("tier")
+      .optional()
+      .isIn(["JUNIOR", "MID", "SENIOR"])
+      .withMessage("Tier must be one of JUNIOR, MID, SENIOR"),
+    body("multiplier")
+      .optional()
+      .isFloat({ min: 0.01, max: 10.0 })
+      .withMessage("Multiplier must be greater than 0 and at most 10.0"),
+    body("isActive")
+      .optional()
+      .isBoolean()
+      .withMessage("Active status must be boolean"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { tier, multiplier, isActive } = req.body;
+
+      // If tier is being changed, ensure no duplicate
+      if (tier) {
+        const existing = await XPMultiplier.findOne({
+          _id: { $ne: req.params.id },
+          tier,
+        });
+        if (existing) {
+          return res.status(409).json({
+            success: false,
+            message: `A multiplier for tier ${tier} already exists`,
+          });
+        }
+      }
+
+      const updateData = {
+        updatedBy: req.user.userId,
+      };
+
+      if (tier) updateData.tier = tier;
+      if (typeof multiplier === "number") updateData.multiplier = multiplier;
+      if (typeof isActive === "boolean") updateData.isActive = isActive;
+
+      const xpMultiplier = await XPMultiplier.findByIdAndUpdate(
+        req.params.id,
+        updateData,
+        { new: true, runValidators: true }
+      );
+
+      if (!xpMultiplier) {
+        return res.status(404).json({
+          success: false,
+          message: "XP multiplier not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "XP multiplier updated successfully",
+        data: xpMultiplier,
+      });
+    } catch (error) {
+      console.error("Error updating XP multiplier:", error);
+      res.status(500).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: "Failed to update XP multiplier",
+        error: error.message,
       });
     }
-
-    const updateData = {
-      ...req.body,
-      updatedBy: req.user.userId
-    };
-
-    const xpMultiplier = await XPMultiplier.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!xpMultiplier) {
-      return res.status(404).json({
-        success: false,
-        message: 'XP multiplier not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'XP multiplier updated successfully',
-      data: xpMultiplier
-    });
-  } catch (error) {
-    console.error('Error updating XP multiplier:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update XP multiplier',
-      error: error.message
-    });
   }
-});
+);
 
 // Delete XP multiplier
-router.delete('/xp-multipliers/:id', adminAuth, async (req, res) => {
+router.delete("/xp-multipliers/:id", adminAuth, async (req, res) => {
   try {
     const xpMultiplier = await XPMultiplier.findByIdAndDelete(req.params.id);
 
     if (!xpMultiplier) {
       return res.status(404).json({
         success: false,
-        message: 'XP multiplier not found'
+        message: "XP multiplier not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'XP multiplier deleted successfully',
-      data: { id: xpMultiplier._id, streakLength: xpMultiplier.streakLength }
+      message: "XP multiplier deleted successfully",
+      data: { id: xpMultiplier._id, tier: xpMultiplier.tier },
     });
   } catch (error) {
-    console.error('Error deleting XP multiplier:', error);
+    console.error("Error deleting XP multiplier:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete XP multiplier',
-      error: error.message
+      message: "Failed to delete XP multiplier",
+      error: error.message,
     });
   }
 });
 
 // Toggle XP multiplier status
-router.patch('/xp-multipliers/:id/status', adminAuth, async (req, res) => {
+router.patch("/xp-multipliers/:id/status", adminAuth, async (req, res) => {
   try {
     const xpMultiplier = await XPMultiplier.findById(req.params.id);
 
     if (!xpMultiplier) {
       return res.status(404).json({
         success: false,
-        message: 'XP multiplier not found'
+        message: "XP multiplier not found",
       });
     }
 
@@ -1112,15 +1173,17 @@ router.patch('/xp-multipliers/:id/status', adminAuth, async (req, res) => {
 
     res.json({
       success: true,
-      message: `XP multiplier ${xpMultiplier.isActive ? 'activated' : 'deactivated'} successfully`,
-      data: { isActive: xpMultiplier.isActive }
+      message: `XP multiplier ${
+        xpMultiplier.isActive ? "activated" : "deactivated"
+      } successfully`,
+      data: { isActive: xpMultiplier.isActive },
     });
   } catch (error) {
-    console.error('Error toggling XP multiplier status:', error);
+    console.error("Error toggling XP multiplier status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to toggle XP multiplier status',
-      error: error.message
+      message: "Failed to toggle XP multiplier status",
+      error: error.message,
     });
   }
 });

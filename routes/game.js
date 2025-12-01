@@ -8,6 +8,7 @@ const Transaction = require('../models/Transaction');
 const GameTask = require('../models/GameTask');
 const WelcomeBonusTimer = require('../models/WelcomeBonusTimer');
 const TaskProgressionRule = require('../models/TaskProgressionRule');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 const besitosController = require('../controllers/besitos.controller');
 const { trackAchievements } = require('../utils/achievements');
 // Get user's games (downloaded/installed games list)
@@ -287,14 +288,14 @@ router.post('/earn', protect, async (req, res) => {
   try {
     const { gameId, offerId, coins = 0, xp = 0, reason } = req.body;
     const coinsNum = Number(coins);
-    const xpNum = Number(xp);
+    const baseXpNum = Number(xp);
 
-    if ((isNaN(coinsNum) || coinsNum < 0) || (isNaN(xpNum) || xpNum < 0)) {
+    if ((isNaN(coinsNum) || coinsNum < 0) || (isNaN(baseXpNum) || baseXpNum < 0)) {
       return res.status(400).json({ success: false, message: 'coins and xp must be non-negative numbers' });
     }
 
     // basic per-call cap to avoid accidental large credits
-    if (coinsNum > 100000 || xpNum > 100000) {
+    if (coinsNum > 100000 || baseXpNum > 100000) {
       return res.status(400).json({ success: false, message: 'coins/xp exceed per-call cap' });
     }
 
@@ -307,17 +308,26 @@ router.post('/earn', protect, async (req, res) => {
     user.wallet = user.wallet || {};
     user.wallet.balance = Number(user.wallet.balance || 0) + coinsNum;
     user.wallet.lastUpdated = new Date();
-    // Update xp object (current + total)
+
+    // Update xp object (current + total) with tier-based multiplier
     user.xp = user.xp || {};
-    user.xp.current = Number(user.xp.current || 0) + xpNum;
-    user.xp.total = Number(user.xp.total || 0) + xpNum;
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(user, baseXpNum);
+    user.xp.current = Number(user.xp.current || 0) + finalXP;
+    user.xp.total = Number(user.xp.total || 0) + finalXP;
 
     // Optional lightweight history on user.games entry if present
     if (gameId && Array.isArray(user.games)) {
       const idx = user.games.findIndex(g => String(g.gameId) === String(gameId));
       if (idx >= 0) {
         user.games[idx].lastEarnedAt = new Date();
-        user.games[idx].lastEarned = { coins: coinsNum, xp: xpNum, offerId: offerId || null, reason: reason || null };
+        user.games[idx].lastEarned = {
+          coins: coinsNum,
+          xp: finalXP,
+          baseXp: baseXpNum,
+          tierMultiplier,
+          offerId: offerId || null,
+          reason: reason || null
+        };
       }
     }
 
@@ -343,7 +353,9 @@ router.post('/earn', protect, async (req, res) => {
         offerId: offerId || null,
         reason: reason || null,
         source: 'game_earn',
-        xpEarned: xpNum
+        xpEarned: finalXP,
+        baseXp: baseXpNum,
+        tierMultiplier
       },
     });
 
@@ -357,7 +369,7 @@ router.post('/earn', protect, async (req, res) => {
       try {
         await trackAchievements(req.user.userId, 'wallet', {
           coins: coinsNum,
-          xp: xpNum,
+          xp: finalXP,
           category: 'game_earn',
           gameId: gameId,
           reason: reason

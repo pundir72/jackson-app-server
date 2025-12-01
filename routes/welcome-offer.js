@@ -3,6 +3,7 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // Welcome Offer configuration
 const WELCOME_OFFER_CONFIG = {
@@ -234,11 +235,15 @@ router.post('/claim', protect, async (req, res) => {
 
     // Calculate reward amount
     const rewardCoins = WELCOME_OFFER_CONFIG.rewardAmount * 100; // $20 = 2000 coins
-    const rewardXP = rewardCoins * 5; // 5 XP per coin
+    const baseXp = rewardCoins * 5; // 5 XP per coin (base XP before tier multiplier)
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + rewardCoins;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: rewardXP, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + rewardXP;
     user.xp.total = (user.xp.total || 0) + rewardXP;
 
@@ -269,7 +274,9 @@ router.post('/claim', protect, async (req, res) => {
         reward: {
           coins: rewardCoins,
           xp: rewardXP,
-          amount: WELCOME_OFFER_CONFIG.rewardAmount
+          amount: WELCOME_OFFER_CONFIG.rewardAmount,
+          baseXp,
+          tierMultiplier
         },
         newBalance: user.wallet.balance,
         newXP: user.xp.current

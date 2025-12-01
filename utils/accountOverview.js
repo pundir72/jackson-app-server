@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const UserAchievement = require('../models/UserAchievement');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
  * Account Overview Service
@@ -397,11 +398,16 @@ class AccountOverviewService {
         throw new Error('Milestone not completed yet');
       }
 
-      // Award reward
+      // Award reward (apply tier multiplier to XP)
       const reward = userConfig.milestoneRewards[milestoneType].reward;
       user.wallet.balance = (user.wallet.balance || 0) + reward.coins;
-      user.xp.current = (user.xp.current || 0) + reward.xp;
-      user.xp.total = (user.xp.total || 0) + reward.xp;
+
+      const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+        user,
+        reward.xp || 0
+      );
+      user.xp.current = (user.xp.current || 0) + finalXP;
+      user.xp.total = (user.xp.total || 0) + finalXP;
       user[milestoneKey] = true;
 
       // Create transaction record

@@ -10,6 +10,7 @@ const protect = require("../middleware/auth");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const bitlabsNonGames = require("../utils/bitlabs-non-games");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Helper function to calculate age from dateOfBirth or ageRange
 function calculateAge(dateOfBirth) {
@@ -896,13 +897,19 @@ router.post("/complete", protect, async (req, res) => {
     const finalReward = reward || trackingResult.reward || 0;
     if (finalReward > 0) {
       const coins = Math.round(finalReward);
-      const xp = Math.round(finalReward * 0.5);
+      const baseXp = Math.round(finalReward * 0.5);
 
       // Update user wallet and XP
       user.wallet.balance = (user.wallet.balance || 0) + coins;
       user.wallet.lastUpdated = new Date();
-      user.xp.current = (user.xp.current || 0) + xp;
-      user.xp.total = (user.xp.total || 0) + xp;
+
+      const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+        user,
+        baseXp
+      );
+
+      user.xp.current = (user.xp.current || 0) + finalXP;
+      user.xp.total = (user.xp.total || 0) + finalXP;
 
       // Create transaction record
       const transaction = new Transaction({
@@ -921,8 +928,8 @@ router.post("/complete", protect, async (req, res) => {
         data: {
           message: "Offer completed successfully!",
           reward: {
-            coins,
-            xp,
+          coins,
+          xp: finalXP,
           },
           newBalance: user.wallet.balance,
           newXP: user.xp.current,
@@ -978,12 +985,15 @@ router.post("/callback/bitlabs", async (req, res) => {
       const user = await User.findById(userId).select("wallet xp");
       if (user) {
         const coins = Math.round(reward);
-        const xp = Math.round(reward * 0.5);
+        const baseXp = Math.round(reward * 0.5);
 
         user.wallet.balance = (user.wallet.balance || 0) + coins;
         user.wallet.lastUpdated = new Date();
-        user.xp.current = (user.xp.current || 0) + xp;
-        user.xp.total = (user.xp.total || 0) + xp;
+
+        const { finalXP } = await applyTierMultiplierToXP(user, baseXp);
+
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
 
         const transaction = new Transaction({
           user: user._id,

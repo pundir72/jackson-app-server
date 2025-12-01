@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // XP Tier configuration
 const XP_TIER_CONFIG = {
@@ -132,14 +133,20 @@ router.post('/update', protect, async (req, res) => {
     
     // Get VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
-    const finalXPEarned = Math.round(xpEarned * vipMultiplier);
-    
+    const vipAdjustedXP = Math.round(xpEarned * vipMultiplier);
+
+    // Apply tier multiplier after VIP
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      vipAdjustedXP
+    );
+
     // Update XP
     const oldXP = user.xp.current || 0;
-    const newXP = oldXP + finalXPEarned;
+    const newXP = oldXP + finalXP;
     
     user.xp.current = newXP;
-    user.xp.total = (user.xp.total || 0) + finalXPEarned;
+    user.xp.total = (user.xp.total || 0) + finalXP;
     user.xp.lastUpdated = new Date();
     
     // Check for tier upgrade
@@ -152,13 +159,14 @@ router.post('/update', protect, async (req, res) => {
     res.json({
       success: true,
       data: {
-        xpEarned: finalXPEarned,
+        xpEarned: finalXP,
         oldXP,
         newXP,
         oldTier: oldTier.id,
         newTier: newTier.id,
         tierUpgraded,
         vipMultiplier,
+        tierMultiplier,
         source: source || 'task'
       }
     });

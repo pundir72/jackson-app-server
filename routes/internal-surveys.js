@@ -7,6 +7,7 @@ const UserSurveyProgress = require('../models/UserSurveyProgress');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const { v4: uuidv4 } = require('uuid');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // ==================== SURVEY DISCOVERY ====================
 
@@ -384,12 +385,17 @@ router.post('/:id/complete', auth, [
     // Update survey analytics
     await progress.surveyId.incrementCompletion();
 
-    // Credit rewards to user
+    // Credit rewards to user (apply tier multiplier to XP)
     const user = await User.findById(req.user.userId);
     if (user) {
       user.coins += progress.reward.coins;
-      user.xp.current += progress.reward.xp;
-      user.xp.total += progress.reward.xp;
+
+      const baseXp = progress.reward.xp;
+      const { finalXP, multiplier: tierMultiplier } =
+        await applyTierMultiplierToXP(user, baseXp);
+
+      user.xp.current += finalXP;
+      user.xp.total += finalXP;
       await user.save();
 
       // Create transaction record
@@ -397,7 +403,7 @@ router.post('/:id/complete', auth, [
         userId: req.user.userId,
         type: 'survey_reward',
         amount: progress.reward.coins,
-        xp: progress.reward.xp,
+        xp: finalXP,
         description: `Survey completion reward: ${progress.surveyId.title}`,
         metadata: {
           surveyId: progress.surveyId._id,
@@ -414,7 +420,7 @@ router.post('/:id/complete', auth, [
         progress: progress.getProgressData(),
         rewards: {
           coins: progress.reward.coins,
-          xp: progress.reward.xp
+          xp: finalXP
         },
         completionMessage: progress.surveyId.metadata.completionMessage
       }

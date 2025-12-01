@@ -186,11 +186,15 @@ router.post('/upload', protect, upload.single('receiptImage'), [
             }
             updatedUser.wallet.balance += receipt.reward.cash;
             
-            // Add XP reward (ensure XP is initialized)
+            // Add XP reward (ensure XP is initialized) - apply tier multiplier
             if (!updatedUser.xp.current || isNaN(updatedUser.xp.current)) {
               updatedUser.xp.current = 0;
             }
-            updatedUser.xp.current += receipt.reward.xp;
+            const { finalXP } = await applyTierMultiplierToXP(
+              updatedUser,
+              receipt.reward.xp || 0
+            );
+            updatedUser.xp.current += finalXP;
             
             // Add to earning history (ensure earningHistory array exists)
             if (!updatedUser.cashCoach.earningHistory) {

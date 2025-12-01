@@ -7,6 +7,7 @@
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const { trackAchievements } = require("./achievements");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Streak milestone configuration
 const STREAK_MILESTONES = [7, 14, 21, 30];
@@ -423,8 +424,12 @@ async function checkAndAwardMilestoneRewards(user, activity) {
 
           user.wallet.balance = (user.wallet.balance || 0) + reward.coins;
           user.wallet.lastUpdated = new Date();
-          user.xp.current = (user.xp.current || 0) + reward.xp;
-          user.xp.total = (user.xp.total || 0) + reward.xp;
+
+          const { finalXP, multiplier: tierMultiplier } =
+            await applyTierMultiplierToXP(user, reward.xp || 0);
+
+          user.xp.current = (user.xp.current || 0) + finalXP;
+          user.xp.total = (user.xp.total || 0) + finalXP;
 
           // Add badge to user profile
           if (!user.badges) user.badges = [];

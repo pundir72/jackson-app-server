@@ -981,6 +981,54 @@ router.get(
 
       const user = req.user;
 
+      // Update login analytics and device info (same as normal login)
+      // This tracks total number of Google logins for this specific user (by Google email)
+      // Each time this user logs in with Google, loginCount increments by 1
+      try {
+        const updateData = {
+          $inc: { loginCount: 1 }, // Increment total login count for this user
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion:
+              req.headers["x-app-version"] ||
+              user.appVersion ||
+              "1.0.0",
+            "device.type":
+              req.headers["x-device-type"] ||
+              user.device?.type ||
+              "Unknown",
+            "device.model":
+              req.headers["x-device-model"] ||
+              user.device?.model ||
+              "Unknown",
+            "device.os":
+              req.headers["x-device-os"] ||
+              user.device?.os ||
+              "Unknown",
+            "device.lastUpdated": new Date(),
+            "location.current.ip":
+              req.ip ||
+              req.headers["x-forwarded-for"] ||
+              req.connection.remoteAddress,
+            "location.current.country":
+              req.headers["x-country"] ||
+              req.headers["cf-ipcountry"] ||
+              user.location?.current?.country ||
+              "",
+            "location.current.city":
+              req.headers["x-city"] || user.location?.current?.city || "",
+            "location.current.timestamp": new Date(),
+          },
+        };
+
+        const updatedUser = await User.findByIdAndUpdate(user._id, updateData, { new: true });
+        console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
+      } catch (updateError) {
+        console.error("Error updating login analytics for Google login:", updateError);
+        // Continue even if update fails
+      }
+
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
         expiresIn: "24h",
@@ -1013,6 +1061,51 @@ router.get(
   async (req, res) => {
     try {
       const user = req.user;
+
+      // Update login analytics and device info (same as normal login)
+      try {
+        const updateData = {
+          $inc: { loginCount: 1 },
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion:
+              req.headers["x-app-version"] ||
+              user.appVersion ||
+              "1.0.0",
+            "device.type":
+              req.headers["x-device-type"] ||
+              user.device?.type ||
+              "Unknown",
+            "device.model":
+              req.headers["x-device-model"] ||
+              user.device?.model ||
+              "Unknown",
+            "device.os":
+              req.headers["x-device-os"] ||
+              user.device?.os ||
+              "Unknown",
+            "device.lastUpdated": new Date(),
+            "location.current.ip":
+              req.ip ||
+              req.headers["x-forwarded-for"] ||
+              req.connection.remoteAddress,
+            "location.current.country":
+              req.headers["x-country"] ||
+              req.headers["cf-ipcountry"] ||
+              user.location?.current?.country ||
+              "",
+            "location.current.city":
+              req.headers["x-city"] || user.location?.current?.city || "",
+            "location.current.timestamp": new Date(),
+          },
+        };
+
+        await User.findByIdAndUpdate(user._id, updateData);
+      } catch (updateError) {
+        console.error("Error updating login analytics for Facebook login:", updateError);
+        // Continue even if update fails
+      }
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {

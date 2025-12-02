@@ -38,12 +38,11 @@ async function getStreakConfig() {
     const config = await StreakBonusConfig.getConfig();
     const activeMilestones = config.getActiveMilestones();
     
-    // Build rewards object from active milestones
+    // Build rewards object from active milestones (now supports multiple rewards per milestone)
     const rewards = {};
     activeMilestones.forEach(milestone => {
       rewards[milestone.day] = {
-        rewardType: milestone.rewardType,
-        rewardValue: milestone.rewardValue,
+        rewards: milestone.rewards || [], // Array of { type, value }
         claimMode: milestone.claimMode
       };
     });
@@ -64,8 +63,22 @@ async function getStreakConfig() {
     return streakConfigCache;
   } catch (error) {
     console.error('Error loading streak config from database, using defaults:', error);
-    // Return default config if DB fails
-    streakConfigCache = DEFAULT_STREAK_CONFIG;
+    // Return default config if DB fails (convert to new format)
+    const defaultRewards = {};
+    Object.keys(DEFAULT_STREAK_CONFIG.rewards).forEach(day => {
+      const reward = DEFAULT_STREAK_CONFIG.rewards[day];
+      defaultRewards[day] = {
+        rewards: [
+          { type: 'coins', value: reward.coins || 0 },
+          { type: 'xp', value: reward.xp || 0 }
+        ].filter(r => r.value > 0),
+        claimMode: 'auto'
+      };
+    });
+    streakConfigCache = {
+      ...DEFAULT_STREAK_CONFIG,
+      rewards: defaultRewards
+    };
     streakConfigCacheTime = now;
     return streakConfigCache;
   }
@@ -181,38 +194,47 @@ router.post('/complete-task', protect, async (req, res) => {
     const milestoneReward = getMilestoneReward(newStreak, STREAK_CONFIG);
     let rewardEarned = null;
     
-    if (milestoneReward) {
-      // Award milestone reward based on reward type
-      if (milestoneReward.rewardType === 'coins') {
-        user.wallet.balance = (user.wallet.balance || 0) + milestoneReward.rewardValue;
-      } else if (milestoneReward.rewardType === 'xp') {
-        const { finalXP } = await applyTierMultiplierToXP(user, milestoneReward.rewardValue);
-        user.xp.current = (user.xp.current || 0) + finalXP;
-        user.xp.total = (user.xp.total || 0) + finalXP;
-      }
+    if (milestoneReward && milestoneReward.rewards && milestoneReward.rewards.length > 0) {
+      const rewardsEarned = [];
       
-      // Create transaction record
-      const transaction = new Transaction({
-        user: req.user.userId,
-        type: 'credit',
-        balanceType: milestoneReward.rewardType === 'coins' ? 'coins' : 'xp',
-        amount: milestoneReward.rewardValue,
-        description: `Streak Milestone Reward - Day ${newStreak}`,
-        status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
-        referenceId: `STREAK-${newStreak}-${Date.now()}`,
-        metadata: {
-          milestoneDay: newStreak,
-          rewardType: milestoneReward.rewardType,
-          claimMode: milestoneReward.claimMode
+      // Award all rewards for this milestone
+      for (const reward of milestoneReward.rewards) {
+        if (reward.type === 'coins') {
+          user.wallet.balance = (user.wallet.balance || 0) + reward.value;
+        } else if (reward.type === 'xp') {
+          const { finalXP } = await applyTierMultiplierToXP(user, reward.value);
+          user.xp.current = (user.xp.current || 0) + finalXP;
+          user.xp.total = (user.xp.total || 0) + finalXP;
         }
-      });
-      
-      await transaction.save();
+        
+        // Create transaction record for each reward
+        const transaction = new Transaction({
+          user: req.user.userId,
+          type: 'credit',
+          balanceType: reward.type === 'coins' ? 'coins' : 'xp',
+          amount: reward.value,
+          description: `Streak Milestone Reward - Day ${newStreak} - ${reward.type === 'coins' ? 'Coins' : 'XP'}`,
+          status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
+          referenceId: `STREAK-${newStreak}-${reward.type}-${Date.now()}`,
+          metadata: {
+            milestoneDay: newStreak,
+            rewardType: reward.type,
+            rewardValue: reward.value,
+            claimMode: milestoneReward.claimMode
+          }
+        });
+        
+        await transaction.save();
+        
+        rewardsEarned.push({
+          type: reward.type,
+          value: reward.value
+        });
+      }
       
       rewardEarned = {
         day: newStreak,
-        rewardType: milestoneReward.rewardType,
-        rewardValue: milestoneReward.rewardValue,
+        rewards: rewardsEarned,
         claimMode: milestoneReward.claimMode,
         requiresAd: milestoneReward.claimMode === 'watch_ad'
       };
@@ -283,11 +305,15 @@ router.get('/history', protect, async (req, res) => {
         history,
         currentStreak: streak.current || 0,
         totalDays: completedTasks.length,
-        milestones: STREAK_CONFIG.milestones.map(day => ({
-          day,
-          reward: STREAK_CONFIG.rewards[day],
-          isReached: (streak.current || 0) >= day
-        }))
+        milestones: STREAK_CONFIG.milestones.map(day => {
+          const rewardConfig = STREAK_CONFIG.rewards[day];
+          return {
+            day,
+            rewards: rewardConfig?.rewards || [],
+            claimMode: rewardConfig?.claimMode || 'auto',
+            isReached: (streak.current || 0) >= day
+          };
+        })
       }
     });
   } catch (error) {
@@ -457,6 +483,7 @@ function getNextMilestone(currentStreak, STREAK_CONFIG) {
 }
 
 function getMilestoneReward(currentStreak, STREAK_CONFIG) {
+  // Returns reward config with rewards array and claimMode
   return STREAK_CONFIG.rewards[currentStreak] || null;
 }
 
@@ -465,9 +492,11 @@ function getAvailableRewards(currentStreak, STREAK_CONFIG) {
   
   STREAK_CONFIG.milestones.forEach(day => {
     if (day > currentStreak) {
+      const rewardConfig = STREAK_CONFIG.rewards[day];
       rewards.push({
         day,
-        reward: STREAK_CONFIG.rewards[day],
+        rewards: rewardConfig?.rewards || [],
+        claimMode: rewardConfig?.claimMode || 'auto',
         isReached: false,
         isNext: day === getNextMilestone(currentStreak, STREAK_CONFIG)?.day
       });
@@ -484,11 +513,13 @@ function generateStreakTree(currentStreak, STREAK_CONFIG) {
     const isCompleted = day <= currentStreak;
     const isMilestone = STREAK_CONFIG.milestones.includes(day);
     
+    const rewardConfig = isMilestone ? STREAK_CONFIG.rewards[day] : null;
     tree.push({
       day,
       isCompleted,
       isMilestone,
-      reward: isMilestone ? STREAK_CONFIG.rewards[day] : null,
+      rewards: rewardConfig?.rewards || [],
+      claimMode: rewardConfig?.claimMode || 'auto',
       isCurrent: day === currentStreak + 1
     });
   }

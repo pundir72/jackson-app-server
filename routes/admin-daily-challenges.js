@@ -1304,10 +1304,13 @@ router.put(
     body("milestones.*.active")
       .isBoolean()
       .withMessage("Active must be a boolean"),
-    body("milestones.*.rewardType")
+    body("milestones.*.rewards")
+      .isArray({ min: 1 })
+      .withMessage("At least one reward is required"),
+    body("milestones.*.rewards.*.type")
       .isIn(["coins", "xp"])
       .withMessage("Reward type must be coins or xp"),
-    body("milestones.*.rewardValue")
+    body("milestones.*.rewards.*.value")
       .isInt({ min: 0 })
       .withMessage("Reward value must be a non-negative integer"),
     body("milestones.*.claimMode")

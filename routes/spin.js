@@ -85,15 +85,26 @@ router.get("/config", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -162,15 +173,26 @@ router.get("/status", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -290,15 +312,26 @@ router.post("/spin", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -455,6 +488,20 @@ router.post("/spin", protect, async (req, res) => {
         xpEarned = finalAmount;
         user.xp.current += xpEarned;
         user.xp.total += xpEarned;
+
+        // Create transaction record for XP
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "xp",
+          amount: xpEarned,
+          description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
+          status: "completed",
+          referenceId: spinLog.spinId || spinLog._id.toString(),
+        });
+        await transaction.save();
+
+        spinLog.transactionId = transaction._id;
       }
     }
 
@@ -655,6 +702,23 @@ router.post("/redeem", protect, async (req, res) => {
       user.xp.current += xpEarned;
       user.xp.total += xpEarned;
       // Do NOT give coins for XP rewards
+
+      // Create transaction record for XP
+      transaction = new Transaction({
+        user: userId,
+        type: "credit",
+        balanceType: "xp",
+        amount: xpEarned,
+        description: `Spin reward - ${spinLog.rewardName} (${xpEarned} XP)`,
+        status: "completed",
+        referenceId: spinLog.spinId || spinLog._id.toString(),
+      });
+      await transaction.save();
+
+      if (!spinLog.transactionId) {
+        spinLog.transactionId = transaction._id;
+        await spinLog.save();
+      }
     } else if (rewardType === "coupon") {
       // Handle coupon reward - store in metadata or user's coupon list
       const reward = await SpinWheelReward.findById(spinLog.reward);
@@ -670,8 +734,8 @@ router.post("/redeem", protect, async (req, res) => {
       // Store in user metadata or handle separately
     }
 
-    // Create transaction only for coins
-    if (rewardType === "coins") {
+    // Create transaction for coins (XP transactions are created above)
+    if (rewardType === "coins" || rewardType === "coin") {
       if (transaction) {
         transaction.status = "completed";
         transaction.amount = spinLog.rewardAmount;

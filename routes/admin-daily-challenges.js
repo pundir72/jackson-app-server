@@ -8,6 +8,10 @@ const DailyChallenge = require("../models/DailyChallenge");
 const BonusDay = require("../models/BonusDay");
 const ChallengePauseRule = require("../models/ChallengePauseRule");
 const XPMultiplier = require("../models/XPMultiplier");
+const StreakBonusConfig = require("../models/StreakBonusConfig");
+
+// Import streak route to clear cache
+const streakRouter = require("../routes/streak");
 
 // Import services
 const besitosController = require("../controllers/besitos.controller");
@@ -1071,6 +1075,108 @@ router.post(
       res.status(500).json({
         success: false,
         message: "Failed to preview bonus day",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// ==================== 30-DAY STREAK BONUS CONFIGURATION ====================
+
+// Get 30-day streak bonus configuration
+router.get("/streak-bonus-config", adminAuth, async (req, res) => {
+  try {
+    const config = await StreakBonusConfig.getConfig();
+    
+    res.json({
+      success: true,
+      data: config,
+    });
+  } catch (error) {
+    console.error("Error getting streak bonus config:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get streak bonus configuration",
+      error: error.message,
+    });
+  }
+});
+
+// Update 30-day streak bonus configuration
+router.put(
+  "/streak-bonus-config",
+  adminAuth,
+  [
+    body("milestones")
+      .isArray({ min: 4, max: 4 })
+      .withMessage("Must have exactly 4 milestones"),
+    body("milestones.*.day")
+      .isIn([7, 14, 21, 30])
+      .withMessage("Milestone day must be 7, 14, 21, or 30"),
+    body("milestones.*.active")
+      .isBoolean()
+      .withMessage("Active must be a boolean"),
+    body("milestones.*.rewardType")
+      .isIn(["coins", "xp"])
+      .withMessage("Reward type must be coins or xp"),
+    body("milestones.*.rewardValue")
+      .isInt({ min: 0 })
+      .withMessage("Reward value must be a non-negative integer"),
+    body("milestones.*.claimMode")
+      .isIn(["auto", "watch_ad"])
+      .withMessage("Claim mode must be auto or watch_ad"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      // Validate that all required days are present
+      const providedDays = req.body.milestones.map(m => m.day).sort((a, b) => a - b);
+      const requiredDays = [7, 14, 21, 30];
+      if (JSON.stringify(providedDays) !== JSON.stringify(requiredDays)) {
+        return res.status(400).json({
+          success: false,
+          message: "Must include exactly one milestone for each day: 7, 14, 21, 30",
+        });
+      }
+
+      // Get or create config
+      let config = await StreakBonusConfig.findOne();
+      
+      if (!config) {
+        config = new StreakBonusConfig({
+          milestones: req.body.milestones,
+          updatedBy: req.user.userId,
+        });
+      } else {
+        config.milestones = req.body.milestones;
+        config.updatedBy = req.user.userId;
+      }
+
+      await config.save();
+
+      // Clear streak config cache so changes take effect immediately
+      if (streakRouter.clearStreakConfigCache) {
+        streakRouter.clearStreakConfigCache();
+      }
+
+      res.json({
+        success: true,
+        message: "30-day streak bonus configuration updated successfully",
+        data: config,
+      });
+    } catch (error) {
+      console.error("Error updating streak bonus config:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update streak bonus configuration",
         error: error.message,
       });
     }

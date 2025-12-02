@@ -86,15 +86,26 @@ router.get("/config", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -116,8 +127,8 @@ router.get("/config", protect, async (req, res) => {
         rewards: eligibleRewards.map((reward) => ({
           id: reward._id,
           name: reward.name,
-          type: reward.type, // Ensure type is correctly returned
-          amount: reward.amount, // Return base amount, multiplier applied only for coins
+          type: reward.type,
+          amount: reward.amount,
           probability: reward.probability,
           icon: reward.icon,
           color: reward.color,
@@ -163,15 +174,26 @@ router.get("/status", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -291,15 +313,26 @@ router.post("/spin", protect, async (req, res) => {
 
     if (config.startDate) {
       const startDate = new Date(config.startDate);
-      startDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-      if (now < startDate) {
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
         isWithinDateRange = false;
       }
     }
 
     if (config.endDate) {
       const endDate = new Date(config.endDate);
-      endDate.setHours(23, 59, 59, 999); // Set to end of day for comparison
+      // Compare full datetime (including time) - if current time is after end time, block access
       if (now > endDate) {
         isWithinDateRange = false;
       }
@@ -453,22 +486,23 @@ router.post("/spin", protect, async (req, res) => {
 
         spinLog.transactionId = transaction._id;
       } else if (rewardType === "xp" || rewardType === "XP") {
-        // Apply tier multiplier to XP rewards
-        const baseXp = finalAmount;
-        const { finalXP, multiplier: tierMultiplier } =
-          await applyTierMultiplierToXP(user, baseXp);
+        xpEarned = finalAmount;
+        user.xp.current += xpEarned;
+        user.xp.total += xpEarned;
 
-        xpEarned = finalXP;
-        user.xp.current += finalXP;
-        user.xp.total += finalXP;
+        // Create transaction record for XP
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "xp",
+          amount: xpEarned,
+          description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
+          status: "completed",
+          referenceId: spinLog.spinId || spinLog._id.toString(),
+        });
+        await transaction.save();
 
-        // Store XP details on spin log for transparency
-        spinLog.metadata = {
-          ...(spinLog.metadata || {}),
-          baseXp,
-          xpEarned: finalXP,
-          tierMultiplier,
-        };
+        spinLog.transactionId = transaction._id;
       }
     }
 
@@ -664,22 +698,28 @@ router.post("/redeem", protect, async (req, res) => {
       // NO bonus XP for coin rewards
       xpEarned = 0;
     } else if (rewardType === "xp" || rewardType === "XP") {
-      // Apply tier multiplier to XP rewards when redeeming
-      const baseXp = spinLog.rewardAmount;
-      const { finalXP, multiplier: tierMultiplier } =
-        await applyTierMultiplierToXP(user, baseXp);
+      // Only give XP for XP rewards - use exact configured amount (no multiplier)
+      xpEarned = spinLog.rewardAmount; // This is the exact configured amount, no multiplier applied
+      user.xp.current += xpEarned;
+      user.xp.total += xpEarned;
+      // Do NOT give coins for XP rewards
 
-      xpEarned = finalXP;
-      user.xp.current += finalXP;
-      user.xp.total += finalXP;
+      // Create transaction record for XP
+      transaction = new Transaction({
+        user: userId,
+        type: "credit",
+        balanceType: "xp",
+        amount: xpEarned,
+        description: `Spin reward - ${spinLog.rewardName} (${xpEarned} XP)`,
+        status: "completed",
+        referenceId: spinLog.spinId || spinLog._id.toString(),
+      });
+      await transaction.save();
 
-      // Store XP details for transparency
-      spinLog.metadata = {
-        ...(spinLog.metadata || {}),
-        baseXp,
-        xpEarned: finalXP,
-        tierMultiplier,
-      };
+      if (!spinLog.transactionId) {
+        spinLog.transactionId = transaction._id;
+        await spinLog.save();
+      }
     } else if (rewardType === "coupon") {
       // Handle coupon reward - store in metadata or user's coupon list
       const reward = await SpinWheelReward.findById(spinLog.reward);
@@ -695,8 +735,8 @@ router.post("/redeem", protect, async (req, res) => {
       // Store in user metadata or handle separately
     }
 
-    // Create transaction only for coins
-    if (rewardType === "coins") {
+    // Create transaction for coins (XP transactions are created above)
+    if (rewardType === "coins" || rewardType === "coin") {
       if (transaction) {
         transaction.status = "completed";
         transaction.amount = spinLog.rewardAmount;

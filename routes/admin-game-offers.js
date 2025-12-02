@@ -3024,21 +3024,66 @@ router.get(
       res.json({
         success: true,
         data: {
-          configuredOffers: allOffers.map((offer) => ({
-            id: offer._id,
-            externalId: offer.externalId,
-            title: offer.title,
-            description: offer.description,
-            category: offer.category,
-            offerType: offer.offerType,
-            coinReward: offer.coinReward,
-            estimatedTime: offer.estimatedTime,
-            status: offer.status,
-            targetAudience: offer.targetAudience,
-            metadata: offer.metadata,
-            createdAt: offer.createdAt,
-            updatedAt: offer.updatedAt,
-          })),
+          configuredOffers: allOffers.map((offer) => {
+            // Extract all fields from metadata to match normalized format
+            const metadata = offer.metadata || {};
+            const bitlabsData = metadata.bitlabsData || {};
+            const publisherRevenue = metadata.publisherRevenue || {};
+
+            return {
+              id: offer._id,
+              externalId: offer.externalId,
+              title: offer.title,
+              description: offer.description,
+              category: offer.category,
+              offerType: offer.offerType,
+              coinReward: offer.coinReward,
+              estimatedTime: offer.estimatedTime,
+              status: offer.status,
+              targetAudience: offer.targetAudience,
+
+              // Return all fields in the same format as normalized offer
+              // Reward fields
+              reward: metadata.reward || {
+                coins: offer.coinReward,
+                currency: "points",
+                xp: metadata.userRewardXP || Math.round(offer.coinReward * 0.5),
+              },
+              userRewardCoins: metadata.userRewardCoins || offer.coinReward,
+              userRewardXP:
+                metadata.userRewardXP || Math.round(offer.coinReward * 0.5),
+
+              // Bitlabs specific fields
+              value: publisherRevenue.value || bitlabsData.value || 0,
+              cpi: publisherRevenue.cpi || bitlabsData.cpi || 0,
+              cr: bitlabsData.cr || 0,
+              loi: bitlabsData.loi || offer.estimatedTime || 0,
+              rating: bitlabsData.rating || 0,
+              country: bitlabsData.country || null,
+              language: bitlabsData.language || null,
+              tags: bitlabsData.tags || [],
+
+              // URLs
+              clickUrl: metadata.externalUrl || "",
+              surveyUrl: metadata.surveyUrl || "",
+              deepLink: metadata.deepLink || "",
+              supportUrl: metadata.supportUrl || "",
+
+              // Images
+              icon: metadata.thumbnail || "",
+              banner: metadata.thumbnail || "",
+
+              // Publisher revenue
+              publisherRevenue: publisherRevenue,
+
+              // Complete metadata
+              metadata: offer.metadata,
+
+              // Timestamps
+              createdAt: offer.createdAt,
+              updatedAt: offer.updatedAt,
+            };
+          }),
           breakdown,
           total: allOffers.length,
         },
@@ -3059,6 +3104,19 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
   try {
     const { sdk } = req.params;
     const { type = "all", devices, is_game = false, country } = req.query;
+
+    console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
+      endpoint: "/non-game-offers/by-sdk/:sdk",
+      sdk,
+      queryParams: {
+        type,
+        devices,
+        is_game,
+        country,
+      },
+      allQueryParams: req.query,
+      userId: req.user?.userId,
+    });
 
     if (sdk === "bitlabs") {
       const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
@@ -3118,15 +3176,35 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
       }
 
       // Get offers - also pass devices directly for general offers API
-      const result = await bitlabsNonGames.getNonGameOffers({
+      const utilityParams = {
         userId: "admin-preview",
         userProfile: userProfile,
         type: type || "all",
         category: "all",
         devices: queryParams.devices, // Pass devices for shopping/magic receipts
+      };
+      console.log(
+        "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
+        utilityParams
+      );
+
+      const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
+
+      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
+        success: result.success,
+        totalOffers: result.totalOffers || 0,
+        surveysCount: result.categorized?.surveys?.length || 0,
+        cashbackCount: result.categorized?.cashback?.length || 0,
+        shoppingCount: result.categorized?.shopping?.length || 0,
+        magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
+        error: result.error,
       });
 
       if (!result.success) {
+        console.error(
+          "🟡 [ADMIN BACKEND ROUTE] Error from utility:",
+          result.error
+        );
         return res.status(500).json({
           success: false,
           message: result.error || "Failed to fetch non-game offers",
@@ -3134,14 +3212,20 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         });
       }
 
-      res.json({
+      const responseData = {
         success: true,
         data: result.offers,
         categorized: result.categorized,
         breakdown: result.breakdown,
         total: result.totalOffers,
         estimatedEarnings: result.estimatedEarnings,
+      };
+      console.log("🟡 [ADMIN BACKEND ROUTE] Sending response to admin:", {
+        success: responseData.success,
+        total: responseData.total,
+        surveysCount: responseData.categorized?.surveys?.length || 0,
       });
+      res.json(responseData);
     } else {
       res.status(404).json({
         success: false,
@@ -3306,8 +3390,31 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
     // Collect all offers by type
     if (offerType === "all" || offerType === "survey") {
+      const surveys = result.categorized.surveys || [];
+
+      // 🔍 DEBUG: Log surveys being synced
+      console.log("\n🔍 ========== SYNC SURVEYS - BITLABS RESPONSE ==========");
+      console.log(`📊 Total Surveys from Bitlabs: ${surveys.length}`);
+      surveys.forEach((survey, index) => {
+        console.log(`\n   Survey ${index + 1}:`);
+        console.log(`     id: ${survey.id || survey.surveyId || "N/A"}`);
+        console.log(
+          `     value: ${survey.value || "MISSING"} (publisher reward points)`
+        );
+        console.log(
+          `     cpi: ${survey.cpi || "MISSING"} (USD payment to publisher)`
+        );
+        console.log(`     title: ${survey.title || survey.name || "N/A"}`);
+        console.log(`     country: ${survey.country || "N/A"}`);
+        console.log(`     loi: ${survey.loi || "N/A"} minutes`);
+        console.log(
+          `     click_url: ${survey.click_url || survey.clickUrl || "N/A"}`
+        );
+      });
+      console.log("==================================================\n");
+
       allOffers.push(
-        ...(result.categorized.surveys || []).map((o) => ({
+        ...surveys.map((o) => ({
           ...o,
           offerType: "survey",
         }))
@@ -3370,39 +3477,68 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           externalId: externalId,
         });
 
-        // Extract proper values from offer data
+        // Use normalized offer data (already includes userRewardCoins, userRewardXP, and all fields)
+        // The offer coming from getNonGameOffers is already normalized
+        const normalizedOffer = offer;
+
+        // Extract coinReward - use userRewardCoins (20% of value) for user reward
+        // But store the full value in metadata for reference
         let coinReward = 0;
+        const publisherValue = parseFloat(normalizedOffer.value) || 0;
+        const userRewardCoins =
+          normalizedOffer.userRewardCoins || normalizedOffer.reward?.coins || 0;
+        const userRewardXP =
+          normalizedOffer.userRewardXP || normalizedOffer.reward?.xp || 0;
 
-        if (typeof offer.reward === "object") {
-          // Try to get coins from reward object
-          coinReward = offer.reward?.coins || 0;
+        // Use userRewardCoins as the coinReward (what user gets)
+        coinReward = userRewardCoins;
 
-          // If coins is 0, try to use payout field as fallback
-          if (coinReward === 0 && offer.reward?.payout) {
-            coinReward = parseFloat(offer.reward.payout) || 0;
-          }
-        } else {
-          coinReward = offer.reward || 0;
+        // 🔍 DEBUG: Log reward extraction
+        if (offer.offerType === "survey") {
+          console.log(
+            `\n🔍 SYNC: Processing Survey ${
+              offer.id || offer.surveyId || "unknown"
+            }`
+          );
+          console.log(
+            `   Publisher value: ${publisherValue} (what Bitlabs gives publisher)`
+          );
+          console.log(
+            `   User reward coins: ${userRewardCoins} (20% of value - what user gets)`
+          );
+          console.log(`   User reward XP: ${userRewardXP} (50% of coins)`);
+          console.log(
+            `   CPI: ${normalizedOffer.cpi || "N/A"} (USD payment to publisher)`
+          );
         }
 
-        const category =
-          typeof offer.category === "object"
-            ? offer.category?.name_internal || offer.category?.name || "other"
-            : offer.category || "other";
-
-        // Map category names to valid enum values
-        const categoryMap = {
-          General: "other",
-          Other: "other",
-          Finance: "finance",
-          Shopping: "shopping",
-          Entertainment: "entertainment",
-          Technology: "technology",
-          Health: "health",
-          Travel: "travel",
-          Education: "education",
+        // Extract and store full category object from Bitlabs API
+        let categoryObject = {
+          name: "General",
+          name_internal: "Other",
+          icon_name: "shapes",
+          icon_url: "",
         };
-        const mappedCategory = categoryMap[category] || category.toLowerCase();
+
+        if (offer.category) {
+          if (typeof offer.category === "object") {
+            // Store full category object
+            categoryObject = {
+              name: offer.category.name || "General",
+              name_internal: offer.category.name_internal || "Other",
+              icon_name: offer.category.icon_name || "shapes",
+              icon_url: offer.category.icon_url || "",
+            };
+          } else {
+            // Fallback: if category is a string, create object with defaults
+            categoryObject = {
+              name: offer.category,
+              name_internal: offer.category,
+              icon_name: "shapes",
+              icon_url: "",
+            };
+          }
+        }
 
         // Allow offers with 0 coins to show raw API values
         // (Previously skipped offers with coinReward < 1)
@@ -3412,24 +3548,123 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           ? "survey"
           : offer.offerType || "other";
 
+        // 🔍 DEBUG: Log offer data for surveys before saving
+        if (isSurvey || offer.offerType === "survey") {
+          console.log(`\n🔍 SYNC: Preparing to save Survey ${externalId}`);
+          console.log(`   coinReward: ${coinReward}`);
+          console.log(`   offer.value: ${offer.value}`);
+          console.log(`   offer.cpi: ${offer.cpi}`);
+          console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
+          console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
+          console.log(
+            `   Category object: ${JSON.stringify(categoryObject)}`
+          );
+          console.log(
+            `   publisherRevenue will be: cpi=${
+              parseFloat(offer.cpi) || 0
+            }, value=${parseFloat(offer.value) || 0}`
+          );
+          console.log(
+            `   bitlabsData will store: cpi=${parseFloat(offer.cpi) || 0}, cr=${
+              parseFloat(offer.cr) || 0
+            }, loi=${parseFloat(offer.loi) || offer.estimatedTime || 0}`
+          );
+        }
+
+        // Store ALL normalized offer fields in the same format
         const offerData = {
           sdkId: bitlabSDK._id,
           externalId: externalId,
-          title: offer.title || offer.name || "Untitled Offer",
-          description: offer.description || "",
-          category: mappedCategory,
-          offerType: offer.offerType || defaultOfferType,
-          coinReward: coinReward,
-          estimatedTime: offer.estimatedTime || offer.duration || 5,
+          title:
+            normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
+          description: normalizedOffer.description || "",
+          category: categoryObject, // Store full category object
+          offerType: normalizedOffer.offerType || defaultOfferType,
+          coinReward: coinReward, // User reward coins (20% of value)
+          estimatedTime:
+            normalizedOffer.estimatedTime ||
+            normalizedOffer.duration ||
+            normalizedOffer.loi ||
+            5,
           status: autoActivate ? "live" : "paused",
           targetAudience: {
-            countries: offer.countries || [],
-            minXP: offer.minXP || 0,
+            countries:
+              normalizedOffer.countries || normalizedOffer.country
+                ? [normalizedOffer.country]
+                : [],
+            minXP: normalizedOffer.minXP || 0,
           },
           metadata: {
-            externalUrl: offer.clickUrl || offer.surveyUrl || offer.url,
-            thumbnail: offer.icon || offer.banner,
-            priority: offer.priority || 0,
+            // Store all normalized offer fields in the same format
+            externalUrl:
+              normalizedOffer.clickUrl ||
+              normalizedOffer.surveyUrl ||
+              normalizedOffer.url ||
+              normalizedOffer.click_url,
+            surveyUrl:
+              normalizedOffer.surveyUrl || normalizedOffer.clickUrl || "",
+            deepLink: normalizedOffer.deepLink || "",
+            supportUrl: normalizedOffer.supportUrl || "",
+            thumbnail: normalizedOffer.icon || normalizedOffer.banner,
+            priority: normalizedOffer.priority || 0,
+
+            // Store complete reward object
+            reward: normalizedOffer.reward || null,
+
+            // User reward fields (calculated with 20% margin)
+            userRewardCoins: userRewardCoins, // User gets 20% of value as coins
+            userRewardXP: userRewardXP, // User gets 50% of coins as XP
+
+            // Store publisher revenue data (cpi = USD payment, value = points received)
+            publisherRevenue: {
+              cpi: parseFloat(normalizedOffer.cpi) || 0, // USD payment from Bitlabs
+              value: publisherValue, // Full value from Bitlabs (what publisher receives)
+              currency: "USD",
+            },
+
+            // Preserve ALL Bitlabs fields in the same format
+            bitlabsData: {
+              // Core Bitlabs fields - ensure proper parsing (preserve 0 values)
+              cpi:
+                normalizedOffer.cpi !== undefined &&
+                normalizedOffer.cpi !== null
+                  ? parseFloat(normalizedOffer.cpi)
+                  : 0, // Cost per install (USD payment to publisher)
+              cr:
+                normalizedOffer.cr !== undefined && normalizedOffer.cr !== null
+                  ? parseFloat(normalizedOffer.cr)
+                  : 0, // Conversion rate (0-1, e.g., 0.078 = 7.8%)
+              loi:
+                normalizedOffer.loi !== undefined &&
+                normalizedOffer.loi !== null
+                  ? parseFloat(normalizedOffer.loi)
+                  : normalizedOffer.estimatedTime || 0, // Length of interview (minutes)
+              value: publisherValue, // Full value from Bitlabs (what publisher receives)
+              rating: normalizedOffer.rating || 0, // Survey rating
+              country: normalizedOffer.country || null, // Survey country
+              language: normalizedOffer.language || null, // Survey language
+              tags: normalizedOffer.tags || [], // Survey tags
+
+              // Additional normalized fields
+              estimatedTime: normalizedOffer.estimatedTime || 0,
+              confirmationTime: normalizedOffer.confirmationTime || "",
+              pendingTime: normalizedOffer.pendingTime || 0,
+              offerExpiresAt: normalizedOffer.offerExpiresAt || null,
+              sessionHours: normalizedOffer.sessionHours || 0,
+              isSticky: normalizedOffer.isSticky || false,
+              isAvailable: normalizedOffer.isAvailable !== false,
+              mobileVerificationRequired:
+                normalizedOffer.mobileVerificationRequired || false,
+              webToMobile: normalizedOffer.webToMobile || false,
+              webToMobileDevices: normalizedOffer.webToMobileDevices || [],
+              thingsToKnow: normalizedOffer.thingsToKnow || [],
+              requirements: normalizedOffer.requirements || "",
+              provider: normalizedOffer.provider || "bitlabs",
+              sdkProvider: normalizedOffer.sdkProvider || "bitlabs",
+            },
+
+            // Store complete normalized offer for reference (all fields)
+            normalizedOffer: normalizedOffer, // Store the complete normalized object
           },
           updatedBy: req.user.userId,
         };

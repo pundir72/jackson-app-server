@@ -531,6 +531,8 @@ function isSameDay(date1, date2) {
   return date1.toISOString().split('T')[0] === date2.toISOString().split('T')[0];
 }
 
-// Export clear cache function for use when config is updated
+// Export functions for use in other routes
 module.exports = router;
 module.exports.clearStreakConfigCache = clearStreakConfigCache;
+module.exports.getStreakConfig = getStreakConfig;
+module.exports.getMilestoneReward = getMilestoneReward;

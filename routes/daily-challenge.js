@@ -16,6 +16,9 @@ const BesitosConversion = require("../models/BesitosConversion");
 const besitosService = require("../services/besitos.service");
 const { trackActivity } = require("../middleware/activityTracker");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
+const streakRouter = require("./streak");
+const getStreakConfig = streakRouter.getStreakConfig;
+const getMilestoneReward = streakRouter.getMilestoneReward;
 
 // ==================== CALENDAR VIEW ====================
 
@@ -1335,12 +1338,68 @@ router.post("/complete", protect, async (req, res) => {
     const streak = user.streak || {};
     if (!streak.completedTasks) streak.completedTasks = [];
 
+    let newStreak = streak.current || 0;
+    let milestoneRewardEarned = null;
+
     if (!streak.completedTasks.includes(todayStr)) {
       streak.completedTasks.push(todayStr);
-      streak.current = (streak.current || 0) + 1;
+      newStreak = (streak.current || 0) + 1;
+      streak.current = newStreak;
       streak.lastUpdated = new Date();
       streak.lastTaskType = "challenge";
       user.streak = streak;
+
+      // Check for milestone rewards
+      try {
+        const STREAK_CONFIG = await getStreakConfig();
+        const milestoneReward = getMilestoneReward(newStreak, STREAK_CONFIG);
+        
+        if (milestoneReward && milestoneReward.rewards && milestoneReward.rewards.length > 0) {
+          const rewardsEarned = [];
+          
+          // Award all rewards for this milestone
+          for (const reward of milestoneReward.rewards) {
+            if (reward.type === 'coins') {
+              user.wallet.balance = (user.wallet.balance || 0) + reward.value;
+            } else if (reward.type === 'xp') {
+              const { finalXP: milestoneXP } = await applyTierMultiplierToXP(user, reward.value);
+              user.xp.current = (user.xp.current || 0) + milestoneXP;
+              user.xp.total = (user.xp.total || 0) + milestoneXP;
+            }
+            
+            // Create transaction record for each reward
+            const milestoneTransaction = new Transaction({
+              user: userId,
+              type: 'credit',
+              balanceType: reward.type === 'coins' ? 'coins' : 'xp',
+              amount: reward.value,
+              description: `Streak Milestone Reward - Day ${newStreak} - ${reward.type === 'coins' ? 'Coins' : 'XP'}`,
+              status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
+              referenceId: `STREAK-${newStreak}-${reward.type}-${Date.now()}`,
+              metadata: {
+                milestoneDay: newStreak,
+                rewardType: reward.type,
+                rewardValue: reward.value,
+                claimMode: milestoneReward.claimMode,
+                source: 'daily_challenge'
+              }
+            });
+            
+            await milestoneTransaction.save();
+            rewardsEarned.push({ type: reward.type, value: reward.value });
+          }
+          
+          milestoneRewardEarned = {
+            day: newStreak,
+            rewards: rewardsEarned,
+            claimMode: milestoneReward.claimMode,
+            requiresAd: milestoneReward.claimMode === 'watch_ad'
+          };
+        }
+      } catch (error) {
+        console.error('Error awarding milestone reward:', error);
+        // Continue even if milestone reward fails
+      }
     }
 
     await user.save();
@@ -1415,9 +1474,16 @@ router.post("/complete", protect, async (req, res) => {
 
     await transaction.save();
 
-    // Check for streak milestones
-    const streakMilestones = [5, 10, 20, 30];
-    const milestoneReached = streakMilestones.find((m) => m === streak.current);
+    // Get configured streak milestones for display
+    let configuredMilestones = [7, 14, 21, 30]; // Default fallback
+    try {
+      const STREAK_CONFIG = await getStreakConfig();
+      configuredMilestones = STREAK_CONFIG.milestones || configuredMilestones;
+    } catch (error) {
+      console.error('Error getting streak config for display:', error);
+    }
+    
+    const milestoneReached = configuredMilestones.find((m) => m === newStreak);
 
     res.json({
       success: true,
@@ -1436,10 +1502,11 @@ router.post("/complete", protect, async (req, res) => {
           xp: user.xp.current,
         },
         streak: {
-          current: streak.current,
+          current: newStreak,
           milestoneReached: milestoneReached || null,
           nextMilestone:
-            streakMilestones.find((m) => m > streak.current) || null,
+            configuredMilestones.find((m) => m > newStreak) || null,
+          milestoneReward: milestoneRewardEarned,
         },
         transaction: {
           id: transaction._id,

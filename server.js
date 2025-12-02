@@ -173,6 +173,8 @@ mongoose
     const adFreeRoutes = require("./routes/ad-free");
     const temporaryAdFreeRoutes = require("./routes/temporary-ad-free");
     const adminRewardsRoutes = require("./routes/admin-rewards");
+    const adminXPTierV2Routes = require("./routes/admin-xp-tier-v2");
+    const adminXPDecayV2Routes = require("./routes/admin-xp-decay-v2");
     const adminGameOffersRoutes = require("./routes/admin-game-offers");
     const adminSurveysRoutes = require("./routes/admin-surveys");
     const adminDailyChallengesRoutes = require("./routes/admin-daily-challenges");
@@ -246,6 +248,8 @@ mongoose
     app.use("/api/ad-free", adFreeRoutes);
     app.use("/api/temporary-ad-free", temporaryAdFreeRoutes);
     app.use("/api/admin/rewards", adminRewardsRoutes);
+    app.use("/api/admin/rewards", adminXPTierV2Routes);
+    app.use("/api/admin/rewards", adminXPDecayV2Routes);
     app.use("/api/admin/game-offers", adminGameOffersRoutes);
     // Direct alias for display-rules - create wrapper router
     const displayRulesRouter = express.Router();

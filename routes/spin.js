@@ -6,6 +6,7 @@ const Transaction = require("../models/Transaction");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Default spin wheel configuration (fallback if no admin config exists)
 const DEFAULT_SPIN_CONFIG = {

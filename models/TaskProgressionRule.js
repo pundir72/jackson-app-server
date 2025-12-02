@@ -1,74 +1,84 @@
 const mongoose = require('mongoose');
 
+/**
+ * Task Progression Rule - Game-level configuration for sequential task unlocking
+ * 
+ * Flow:
+ * 1. User completes first N tasks (minimumEventThreshold)
+ * 2. Rewards accumulate in "My Coin Box"
+ * 3. After threshold, user can transfer rewards to wallet
+ * 4. After transfer, next tasks unlock sequentially
+ * 5. Post-threshold tasks require: threshold + XP Tier + Membership Tier
+ */
 const taskProgressionRuleSchema = new mongoose.Schema({
-  taskId: {
+  // Game this rule applies to
+  gameId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'GameTask',
-    required: true
-  },
-  unlockCondition: {
-    type: String,
+    ref: 'Game',
     required: true,
-    // enum: ['previous_task_complete', 'xp_threshold', 'time_based', 'manual']
+    unique: true,
+    index: true
   },
-  lockType: {
-    type: String,
+  
+  // Minimum number of tasks user must complete before transfer is allowed
+  minimumEventThreshold: {
+    type: Number,
     required: true,
-    // enum: ['sequential', 'timed', 'manual']
+    min: 1,
+    default: 5
   },
-  eventThresholds: [{
-    event: {
-      type: String,
-      required: true,
-      // enum: ['game_complete', 'score_achieved', 'time_elapsed', 'xp_earned']
-    },
-    value: {
-      type: Number,
-      required: true
-    },
-    condition: String // e.g., "complete", "score_above_100"
-  }],
-  rewardTriggerRule: {
-    type: String,
-    required: true,
-    // enum: ['immediate', 'on_completion', 'milestone_based', 'conditional']
-  },
-  dependencies: [{
+  
+  // Tasks that require additional conditions after threshold
+  postThresholdTasks: [{
     taskId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'GameTask'
+      ref: 'GameTask',
+      required: true
     },
-    condition: {
+    order: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+    // Required XP Tier (optional - if null, no XP tier requirement)
+    requiredXpTier: {
+    type: String,
+      enum: ['junior', 'mid', 'senior', null],
+      default: null
+    },
+    // Required Membership Tier (optional - if null, no membership tier requirement)
+    requiredMembershipTier: {
       type: String,
-      // enum: ['must_complete', 'must_fail', 'optional']
+      enum: ['bronze', 'gold', 'platinum', null],
+      default: null
+    },
+    isEnabled: {
+      type: Boolean,
+      default: true
     }
   }],
+  
   isActive: {
     type: Boolean,
     default: true
   },
-  metadata: {
-    description: String,
-    notes: String,
-    priority: {
-      type: Number,
-      default: 0
-    },
-    tags: [String]
-  },
+  
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
+  
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  
   createdAt: {
     type: Date,
     default: Date.now
   },
+  
   updatedAt: {
     type: Date,
     default: Date.now
@@ -84,69 +94,91 @@ taskProgressionRuleSchema.pre('save', function(next) {
 });
 
 // Indexes for efficient queries
-taskProgressionRuleSchema.index({ taskId: 1 });
-taskProgressionRuleSchema.index({ lockType: 1, isActive: 1 });
-taskProgressionRuleSchema.index({ unlockCondition: 1 });
+taskProgressionRuleSchema.index({ gameId: 1, isActive: 1 });
 taskProgressionRuleSchema.index({ createdAt: -1 });
 
 // Static methods
+taskProgressionRuleSchema.statics.findByGame = function(gameId) {
+  return this.findOne({ 
+    gameId: gameId,
+    isActive: true
+  });
+};
+
 taskProgressionRuleSchema.statics.findActive = function() {
   return this.find({ isActive: true }).sort({ createdAt: -1 });
 };
 
-taskProgressionRuleSchema.statics.findByTask = function(taskId) {
-  return this.findOne({ 
-    taskId: taskId,
-    isActive: true
-  });
-};
-
-taskProgressionRuleSchema.statics.findByUnlockCondition = function(condition) {
-  return this.find({ 
-    unlockCondition: condition,
-    isActive: true
-  });
-};
-
 // Instance methods
-taskProgressionRuleSchema.methods.canUnlock = function(userProgress) {
+/**
+ * Check if a task can be unlocked for a user
+ * @param {Object} user - User object
+ * @param {String} taskId - Task ID to check
+ * @param {Number} completedTasksCount - Number of tasks user has completed for this game
+ * @param {Boolean} rewardTransferred - Whether user has transferred rewards from coin box
+ * @returns {Object} { canUnlock: Boolean, reason: String }
+ */
+taskProgressionRuleSchema.methods.canUnlockTask = function(user, taskId, completedTasksCount, rewardTransferred) {
   if (!this.isActive) {
     return { canUnlock: false, reason: 'Rule is inactive' };
   }
 
-  // Check dependencies
-  for (const dep of this.dependencies) {
-    const taskProgress = userProgress.tasks.find(t => t.taskId.equals(dep.taskId));
-    
-    if (!taskProgress) {
-      return { canUnlock: false, reason: 'Dependency task not found' };
+  // Check if this is a post-threshold task
+  const postThresholdTask = this.postThresholdTasks.find(
+    pt => pt.taskId.toString() === taskId.toString() && pt.isEnabled
+  );
+
+  // If task is not in postThresholdTasks, it's a regular sequential task
+  if (!postThresholdTask) {
+    // Regular sequential unlock - just check if previous tasks are completed
+    // This will be handled by the calling code checking task order
+    return { canUnlock: true, reason: 'Regular sequential task' };
     }
 
-    switch (dep.condition) {
-      case 'must_complete':
-        if (!taskProgress.isCompleted) {
-          return { canUnlock: false, reason: 'Required dependency not completed' };
+  // Post-threshold task - check all conditions
+  // 1. Check if threshold is reached
+  if (completedTasksCount < this.minimumEventThreshold) {
+    return { 
+      canUnlock: false, 
+      reason: `Complete ${this.minimumEventThreshold} tasks first (current: ${completedTasksCount})` 
+    };
         }
-        break;
-      case 'must_fail':
-        if (taskProgress.isCompleted) {
-          return { canUnlock: false, reason: 'Dependency must fail but was completed' };
-        }
-        break;
-      case 'optional':
-        // Optional dependencies don't block unlocking
-        break;
+
+  // 2. Check if reward has been transferred
+  if (!rewardTransferred) {
+    return { 
+      canUnlock: false, 
+      reason: 'Transfer rewards from My Coin Box first' 
+    };
+  }
+
+  // 3. Check XP Tier requirement
+  if (postThresholdTask.requiredXpTier) {
+    const userXp = user.xp?.current || 0;
+    let userXpTier = 'junior';
+    
+    if (userXp >= 5000) {
+      userXpTier = 'senior';
+    } else if (userXp >= 1000) {
+      userXpTier = 'mid';
+    }
+    
+    if (userXpTier !== postThresholdTask.requiredXpTier) {
+      return { 
+        canUnlock: false, 
+        reason: `Requires ${postThresholdTask.requiredXpTier} XP tier (current: ${userXpTier})` 
+      };
     }
   }
 
-  // Check event thresholds
-  for (const threshold of this.eventThresholds) {
-    const userEventValue = userProgress.events[threshold.event] || 0;
+  // 4. Check Membership Tier requirement
+  if (postThresholdTask.requiredMembershipTier) {
+    const userMembershipTier = user.vip?.tier || user.vip?.level || null;
     
-    if (userEventValue < threshold.value) {
+    if (!userMembershipTier || userMembershipTier.toLowerCase() !== postThresholdTask.requiredMembershipTier.toLowerCase()) {
       return { 
         canUnlock: false, 
-        reason: `${threshold.event} threshold not met (${userEventValue}/${threshold.value})` 
+        reason: `Requires ${postThresholdTask.requiredMembershipTier} membership tier (current: ${userMembershipTier || 'none'})` 
       };
     }
   }
@@ -154,35 +186,29 @@ taskProgressionRuleSchema.methods.canUnlock = function(userProgress) {
   return { canUnlock: true, reason: 'All conditions met' };
 };
 
-taskProgressionRuleSchema.methods.shouldTriggerReward = function(taskProgress) {
-  switch (this.rewardTriggerRule) {
-    case 'immediate':
-      return taskProgress.isCompleted;
-    case 'on_completion':
-      return taskProgress.isCompleted && !taskProgress.rewardClaimed;
-    case 'milestone_based':
-      // Check if user has reached milestone
-      return taskProgress.isCompleted && this.checkMilestoneReached(taskProgress);
-    case 'conditional':
-      return this.checkConditionalReward(taskProgress);
-    default:
+/**
+ * Validate configuration
+ */
+taskProgressionRuleSchema.methods.isValidConfiguration = function() {
+  // Check for duplicate task IDs
+  const taskIds = this.postThresholdTasks.map(pt => pt.taskId.toString());
+  const uniqueTaskIds = [...new Set(taskIds)];
+  
+  if (taskIds.length !== uniqueTaskIds.length) {
       return false;
   }
-};
 
-taskProgressionRuleSchema.methods.checkMilestoneReached = function(taskProgress) {
-  // Implementation for milestone-based rewards
-  // This would check against user's overall progress
-  return true; // Placeholder
-};
+  // Check for duplicate orders
+  const orders = this.postThresholdTasks.map(pt => pt.order);
+  const uniqueOrders = [...new Set(orders)];
+  
+  if (orders.length !== uniqueOrders.length) {
+    return false;
+  }
 
-taskProgressionRuleSchema.methods.checkConditionalReward = function(taskProgress) {
-  // Implementation for conditional rewards
-  // This would check specific conditions defined in metadata
-  return true; // Placeholder
+  return true;
 };
 
 const TaskProgressionRule = mongoose.model('TaskProgressionRule', taskProgressionRuleSchema);
 
 module.exports = TaskProgressionRule;
-

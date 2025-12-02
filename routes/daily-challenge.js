@@ -15,6 +15,7 @@ const Transaction = require("../models/Transaction");
 const BesitosConversion = require("../models/BesitosConversion");
 const besitosService = require("../services/besitos.service");
 const { trackActivity } = require("../middleware/activityTracker");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // ==================== CALENDAR VIEW ====================
 
@@ -492,7 +493,7 @@ router.get("/today", protect, async (req, res) => {
       )
     );
 
-    const user = await User.findById(userId).select("xp age location vip");
+    const user = await User.findById(userId).select("xp age location vip onboarding.gender");
 
     console.log("Querying for challenge:", {
       normalizedStart: normalizedStart.toISOString(),
@@ -524,6 +525,7 @@ router.get("/today", protect, async (req, res) => {
       xp: user.xp?.current || 0,
       age: user.age,
       country: user.location?.current?.country,
+      gender: user.onboarding?.gender,
     });
 
     if (!canAccess) {
@@ -1316,12 +1318,18 @@ router.post("/complete", protect, async (req, res) => {
     }
 
     const totalCoins = coinReward + bonusCoins;
-    const totalXP = xpReward + bonusXP;
+    const baseXP = xpReward + bonusXP;
 
-    // Update user wallet and XP
+    // Update user wallet and XP (apply tier multiplier to XP)
     user.wallet.balance = (user.wallet.balance || 0) + totalCoins;
-    user.xp.current = (user.xp.current || 0) + totalXP;
-    user.xp.total = (user.xp.total || 0) + totalXP;
+
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      baseXP
+    );
+
+    user.xp.current = (user.xp.current || 0) + finalXP;
+    user.xp.total = (user.xp.total || 0) + finalXP;
 
     // Update streak
     const streak = user.streak || {};
@@ -1337,7 +1345,7 @@ router.post("/complete", protect, async (req, res) => {
 
     await user.save();
 
-    // Mark progress as completed
+    // Mark progress as completed (store base XP before tier multiplier)
     await progress.markCompleted({
       coins: coinReward,
       xp: xpReward,
@@ -1346,27 +1354,63 @@ router.post("/complete", protect, async (req, res) => {
     });
     await progress.claimRewards();
 
-    // Update challenge analytics
+    // Update challenge analytics (log final XP after tier multiplier)
     await challenge.updateAnalytics("complete", {
       coins: totalCoins,
-      xp: totalXP,
+      xp: finalXP,
     });
 
     // Create transaction record
+    let linkedGameObjectId =
+      challenge.assignedGame?.gameId &&
+      typeof challenge.assignedGame.gameId === "object"
+        ? challenge.assignedGame.gameId._id || challenge.assignedGame.gameId
+        : challenge.assignedGame?.gameId || null;
+
+    let linkedGameCode =
+      challenge.gameId ||
+      challenge.gameDetails?.id ||
+      (typeof progress.selectedGame?.gameId === "string"
+        ? progress.selectedGame.gameId
+        : null);
+
+    if (!linkedGameCode && linkedGameObjectId) {
+      const linkedGameDoc = await Game.findById(linkedGameObjectId).select(
+        "gameId"
+      );
+      if (linkedGameDoc?.gameId) {
+        linkedGameCode = linkedGameDoc.gameId;
+      }
+    }
+
+    const transactionMetadata = {
+      challengeId: challenge._id,
+      challengeType: challenge.type,
+      baseXp: baseXP,
+      xpEarned: finalXP,
+      bonusCoins,
+      bonusXP,
+      tierMultiplier,
+    };
+
+    if (linkedGameCode) {
+      transactionMetadata.gameId = linkedGameCode;
+    }
+    if (linkedGameObjectId) {
+      transactionMetadata.gameRef = linkedGameObjectId;
+    }
+
     const transaction = new Transaction({
       user: userId,
       type: "credit",
       amount: totalCoins,
+      balanceType: "coins",
       description: `Daily Challenge: ${challenge.title}`,
       status: "completed",
-      metadata: {
-        challengeId: challenge._id,
-        challengeType: challenge.type,
-        xpEarned: totalXP,
-        bonusCoins,
-        bonusXP,
-      },
       referenceId: `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`,
+      game: linkedGameObjectId,
+      gameId: linkedGameCode,
+      metadata: transactionMetadata,
     });
 
     await transaction.save();

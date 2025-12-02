@@ -34,12 +34,30 @@ const adminAuth = async (req, res, next) => {
     }
 
     // Check if user has ADMIN role
-    const user = await User.findById(decoded.userId).select('role');
-    if (!user || user.role !== 'ADMIN') {
+    const user = await User.findById(decoded.userId).select('role email');
+    if (!user) {
+      console.error('Admin auth: User not found for userId:', decoded.userId);
+      return res.status(403).json({
+        success: false,
+        message: 'User not found',
+        statusCode: 403
+      });
+    }
+    
+    console.log('Admin auth check - User:', user.email, 'Role:', user.role);
+    
+    if (user.role !== 'ADMIN') {
+      console.error('Admin auth: User does not have ADMIN role. Current role:', user.role);
       return res.status(403).json({
         success: false,
         message: 'Admin privileges required',
-        statusCode: 403
+        statusCode: 403,
+        debug: {
+          userId: decoded.userId,
+          userEmail: user.email,
+          currentRole: user.role,
+          requiredRole: 'ADMIN'
+        }
       });
     }
     

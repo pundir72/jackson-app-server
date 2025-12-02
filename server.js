@@ -203,6 +203,7 @@ mongoose
     const gameTipsRoutes = require("./routes/game-tips");
     const adminGameTipsRoutes = require("./routes/admin-game-tips");
     const zohoRoutes = require("./routes/zoho");
+    const adjustRoutes = require("./routes/adjust");
 
     // API Routes
     app.use("/api/auth", authRoutes);
@@ -246,10 +247,25 @@ mongoose
     app.use("/api/temporary-ad-free", temporaryAdFreeRoutes);
     app.use("/api/admin/rewards", adminRewardsRoutes);
     app.use("/api/admin/game-offers", adminGameOffersRoutes);
+    // Direct alias for display-rules - create wrapper router
+    const displayRulesRouter = express.Router();
+    displayRulesRouter.use((req, res, next) => {
+      // Rewrite the path to include /display-rules prefix for the adminGameOffersRoutes
+      // req.url might be '/' or '/:id' or '/:id?confirm=true', etc.
+      const originalUrl = req.url;
+      if (originalUrl === "/" || originalUrl === "") {
+        req.url = "/display-rules";
+      } else {
+        req.url = "/display-rules" + originalUrl;
+      }
+      adminGameOffersRoutes(req, res, next);
+    });
+    app.use("/api/admin/display-rules", displayRulesRouter);
     app.use("/api/admin/surveys", adminSurveysRoutes);
     app.use("/api/admin/daily-challenges", adminDailyChallengesRoutes);
     app.use("/api/besitos", besitosRoutes);
     app.use("/api/bitlabs", bitlabsRoutes);
+    app.use("/api/adjust", adjustRoutes);
     app.use("/api/non-game-offers", nonGameOffersRoutes);
     app.use("/api/daily-challenge", dailyChallengeRoutes);
     app.use("/api/webhooks", webhookRoutes);

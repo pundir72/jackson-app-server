@@ -253,10 +253,14 @@ async function awardAchievementRewards(userId, userAchievement) {
     await transaction.save();
   }
   
-  // Award XP
+  // Award XP (apply tier multiplier)
   if (rewards.xp > 0) {
-    user.xp.current = (user.xp.current || 0) + rewards.xp;
-    user.xp.total = (user.xp.total || 0) + rewards.xp;
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      rewards.xp
+    );
+    user.xp.current = (user.xp.current || 0) + finalXP;
+    user.xp.total = (user.xp.total || 0) + finalXP;
   }
   
   // Award badge

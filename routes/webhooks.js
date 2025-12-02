@@ -11,6 +11,8 @@ const BesitosConversion = require('../models/BesitosConversion');
 const DailyChallenge = require('../models/DailyChallenge');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const AdjustCallback = require('../models/AdjustCallback');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
  * @route   POST /api/webhooks/besitos/conversion
@@ -123,10 +125,14 @@ router.post('/besitos/conversion', async (req, res) => {
           xp: challenge.xpReward
         });
         
-        // Credit user rewards
+        // Credit user rewards (apply tier multiplier to XP)
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
-        user.xp.current = (user.xp.current || 0) + challenge.xpReward;
-        user.xp.total = (user.xp.total || 0) + challenge.xpReward;
+        const baseXp = challenge.xpReward;
+        const { finalXP, multiplier: tierMultiplier } =
+          await applyTierMultiplierToXP(user, baseXp);
+
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
         
         // Update streak
         const todayStr = today.toISOString().split('T')[0];
@@ -149,7 +155,7 @@ router.post('/besitos/conversion', async (req, res) => {
         // Update challenge analytics
         await challenge.updateAnalytics('complete', {
           coins: challenge.coinReward,
-          xp: challenge.xpReward
+          xp: finalXP
         });
         
         // Create transaction record
@@ -171,7 +177,7 @@ router.post('/besitos/conversion', async (req, res) => {
         await transaction.save();
         
         // Update conversion with credits
-        await conversion.creditRewards(challenge.coinReward, challenge.xpReward);
+        await conversion.creditRewards(challenge.coinReward, baseXp);
         
         console.log(`Daily challenge completed via Besitos webhook for user ${userId}`);
       }
@@ -262,16 +268,20 @@ router.post('/bitlabs/completion', async (req, res) => {
           externalTaskId: surveyId
         };
         
-        // Complete the challenge
+        // Complete the challenge (store base XP)
         await progress.markCompleted({
           coins: challenge.coinReward,
           xp: challenge.xpReward
         });
         
-        // Credit user
+        // Credit user (apply tier multiplier to XP)
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
-        user.xp.current = (user.xp.current || 0) + challenge.xpReward;
-        user.xp.total = (user.xp.total || 0) + challenge.xpReward;
+        const baseXp2 = challenge.xpReward;
+        const { finalXP: finalXP2, multiplier: tierMultiplier2 } =
+          await applyTierMultiplierToXP(user, baseXp2);
+
+        user.xp.current = (user.xp.current || 0) + finalXP2;
+        user.xp.total = (user.xp.total || 0) + finalXP2;
         
         // Update streak
         const todayStr = today.toISOString().split('T')[0];
@@ -305,6 +315,335 @@ router.post('/bitlabs/completion', async (req, res) => {
     });
   }
 });
+
+/**
+ * @route   POST /api/webhooks/adjust/callback
+ * @desc    Handle Adjust raw data export callbacks
+ * @access  Public (Adjust sends data to this endpoint)
+ * @body    Adjust callback data (varies by activity type)
+ * @note    Documentation: https://help.adjust.com/en/article/raw-data-exports
+ * 
+ * Adjust sends raw data for various activities:
+ * - Impressions, Clicks, Installs, Sessions
+ * - In-app events, Reattributions
+ * - ATT status updates, SKAdNetwork data
+ * - Updated attributions, Ad spend
+ * - Erased users (GDPR), Ad revenue
+ * - Subscriptions, Uninstalls, Reinstalls
+ * - Rejected installs/reattributions
+ */
+router.post('/adjust/callback', async (req, res) => {
+  try {
+    const callbackData = req.body;
+    
+    console.log('Adjust callback received:', {
+      activityKind: callbackData.activity_kind || callbackData.activityKind,
+      appToken: callbackData.app_token || callbackData.appToken,
+      timestamp: new Date().toISOString()
+    });
+
+    // Determine activity kind
+    const activityKind = callbackData.activity_kind || callbackData.activityKind || 'unknown';
+    
+    // Extract common fields
+    const adjustCallback = new AdjustCallback({
+      activityKind: activityKind,
+      appToken: callbackData.app_token || callbackData.appToken,
+      trackerToken: callbackData.tracker_token || callbackData.trackerToken,
+      trackerName: callbackData.tracker_name || callbackData.trackerName,
+      network: callbackData.network,
+      campaign: callbackData.campaign,
+      adgroup: callbackData.adgroup,
+      creative: callbackData.creative,
+      clickLabel: callbackData.click_label || callbackData.clickLabel,
+
+      // Device identifiers
+      idfa: callbackData.idfa,
+      idfv: callbackData.idfv,
+      gpsAdid: callbackData.gps_adid || callbackData.gpsAdid,
+      fireAdid: callbackData.fire_adid || callbackData.fireAdid,
+      oaid: callbackData.oaid,
+      webUuid: callbackData.web_uuid || callbackData.webUuid,
+      androidId: callbackData.android_id || callbackData.androidId,
+
+      // Adjust user ID
+      adjustUserId: callbackData.adid || callbackData.adjustId || callbackData.user_id || callbackData.userId,
+
+      // Event information (for in-app events)
+      eventToken: callbackData.event_token || callbackData.eventToken,
+      eventName: callbackData.event_name || callbackData.eventName,
+      revenue: callbackData.revenue ? Number(callbackData.revenue) : null,
+      currency: callbackData.currency,
+      callbackParams: callbackData.callback_params || callbackData.callbackParams,
+      partnerParams: callbackData.partner_params || callbackData.partnerParams,
+
+      // Timestamps
+      clickTime: callbackData.click_time || callbackData.clickTime ? new Date(callbackData.click_time || callbackData.clickTime) : null,
+      installTime: callbackData.install_time || callbackData.installTime ? new Date(callbackData.install_time || callbackData.installTime) : null,
+      eventTime: callbackData.event_time || callbackData.eventTime ? new Date(callbackData.event_time || callbackData.eventTime) : null,
+      createdAtAdjust: callbackData.created_at || callbackData.createdAt ? new Date(callbackData.created_at || callbackData.createdAt) : new Date(),
+
+      // Attribution information
+      attributionType: callbackData.attribution_type || callbackData.attributionType,
+      attributionWindow: callbackData.attribution_window || callbackData.attributionWindow,
+      isOrganic: callbackData.is_organic || callbackData.isOrganic === true || callbackData.isOrganic === 'true',
+      isReattribution: callbackData.is_reattribution || callbackData.isReattribution === true || callbackData.isReattribution === 'true',
+
+      // Location information
+      country: callbackData.country,
+      region: callbackData.region,
+      city: callbackData.city,
+      ipAddress: callbackData.ip_address || callbackData.ipAddress || req.ip,
+      userAgent: callbackData.user_agent || callbackData.userAgent || req.headers['user-agent'],
+
+      // Platform information
+      platform: callbackData.platform,
+      osVersion: callbackData.os_version || callbackData.osVersion,
+      appVersion: callbackData.app_version || callbackData.appVersion,
+      deviceType: callbackData.device_type || callbackData.deviceType,
+      deviceName: callbackData.device_name || callbackData.deviceName,
+
+      // SKAdNetwork information (iOS)
+      skadnetworkConversionValue: callbackData.skadnetwork_conversion_value || callbackData.skadnetworkConversionValue,
+      skadnetworkCoarseValue: callbackData.skadnetwork_coarse_value || callbackData.skadnetworkCoarseValue,
+      skadnetworkLockWindow: callbackData.skadnetwork_lock_window || callbackData.skadnetworkLockWindow,
+      skadnetworkPostbackSequenceIndex: callbackData.skadnetwork_postback_sequence_index || callbackData.skadnetworkPostbackSequenceIndex,
+
+      // Subscription information
+      subscriptionPeriod: callbackData.subscription_period || callbackData.subscriptionPeriod,
+      subscriptionState: callbackData.subscription_state || callbackData.subscriptionState,
+      subscriptionProductId: callbackData.subscription_product_id || callbackData.subscriptionProductId,
+
+      // Store raw data
+      rawData: callbackData
+    });
+
+    // Try to find user by device identifiers or Adjust user ID
+    // Note: Adjust user ID can be stored in user metadata or we can match by device identifiers
+    // For now, we'll store the Adjust user ID in the callback and process it later
+    // You can enhance this by storing adjustUserId in User.metadata if needed
+
+    // Save callback
+    await adjustCallback.save();
+
+    // Process based on activity kind
+    setImmediate(async () => {
+      try {
+        await processAdjustCallback(adjustCallback);
+        adjustCallback.processed = true;
+        adjustCallback.processedAt = new Date();
+        await adjustCallback.save();
+      } catch (error) {
+        console.error('Error processing Adjust callback:', error);
+        adjustCallback.processingError = error.message;
+        await adjustCallback.save();
+      }
+    });
+
+    // Always return 200 OK to Adjust (they retry on errors)
+    res.status(200).json({
+      success: true,
+      message: 'Callback received and queued for processing',
+      callbackId: adjustCallback._id
+    });
+  } catch (error) {
+    console.error('Error processing Adjust callback:', error);
+    // Still return 200 to prevent Adjust from retrying
+    res.status(200).json({
+      success: false,
+      error: 'Callback received but processing failed',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * Process Adjust callback based on activity kind
+ * @param {Object} callback - AdjustCallback document
+ */
+async function processAdjustCallback(callback) {
+  switch (callback.activityKind) {
+    case 'install':
+      await processInstall(callback);
+      break;
+    case 'event':
+      await processEvent(callback);
+      break;
+    case 'session':
+      await processSession(callback);
+      break;
+    case 'ad_revenue':
+      await processAdRevenue(callback);
+      break;
+    case 'reattribution':
+      await processReattribution(callback);
+      break;
+    case 'uninstall':
+      await processUninstall(callback);
+      break;
+    case 'reinstall':
+      await processReinstall(callback);
+      break;
+    default:
+      console.log(`No specific processing for activity kind: ${callback.activityKind}`);
+  }
+}
+
+/**
+ * Process install callback
+ */
+async function processInstall(callback) {
+  if (callback.userId) {
+    const user = await User.findById(callback.userId);
+    if (user) {
+      // Store Adjust user ID in metadata
+      if (!user.metadata) {
+        user.metadata = {};
+      }
+      if (!user.metadata.adjust) {
+        user.metadata.adjust = {};
+      }
+      user.metadata.adjust.userId = callback.adjustUserId;
+      
+      // Store attribution information in metadata
+      user.metadata.adjust.attribution = {
+        trackerToken: callback.trackerToken,
+        trackerName: callback.trackerName,
+        network: callback.network,
+        campaign: callback.campaign,
+        adgroup: callback.adgroup,
+        creative: callback.creative,
+        isOrganic: callback.isOrganic,
+        installTime: callback.installTime || callback.createdAtAdjust
+      };
+      
+      // Update device information if available
+      if (callback.platform) {
+        user.device.type = callback.platform;
+      }
+      if (callback.deviceType) {
+        user.device.model = callback.deviceType;
+      }
+      if (callback.osVersion) {
+        user.device.os = callback.osVersion;
+      }
+      user.device.lastUpdated = new Date();
+      
+      await user.save();
+      console.log(`Processed Adjust install for user ${callback.userId}`);
+    }
+  }
+}
+
+/**
+ * Process in-app event callback
+ */
+async function processEvent(callback) {
+  // Events are already tracked via S2S API, but we can log them here
+  console.log(`Adjust event received: ${callback.eventName || callback.eventToken}`, {
+    userId: callback.userId,
+    revenue: callback.revenue,
+    currency: callback.currency
+  });
+  
+  // You can add additional processing here if needed
+  // e.g., update user analytics, trigger notifications, etc.
+}
+
+/**
+ * Process session callback
+ */
+async function processSession(callback) {
+  // Log session for analytics
+  console.log(`Adjust session received for user ${callback.userId || callback.adjustUserId}`);
+  
+  // You can add session tracking logic here
+}
+
+/**
+ * Process ad revenue callback
+ */
+async function processAdRevenue(callback) {
+  // Ad revenue is already tracked via S2S API, but we can log it here
+  console.log(`Adjust ad revenue received:`, {
+    userId: callback.userId,
+    revenue: callback.revenue,
+    currency: callback.currency,
+    network: callback.network
+  });
+}
+
+/**
+ * Process reattribution callback
+ */
+async function processReattribution(callback) {
+  if (callback.userId) {
+    const user = await User.findById(callback.userId);
+    if (user) {
+      // Initialize metadata if needed
+      if (!user.metadata) {
+        user.metadata = {};
+      }
+      if (!user.metadata.adjust) {
+        user.metadata.adjust = {};
+      }
+      if (!user.metadata.adjust.attribution) {
+        user.metadata.adjust.attribution = {};
+      }
+      
+      // Update attribution information
+      user.metadata.adjust.attribution.trackerToken = callback.trackerToken;
+      user.metadata.adjust.attribution.trackerName = callback.trackerName;
+      user.metadata.adjust.attribution.network = callback.network;
+      user.metadata.adjust.attribution.campaign = callback.campaign;
+      user.metadata.adjust.attribution.isReattribution = true;
+      user.metadata.adjust.attribution.reattributionTime = callback.createdAtAdjust;
+      
+      await user.save();
+      console.log(`Processed Adjust reattribution for user ${callback.userId}`);
+    }
+  }
+}
+
+/**
+ * Process uninstall callback
+ */
+async function processUninstall(callback) {
+  if (callback.userId) {
+    const user = await User.findById(callback.userId);
+    if (user) {
+      // Mark user as uninstalled
+      if (!user.metadata) {
+        user.metadata = {};
+      }
+      user.metadata.uninstalled = true;
+      user.metadata.uninstalledAt = callback.createdAtAdjust || new Date();
+      
+      await user.save();
+      console.log(`Processed Adjust uninstall for user ${callback.userId}`);
+    }
+  }
+}
+
+/**
+ * Process reinstall callback
+ */
+async function processReinstall(callback) {
+  if (callback.userId) {
+    const user = await User.findById(callback.userId);
+    if (user) {
+      // Mark user as reinstalled
+      if (user.metadata && user.metadata.uninstalled) {
+        user.metadata.uninstalled = false;
+        user.metadata.reinstalled = true;
+        user.metadata.reinstalledAt = callback.createdAtAdjust || new Date();
+        
+        await user.save();
+        console.log(`Processed Adjust reinstall for user ${callback.userId}`);
+      }
+    }
+  }
+}
 
 module.exports = router;
 

@@ -89,6 +89,11 @@ module.exports = {
     BITLABS_SERVER_TO_SERVER_KEY: process.env.BITLABS_SERVER_TO_SERVER_KEY,
     BITLABS_REFRESH_INTERVAL_MINUTES: parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
     
+    // Adjust - S2S API for event tracking
+    // Documentation: https://dev.adjust.com/en/api/s2s-api
+    ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,
+    ADJUST_APP_TOKEN: process.env.ADJUST_APP_TOKEN,
+    
     // Error Codes
     ERROR_CODES: {
         INVALID_CREDENTIALS: 401,

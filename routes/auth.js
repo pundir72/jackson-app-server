@@ -888,6 +888,14 @@ router.post(
         });
       }
 
+      // Ensure user has ADMIN role (fix if missing)
+      if (user.role !== 'ADMIN') {
+        console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
+        user.role = 'ADMIN';
+        await user.save();
+        console.log(`✅ Updated user ${user.email} to ADMIN role`);
+      }
+
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
         expiresIn: "24h",

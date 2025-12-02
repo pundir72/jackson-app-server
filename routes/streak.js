@@ -3,9 +3,16 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const StreakBonusConfig = require('../models/StreakBonusConfig');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
-// Streak configuration
-const STREAK_CONFIG = {
+// Cache for streak config (refresh every 5 minutes)
+let streakConfigCache = null;
+let streakConfigCacheTime = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Streak configuration defaults (fallback if DB config not available)
+const DEFAULT_STREAK_CONFIG = {
   maxDays: 30,
   milestones: [7, 14, 21, 30],
   rewards: {
@@ -18,9 +25,62 @@ const STREAK_CONFIG = {
   taskTypes: ['game', 'survey', 'challenge', 'receipt']
 };
 
+// Get streak configuration from database
+async function getStreakConfig() {
+  const now = Date.now();
+  
+  // Return cached config if still valid
+  if (streakConfigCache && streakConfigCacheTime && (now - streakConfigCacheTime) < CACHE_DURATION) {
+    return streakConfigCache;
+  }
+  
+  try {
+    const config = await StreakBonusConfig.getConfig();
+    const activeMilestones = config.getActiveMilestones();
+    
+    // Build rewards object from active milestones
+    const rewards = {};
+    activeMilestones.forEach(milestone => {
+      rewards[milestone.day] = {
+        rewardType: milestone.rewardType,
+        rewardValue: milestone.rewardValue,
+        claimMode: milestone.claimMode
+      };
+    });
+    
+    // Build milestones array
+    const milestones = activeMilestones.map(m => m.day).sort((a, b) => a - b);
+    
+    streakConfigCache = {
+      maxDays: 30,
+      milestones,
+      rewards,
+      resetFallback: true,
+      taskTypes: ['game', 'survey', 'challenge', 'receipt'],
+      _config: config // Store full config for reference
+    };
+    
+    streakConfigCacheTime = now;
+    return streakConfigCache;
+  } catch (error) {
+    console.error('Error loading streak config from database, using defaults:', error);
+    // Return default config if DB fails
+    streakConfigCache = DEFAULT_STREAK_CONFIG;
+    streakConfigCacheTime = now;
+    return streakConfigCache;
+  }
+}
+
+// Clear cache (call this when config is updated)
+function clearStreakConfigCache() {
+  streakConfigCache = null;
+  streakConfigCacheTime = null;
+}
+
 // Get streak status
 router.get('/status', protect, async (req, res) => {
   try {
+    const STREAK_CONFIG = await getStreakConfig();
     const user = await User.findById(req.user.userId).select('xp streak');
     
     if (!user) {
@@ -32,8 +92,8 @@ router.get('/status', protect, async (req, res) => {
 
     const streak = user.streak || {};
     const currentStreak = streak.current || 0;
-    const lastMilestone = getLastMilestone(currentStreak);
-    const nextMilestone = getNextMilestone(currentStreak);
+    const lastMilestone = getLastMilestone(currentStreak, STREAK_CONFIG);
+    const nextMilestone = getNextMilestone(currentStreak, STREAK_CONFIG);
     
     // Check if streak needs to be updated
     const today = new Date();
@@ -41,7 +101,7 @@ router.get('/status', protect, async (req, res) => {
     const needsUpdate = !lastUpdate || !isSameDay(today, lastUpdate);
     
     if (needsUpdate) {
-      await updateStreakStatus(user);
+      await updateStreakStatus(user, STREAK_CONFIG);
     }
 
     res.json({
@@ -57,8 +117,8 @@ router.get('/status', protect, async (req, res) => {
           target: nextMilestone ? nextMilestone.day : STREAK_CONFIG.maxDays,
           percentage: nextMilestone ? Math.round((currentStreak / nextMilestone.day) * 100) : 100
         },
-        rewards: getAvailableRewards(currentStreak),
-        streakTree: generateStreakTree(currentStreak)
+        rewards: getAvailableRewards(currentStreak, STREAK_CONFIG),
+        streakTree: generateStreakTree(currentStreak, STREAK_CONFIG)
       }
     });
   } catch (error) {
@@ -73,6 +133,7 @@ router.get('/status', protect, async (req, res) => {
 // Complete daily task
 router.post('/complete-task', protect, async (req, res) => {
   try {
+    const STREAK_CONFIG = await getStreakConfig();
     const { taskType, taskId } = req.body;
     const user = await User.findById(req.user.userId).select('xp streak wallet');
     
@@ -117,34 +178,44 @@ router.post('/complete-task', protect, async (req, res) => {
     };
 
     // Check for milestone rewards
-    const milestoneReward = getMilestoneReward(newStreak);
+    const milestoneReward = getMilestoneReward(newStreak, STREAK_CONFIG);
     let rewardEarned = null;
     
     if (milestoneReward) {
-      // Award milestone reward
-      user.wallet.balance = (user.wallet.balance || 0) + milestoneReward.coins;
-      user.xp.current = (user.xp.current || 0) + milestoneReward.xp;
-      user.xp.total = (user.xp.total || 0) + milestoneReward.xp;
-      
-      // Add badge to user profile
-      if (!user.badges) user.badges = [];
-      if (!user.badges.includes(milestoneReward.badge)) {
-        user.badges.push(milestoneReward.badge);
+      // Award milestone reward based on reward type
+      if (milestoneReward.rewardType === 'coins') {
+        user.wallet.balance = (user.wallet.balance || 0) + milestoneReward.rewardValue;
+      } else if (milestoneReward.rewardType === 'xp') {
+        const { finalXP } = await applyTierMultiplierToXP(user, milestoneReward.rewardValue);
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
       }
       
       // Create transaction record
       const transaction = new Transaction({
         user: req.user.userId,
         type: 'credit',
-        amount: milestoneReward.coins,
+        balanceType: milestoneReward.rewardType === 'coins' ? 'coins' : 'xp',
+        amount: milestoneReward.rewardValue,
         description: `Streak Milestone Reward - Day ${newStreak}`,
-        status: 'completed',
-        referenceId: `STREAK-${newStreak}-${Date.now()}`
+        status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
+        referenceId: `STREAK-${newStreak}-${Date.now()}`,
+        metadata: {
+          milestoneDay: newStreak,
+          rewardType: milestoneReward.rewardType,
+          claimMode: milestoneReward.claimMode
+        }
       });
       
       await transaction.save();
       
-      rewardEarned = milestoneReward;
+      rewardEarned = {
+        day: newStreak,
+        rewardType: milestoneReward.rewardType,
+        rewardValue: milestoneReward.rewardValue,
+        claimMode: milestoneReward.claimMode,
+        requiresAd: milestoneReward.claimMode === 'watch_ad'
+      };
     }
 
     await user.save();
@@ -173,6 +244,7 @@ router.post('/complete-task', protect, async (req, res) => {
 // Get streak history
 router.get('/history', protect, async (req, res) => {
   try {
+    const STREAK_CONFIG = await getStreakConfig();
     const { page = 1, limit = 30 } = req.query;
     const user = await User.findById(req.user.userId).select('streak');
     
@@ -230,6 +302,7 @@ router.get('/history', protect, async (req, res) => {
 // Reset streak (if user misses a day)
 router.post('/reset', protect, async (req, res) => {
   try {
+    const STREAK_CONFIG = await getStreakConfig();
     const user = await User.findById(req.user.userId).select('streak');
     
     if (!user) {
@@ -241,7 +314,7 @@ router.post('/reset', protect, async (req, res) => {
 
     const streak = user.streak || {};
     const currentStreak = streak.current || 0;
-    const lastMilestone = getLastMilestone(currentStreak);
+    const lastMilestone = getLastMilestone(currentStreak, STREAK_CONFIG);
     
     if (STREAK_CONFIG.resetFallback && lastMilestone) {
       // Reset to last milestone
@@ -331,7 +404,7 @@ router.get('/leaderboard', protect, async (req, res) => {
 });
 
 // Helper functions
-async function updateStreakStatus(user) {
+async function updateStreakStatus(user, STREAK_CONFIG) {
   const today = new Date();
   const streak = user.streak || {};
   const lastUpdate = streak.lastUpdated ? new Date(streak.lastUpdated) : null;
@@ -348,7 +421,7 @@ async function updateStreakStatus(user) {
     
     if (daysDiff > 1) {
       // Streak broken - reset
-      const lastMilestone = getLastMilestone(streak.current || 0);
+      const lastMilestone = getLastMilestone(streak.current || 0, STREAK_CONFIG);
       
       if (STREAK_CONFIG.resetFallback && lastMilestone) {
         user.streak = {
@@ -373,21 +446,21 @@ async function updateStreakStatus(user) {
   await user.save();
 }
 
-function getLastMilestone(currentStreak) {
+function getLastMilestone(currentStreak, STREAK_CONFIG) {
   const milestones = STREAK_CONFIG.milestones.filter(day => day <= currentStreak);
   return milestones.length > 0 ? { day: Math.max(...milestones) } : null;
 }
 
-function getNextMilestone(currentStreak) {
+function getNextMilestone(currentStreak, STREAK_CONFIG) {
   const milestones = STREAK_CONFIG.milestones.filter(day => day > currentStreak);
   return milestones.length > 0 ? { day: Math.min(...milestones) } : null;
 }
 
-function getMilestoneReward(currentStreak) {
+function getMilestoneReward(currentStreak, STREAK_CONFIG) {
   return STREAK_CONFIG.rewards[currentStreak] || null;
 }
 
-function getAvailableRewards(currentStreak) {
+function getAvailableRewards(currentStreak, STREAK_CONFIG) {
   const rewards = [];
   
   STREAK_CONFIG.milestones.forEach(day => {
@@ -396,7 +469,7 @@ function getAvailableRewards(currentStreak) {
         day,
         reward: STREAK_CONFIG.rewards[day],
         isReached: false,
-        isNext: day === getNextMilestone(currentStreak)?.day
+        isNext: day === getNextMilestone(currentStreak, STREAK_CONFIG)?.day
       });
     }
   });
@@ -404,7 +477,7 @@ function getAvailableRewards(currentStreak) {
   return rewards;
 }
 
-function generateStreakTree(currentStreak) {
+function generateStreakTree(currentStreak, STREAK_CONFIG) {
   const tree = [];
   
   for (let day = 1; day <= STREAK_CONFIG.maxDays; day++) {
@@ -427,4 +500,6 @@ function isSameDay(date1, date2) {
   return date1.toISOString().split('T')[0] === date2.toISOString().split('T')[0];
 }
 
+// Export clear cache function for use when config is updated
 module.exports = router;
+module.exports.clearStreakConfigCache = clearStreakConfigCache;

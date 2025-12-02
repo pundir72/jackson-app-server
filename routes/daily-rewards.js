@@ -373,12 +373,18 @@ router.post('/claim', protect, async (req, res) => {
     progress.lastUpdated = now;
     await progress.save();
 
-    // Credit wallet
+    // Credit wallet and XP (apply tier multiplier to XP)
     const user = await User.findById(userId).select('wallet xp badges');
     user.wallet.balance = (user.wallet.balance || 0) + coins;
     user.wallet.lastUpdated = now;
-    user.xp.current = (user.xp.current || 0) + xp;
-    user.xp.total = (user.xp.total || 0) + xp;
+
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      xp || 0
+    );
+
+    user.xp.current = (user.xp.current || 0) + finalXP;
+    user.xp.total = (user.xp.total || 0) + finalXP;
     if (cfg.bigReward.awardBadge && bigReward && cfg.bigReward.badgeName) {
       if (!user.badges) user.badges = [];
       if (!user.badges.includes(cfg.bigReward.badgeName)) user.badges.push(cfg.bigReward.badgeName);
@@ -390,7 +396,7 @@ router.post('/claim', protect, async (req, res) => {
       amount: coins,
       description: `Daily Reward Day ${day.dayNumber}${bigReward ? ' (Big Reward)' : ''}`,
       status: 'completed',
-      metadata: { rewardDay: day.dayNumber, bigReward: !!bigReward, xp }
+      metadata: { rewardDay: day.dayNumber, bigReward: !!bigReward, baseXp: xp, xp: finalXP, tierMultiplier }
     });
 
     await Promise.all([user.save(), tx.save()]);
@@ -426,7 +432,7 @@ router.post('/claim', protect, async (req, res) => {
       data: {
         day: day.dayNumber,
         coins,
-        xp,
+        xp: finalXP,
         bigReward: !!bigReward,
         newBalance: user.wallet.balance,
         newXP: user.xp.current

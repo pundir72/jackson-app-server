@@ -3,6 +3,7 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const Game = require('../models/Game');
 const besitos = require('../utils/besitos');
 const bitlabsGames = require('../utils/bitlabs-games');
 const bitlabsOfferCache = require('../utils/bitlabsOfferCache');
@@ -27,21 +28,21 @@ router.get('/offers', protect, async (req, res) => {
 
     // Get Besitos game offers (if provider is 'all' or 'besitos')
     if (provider === 'all' || provider === 'besitos') {
-      const besitosResult = await besitos.getGameOffers({
-        userId: user._id.toString(),
-        userProfile: {
-          age: user.profile?.age || 25,
-          gender: user.profile?.gender || 'other',
-          country: user.location?.country || 'US',
-          language: user.preferences?.language || 'en',
-          interests: user.preferences?.interests || [],
-          gamingPreferences: user.preferences?.gamingPreferences || [],
-          platform: 'mobile',
-          osVersion: 'iOS 15.0',
-          appVersion: '1.0.0',
-          deviceModel: 'iPhone 13'
-        }
-      });
+    const besitosResult = await besitos.getGameOffers({
+      userId: user._id.toString(),
+      userProfile: {
+        age: user.profile?.age || 25,
+        gender: user.profile?.gender || 'other',
+        country: user.location?.country || 'US',
+        language: user.preferences?.language || 'en',
+        interests: user.preferences?.interests || [],
+        gamingPreferences: user.preferences?.gamingPreferences || [],
+        platform: 'mobile',
+        osVersion: 'iOS 15.0',
+        appVersion: '1.0.0',
+        deviceModel: 'iPhone 13'
+      }
+    });
 
       if (besitosResult.success && besitosResult.offers) {
         // Add provider tag to each offer
@@ -153,17 +154,17 @@ router.post('/install', protect, async (req, res) => {
     } else {
       // Default to Besitos
       trackingResult = await besitos.trackInstallation({
-        userId: user._id.toString(),
-        offerId: offerId,
-        gameId: gameId,
-        deviceInfo: {
-          platform: 'mobile',
-          osVersion: 'iOS 15.0',
-          appVersion: '1.0.0',
-          deviceId: req.headers['x-device-id'] || 'unknown',
-          ipAddress: req.ip
-        }
-      });
+      userId: user._id.toString(),
+      offerId: offerId,
+      gameId: gameId,
+      deviceInfo: {
+        platform: 'mobile',
+        osVersion: 'iOS 15.0',
+        appVersion: '1.0.0',
+        deviceId: req.headers['x-device-id'] || 'unknown',
+        ipAddress: req.ip
+      }
+    });
     }
 
     if (!trackingResult.success) {
@@ -243,17 +244,17 @@ router.post('/complete', protect, async (req, res) => {
     } else {
       // Default to Besitos
       completionResult = await besitos.trackCompletion({
-        userId: user._id.toString(),
-        offerId: offerId,
-        gameId: gameId,
-        completionData: {
-          levelReached: completionData.levelReached || 1,
-          score: completionData.score || 0,
-          timePlayedMinutes: completionData.timePlayedMinutes || 0,
-          tasksCompleted: completionData.tasksCompleted || [],
-          achievements: completionData.achievements || []
-        }
-      });
+      userId: user._id.toString(),
+      offerId: offerId,
+      gameId: gameId,
+      completionData: {
+        levelReached: completionData.levelReached || 1,
+        score: completionData.score || 0,
+        timePlayedMinutes: completionData.timePlayedMinutes || 0,
+        tasksCompleted: completionData.tasksCompleted || [],
+        achievements: completionData.achievements || []
+      }
+    });
     }
 
     if (!completionResult.success) {
@@ -266,11 +267,15 @@ router.post('/complete', protect, async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round(completionResult.totalReward * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 
@@ -284,14 +289,29 @@ router.post('/complete', protect, async (req, res) => {
       user.games[gameIndex].timePlayed = completionData.timePlayedMinutes || 0;
     }
 
+    // Find Game document to get ObjectId for proper linking
+    let gameDoc = null;
+    if (gameId) {
+      gameDoc = await Game.findOne({ gameId: gameId }).select('_id').lean();
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game completed - ${gameId}`,
       status: 'completed',
-      referenceId: `GAME-${gameId}-${Date.now()}`
+      referenceId: `GAME-${gameId}-${Date.now()}`,
+      gameId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
+      metadata: {
+        gameId,
+        offerId,
+        provider,
+        completionSource: provider,
+      },
     });
 
     await Promise.all([
@@ -461,11 +481,15 @@ router.post('/callback/bitlabs', async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round((verification.reward || reward || 0) * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 
@@ -476,14 +500,38 @@ router.post('/callback/bitlabs', async (req, res) => {
       user.games[gameIndex].completedAt = new Date();
     }
 
+    // Find Game document to get ObjectId for proper linking
+    // Try to find by offerId first (in case offerId is the gameId), then try to find by any matching gameId
+    let gameDoc = null;
+    if (offerId) {
+      gameDoc = await Game.findOne({ gameId: offerId }).select('_id').lean();
+      // If not found, try to find by checking if offerId matches any game's metadata
+      if (!gameDoc) {
+        gameDoc = await Game.findOne({ 
+          $or: [
+            { 'gameDetails.id': offerId },
+            { 'metadata.packageName': offerId }
+          ]
+        }).select('_id').lean();
+      }
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game offer completed - ${offerId} (Bitlabs)`,
       status: 'completed',
-      referenceId: `OFFER-${offerId}-${Date.now()}`
+      referenceId: `OFFER-${offerId}-${Date.now()}`,
+      gameId: offerId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
+      metadata: {
+        offerId,
+        provider: 'bitlabs',
+        gameId: offerId
+      },
     });
 
     await Promise.all([
@@ -540,11 +588,15 @@ router.post('/callback/besitos', async (req, res) => {
     // Calculate final reward with VIP multiplier
     const vipMultiplier = await getVIPMultiplier(user);
     const finalReward = Math.round(verification.reward * vipMultiplier);
-    const xpReward = Math.round(finalReward * 0.5);
+    const baseXp = Math.round(finalReward * 0.5);
 
     // Update user wallet and XP
     user.wallet.balance = (user.wallet.balance || 0) + finalReward;
     user.wallet.lastUpdated = new Date();
+
+    const { finalXP: xpReward, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXp);
+
     user.xp.current = (user.xp.current || 0) + xpReward;
     user.xp.total = (user.xp.total || 0) + xpReward;
 
@@ -555,14 +607,38 @@ router.post('/callback/besitos', async (req, res) => {
       user.games[gameIndex].completedAt = new Date();
     }
 
+    // Find Game document to get ObjectId for proper linking
+    // Try to find by offerId first (in case offerId is the gameId), then try to find by any matching gameId
+    let gameDoc = null;
+    if (offerId) {
+      gameDoc = await Game.findOne({ gameId: offerId }).select('_id').lean();
+      // If not found, try to find by checking if offerId matches any game's metadata
+      if (!gameDoc) {
+        gameDoc = await Game.findOne({ 
+          $or: [
+            { 'gameDetails.id': offerId },
+            { 'metadata.packageName': offerId }
+          ]
+        }).select('_id').lean();
+      }
+    }
+
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: finalReward,
+      balanceType: 'coins',
       description: `Game offer completed - ${offerId}`,
       status: 'completed',
-      referenceId: `OFFER-${offerId}-${Date.now()}`
+      referenceId: `OFFER-${offerId}-${Date.now()}`,
+      gameId: offerId,
+      game: gameDoc?._id || null, // Explicitly set game ObjectId if found
+      metadata: {
+        offerId,
+        provider: 'besitos',
+        gameId: offerId
+      },
     });
 
     await Promise.all([

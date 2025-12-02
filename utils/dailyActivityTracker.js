@@ -7,15 +7,66 @@
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const { trackAchievements } = require("./achievements");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
+const StreakBonusConfig = require("../models/StreakBonusConfig");
 
-// Streak milestone configuration
-const STREAK_MILESTONES = [7, 14, 21, 30];
-const STREAK_REWARDS = {
+// Cache for streak config (refresh every 5 minutes)
+let streakConfigCache = null;
+let streakConfigCacheTime = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Default streak milestone configuration (fallback if DB config not available)
+const DEFAULT_STREAK_MILESTONES = [7, 14, 21, 30];
+const DEFAULT_STREAK_REWARDS = {
   7: { coins: 50, xp: 25, badge: "Week Warrior 🏆" },
   14: { coins: 150, xp: 75, badge: "Fortnight Fighter 🥇" },
   21: { coins: 300, xp: 150, badge: "Three Week Titan 🏅" },
   30: { coins: 500, xp: 250, badge: "Monthly Master 👑" },
 };
+
+// Get streak configuration from database
+async function getStreakConfig() {
+  const now = Date.now();
+  
+  // Return cached config if still valid
+  if (streakConfigCache && streakConfigCacheTime && (now - streakConfigCacheTime) < CACHE_DURATION) {
+    return streakConfigCache;
+  }
+  
+  try {
+    const config = await StreakBonusConfig.getConfig();
+    const activeMilestones = config.getActiveMilestones();
+    
+    // Build milestones and rewards from active milestones
+    const milestones = activeMilestones.map(m => m.day).sort((a, b) => a - b);
+    const rewards = {};
+    
+    activeMilestones.forEach(milestone => {
+      rewards[milestone.day] = {
+        rewardType: milestone.rewardType,
+        rewardValue: milestone.rewardValue,
+        claimMode: milestone.claimMode
+      };
+    });
+    
+    streakConfigCache = {
+      milestones,
+      rewards
+    };
+    
+    streakConfigCacheTime = now;
+    return streakConfigCache;
+  } catch (error) {
+    console.error('Error loading streak config from database, using defaults:', error);
+    // Return default config if DB fails
+    streakConfigCache = {
+      milestones: DEFAULT_STREAK_MILESTONES,
+      rewards: DEFAULT_STREAK_REWARDS
+    };
+    streakConfigCacheTime = now;
+    return streakConfigCache;
+  }
+}
 
 /**
  * Track user activity for today
@@ -403,6 +454,10 @@ async function wasUserActiveOnDate(userId, dateStr) {
 
 async function checkAndAwardMilestoneRewards(user, activity) {
   try {
+    const streakConfig = await getStreakConfig();
+    const STREAK_MILESTONES = streakConfig.milestones;
+    const STREAK_REWARDS = streakConfig.rewards;
+    
     const currentStreak = activity.currentStreak || 0;
 
     // Initialize awardedMilestones if it doesn't exist
@@ -417,35 +472,32 @@ async function checkAndAwardMilestoneRewards(user, activity) {
         const reward = STREAK_REWARDS[currentStreak];
 
         if (reward) {
-          // Award coins and XP
+          // Award reward based on reward type
           if (!user.wallet) user.wallet = { balance: 0 };
           if (!user.xp) user.xp = { current: 0, total: 0 };
 
-          user.wallet.balance = (user.wallet.balance || 0) + reward.coins;
-          user.wallet.lastUpdated = new Date();
-          user.xp.current = (user.xp.current || 0) + reward.xp;
-          user.xp.total = (user.xp.total || 0) + reward.xp;
-
-          // Add badge to user profile
-          if (!user.badges) user.badges = [];
-          if (!user.badges.includes(reward.badge)) {
-            user.badges.push(reward.badge);
+          if (reward.rewardType === 'coins') {
+            user.wallet.balance = (user.wallet.balance || 0) + reward.rewardValue;
+            user.wallet.lastUpdated = new Date();
+          } else if (reward.rewardType === 'xp') {
+            const { finalXP } = await applyTierMultiplierToXP(user, reward.rewardValue || 0);
+            user.xp.current = (user.xp.current || 0) + finalXP;
+            user.xp.total = (user.xp.total || 0) + finalXP;
           }
 
           // Create transaction record
           const transaction = new Transaction({
             user: user._id,
             type: "credit",
-            balanceType: "coins",
-            amount: reward.coins,
-            description: `Streak Milestone Reward - Day ${currentStreak} (${reward.badge})`,
-            status: "completed",
+            balanceType: reward.rewardType === 'coins' ? 'coins' : 'xp',
+            amount: reward.rewardValue,
+            description: `Streak Milestone Reward - Day ${currentStreak}`,
+            status: reward.claimMode === 'auto' ? "completed" : "pending",
             referenceId: `STREAK-MILESTONE-${currentStreak}-${Date.now()}`,
             metadata: {
               milestoneDay: currentStreak,
-              rewardType: "streak_milestone",
-              xp: reward.xp,
-              badge: reward.badge,
+              rewardType: reward.rewardType,
+              claimMode: reward.claimMode,
             },
           });
 
@@ -455,14 +507,14 @@ async function checkAndAwardMilestoneRewards(user, activity) {
           activity.awardedMilestones.push(currentStreak);
 
           console.log(
-            `✅ Milestone reward awarded: Day ${currentStreak} - ${reward.coins} coins, ${reward.xp} XP, ${reward.badge}`
+            `✅ Milestone reward awarded: Day ${currentStreak} - ${reward.rewardValue} ${reward.rewardType} (claimMode: ${reward.claimMode})`
           );
 
           return {
             day: currentStreak,
-            coins: reward.coins,
-            xp: reward.xp,
-            badge: reward.badge,
+            rewardType: reward.rewardType,
+            rewardValue: reward.rewardValue,
+            claimMode: reward.claimMode,
           };
         }
       }

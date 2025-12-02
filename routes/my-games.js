@@ -305,20 +305,44 @@ router.post('/booster/claim', protect, async (req, res) => {
       claimedAt: new Date()
     });
 
-    // Update user's wallet and XP
+    // Update user's wallet and XP (apply tier multiplier to XP)
     user.wallet.balance += boosterReward.coins;
     user.wallet.lastUpdated = new Date();
-    user.xp.current += boosterReward.xp;
-    user.xp.total += boosterReward.xp;
+
+    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+      user,
+      boosterReward.xp || 0
+    );
+
+    user.xp.current += finalXP;
+    user.xp.total += finalXP;
+
+    // Find game if gameId is available in context (may need to be passed in request)
+    // For now, we'll try to get it from user's games if available
+    let gameDoc = null;
+    const { gameId } = req.body; // Check if gameId is passed in request
+    if (gameId) {
+      const Game = require('../models/Game');
+      gameDoc = await Game.findOne({ gameId: gameId }).select('_id gameId').lean();
+    }
 
     // Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: 'credit',
       amount: boosterReward.coins,
-      description: `Booster reward from ${adProvider} ad`,
+      balanceType: 'coins',
+      description: `Booster reward from ${adProvider} ad${gameId ? ` - ${gameId}` : ''}`,
       status: 'completed',
-      referenceId: `BOOSTER-${Date.now()}`
+      referenceId: `BOOSTER-${gameId || 'general'}-${Date.now()}`,
+      gameId: gameDoc?.gameId || gameId || null,
+      game: gameDoc?._id || null,
+      metadata: {
+        gameId: gameDoc?.gameId || gameId || null,
+        adProvider: adProvider,
+        adId: adId,
+        source: 'booster_reward'
+      },
     });
 
     await Promise.all([

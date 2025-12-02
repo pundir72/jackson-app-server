@@ -185,16 +185,12 @@ class BitlabsOfferCache {
   /**
    * Pre-fetch offers for common query combinations
    * Bitlabs API uses: devices (array), is_game (boolean), in_app (boolean), etc.
-   * CRITICAL: Non-game offers (is_game: false) require a country parameter to return results
    */
   async preFetchCommonOffers() {
-    // Default country for pre-fetching (Bitlabs API requires country for non-game offers)
-    const defaultCountry = "US";
-    
     const commonQueries = [
       {}, // Try with NO parameters first (most likely to return offers)
       { is_game: true }, // All game offers
-      { is_game: false, country: defaultCountry }, // All non-game offers (surveys, magic receipts, cashback, shopping) - REQUIRES country
+      { is_game: false }, // All non-game offers (surveys, magic receipts, cashback, shopping)
       { devices: ["android"] }, // Android only
       { devices: ["iphone"] }, // iPhone only
       { devices: ["ipad"] }, // iPad only
@@ -202,13 +198,12 @@ class BitlabsOfferCache {
       { is_game: true, devices: ["android"] }, // Android games
       { is_game: true, devices: ["iphone"] }, // iPhone games
       { is_game: true, devices: ["android", "iphone"] }, // Mobile games
-      { is_game: false, devices: ["android"], country: defaultCountry }, // Android non-game offers - REQUIRES country
-      { is_game: false, devices: ["iphone"], country: defaultCountry }, // iPhone non-game offers - REQUIRES country
-      { is_game: false, devices: ["android", "iphone"], country: defaultCountry }, // Mobile non-game offers - REQUIRES country
+      { is_game: false, devices: ["android"] }, // Android non-game offers
+      { is_game: false, devices: ["iphone"] }, // iPhone non-game offers
+      { is_game: false, devices: ["android", "iphone"] }, // Mobile non-game offers
     ];
 
     console.log("Pre-fetching Bitlabs offers for common queries...");
-    console.log(`Using default country "${defaultCountry}" for non-game offers (is_game: false)`);
 
     for (const query of commonQueries) {
       try {

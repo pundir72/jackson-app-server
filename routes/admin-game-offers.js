@@ -2810,24 +2810,33 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           );
         }
 
-        const category =
-          typeof offer.category === "object"
-            ? offer.category?.name_internal || offer.category?.name || "other"
-            : offer.category || "other";
-
-        // Map category names to valid enum values
-        const categoryMap = {
-          General: "other",
-          Other: "other",
-          Finance: "finance",
-          Shopping: "shopping",
-          Entertainment: "entertainment",
-          Technology: "technology",
-          Health: "health",
-          Travel: "travel",
-          Education: "education",
+        // Extract and store full category object from Bitlabs API
+        let categoryObject = {
+          name: "General",
+          name_internal: "Other",
+          icon_name: "shapes",
+          icon_url: "",
         };
-        const mappedCategory = categoryMap[category] || category.toLowerCase();
+
+        if (offer.category) {
+          if (typeof offer.category === "object") {
+            // Store full category object
+            categoryObject = {
+              name: offer.category.name || "General",
+              name_internal: offer.category.name_internal || "Other",
+              icon_name: offer.category.icon_name || "shapes",
+              icon_url: offer.category.icon_url || "",
+            };
+          } else {
+            // Fallback: if category is a string, create object with defaults
+            categoryObject = {
+              name: offer.category,
+              name_internal: offer.category,
+              icon_name: "shapes",
+              icon_url: "",
+            };
+          }
+        }
 
         // Allow offers with 0 coins to show raw API values
         // (Previously skipped offers with coinReward < 1)
@@ -2845,6 +2854,9 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           console.log(`   offer.cpi: ${offer.cpi}`);
           console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
           console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
+          console.log(
+            `   Category object: ${JSON.stringify(categoryObject)}`
+          );
           console.log(
             `   publisherRevenue will be: cpi=${
               parseFloat(offer.cpi) || 0
@@ -2864,7 +2876,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           title:
             normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
           description: normalizedOffer.description || "",
-          category: mappedCategory,
+          category: categoryObject, // Store full category object
           offerType: normalizedOffer.offerType || defaultOfferType,
           coinReward: coinReward, // User reward coins (20% of value)
           estimatedTime:

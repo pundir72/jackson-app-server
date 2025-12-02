@@ -126,8 +126,8 @@ router.get("/config", protect, async (req, res) => {
         rewards: eligibleRewards.map((reward) => ({
           id: reward._id,
           name: reward.name,
-          type: reward.type, // Ensure type is correctly returned
-          amount: reward.amount, // Return base amount, multiplier applied only for coins
+          type: reward.type,
+          amount: reward.amount,
           probability: reward.probability,
           icon: reward.icon,
           color: reward.color,

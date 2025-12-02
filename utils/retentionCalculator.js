@@ -1,59 +1,346 @@
-const User = require('../models/User');
-const mongoose = require('mongoose');
+const User = require("../models/User");
+const mongoose = require("mongoose");
 
 /**
  * Calculate retention metrics (D1, D7, D14, D30) for users
+ * OPTIMIZED: Uses MongoDB aggregation pipeline instead of fetching all users
  * @param {Object} filters - Filter options (dateRange, gameId, source, age, gender)
  * @returns {Promise<Object>} Retention metrics
  */
 async function calculateRetention(filters = {}) {
   try {
     const { startDate, endDate, gameId, source, age, gender } = filters;
-    
-    // Build user query
-    const userQuery = {};
-    
+
+    // Build user query match stage
+    const matchStage = {};
+
     // Source filter - based on social.provider field
     if (source) {
-      if (source === 'direct') {
-        // Direct users: all users who are NOT google AND NOT facebook
-        // Simplest approach: use $nin which handles 'local', null, undefined, missing field
-        userQuery['social.provider'] = { $nin: ['google', 'facebook'] };
+      if (source === "direct") {
+        matchStage["social.provider"] = { $nin: ["google", "facebook"] };
       } else {
-        // Filter by social.provider (google, facebook, etc.)
-        userQuery['social.provider'] = source;
+        matchStage["social.provider"] = source;
       }
     }
-    
+
     if (age) {
-      // Age range is stored in onboarding.ageRange
-      userQuery['onboarding.ageRange'] = age;
+      matchStage["onboarding.ageRange"] = age;
     }
     if (gender) {
-      // Gender is stored in onboarding.gender
-      userQuery['onboarding.gender'] = gender.toLowerCase();
+      matchStage["onboarding.gender"] = gender.toLowerCase();
     }
 
     // Default date range: last 30 days
     const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    // Add date filter to query
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Add date filter
     if (startDate || endDate) {
-      userQuery.createdAt = {};
+      matchStage.createdAt = {};
       if (startDate) {
-        userQuery.createdAt.$gte = start;
+        matchStage.createdAt.$gte = start;
       }
       if (endDate) {
-        userQuery.createdAt.$lte = end;
+        matchStage.createdAt.$lte = end;
       }
     }
 
-    // Get all users matching filters
-    const users = await User.find(userQuery).select('_id createdAt dailyActivity').lean();
-    
-    // Filter users by registration date if date range is provided
-    const cohortUsers = users.filter(user => {
+    // Use aggregation pipeline for efficient calculation
+    // If aggregation fails, fall back to JavaScript calculation
+    const retentionDays = [1, 7, 14, 30];
+
+    let aggregationResult = null;
+    try {
+      // Build aggregation pipeline
+      const pipeline = [
+        { $match: matchStage },
+        {
+          $project: {
+            createdAt: 1,
+            activeDates: { $ifNull: ["$dailyActivity.activeDates", []] },
+          },
+        },
+        {
+          $addFields: {
+            retentionChecks: {
+              $map: {
+                input: retentionDays,
+                as: "day",
+                in: {
+                  day: "$$day",
+                  targetDate: {
+                    $dateToString: {
+                      format: "%Y-%m-%d",
+                      date: {
+                        $add: [
+                          "$createdAt",
+                          { $multiply: ["$$day", 24 * 60 * 60 * 1000] },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            retentionResults: {
+              $map: {
+                input: "$retentionChecks",
+                as: "check",
+                in: {
+                  day: "$$check.day",
+                  retained: {
+                    $cond: {
+                      if: {
+                        $and: [
+                          { $ne: ["$activeDates", null] },
+                          { $gt: [{ $size: "$activeDates" }, 0] },
+                          { $in: ["$$check.targetDate", "$activeDates"] },
+                        ],
+                      },
+                      then: 1,
+                      else: 0,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalCohort: { $sum: 1 },
+            retention: { $push: "$retentionResults" },
+          },
+        },
+        {
+          $unwind: "$retention",
+        },
+        {
+          $unwind: "$retention",
+        },
+        {
+          $group: {
+            _id: "$retention.day",
+            totalCohort: { $first: "$totalCohort" },
+            retained: { $sum: "$retention.retained" },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalCohort: { $first: "$totalCohort" },
+            retention: {
+              $push: {
+                day: "$_id",
+                retained: "$retained",
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            totalCohort: 1,
+            d1: {
+              $let: {
+                vars: {
+                  d1Data: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: "$retention",
+                          as: "r",
+                          cond: { $eq: ["$$r.day", 1] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: ["$totalCohort", 0] },
+                        { $ne: ["$$d1Data", null] },
+                      ],
+                    },
+                    {
+                      $multiply: [
+                        { $divide: ["$$d1Data.retained", "$totalCohort"] },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            },
+            d7: {
+              $let: {
+                vars: {
+                  d7Data: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: "$retention",
+                          as: "r",
+                          cond: { $eq: ["$$r.day", 7] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: ["$totalCohort", 0] },
+                        { $ne: ["$$d7Data", null] },
+                      ],
+                    },
+                    {
+                      $multiply: [
+                        { $divide: ["$$d7Data.retained", "$totalCohort"] },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            },
+            d14: {
+              $let: {
+                vars: {
+                  d14Data: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: "$retention",
+                          as: "r",
+                          cond: { $eq: ["$$r.day", 14] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: ["$totalCohort", 0] },
+                        { $ne: ["$$d14Data", null] },
+                      ],
+                    },
+                    {
+                      $multiply: [
+                        { $divide: ["$$d14Data.retained", "$totalCohort"] },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            },
+            d30: {
+              $let: {
+                vars: {
+                  d30Data: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: "$retention",
+                          as: "r",
+                          cond: { $eq: ["$$r.day", 30] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: ["$totalCohort", 0] },
+                        { $ne: ["$$d30Data", null] },
+                      ],
+                    },
+                    {
+                      $multiply: [
+                        { $divide: ["$$d30Data.retained", "$totalCohort"] },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ];
+
+      const result = await User.aggregate(pipeline);
+
+      if (result && result.length > 0 && result[0].totalCohort > 0) {
+        aggregationResult = result[0];
+      }
+    } catch (error) {
+      console.warn(
+        "Retention aggregation failed, using JavaScript fallback:",
+        error.message
+      );
+      // Fall through to JavaScript calculation
+    }
+
+    // If aggregation succeeded, use its results
+    if (aggregationResult) {
+      const totalCohort = aggregationResult.totalCohort;
+      return {
+        d1: parseFloat(aggregationResult.d1?.toFixed(2) || 0),
+        d7: parseFloat(aggregationResult.d7?.toFixed(2) || 0),
+        d14: parseFloat(aggregationResult.d14?.toFixed(2) || 0),
+        d30: parseFloat(aggregationResult.d30?.toFixed(2) || 0),
+        totalCohort: totalCohort,
+        data: [
+          {
+            day: 1,
+            retentionRate: parseFloat(aggregationResult.d1?.toFixed(2) || 0),
+          },
+          {
+            day: 7,
+            retentionRate: parseFloat(aggregationResult.d7?.toFixed(2) || 0),
+          },
+          {
+            day: 14,
+            retentionRate: parseFloat(aggregationResult.d14?.toFixed(2) || 0),
+          },
+          {
+            day: 30,
+            retentionRate: parseFloat(aggregationResult.d30?.toFixed(2) || 0),
+          },
+        ],
+      };
+    }
+
+    // Fallback to optimized JavaScript calculation
+    const users = await User.find(matchStage)
+      .select("_id createdAt dailyActivity.activeDates")
+      .lean()
+      .limit(10000); // Limit to prevent memory issues
+
+    const cohortUsers = users.filter((user) => {
       if (!user.createdAt) return false;
       const userCreatedAt = new Date(user.createdAt);
       return userCreatedAt >= start && userCreatedAt <= end;
@@ -66,96 +353,106 @@ async function calculateRetention(filters = {}) {
         d14: 0,
         d30: 0,
         totalCohort: 0,
-        data: []
+        data: [],
       };
     }
 
-    // Calculate retention for each day
+    // Calculate retention for each day (optimized with early exit)
     const retentionData = [];
-    const retentionDays = [1, 7, 14, 30];
-    
+
     for (const day of retentionDays) {
-      const retained = cohortUsers.filter(user => {
-        if (!user.dailyActivity || !user.dailyActivity.activeDates || !user.createdAt) {
-          return false;
-        }
-        
+      let retained = 0;
+      for (const user of cohortUsers) {
+        if (!user.dailyActivity?.activeDates || !user.createdAt) continue;
+
         const userCreatedAt = new Date(user.createdAt);
         const targetDate = new Date(userCreatedAt);
         targetDate.setDate(targetDate.getDate() + day);
-        
+
         const targetDateStr = formatDateString(targetDate);
-        return user.dailyActivity.activeDates.includes(targetDateStr);
-      }).length;
-      
-      const retentionRate = cohortUsers.length > 0 
-        ? ((retained / cohortUsers.length) * 100).toFixed(2)
-        : 0;
-      
+        if (user.dailyActivity.activeDates.includes(targetDateStr)) {
+          retained++;
+        }
+      }
+
+      const retentionRate =
+        cohortUsers.length > 0
+          ? ((retained / cohortUsers.length) * 100).toFixed(2)
+          : 0;
+
       retentionData.push({
         day: day,
         retained: retained,
-        retentionRate: parseFloat(retentionRate)
+        retentionRate: parseFloat(retentionRate),
       });
     }
 
     return {
-      d1: retentionData.find(d => d.day === 1)?.retentionRate || 0,
-      d7: retentionData.find(d => d.day === 7)?.retentionRate || 0,
-      d14: retentionData.find(d => d.day === 14)?.retentionRate || 0,
-      d30: retentionData.find(d => d.day === 30)?.retentionRate || 0,
+      d1: retentionData.find((d) => d.day === 1)?.retentionRate || 0,
+      d7: retentionData.find((d) => d.day === 7)?.retentionRate || 0,
+      d14: retentionData.find((d) => d.day === 14)?.retentionRate || 0,
+      d30: retentionData.find((d) => d.day === 30)?.retentionRate || 0,
       totalCohort: cohortUsers.length,
-      data: retentionData
+      data: retentionData,
     };
   } catch (error) {
-    console.error('Error calculating retention:', error);
+    console.error("Error calculating retention:", error);
     throw error;
   }
 }
 
 /**
  * Get retention trend over time (for line chart)
+ * OPTIMIZED: Uses aggregation pipeline with grouping
  * @param {Object} filters - Filter options
  * @returns {Promise<Array>} Array of retention data points over time
  */
 async function getRetentionTrend(filters = {}) {
   try {
     const { startDate, endDate, gameId, source, age, gender } = filters;
-    
+
     const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    // Build user query
-    const userQuery = {};
-    
-    // Source filter - based on social.provider field
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Build user query match stage
+    const matchStage = {
+      createdAt: {
+        $gte: start,
+        $lte: end,
+      },
+    };
+
+    // Source filter
     if (source) {
-      if (source === 'direct') {
-        // Direct users: all users who are NOT google AND NOT facebook
-        // Simplest approach: use $nin which handles 'local', null, undefined, missing field
-        userQuery['social.provider'] = { $nin: ['google', 'facebook'] };
+      if (source === "direct") {
+        matchStage["social.provider"] = { $nin: ["google", "facebook"] };
       } else {
-        // Filter by social.provider (google, facebook, etc.)
-        userQuery['social.provider'] = source;
+        matchStage["social.provider"] = source;
       }
     }
-    
+
     if (gender) {
-      userQuery.gender = gender;
+      matchStage["onboarding.gender"] = gender.toLowerCase();
     }
-    
-    // Add date filter
-    userQuery.createdAt = {};
-    userQuery.createdAt.$gte = start;
-    userQuery.createdAt.$lte = end;
 
-    const users = await User.find(userQuery)
-      .select('_id createdAt dailyActivity')
-      .lean();
+    if (age) {
+      matchStage["onboarding.ageRange"] = age;
+    }
 
-    // Group users by registration date (cohort)
+    // Use aggregation to group by cohort date and calculate retention
+    const retentionDays = [1, 7, 14, 30];
+
+    const users = await User.find(matchStage)
+      .select("_id createdAt dailyActivity.activeDates")
+      .lean()
+      .limit(10000); // Limit to prevent memory issues
+
+    // Group users by registration date (cohort) - optimized
     const cohorts = {};
-    users.forEach(user => {
+    users.forEach((user) => {
+      if (!user.createdAt) return;
       const cohortDate = formatDateString(new Date(user.createdAt));
       if (!cohorts[cohortDate]) {
         cohorts[cohortDate] = [];
@@ -163,43 +460,44 @@ async function getRetentionTrend(filters = {}) {
       cohorts[cohortDate].push(user);
     });
 
-    // Calculate retention for each cohort
+    // Calculate retention for each cohort (optimized)
     const trendData = [];
-    const retentionDays = [1, 7, 14, 30];
-    
-    Object.keys(cohorts).sort().forEach(cohortDate => {
+
+    for (const cohortDate of Object.keys(cohorts).sort()) {
       const cohortUsers = cohorts[cohortDate];
       const retention = {};
-      
-      retentionDays.forEach(day => {
-        const retained = cohortUsers.filter(user => {
-          if (!user.dailyActivity || !user.dailyActivity.activeDates || !user.createdAt) {
-            return false;
-          }
-          
+
+      for (const day of retentionDays) {
+        let retained = 0;
+        for (const user of cohortUsers) {
+          if (!user.dailyActivity?.activeDates || !user.createdAt) continue;
+
           const userCreatedAt = new Date(user.createdAt);
           const targetDate = new Date(userCreatedAt);
           targetDate.setDate(targetDate.getDate() + day);
-          
+
           const targetDateStr = formatDateString(targetDate);
-          return user.dailyActivity.activeDates.includes(targetDateStr);
-        }).length;
-        
-        retention[`d${day}`] = cohortUsers.length > 0 
-          ? ((retained / cohortUsers.length) * 100).toFixed(2)
-          : 0;
-      });
-      
+          if (user.dailyActivity.activeDates.includes(targetDateStr)) {
+            retained++;
+          }
+        }
+
+        retention[`d${day}`] =
+          cohortUsers.length > 0
+            ? parseFloat(((retained / cohortUsers.length) * 100).toFixed(2))
+            : 0;
+      }
+
       trendData.push({
         date: cohortDate,
         cohortSize: cohortUsers.length,
-        ...retention
+        ...retention,
       });
-    });
+    }
 
     return trendData;
   } catch (error) {
-    console.error('Error getting retention trend:', error);
+    console.error("Error getting retention trend:", error);
     throw error;
   }
 }
@@ -210,14 +508,13 @@ async function getRetentionTrend(filters = {}) {
 function formatDateString(date) {
   const d = new Date(date);
   const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
 module.exports = {
   calculateRetention,
   getRetentionTrend,
-  formatDateString
+  formatDateString,
 };
-

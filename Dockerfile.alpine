@@ -1,0 +1,36 @@
+# Use Alpine-based Node.js image for better Sharp compatibility
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies required for Sharp and native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    libc6-compat \
+    vips-dev
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with Sharp-specific optimizations
+RUN npm install --timeout=600000 --retry=3
+
+# Install node-cache
+RUN npm install node-cache
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=4001
+ENV REDIS_URL=redis://redis:6379
+
+# Expose the application port
+EXPOSE 4001
+
+# Start the application
+CMD ["npm", "start"]

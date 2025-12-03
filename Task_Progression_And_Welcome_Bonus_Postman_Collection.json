@@ -1,0 +1,657 @@
+{
+	"info": {
+		"_postman_id": "task-progression-welcome-bonus-2024",
+		"name": "Task Progression & Welcome Bonus Timer Rules",
+		"description": "Complete Postman collection for Task Progression Rules and Welcome Bonus Timer Rules - Admin and User endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Welcome Bonus Timer Rules",
+			"item": [
+				{
+					"name": "Admin Endpoints",
+					"item": [
+						{
+							"name": "Get All Welcome Bonus Timer Rules",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/welcome-bonus-timer",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"welcome-bonus-timer"
+									]
+								},
+								"description": "Get all active welcome bonus timer rules"
+							},
+							"response": []
+						},
+						{
+							"name": "Get Welcome Bonus Timer Rule for Game",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/welcome-bonus-timer/game/:gameId",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"welcome-bonus-timer",
+										"game",
+										":gameId"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get welcome bonus timer configuration for a specific game"
+							},
+							"response": []
+						},
+						{
+							"name": "Get Game Tasks (Exclude Bonus)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/games/:gameId/tasks?excludeBonus=true&page=1&limit=100",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"games",
+										":gameId",
+										"tasks"
+									],
+									"query": [
+										{
+											"key": "excludeBonus",
+											"value": "true",
+											"description": "Exclude bonus tasks from the list"
+										},
+										{
+											"key": "page",
+											"value": "1"
+										},
+										{
+											"key": "limit",
+											"value": "100"
+										}
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get all tasks for a game, excluding bonus tasks. Use this to select tasks for bonus configuration."
+							},
+							"response": []
+						},
+						{
+							"name": "Create/Update Game Bonus Tasks",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"minimumEventThreshold\": 5,\n  \"bonusTasks\": [\n    {\n      \"taskId\": \"TASK_ID_1\",\n      \"order\": 1\n    },\n    {\n      \"taskId\": \"TASK_ID_2\",\n      \"order\": 2\n    },\n    {\n      \"taskId\": \"TASK_ID_3\",\n      \"order\": 3\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/welcome-bonus-timer/game/:gameId/bonus-tasks",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"welcome-bonus-timer",
+										"game",
+										":gameId",
+										"bonus-tasks"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Create or update bonus tasks configuration for a game. Maximum 3 tasks allowed with sequential order (1, 2, 3)."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Game Bonus Tasks",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/welcome-bonus-timer/game/:gameId/bonus-tasks",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"welcome-bonus-timer",
+										"game",
+										":gameId",
+										"bonus-tasks"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Delete bonus tasks configuration for a game"
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "User Endpoints",
+					"item": [
+						{
+							"name": "Get Normal Tasks (Bonus Excluded)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/tasks",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"tasks"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get normal tasks for a game. Bonus tasks are automatically excluded from this list."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Bonus Tasks with Unlock Status",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/bonus-tasks",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"bonus-tasks"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get bonus tasks for a game with unlock status, completion status, and 24-hour deadline information."
+							},
+							"response": []
+						},
+						{
+							"name": "Complete Task (Normal or Bonus)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/tasks/:taskId/complete",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"tasks",
+										":taskId",
+										"complete"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										},
+										{
+											"key": "taskId",
+											"value": "YOUR_TASK_ID",
+											"description": "MongoDB ObjectId of the task"
+										}
+									]
+								},
+								"description": "Complete a task (normal or bonus). For bonus tasks, this will unlock the next bonus task if conditions are met."
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Task Progression Rules",
+			"item": [
+				{
+					"name": "Admin Endpoints",
+					"item": [
+						{
+							"name": "Get Task Progression Rule for Game",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/progression-rules/game/:gameId",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"progression-rules",
+										"game",
+										":gameId"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get task progression rule configuration for a specific game"
+							},
+							"response": []
+						},
+						{
+							"name": "Create/Update Task Progression Rule",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"minimumEventThreshold\": 5,\n  \"postThresholdTasks\": [\n    {\n      \"taskId\": \"TASK_ID_1\",\n      \"order\": 1,\n      \"requiredXpTier\": \"mid\",\n      \"requiredMembershipTier\": \"gold\",\n      \"isEnabled\": true\n    },\n    {\n      \"taskId\": \"TASK_ID_2\",\n      \"order\": 2,\n      \"requiredXpTier\": \"senior\",\n      \"requiredMembershipTier\": null,\n      \"isEnabled\": true\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/progression-rules/game/:gameId",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"progression-rules",
+										"game",
+										":gameId"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Create or update task progression rule for a game. Set minimumEventThreshold and configure post-threshold tasks with optional XP and Membership tier requirements."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Task Progression Rule",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/game-offers/progression-rules/game/:gameId?confirm=true",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"game-offers",
+										"progression-rules",
+										"game",
+										":gameId"
+									],
+									"query": [
+										{
+											"key": "confirm",
+											"value": "true",
+											"description": "Required for deletion confirmation"
+										}
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Delete task progression rule for a game. Requires ?confirm=true query parameter."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "User Endpoints",
+					"item": [
+						{
+							"name": "Get Tasks with Unlock Status",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/tasks",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"tasks"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get tasks for a game with unlock status based on progression rules. Shows sequential unlock status and post-threshold task requirements."
+							},
+							"response": []
+						},
+						{
+							"name": "Get My Coin Box Status",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/coin-box",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"coin-box"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Get 'My Coin Box' status for a game. Shows accumulated rewards, threshold progress, and transfer availability."
+							},
+							"response": []
+						},
+						{
+							"name": "Transfer Rewards from Coin Box to Wallet",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/coin-box/transfer",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"coin-box",
+										"transfer"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										}
+									]
+								},
+								"description": "Transfer accumulated rewards from 'My Coin Box' to wallet. Only available after threshold is reached and not already transferred."
+							},
+							"response": []
+						},
+						{
+							"name": "Complete Task (with Coin Box Logic)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{userToken}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/game/:gameId/tasks/:taskId/complete",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"game",
+										":gameId",
+										"tasks",
+										":taskId",
+										"complete"
+									],
+									"variable": [
+										{
+											"key": "gameId",
+											"value": "YOUR_GAME_ID",
+											"description": "MongoDB ObjectId of the game"
+										},
+										{
+											"key": "taskId",
+											"value": "YOUR_TASK_ID",
+											"description": "MongoDB ObjectId of the task"
+										}
+									]
+								},
+								"description": "Complete a task. Handles coin box accumulation before threshold and unlocks next tasks after transfer."
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "adminToken",
+			"value": "YOUR_ADMIN_JWT_TOKEN",
+			"type": "string"
+		},
+		{
+			"key": "userToken",
+			"value": "YOUR_USER_JWT_TOKEN",
+			"type": "string"
+		}
+	]
+}
+

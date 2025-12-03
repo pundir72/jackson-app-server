@@ -161,7 +161,322 @@ const sendPasswordResetEmail = async (to, resetUrl, userName = 'User') => {
   return await sendEmail(to, subject, text, html);
 };
 
+// Payout request confirmation email
+const sendPayoutRequestConfirmationEmail = async (to, userName = 'User', amount, currency = 'USD') => {
+  const subject = 'Payout Request Submitted - Under Review';
+  
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Payout Request Submitted</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          line-height: 1.6; 
+          color: #333; 
+          max-width: 600px; 
+          margin: 0 auto; 
+          padding: 20px;
+        }
+        .header { 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+          color: white; 
+          padding: 30px; 
+          text-align: center; 
+          border-radius: 10px 10px 0 0;
+        }
+        .content { 
+          background: #f9f9f9; 
+          padding: 30px; 
+          border-radius: 0 0 10px 10px;
+        }
+        .info-box { 
+          background: #e3f2fd; 
+          border-left: 4px solid #2196f3; 
+          padding: 15px; 
+          margin: 20px 0; 
+          border-radius: 5px;
+        }
+        .footer { 
+          text-align: center; 
+          margin-top: 30px; 
+          color: #666; 
+          font-size: 14px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>💰 Payout Request Submitted</h1>
+        <p>Jackson App</p>
+      </div>
+      
+      <div class="content">
+        <h2>Hello ${userName}!</h2>
+        
+        <p>We have received your payout request and it is currently under review.</p>
+        
+        <div class="info-box">
+          <strong>Request Details:</strong><br>
+          Amount: ${currency} ${amount.toFixed(2)}<br>
+          Status: Under Review
+        </div>
+        
+        <p>Our team will review your request and process it as soon as possible. You will receive an email notification once your payout has been approved and processed.</p>
+        
+        <p>If you have any questions or need assistance, please contact our support team.</p>
+        
+        <p>Best regards,<br>The Jackson App Team</p>
+      </div>
+      
+      <div class="footer">
+        <p>This is an automated message, please do not reply to this email.</p>
+        <p>&copy; 2024 Jackson App. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const text = `
+    Payout Request Submitted - Under Review
+    
+    Hello ${userName}!
+    
+    We have received your payout request and it is currently under review.
+    
+    Request Details:
+    Amount: ${currency} ${amount.toFixed(2)}
+    Status: Under Review
+    
+    Our team will review your request and process it as soon as possible. You will receive an email notification once your payout has been approved and processed.
+    
+    If you have any questions or need assistance, please contact our support team.
+    
+    Best regards,
+    The Jackson App Team
+    
+    This is an automated message, please do not reply to this email.
+  `;
+  
+  return await sendEmail(to, subject, text, html);
+};
+
+// Payout approved and processed email
+const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency = 'USD', orderId) => {
+  const subject = 'Payout Approved - Your Reward is on the Way!';
+  
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Payout Approved</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          line-height: 1.6; 
+          color: #333; 
+          max-width: 600px; 
+          margin: 0 auto; 
+          padding: 20px;
+        }
+        .header { 
+          background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); 
+          color: white; 
+          padding: 30px; 
+          text-align: center; 
+          border-radius: 10px 10px 0 0;
+        }
+        .content { 
+          background: #f9f9f9; 
+          padding: 30px; 
+          border-radius: 0 0 10px 10px;
+        }
+        .success-box { 
+          background: #d4edda; 
+          border-left: 4px solid #28a745; 
+          padding: 15px; 
+          margin: 20px 0; 
+          border-radius: 5px;
+        }
+        .footer { 
+          text-align: center; 
+          margin-top: 30px; 
+          color: #666; 
+          font-size: 14px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>✅ Payout Approved!</h1>
+        <p>Jackson App</p>
+      </div>
+      
+      <div class="content">
+        <h2>Hello ${userName}!</h2>
+        
+        <p>Great news! Your payout request has been approved and processed successfully.</p>
+        
+        <div class="success-box">
+          <strong>Payout Details:</strong><br>
+          Amount: ${currency} ${amount.toFixed(2)}<br>
+          Order ID: ${orderId || 'N/A'}<br>
+          Status: Completed
+        </div>
+        
+        <p>Your reward is being processed and you should receive it shortly. Please check your email for the reward delivery link.</p>
+        
+        <p>Thank you for using Jackson App!</p>
+        
+        <p>Best regards,<br>The Jackson App Team</p>
+      </div>
+      
+      <div class="footer">
+        <p>This is an automated message, please do not reply to this email.</p>
+        <p>&copy; 2024 Jackson App. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const text = `
+    Payout Approved - Your Reward is on the Way!
+    
+    Hello ${userName}!
+    
+    Great news! Your payout request has been approved and processed successfully.
+    
+    Payout Details:
+    Amount: ${currency} ${amount.toFixed(2)}
+    Order ID: ${orderId || 'N/A'}
+    Status: Completed
+    
+    Your reward is being processed and you should receive it shortly. Please check your email for the reward delivery link.
+    
+    Thank you for using Jackson App!
+    
+    Best regards,
+    The Jackson App Team
+    
+    This is an automated message, please do not reply to this email.
+  `;
+  
+  return await sendEmail(to, subject, text, html);
+};
+
+// Payout rejected email
+const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency = 'USD', reason) => {
+  const subject = 'Payout Request Rejected';
+  
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Payout Request Rejected</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          line-height: 1.6; 
+          color: #333; 
+          max-width: 600px; 
+          margin: 0 auto; 
+          padding: 20px;
+        }
+        .header { 
+          background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); 
+          color: white; 
+          padding: 30px; 
+          text-align: center; 
+          border-radius: 10px 10px 0 0;
+        }
+        .content { 
+          background: #f9f9f9; 
+          padding: 30px; 
+          border-radius: 0 0 10px 10px;
+        }
+        .warning-box { 
+          background: #ffebee; 
+          border-left: 4px solid #f44336; 
+          padding: 15px; 
+          margin: 20px 0; 
+          border-radius: 5px;
+        }
+        .footer { 
+          text-align: center; 
+          margin-top: 30px; 
+          color: #666; 
+          font-size: 14px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>❌ Payout Request Rejected</h1>
+        <p>Jackson App</p>
+      </div>
+      
+      <div class="content">
+        <h2>Hello ${userName}!</h2>
+        
+        <p>We regret to inform you that your payout request has been rejected.</p>
+        
+        <div class="warning-box">
+          <strong>Request Details:</strong><br>
+          Amount: ${currency} ${amount.toFixed(2)}<br>
+          Status: Rejected<br><br>
+          <strong>Rejection Reason:</strong><br>
+          ${reason}
+        </div>
+        
+        <p>Your coins have been refunded to your account balance. If you believe this is an error or have any questions, please contact our support team.</p>
+        
+        <p>Best regards,<br>The Jackson App Team</p>
+      </div>
+      
+      <div class="footer">
+        <p>This is an automated message, please do not reply to this email.</p>
+        <p>&copy; 2024 Jackson App. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const text = `
+    Payout Request Rejected
+    
+    Hello ${userName}!
+    
+    We regret to inform you that your payout request has been rejected.
+    
+    Request Details:
+    Amount: ${currency} ${amount.toFixed(2)}
+    Status: Rejected
+    
+    Rejection Reason:
+    ${reason}
+    
+    Your coins have been refunded to your account balance. If you believe this is an error or have any questions, please contact our support team.
+    
+    Best regards,
+    The Jackson App Team
+    
+    This is an automated message, please do not reply to this email.
+  `;
+  
+  return await sendEmail(to, subject, text, html);
+};
+
 module.exports = {
   sendEmail,
   sendPasswordResetEmail,
+  sendPayoutRequestConfirmationEmail,
+  sendPayoutApprovedEmail,
+  sendPayoutRejectedEmail,
 };

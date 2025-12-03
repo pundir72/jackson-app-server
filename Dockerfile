@@ -1,14 +1,24 @@
-# Use Node.js LTS version
-FROM node:20-slim
+# Use Node.js LTS version with full image (not slim) for Sharp compatibility
+FROM node:20
 
 # Set working directory
 WORKDIR /app
 
+# Install system dependencies required for Sharp
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with better timeout and retry settings
+RUN npm install --timeout=300000 --retry=3
+
+# Install node-cache
+RUN npm install node-cache
 
 # Copy application code
 COPY . .

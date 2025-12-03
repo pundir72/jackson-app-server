@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/User');
 const Deals = require('../models/Deals');
 const { Reward, DailyReward } = require('../models/Rewards');
+const GameDisplayRule = require('../models/GameDisplayRule');
 const analytics = require('../utils/analytics');
 const { body, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
@@ -93,6 +94,9 @@ router.get('/', auth, async (req, res) => {
         // Get VIP status and benefits
         const vipStatus = await getVIPStatus(user);
         
+        // Get homepage swipe configuration
+        const homepageSwipe = await getHomepageSwipeConfig(user);
+        
         res.status(200).json({
             greeting: getGreeting(user),
             wallet: {
@@ -104,14 +108,15 @@ router.get('/', auth, async (req, res) => {
                 total: user.xp.total,
                 level: user.xp.level,
                 tier: user.xp.tier,
-                streak: user.xp.streak
+                streak: user.streak?.current || 0
             },
             mostPlayedGames,
             activeTasks,
             activeSurveys,
             activeRaces,
             vip: vipStatus,
-            preferences: user.preferences
+            preferences: user.preferences,
+            homepageSwipe
         });
     } catch (error) {
         console.error('Error fetching homepage data:', error);
@@ -131,19 +136,19 @@ const updateStreak = async (user) => {
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
     
-    if (!user.xp.streak.lastUpdated || user.xp.streak.lastUpdated < yesterday) {
-        if (user.xp.streak.current > 0) {
+    if (!user.streak?.lastUpdated || user.streak.lastUpdated < yesterday) {
+        if (user.streak?.current > 0) {
             await User.findByIdAndUpdate(user._id, {
-                $inc: { 'xp.streak.current': 1 },
+                $inc: { 'streak.current': 1 },
                 $set: {
-                    'xp.streak.lastUpdated': today
+                    'streak.lastUpdated': today
                 }
             });
         } else {
             await User.findByIdAndUpdate(user._id, {
                 $set: {
-                    'xp.streak.current': 1,
-                    'xp.streak.lastUpdated': today
+                    'streak.current': 1,
+                    'streak.lastUpdated': today
                 }
             });
         }
@@ -230,6 +235,111 @@ const getGreeting = (user) => {
     if (hour >= 18 && hour < 22) return `Good evening, ${user.firstName}!`;
     return `Hi ${user.firstName}!`;
 };
+
+// Get homepage swipe configuration based on display rules
+async function getHomepageSwipeConfig(user) {
+    try {
+        // Calculate games downloaded (not just completed)
+        // A game is considered downloaded if it has installedAt or status is 'installed'
+        const gamesDownloaded = user.games?.filter(g => {
+            return g.installedAt || g.status === 'installed' || (g.date && !g.completed);
+        }).length || 0;
+
+        // Get user's VIP tier (check both vip.tier and vip.level)
+        let membershipTier = 'free';
+        if (user.vip?.tier) {
+            membershipTier = user.vip.tier;
+        } else if (user.vip?.level && user.vip.level !== 'free') {
+            membershipTier = user.vip.level;
+        }
+
+        // Get user profile data
+        const userProfile = {
+            age: user.profile?.age || (user.onboarding?.ageRange ? parseInt(user.onboarding.ageRange.split('-')[0]) : null) || 25,
+            gender: user.profile?.gender || user.onboarding?.gender || 'other',
+            country: user.location?.current?.country || user.location?.country || 'US',
+            xp: user.xp?.current || 0,
+            gamesPlayed: gamesDownloaded, // Use downloaded games count, not completed
+            membershipTier: membershipTier
+        };
+
+        // Get all active display rules
+        const activeRules = await GameDisplayRule.findActive()
+            .populate('xpTier', 'tierName xpMin xpMax');
+
+        // Apply rules to user and find matching rules
+        const matchingRules = [];
+        for (const rule of activeRules) {
+            const result = await rule.applyToUser(userProfile);
+            if (result) {
+                matchingRules.push({
+                    ruleId: result.ruleId,
+                    ruleName: result.ruleName,
+                    maxGames: result.maxGames,
+                    appliedMilestones: result.appliedMilestones,
+                    priority: rule.metadata?.priority || 0,
+                    order: rule.order || 0
+                });
+            }
+        }
+
+        // If multiple rules match, use the one with highest priority, then order
+        let selectedRule = null;
+        if (matchingRules.length > 0) {
+            matchingRules.sort((a, b) => {
+                if (b.priority !== a.priority) return b.priority - a.priority;
+                return a.order - b.order;
+            });
+            selectedRule = matchingRules[0];
+        }
+
+        // Default maxGames if no rule matches
+        const maxGames = selectedRule ? selectedRule.maxGames : 10; // Default to 10 games
+
+        return {
+            maxGames,
+            appliedRule: selectedRule ? {
+                ruleId: selectedRule.ruleId,
+                ruleName: selectedRule.ruleName,
+                appliedMilestones: selectedRule.appliedMilestones
+            } : null,
+            allMatchingRules: matchingRules.length,
+            userProfile: {
+                gamesPlayed: userProfile.gamesPlayed,
+                xp: userProfile.xp,
+                membershipTier: userProfile.membershipTier
+            }
+        };
+    } catch (error) {
+        console.error('Error getting homepage swipe config:', error);
+        // Return default config on error
+        return {
+            maxGames: 10,
+            appliedRule: null,
+            allMatchingRules: 0,
+            error: 'Failed to evaluate display rules'
+        };
+    }
+}
+
+// Get homepage swipe configuration endpoint
+router.get('/swipe-config', auth, async (req, res) => {
+    try {
+        const user = req.user;
+        const swipeConfig = await getHomepageSwipeConfig(user);
+        
+        res.status(200).json({
+            success: true,
+            data: swipeConfig
+        });
+    } catch (error) {
+        console.error('Error fetching swipe config:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch swipe configuration'
+        });
+    }
+});
 
 // Get daily challenges
 router.get('/daily-challenges', auth, async (req, res) => {
@@ -364,7 +474,7 @@ router.get('/deals', auth, async (req, res) => {
         // Filter deals based on user's VIP status
         const filteredDeals = deals.filter(deal => {
             if (!deal.vipOnly) return true;
-            return user.vip?.level && user.vip.level !== 'BRONZE';
+            return user.vip?.level && user.vip.level !== 'free';
         });
 
         res.status(200).json({
@@ -417,7 +527,7 @@ router.get('/daily-rewards', auth, async (req, res) => {
         // Filter rewards based on VIP status
         const filteredRewards = rewards.filter(reward => {
             if (!reward.vipOnly) return true;
-            return user.vip?.level && user.vip.level !== 'BRONZE';
+            return user.vip?.level && user.vip.level !== 'free';
         });
 
         res.status(200).json({

@@ -1,0 +1,533 @@
+{
+    "Male": {
+      "18-24": {
+        "Swipe": [
+          "Mech Arena - Android",
+          "Love & Fashion - Merge Story - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Fusion Block - Android",
+          "All in Hole - Android"
+        ],
+        "Most Played": [
+          "Colorwood Words: Cryptogram - Android",
+          "Love & Fashion - Merge Story - Android",
+          "Fusion Block - Android",
+          "Happy Color®: Coloring Book Android",
+          "June's Journey: Hidden Objects - Android"
+        ],
+        "Most Played Screen": [
+          "Merge Studio: Fashion Makeover - Android",
+          "Yahtzee - Android",
+          "Toon Blast - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Scrabble GO - Android"
+        ],
+        "Highest Earning": [
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Fable Town: Merge games - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Scatter Slots: Slot Machines - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Love & Fashion - Merge Story - Android"
+        ]
+      },
+      "25-34": {
+        "Swipe": [
+          "Match Masters - PvP Match 3 - Android",
+          "Colorwood Sort Puzzle Game - Android",
+          "MU: Dark Epoch - Android",
+          "Fusion Block - Android",
+          "Blitz - Win Cash - Android"
+        ],
+        "Most Played": [
+          "Scatter Slots: Slot Machines - Android",
+          "SpongeBob Adventures: In A Jam - Android",
+          "Blitz - Win Cash - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Mech Arena - Android"
+        ],
+        "Most Played Screen": [
+          "Colorwood Sort Puzzle Game - Android",
+          "Fable Town: Merge games - Android",
+          "All in Hole - Android",
+          "Mech Arena - Android",
+          "Love & Fashion - Merge Story - Android"
+        ],
+        "Highest Earning": [
+          "Colorwood Sort Puzzle Game - Android",
+          "Fusion Block - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Colorwood Sort Puzzle Game - Android",
+          "FarmVille 2: Country Escape - Android"
+        ],
+        "Leadership": [
+          "Fusion Block - Android",
+          "RAID: Shadow Legends - Android"
+        ]
+      },
+      "35-44": {
+        "Swipe": [
+          "Idle Bank Tycoon: Money Empire - Android",
+          "Merge Studio: Fashion Makeover - Android",
+          "Happy Color®: Coloring Book Android",
+          "Fable Town: Merge games - Android",
+          "Match Masters - PvP Match 3 - Android"
+        ],
+        "Most Played": [
+          "Solitaire.com: Classic Cards - Android",
+          "Scrabble GO - Android",
+          "Dice Dreams - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Match Masters - PvP Match 3 - Android"
+        ],
+        "Most Played Screen": [
+          "Animals & Coins - Android",
+          "Fusion Block - Android",
+          "Love & Fashion - Merge Story - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Scatter Slots: Slot Machines - Android"
+        ],
+        "Highest Earning": [
+          "Match Masters - PvP Match 3 - Android",
+          "Mech Arena - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Toon Blast - Android",
+          "June's Journey: Hidden Objects - Android"
+        ],
+        "Leadership": [
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Fusion Block - Android"
+        ]
+      },
+      "45-54": {
+        "Swipe": [
+          "Dice Dreams - Android",
+          "Mech Arena - Android",
+          "SpongeBob Adventures: In A Jam - Android",
+          "Scrabble GO - Android",
+          "Solitaire Cash - Android"
+        ],
+        "Most Played": [
+          "Toon Blast - Android",
+          "Fusion Block - Android",
+          "RAID: Shadow Legends - Android",
+          "Solitaire.com: Classic Cards - Android",
+          "Love & Fashion - Merge Story - Android"
+        ],
+        "Most Played Screen": [
+          "Fusion Block - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Blitz - Win Cash - Android",
+          "Dice Dreams - Android",
+          "Animals & Coins - Android"
+        ],
+        "Highest Earning": [
+          "All in Hole - Android",
+          "Happy Color®: Coloring Book Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Fusion Block - Android",
+          "Solitaire.com: Classic Cards - Android"
+        ],
+        "Leadership": [
+          "RAID: Shadow Legends - Android",
+          "Mech Arena - Android"
+        ]
+      },
+      "55+": {
+        "Swipe": [
+          "Animals & Coins - Android",
+          "Fable Town: Merge games - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Solitaire.com: Classic Cards - Android",
+          "Love & Fashion - Merge Story - Android"
+        ],
+        "Most Played": [
+          "Mech Arena - Android",
+          "RAID: Shadow Legends - Android",
+          "Fusion Block - Android",
+          "Happy Color®: Coloring Book Android",
+          "June's Journey: Hidden Objects - Android"
+        ],
+        "Most Played Screen": [
+          "Fable Town: Merge games - Android",
+          "SpongeBob Adventures: In A Jam - Android",
+          "Fusion Block - Android",
+          "Toon Blast - Android",
+          "Dice Dreams - Android"
+        ],
+        "Highest Earning": [
+          "All in Hole - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Solitaire Cash - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "Toon Blast - Android",
+          "Mech Arena - Android"
+        ]
+      }
+    },
+    "Female": {
+      "18-24": {
+        "Swipe": [
+          "Idle Bank Tycoon: Money Empire - Android",
+          "Fable Town: Merge games - Android",
+          "Star Trek Fleet Command - Android",
+          "Merge Studio: Fashion Makeover - Android",
+          "Happy Color®: Coloring Book Android"
+        ],
+        "Most Played": [
+          "Animals & Coins - Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Happy Color®: Coloring Book Android",
+          "MU: Dark Epoch - Android",
+          "Merge Studio: Fashion Makeover - Android"
+        ],
+        "Most Played Screen": [
+          "Scrabble GO - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Scatter Slots: Slot Machines - Android",
+          "Fable Town: Merge games - Android",
+          "Puzzles & Chaos: Frozen Castle - Android"
+        ],
+        "Highest Earning": [
+          "FarmVille 2: Country Escape - Android",
+          "Star Trek Fleet Command - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Dice Dreams - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "June's Journey: Hidden Objects - Android",
+          "MU: Dark Epoch - Android"
+        ]
+      },
+      "25-34": {
+        "Swipe": [
+          "FarmVille 2: Country Escape - Android",
+          "Solitaire Cash - Android",
+          "RAID: Shadow Legends - Android",
+          "Scrabble GO - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Most Played": [
+          "Idle Bank Tycoon: Money Empire - Android",
+          "Dice Dreams - Android",
+          "Merge Studio: Fashion Makeover - Android",
+          "Star Trek Fleet Command - Android",
+          "Scrabble GO - Android"
+        ],
+        "Most Played Screen": [
+          "Love & Fashion - Merge Story - Android",
+          "Fable Town: Merge games - Android",
+          "RAID: Shadow Legends - Android",
+          "June's Journey: Hidden Objects - Android",
+          "MU: Dark Epoch - Android"
+        ],
+        "Highest Earning": [
+          "Match Factory Android",
+          "Match Masters - PvP Match 3 - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Scrabble GO - Android",
+          "Scatter Slots: Slot Machines - Android"
+        ],
+        "Leadership": [
+          "Toon Blast - Android",
+          "Puzzles & Chaos: Frozen Castle - Android"
+        ]
+      },
+      "35-44": {
+        "Swipe": [
+          "MU: Dark Epoch - Android",
+          "Love & Fashion - Merge Story - Android",
+          "RAID: Shadow Legends - Android",
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Toon Blast - Android"
+        ],
+        "Most Played": [
+          "June's Journey: Hidden Objects - Android",
+          "Solitaire.com: Classic Cards - Android",
+          "Fusion Block - Android",
+          "Fable Town: Merge games - Android",
+          "SpongeBob Adventures: In A Jam - Android"
+        ],
+        "Most Played Screen": [
+          "FarmVille 2: Country Escape - Android",
+          "Solitaire Cash - Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Scrabble GO - Android",
+          "Dice Dreams - Android"
+        ],
+        "Highest Earning": [
+          "Star Trek Fleet Command - Android",
+          "Mech Arena - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Animals & Coins - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "Farming Game : Sunshine Island - Android",
+          "Happy Color®: Coloring Book Android"
+        ]
+      },
+      "45-54": {
+        "Swipe": [
+          "Match Masters - PvP Match 3 - Android",
+          "Toon Blast - Android",
+          "Farming Game : Sunshine Island - Android",
+          "June's Journey: Hidden Objects - Android",
+          "Fable Town: Merge games - Android"
+        ],
+        "Most Played": [
+          "Fusion Block - Android",
+          "Star Trek Fleet Command - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Solitaire.com: Classic Cards - Android",
+          "Scrabble GO - Android"
+        ],
+        "Most Played Screen": [
+          "Fusion Block - Android",
+          "Love & Fashion - Merge Story - Android",
+          "All in Hole - Android",
+          "Mech Arena - Android",
+          "Scatter Slots: Slot Machines - Android"
+        ],
+        "Highest Earning": [
+          "Fable Town: Merge games - Android",
+          "SpongeBob Adventures: In A Jam - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Animals & Coins - Android",
+          "Toon Blast - Android"
+        ],
+        "Leadership": [
+          "RAID: Shadow Legends - Android",
+          "MU: Dark Epoch - Android"
+        ]
+      },
+      "55+": {
+        "Swipe": [
+          "Dice Dreams - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Happy Color®: Coloring Book Android",
+          "Solitaire Cash - Android",
+          "Mech Arena - Android"
+        ],
+        "Most Played": [
+          "Animals & Coins - Android",
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Love & Fashion - Merge Story - Android",
+          "Fusion Block - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Most Played Screen": [
+          "June's Journey: Hidden Objects - Android",
+          "FarmVille 2: Country Escape - Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Fable Town: Merge games - Android",
+          "RAID: Shadow Legends - Android"
+        ],
+        "Highest Earning": [
+          "SpongeBob Adventures: In A Jam - Android",
+          "Toon Blast - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Solitaire Cash - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "FarmVille 2: Country Escape - Android",
+          "Scrabble GO - Android"
+        ]
+      }
+    },
+    "Other": {
+      "18-24": {
+        "Swipe": [
+          "Match Factory Android",
+          "Colorwood Words: Cryptogram - Android",
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Mech Arena - Android"
+        ],
+        "Most Played": [
+          "Solitaire.com: Classic Cards - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Scrabble GO - Android",
+          "Fable Town: Merge games - Android",
+          "Fusion Block - Android"
+        ],
+        "Most Played Screen": [
+          "MU: Dark Epoch - Android",
+          "Scatter Slots: Slot Machines - Android",
+          "Dice Dreams - Android",
+          "Mech Arena - Android",
+          "All in Hole - Android"
+        ],
+        "Highest Earning": [
+          "Solitaire.com: Classic Cards - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Fable Town: Merge games - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Leadership": [
+          "Happy Color®: Coloring Book Android",
+          "Toon Blast - Android"
+        ]
+      },
+      "25-34": {
+        "Swipe": [
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Toon Blast - Android",
+          "Blitz - Win Cash - Android",
+          "Match Factory Android",
+          "Match Masters - PvP Match 3 - Android"
+        ],
+        "Most Played": [
+          "Blitz - Win Cash - Android",
+          "Animals & Coins - Android",
+          "Colorwood Words: Cryptogram - Android",
+          "Yahtzee - Android",
+          "June's Journey: Hidden Objects - Android"
+        ],
+        "Most Played Screen": [
+          "June's Journey: Hidden Objects - Android",
+          "Scrabble GO - Android",
+          "RAID: Shadow Legends - Android",
+          "SpongeBob Adventures: In A Jam - Android",
+          "Farming Game : Sunshine Island - Android"
+        ],
+        "Highest Earning": [
+          "All in Hole - Android",
+          "MU: Dark Epoch - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Merge Studio: Fashion Makeover - Android",
+          "SpongeBob Adventures: In A Jam - Android"
+        ],
+        "Leadership": [
+          "Happy Color®: Coloring Book Android",
+          "Idle Bank Tycoon: Money Empire - Android"
+        ]
+      },
+      "35-44": {
+        "Swipe": [
+          "Solitaire.com: Classic Cards - Android",
+          "Dice Dreams - Android",
+          "Yahtzee - Android",
+          "Solitaire Cash - Android",
+          "Scrabble GO - Android"
+        ],
+        "Most Played": [
+          "All in Hole - Android",
+          "Fusion Block - Android",
+          "Match Factory Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Puzzles & Chaos: Frozen Castle - Android"
+        ],
+        "Most Played Screen": [
+          "SpongeBob Adventures: In A Jam - Android",
+          "Mech Arena - Android",
+          "Star Trek Fleet Command - Android",
+          "Love & Fashion - Merge Story - Android",
+          "Animals & Coins - Android"
+        ],
+        "Highest Earning": [
+          "RAID: Shadow Legends - Android",
+          "Toon Blast - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Solitaire.com: Classic Cards - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "FarmVille 2: Country Escape - Android",
+          "Happy Color®: Coloring Book Android"
+        ]
+      },
+      "45-54": {
+        "Swipe": [
+          "Dice Dreams - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Match Masters - PvP Match 3 - Android",
+          "Fusion Block - Android",
+          "Scrabble GO - Android"
+        ],
+        "Most Played": [
+          "Idle Bank Tycoon: Money Empire - Android",
+          "Solitaire.com: Classic Cards - Android",
+          "Fable Town: Merge games - Android",
+          "Animals & Coins - Android",
+          "Mech Arena - Android"
+        ],
+        "Most Played Screen": [
+          "All in Hole - Android",
+          "Match Factory Android",
+          "Toon Blast - Android",
+          "Fusion Block - Android",
+          "June's Journey: Hidden Objects - Android"
+        ],
+        "Highest Earning": [
+          "RAID: Shadow Legends - Android",
+          "FarmVille 2: Country Escape - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "Star Trek Fleet Command - Android",
+          "Fusion Block - Android"
+        ],
+        "Leadership": [
+          "Toon Blast - Android",
+          "Match Masters - PvP Match 3 - Android"
+        ]
+      },
+      "55+": {
+        "Swipe": [
+          "Puzzles & Chaos: Frozen Castle - Android",
+          "Farming Game : Sunshine Island - Android",
+          "Solitaire Cash - Android",
+          "RAID: Shadow Legends - Android",
+          "Fable Town: Merge games - Android"
+        ],
+        "Most Played": [
+          "Fusion Block - Android",
+          "June's Journey: Hidden Objects - Android",
+          "Animals & Coins - Android",
+          "Love & Fashion - Merge Story - Android",
+          "Mech Arena - Android"
+        ],
+        "Most Played Screen": [
+          "Toon Blast - Android",
+          "Match Factory Android",
+          "Happy Color®: Coloring Book Android",
+          "Dice Dreams - Android",
+          "Fusion Block - Android"
+        ],
+        "Highest Earning": [
+          "FarmVille 2: Country Escape - Android",
+          "MU: Dark Epoch - Android"
+        ],
+        "Cash Coach Recommendation": [
+          "SpongeBob Adventures: In A Jam - Android",
+          "Scrabble GO - Android"
+        ],
+        "Leadership": [
+          "Animals & Coins - Android",
+          "Star Trek Fleet Command - Android"
+        ]
+      }
+    }
+  }

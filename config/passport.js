@@ -72,17 +72,17 @@ passport.use(new GoogleStrategy({
                 step: 1
             },
             wallet: {
-                balance: 100, // Welcome bonus
+                balance: 0, // Welcome bonus
                 currency: 'coins',
                 lastUpdated: new Date()
             },
             xp: {
-                current: 50,
+                current: 0,
                 tier: 1,
                 streak: 0
             },
             vip: {
-                level: 'BRONZE',
+                level: 'free',
                 expires: null,
                 benefits: {
                     bonusPercentage: 0,
@@ -91,7 +91,10 @@ passport.use(new GoogleStrategy({
                     prioritySupport: false,
                     specialOffers: false
                 }
-            }
+            },
+            loginCount: 1, // Initialize login count for new Google users
+            lastLoginAt: new Date(), // Set initial login time
+            lastActive: new Date() // Set initial active time
         });
 
         const savedUser = await newUser.save();
@@ -151,17 +154,17 @@ passport.use(new FacebookStrategy({
                 step: 1
             },
             wallet: {
-                balance: 100, // Welcome bonus
+                balance: 0, // Welcome bonus
                 currency: 'coins',
                 lastUpdated: new Date()
             },
             xp: {
-                current: 50,
+                current: 0,
                 tier: 1,
                 streak: 0
             },
             vip: {
-                level: 'BRONZE',
+                level: 'free',
                 expires: null,
                 benefits: {
                     bonusPercentage: 0,
@@ -170,7 +173,10 @@ passport.use(new FacebookStrategy({
                     prioritySupport: false,
                     specialOffers: false
                 }
-            }
+            },
+            loginCount: 1, // Initialize login count for new Facebook users
+            lastLoginAt: new Date(), // Set initial login time
+            lastActive: new Date() // Set initial active time
         });
 
         const savedUser = await newUser.save();

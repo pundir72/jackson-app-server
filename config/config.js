@@ -58,15 +58,15 @@ module.exports = {
     
     // VIP System
     VIP_TIERS: {
-        BRONZE: {
+        bronze: {
             price: parseInt(process.env.VIP_BRONZE_PRICE) || 4.99,
             benefits: ['No Ads', 'Bonus XP', 'Exclusive Offers']
         },
-        GOLD: {
+        gold: {
             price: parseInt(process.env.VIP_GOLD_PRICE) || 9.99,
             benefits: ['All Bronze', 'Double XP', 'Special Rewards']
         },
-        PLATINUM: {
+        platinum: {
             price: parseInt(process.env.VIP_PLATINUM_PRICE) || 19.99,
             benefits: ['All Gold', 'Triple XP', 'VIP Support']
         }
@@ -75,6 +75,24 @@ module.exports = {
     // Cash Coach
     MIN_WITHDRAWAL_AMOUNT: parseFloat(process.env.MIN_WITHDRAWAL_AMOUNT) || 20,
     MAX_WITHDRAWAL_AMOUNT: parseFloat(process.env.MAX_WITHDRAWAL_AMOUNT) || 100,
+    
+    // Besitos - Game Offers & Surveys Platform
+    BESITOS_BASE_URL: process.env.BESITOS_BASE_URL || 'https://api.besitos.ai',
+    BESITOS_PARTNER_ID: process.env.BESITOS_PARTNER_ID,
+    BESITOS_API_TOKEN: process.env.BESITOS_API_TOKEN,
+    
+    // Bitlabs - Game Offers & Surveys Platform
+    // Base URL should NOT include /v1 - it will be added to the endpoint path
+    BITLABS_BASE_URL: process.env.BITLABS_BASE_URL || 'https://api.bitlabs.ai',
+    BITLABS_API_TOKEN: process.env.BITLABS_API_TOKEN,
+    BITLABS_SECRET_KEY: process.env.BITLABS_SECRET_KEY,
+    BITLABS_SERVER_TO_SERVER_KEY: process.env.BITLABS_SERVER_TO_SERVER_KEY,
+    BITLABS_REFRESH_INTERVAL_MINUTES: parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
+    
+    // Adjust - S2S API for event tracking
+    // Documentation: https://dev.adjust.com/en/api/s2s-api
+    ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,
+    ADJUST_APP_TOKEN: process.env.ADJUST_APP_TOKEN,
     
     // Error Codes
     ERROR_CODES: {

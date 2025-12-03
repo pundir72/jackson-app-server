@@ -151,7 +151,7 @@ async function trackUserActivity(userId, options = {}) {
     let milestoneRewardInfo = null;
     const currentStreak = activity.currentStreak || 0;
     if (
-      STREAK_MILESTONES.includes(currentStreak) &&
+      DEFAULT_STREAK_MILESTONES.includes(currentStreak) &&
       activity.awardedMilestones &&
       activity.awardedMilestones.includes(currentStreak)
     ) {

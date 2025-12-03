@@ -112,53 +112,53 @@ async function getNonGameOffers(params = {}) {
 
     // Fetch surveys from dedicated endpoint
     if (type === "all" || type === "survey") {
-      console.log(
-        "🟠 [BITLABS UTILITY] Fetching surveys with queryParams:",
-        queryParams
-      );
+      // console.log(
+      //   "🟠 [BITLABS UTILITY] Fetching surveys with queryParams:",
+      //   queryParams
+      // );
       fetchPromises.push(
         bitlabsService
           .getSurveys(queryParams, userId)
           .then((result) => {
-            console.log(
-              "🟠 [BITLABS UTILITY] ========== Survey API Response Received =========="
-            );
-            console.log("🟠 [BITLABS UTILITY] Response summary:", {
-              success: result.success,
-              dataCount: result.data?.length || 0,
-              error: result.error,
-            });
+            // console.log(
+            //   "🟠 [BITLABS UTILITY] ========== Survey API Response Received =========="
+            // );
+            // console.log("🟠 [BITLABS UTILITY] Response summary:", {
+            //   success: result.success,
+            //   dataCount: result.data?.length || 0,
+            //   error: result.error,
+            // });
             if (result.success && result.data) {
               // Normalize surveys to add userRewardCoins and userRewardXP fields
               const normalizedSurveys = result.data.map((survey) =>
                 normalizeOffer(survey, userId)
               );
               categorizedOffers.surveys = normalizedSurveys;
-              console.log(
-                "🟠 [BITLABS UTILITY] ✅ Added",
-                normalizedSurveys.length,
-                "normalized surveys to categorizedOffers"
-              );
-              if (normalizedSurveys.length > 0) {
-                console.log("🟠 [BITLABS UTILITY] First survey sample:", {
-                  id: normalizedSurveys[0]?.id,
-                  value: normalizedSurveys[0]?.value,
-                  cpi: normalizedSurveys[0]?.cpi,
-                  country: normalizedSurveys[0]?.country,
-                  userRewardCoins: normalizedSurveys[0]?.userRewardCoins,
-                  userRewardXP: normalizedSurveys[0]?.userRewardXP,
-                  rewardCoins: normalizedSurveys[0]?.reward?.coins,
-                  rewardXP: normalizedSurveys[0]?.reward?.xp,
-                });
-              }
+              // console.log(
+              //   "🟠 [BITLABS UTILITY] ✅ Added",
+              //   normalizedSurveys.length,
+              //   "normalized surveys to categorizedOffers"
+              // );
+              // if (normalizedSurveys.length > 0) {
+              //   console.log("🟠 [BITLABS UTILITY] First survey sample:", {
+              //     id: normalizedSurveys[0]?.id,
+              //     value: normalizedSurveys[0]?.value,
+              //     cpi: normalizedSurveys[0]?.cpi,
+              //     country: normalizedSurveys[0]?.country,
+              //     userRewardCoins: normalizedSurveys[0]?.userRewardCoins,
+              //     userRewardXP: normalizedSurveys[0]?.userRewardXP,
+              //     rewardCoins: normalizedSurveys[0]?.reward?.coins,
+              //     rewardXP: normalizedSurveys[0]?.reward?.xp,
+              //   });
+              // }
             } else {
               console.log(
                 "🟠 [BITLABS UTILITY] ⚠️ No surveys in response or request failed"
               );
             }
-            console.log(
-              "🟠 [BITLABS UTILITY] ================================================="
-            );
+            // console.log(
+            //   "🟠 [BITLABS UTILITY] ================================================="
+            // );
           })
           .catch((err) => {
             console.error(
@@ -339,18 +339,18 @@ async function getNonGameOffers(params = {}) {
       },
     };
 
-    console.log("🟠 [BITLABS UTILITY] ========== Returning result ==========");
-    console.log("🟠 [BITLABS UTILITY] Result summary:", {
-      success: result.success,
-      totalOffers: result.totalOffers,
-      surveysCount: result.breakdown.surveys,
-      cashbackCount: result.breakdown.cashback,
-      shoppingCount: result.breakdown.shopping,
-      magicReceiptsCount: result.breakdown.magicReceipts,
-      otherCount: result.breakdown.other,
-      estimatedEarnings: result.estimatedEarnings,
-    });
-    console.log("🟠 [BITLABS UTILITY] ======================================");
+    // console.log("🟠 [BITLABS UTILITY] ========== Returning result ==========");
+    // console.log("🟠 [BITLABS UTILITY] Result summary:", {
+    //   success: result.success,
+    //   totalOffers: result.totalOffers,
+    //   surveysCount: result.breakdown.surveys,
+    //   cashbackCount: result.breakdown.cashback,
+    //   shoppingCount: result.breakdown.shopping,
+    //   magicReceiptsCount: result.breakdown.magicReceipts,
+    //   otherCount: result.breakdown.other,
+    //   estimatedEarnings: result.estimatedEarnings,
+    // });
+    // console.log("🟠 [BITLABS UTILITY] ======================================");
 
     return result;
   } catch (error) {

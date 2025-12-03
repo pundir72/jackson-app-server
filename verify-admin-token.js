@@ -30,11 +30,11 @@ async function verifyAdminToken(tokenString) {
       process.exit(1);
     }
 
-    console.log('\n📋 Token Info:');
-    console.log('=====================================');
-    console.log('User ID:', decoded.userId);
-    console.log('Expires:', decoded.exp ? new Date(decoded.exp * 1000) : 'N/A');
-    console.log('=====================================\n');
+    // console.log('\n📋 Token Info:');
+    // console.log('=====================================');
+    // console.log('User ID:', decoded.userId);
+    // console.log('Expires:', decoded.exp ? new Date(decoded.exp * 1000) : 'N/A');
+    // console.log('=====================================\n');
 
     // Check user role
     const user = await User.findById(decoded.userId).select('role email mobile firstName lastName');
@@ -44,25 +44,25 @@ async function verifyAdminToken(tokenString) {
       process.exit(1);
     }
 
-    console.log('👤 User Info:');
-    console.log('=====================================');
-    console.log('ID:', user._id);
-    console.log('Name:', user.firstName, user.lastName);
-    console.log('Email:', user.email);
-    console.log('Mobile:', user.mobile);
-    console.log('Role:', user.role);
-    console.log('=====================================\n');
+    // console.log('👤 User Info:');
+    // console.log('=====================================');
+    // console.log('ID:', user._id);
+    // console.log('Name:', user.firstName, user.lastName);
+    // console.log('Email:', user.email);
+    // console.log('Mobile:', user.mobile);
+    // console.log('Role:', user.role);
+    // console.log('=====================================\n');
 
-    if (user.role === 'ADMIN') {
-      console.log('✅ User has ADMIN role - Token should work for admin endpoints');
-    } else {
-      console.log('❌ User does NOT have ADMIN role');
-      console.log('Current role:', user.role);
-      console.log('\nTo fix:');
-      console.log('1. Run: node check-admin-role.js', user.email);
-      console.log('2. Or update user in database: role = "ADMIN"');
-      console.log('3. Then login again to get a new token');
-    }
+    // if (user.role === 'ADMIN') {
+    //   console.log('✅ User has ADMIN role - Token should work for admin endpoints');
+    // } else {
+    //   console.log('❌ User does NOT have ADMIN role');
+    //   console.log('Current role:', user.role);
+    //   console.log('\nTo fix:');
+    //   console.log('1. Run: node check-admin-role.js', user.email);
+    //   console.log('2. Or update user in database: role = "ADMIN"');
+    //   console.log('3. Then login again to get a new token');
+    // }
 
     process.exit(0);
   } catch (error) {

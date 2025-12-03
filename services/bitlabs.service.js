@@ -1077,11 +1077,11 @@ class BitlabsService {
 
       // Log raw Bitlabs API response structure for CASHBACK
       if (rawCashback.length > 0) {
-        console.log(
-          `\n========== CASHBACK - RAW BITLABS API RESPONSE ==========`
-        );
-        console.log(`Total Cashback Offers: ${rawCashback.length}`);
-        console.log(`First Cashback Offer Structure (from Bitlabs API):`);
+        // console.log(
+        //   `\n========== CASHBACK - RAW BITLABS API RESPONSE ==========`
+        // );
+        // console.log(`Total Cashback Offers: ${rawCashback.length}`);
+        // console.log(`First Cashback Offer Structure (from Bitlabs API):`);
         const firstCashback = rawCashback[0];
         const cashbackStructure = {};
         Object.keys(firstCashback).forEach((key) => {
@@ -1101,10 +1101,10 @@ class BitlabsService {
                 : value;
           }
         });
-        console.log(JSON.stringify(cashbackStructure, null, 2));
-        console.log(
-          `========================================================\n`
-        );
+        // console.log(JSON.stringify(cashbackStructure, null, 2));
+        // console.log(
+        //   `========================================================\n`
+        // );
       }
 
       // Return raw Bitlabs cashback format - preserve original structure
@@ -1163,9 +1163,9 @@ class BitlabsService {
         restrictionReason: restrictionReason || null, // Include restriction reason in response
       };
     } catch (error) {
-      console.error(`\n========== CASHBACK OFFERS ERROR ==========`);
-      console.error(`Error message:`, error.message);
-      console.error(`Error status:`, error.status || error.response?.status);
+      // console.error(`\n========== CASHBACK OFFERS ERROR ==========`);
+      // console.error(`Error message:`, error.message);
+      // console.error(`Error status:`, error.status || error.response?.status);
 
       // Log full error response data from BitLabs
       if (error.data) {

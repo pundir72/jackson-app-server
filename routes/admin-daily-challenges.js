@@ -1305,8 +1305,8 @@ router.put(
       .isBoolean()
       .withMessage("Active must be a boolean"),
     body("milestones.*.rewards")
-      .isArray({ min: 1 })
-      .withMessage("At least one reward is required"),
+      .isArray({ min: 1, max: 2 })
+      .withMessage("At least one reward is required, maximum 2 rewards allowed per milestone (Coins and XP)"),
     body("milestones.*.rewards.*.type")
       .isIn(["coins", "xp"])
       .withMessage("Reward type must be coins or xp"),

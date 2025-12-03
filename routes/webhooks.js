@@ -450,7 +450,8 @@ router.post('/bitlabs/completion', async (req, res) => {
 router.post('/adjust/callback', async (req, res) => {
   try {
     const callbackData = req.body;
-    
+    console.log('Adjus body callback received:', callbackData);
+    console.log('Adjus query callback received:', req.query);
     console.log('Adjust callback received:', {
       activityKind: callbackData.activity_kind || callbackData.activityKind,
       appToken: callbackData.app_token || callbackData.appToken,

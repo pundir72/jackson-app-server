@@ -28,9 +28,10 @@ const milestoneSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function(rewards) {
-        return Array.isArray(rewards) && rewards.length > 0;
+        // At least one reward is required, maximum 2 rewards allowed (coins and xp)
+        return Array.isArray(rewards) && rewards.length > 0 && rewards.length <= 2;
       },
-      message: 'At least one reward is required'
+      message: 'At least one reward is required, maximum 2 rewards allowed per milestone (Coins and XP)'
     }
   },
   claimMode: {

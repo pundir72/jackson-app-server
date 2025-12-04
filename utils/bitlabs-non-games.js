@@ -379,9 +379,10 @@ async function getNonGameOffers(params = {}) {
  * @returns {Promise<Object>} Survey offers result
  */
 async function getSurveys(params = {}) {
-  try {
-    const { userId, userProfile = {}, category } = params;
+  // Extract params at function level so they're available in catch block
+  const { userId, userProfile = {}, category } = params;
 
+  try {
     // 🔍 DEBUG: Log input parameters
     console.log("\n🔍 ========== getSurveys() - INPUT PARAMETERS ==========");
     console.log("👤 User ID:", userId);
@@ -390,19 +391,38 @@ async function getSurveys(params = {}) {
     console.log("==================================================\n");
 
     const queryParams = {};
+
+    // Add platform parameter (required for surveys)
     if (userProfile.platform) {
       queryParams.platform = userProfile.platform;
+    } else {
+      // Default to mobile if not specified (same as getNonGameOffers)
+      queryParams.platform = "mobile";
     }
+
     // CRITICAL: Add country parameter (surveys are country-specific)
+    // FIX: Add default country like getNonGameOffers() does
     if (userProfile.country) {
       queryParams.country = userProfile.country;
+    } else {
+      // Default to US for testing (same as getNonGameOffers)
+      queryParams.country = "US";
+      console.log(
+        `⚠️ No country specified in userProfile. Defaulting to "US" for surveys.`
+      );
+      console.log(
+        `   If surveys are targeted to other countries (e.g., India), specify country in userProfile.`
+      );
     }
-    if (userProfile.userAgent) {
-      queryParams.client_user_agent = userProfile.userAgent;
-    }
-    if (userProfile.ip) {
-      queryParams.client_ip = userProfile.ip;
-    }
+
+    // Add SDK parameter (recommended by Bitlabs, same as getNonGameOffers)
+    queryParams.sdk = "CUSTOM"; // Default for backend API integration
+
+    // NOTE: Removed client_user_agent and client_ip - Bitlabs returns 403 Forbidden
+    // Error: "Using 'client_' params is not allowed. Contact support to unlock them."
+    // These parameters require special permissions from Bitlabs support.
+    // If you need these, contact Bitlabs support to unlock them for your account.
+    // For now, we'll work without them - surveys will still work correctly.
 
     // 🔍 DEBUG: Log query params being sent
     console.log("\n🔍 ========== getSurveys() - QUERY PARAMS ==========");
@@ -533,8 +553,42 @@ async function getSurveys(params = {}) {
       estimatedEarnings,
     };
   } catch (error) {
-    console.error("Error getting surveys:", error);
-    // Return success with empty data instead of error
+    // 🔴 ENHANCED ERROR LOGGING: Log full error details
+    console.error(
+      "\n🔴 [BITLABS UTILITY] ========== getSurveys() ERROR =========="
+    );
+    console.error(
+      "🔴 [BITLABS UTILITY] ❌ Error Type:",
+      error.constructor.name
+    );
+    console.error("🔴 [BITLABS UTILITY] ❌ Error Message:", error.message);
+    console.error(
+      "🔴 [BITLABS UTILITY] ❌ Error Status:",
+      error.response?.status || error.status || "N/A"
+    );
+    console.error(
+      "🔴 [BITLABS UTILITY] ❌ Full Error Response:",
+      JSON.stringify(error.response?.data || error.data || {}, null, 2)
+    );
+    if (error.response?.data?.error) {
+      console.error(
+        "🔴 [BITLABS UTILITY] ❌ Error Details:",
+        JSON.stringify(error.response.data.error, null, 2)
+      );
+    }
+    console.error(
+      "🔴 [BITLABS UTILITY] ❌ User ID:",
+      params.userId || userId || "N/A"
+    );
+    console.error(
+      "🔴 [BITLABS UTILITY] ❌ User Profile:",
+      JSON.stringify(userProfile, null, 2)
+    );
+    console.error(
+      "🔴 [BITLABS UTILITY] ==================================================\n"
+    );
+
+    // Return success with empty data instead of error (to prevent breaking user flow)
     return {
       success: true,
       surveys: [],
@@ -620,31 +674,45 @@ async function getCashbackOffers(params = {}) {
     // Filter by category if specified
     if (category && category !== "all") {
       cashback = cashback.filter((offer) => {
-        const offerCategory = offer.category || "";
+        const offerCategory = offer.primary_category || offer.category || "";
         return offerCategory.toLowerCase().includes(category.toLowerCase());
       });
     }
 
-    const normalizedCashback = cashback.map((offer) =>
-      normalizeOffer(offer, userId)
-    );
-    const estimatedEarnings = normalizedCashback.reduce(
-      (sum, c) => sum + (c.reward?.coins || 0),
-      0
-    );
+    // For cashback: Preserve exact Bitlabs API structure (same keys and values)
+    // Do NOT normalize - return raw Bitlabs response structure
+    const rawCashback = cashback.map((offer) => {
+      // Preserve ALL original Bitlabs fields exactly as received
+      return {
+        ...offer, // All original fields: cashback, click_url, country_code, currency, description, flat_payout, images, merchant_id, merchant_name, original_cashback, primary_category, rank, reward_delay_days, terms, tier_mappings, up_to
+        // Only add minimal metadata for identification (don't override existing fields)
+        type: offer.type || "cashback",
+        provider: offer.provider || "bitlabs",
+        sdkProvider: offer.sdkProvider || "bitlabs",
+        // Add offerId for compatibility (use merchant_id as ID)
+        offerId:
+          offer.merchant_id?.toString() ||
+          offer.id?.toString() ||
+          offer.offer_id?.toString(),
+        id:
+          offer.merchant_id?.toString() ||
+          offer.id?.toString() ||
+          offer.offer_id?.toString(),
+      };
+    });
 
     return {
       success: true,
-      cashback: normalizedCashback,
+      cashback: rawCashback, // Return raw Bitlabs structure
       categorized: {
         surveys: [],
         magicReceipts: [],
-        cashback: normalizedCashback,
+        cashback: rawCashback, // Return raw Bitlabs structure
         shopping: [],
         other: [],
       },
-      totalCashback: normalizedCashback.length,
-      estimatedEarnings,
+      totalCashback: rawCashback.length,
+      estimatedEarnings: 0, // Not calculated for raw structure
     };
   } catch (error) {
     console.error("Error getting cashback offers:", error);

@@ -1476,7 +1476,12 @@ router.delete("/games/:id", adminAuth, async (req, res) => {
 router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    const { page = 1, limit = 100, search = "", excludeBonus = "false" } = req.query;
+    const {
+      page = 1,
+      limit = 100,
+      search = "",
+      excludeBonus = "false",
+    } = req.query;
 
     let query = { gameId };
 
@@ -1490,19 +1495,21 @@ router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
 
     // If excludeBonus is true, exclude tasks that are configured as bonus tasks
     if (excludeBonus === "true") {
-      const rule = await WelcomeBonusTimer.findOne({ 
+      const rule = await WelcomeBonusTimer.findOne({
         isActive: true,
-        'gameBonusTasks.gameId': gameId,
-        'gameBonusTasks.isEnabled': true
+        "gameBonusTasks.gameId": gameId,
+        "gameBonusTasks.isEnabled": true,
       });
-      
+
       if (rule) {
         const gameBonusConfig = rule.gameBonusTasks.find(
-          config => config.gameId.toString() === gameId && config.isEnabled
+          (config) => config.gameId.toString() === gameId && config.isEnabled
         );
-        
+
         if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
-          const bonusTaskIds = gameBonusConfig.bonusTasks.map(bt => bt.taskId);
+          const bonusTaskIds = gameBonusConfig.bonusTasks.map(
+            (bt) => bt.taskId
+          );
           query._id = { $nin: bonusTaskIds };
         }
       }
@@ -1762,7 +1769,9 @@ router.patch("/tasks/:id/toggle-override", adminAuth, async (req, res) => {
 // Test admin access endpoint (for debugging)
 router.get("/test-admin", adminAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('role email firstName lastName');
+    const user = await User.findById(req.user.userId).select(
+      "role email firstName lastName"
+    );
     res.json({
       success: true,
       message: "Admin access confirmed",
@@ -1770,14 +1779,14 @@ router.get("/test-admin", adminAuth, async (req, res) => {
         id: user._id,
         email: user.email,
         name: `${user.firstName} ${user.lastName}`,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error checking admin access",
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1788,24 +1797,24 @@ router.get("/display-rules", adminAuth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // Get all rules (not just enabled) with status
     const [rules, total] = await Promise.all([
       GameDisplayRule.find()
-        .populate('xpTier', 'tierName xpMin xpMax')
-        .populate('createdBy', 'firstName lastName email')
-        .populate('updatedBy', 'firstName lastName email')
+        .populate("xpTier", "tierName xpMin xpMax")
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email")
         .sort({ order: 1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      GameDisplayRule.countDocuments()
+      GameDisplayRule.countDocuments(),
     ]);
 
     // Add status label to each rule
-    const rulesWithStatus = rules.map(rule => ({
+    const rulesWithStatus = rules.map((rule) => ({
       ...rule,
-      status: rule.isEnabled ? 'Active' : 'Inactive'
+      status: rule.isEnabled ? "Active" : "Inactive",
     }));
 
     res.json({
@@ -1815,8 +1824,8 @@ router.get("/display-rules", adminAuth, async (req, res) => {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     console.error("Error getting display rules:", error);
@@ -1832,11 +1841,11 @@ router.get("/display-rules", adminAuth, async (req, res) => {
 router.get("/display-rules/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const rule = await GameDisplayRule.findById(id)
-      .populate('xpTier', 'tierName xpMin xpMax tierColor bgColor borderColor')
-      .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate("xpTier", "tierName xpMin xpMax tierColor bgColor borderColor")
+      .populate("createdBy", "firstName lastName email")
+      .populate("updatedBy", "firstName lastName email");
 
     if (!rule) {
       return res.status(404).json({
@@ -1849,7 +1858,7 @@ router.get("/display-rules/:id", adminAuth, async (req, res) => {
       success: true,
       data: {
         ...rule.toObject(),
-        status: rule.isEnabled ? 'Active' : 'Inactive'
+        status: rule.isEnabled ? "Active" : "Inactive",
       },
     });
   } catch (error) {
@@ -1868,28 +1877,47 @@ router.post(
   adminAuth,
   [
     body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
-    body("userMilestones").isArray({ min: 1 }).withMessage("At least one user milestone is required"),
-    body("userMilestones.*").isIn(['first_time_user', 'returning_user', 'xp_tier', 'membership_tier']).withMessage("Invalid milestone type"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("At least one user milestone is required"),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
     body("xpTier")
       .optional()
       .custom((value, { req }) => {
-        if (req.body.userMilestones && req.body.userMilestones.includes('xp_tier') && !value) {
-          throw new Error('XP Tier is required when "XP Tier" milestone is selected');
+        if (
+          req.body.userMilestones &&
+          req.body.userMilestones.includes("xp_tier") &&
+          !value
+        ) {
+          throw new Error(
+            'XP Tier is required when "XP Tier" milestone is selected'
+          );
         }
         return true;
       }),
     body("membershipTier")
       .optional()
       .custom((value, { req }) => {
-        if (req.body.userMilestones && req.body.userMilestones.includes('membership_tier') && !value) {
-          throw new Error('Membership Tier is required when "Membership Tier" milestone is selected');
+        if (
+          req.body.userMilestones &&
+          req.body.userMilestones.includes("membership_tier") &&
+          !value
+        ) {
+          throw new Error(
+            'Membership Tier is required when "Membership Tier" milestone is selected'
+          );
         }
         return true;
       }),
     body("maxGamesToShow")
       .isNumeric()
       .withMessage("Max games to show must be numeric"),
-    body("isEnabled").optional().isBoolean().withMessage("Enabled status must be boolean"),
+    body("isEnabled")
+      .optional()
+      .isBoolean()
+      .withMessage("Enabled status must be boolean"),
   ],
   async (req, res) => {
     try {
@@ -1915,7 +1943,7 @@ router.post(
           message: "A rule with these conditions already exists.",
           duplicateRuleId: duplicate._id,
           duplicateRule: duplicate,
-          shouldRedirectToEdit: true
+          shouldRedirectToEdit: true,
         });
       }
 
@@ -1923,15 +1951,15 @@ router.post(
       await rule.save();
 
       // Populate references for response
-      await rule.populate('xpTier', 'tierName xpMin xpMax');
-      await rule.populate('createdBy', 'firstName lastName email');
+      await rule.populate("xpTier", "tierName xpMin xpMax");
+      await rule.populate("createdBy", "firstName lastName email");
 
       res.status(201).json({
         success: true,
         message: "Display rule created successfully",
         data: {
           ...rule.toObject(),
-          status: rule.isEnabled ? 'Active' : 'Inactive'
+          status: rule.isEnabled ? "Active" : "Inactive",
         },
       });
     } catch (error) {
@@ -1940,10 +1968,10 @@ router.post(
         return res.status(409).json({
           success: false,
           message: "A rule with this name already exists.",
-          error: "Duplicate rule name"
+          error: "Duplicate rule name",
         });
       }
-      
+
       console.error("Error creating display rule:", error);
       res.status(500).json({
         success: false,
@@ -1959,15 +1987,27 @@ router.put(
   "/display-rules/:id",
   adminAuth,
   [
-    body("ruleName").optional().trim().notEmpty().withMessage("Rule name cannot be empty"),
-    body("userMilestones").optional().isArray({ min: 1 }).withMessage("At least one user milestone is required"),
-    body("userMilestones.*").optional().isIn(['first_time_user', 'returning_user', 'xp_tier', 'membership_tier']).withMessage("Invalid milestone type"),
+    body("ruleName")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Rule name cannot be empty"),
+    body("userMilestones")
+      .optional()
+      .isArray({ min: 1 })
+      .withMessage("At least one user milestone is required"),
+    body("userMilestones.*")
+      .optional()
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
     body("xpTier")
       .optional()
       .custom((value, { req }) => {
         const milestones = req.body.userMilestones;
-        if (milestones && milestones.includes('xp_tier') && !value) {
-          throw new Error('XP Tier is required when "XP Tier" milestone is selected');
+        if (milestones && milestones.includes("xp_tier") && !value) {
+          throw new Error(
+            'XP Tier is required when "XP Tier" milestone is selected'
+          );
         }
         return true;
       }),
@@ -1975,8 +2015,10 @@ router.put(
       .optional()
       .custom((value, { req }) => {
         const milestones = req.body.userMilestones;
-        if (milestones && milestones.includes('membership_tier') && !value) {
-          throw new Error('Membership Tier is required when "Membership Tier" milestone is selected');
+        if (milestones && milestones.includes("membership_tier") && !value) {
+          throw new Error(
+            'Membership Tier is required when "Membership Tier" milestone is selected'
+          );
         }
         return true;
       }),
@@ -2001,7 +2043,7 @@ router.put(
       }
 
       const { id } = req.params;
-      
+
       // Get existing rule
       const existingRule = await GameDisplayRule.findById(id);
       if (!existingRule) {
@@ -2016,13 +2058,14 @@ router.put(
       updateData.updatedAt = new Date();
 
       // Determine final milestones after update
-      const finalMilestones = updateData.userMilestones || existingRule.userMilestones;
-      
+      const finalMilestones =
+        updateData.userMilestones || existingRule.userMilestones;
+
       // Clear conditional fields if their milestones are removed
-      if (finalMilestones && !finalMilestones.includes('xp_tier')) {
+      if (finalMilestones && !finalMilestones.includes("xp_tier")) {
         updateData.xpTier = null;
       }
-      if (finalMilestones && !finalMilestones.includes('membership_tier')) {
+      if (finalMilestones && !finalMilestones.includes("membership_tier")) {
         updateData.membershipTier = null;
       }
 
@@ -2031,34 +2074,51 @@ router.put(
         ...existingRule.toObject(),
         ...updateData,
         userMilestones: finalMilestones,
-        xpTier: updateData.xpTier !== undefined ? updateData.xpTier : (finalMilestones.includes('xp_tier') ? existingRule.xpTier : null),
-        membershipTier: updateData.membershipTier !== undefined ? updateData.membershipTier : (finalMilestones.includes('membership_tier') ? existingRule.membershipTier : null),
-        segmentOverrides: updateData.segmentOverrides !== undefined ? updateData.segmentOverrides : existingRule.segmentOverrides
+        xpTier:
+          updateData.xpTier !== undefined
+            ? updateData.xpTier
+            : finalMilestones.includes("xp_tier")
+            ? existingRule.xpTier
+            : null,
+        membershipTier:
+          updateData.membershipTier !== undefined
+            ? updateData.membershipTier
+            : finalMilestones.includes("membership_tier")
+            ? existingRule.membershipTier
+            : null,
+        segmentOverrides:
+          updateData.segmentOverrides !== undefined
+            ? updateData.segmentOverrides
+            : existingRule.segmentOverrides,
       };
 
-      const duplicate = await GameDisplayRule.findDuplicate(ruleDataForCheck, id);
+      const duplicate = await GameDisplayRule.findDuplicate(
+        ruleDataForCheck,
+        id
+      );
       if (duplicate) {
         return res.status(409).json({
           success: false,
           message: "A rule with these conditions already exists.",
           duplicateRuleId: duplicate._id,
           duplicateRule: duplicate,
-          shouldRedirectToEdit: true
+          shouldRedirectToEdit: true,
         });
       }
 
       const rule = await GameDisplayRule.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
-      }).populate('xpTier', 'tierName xpMin xpMax')
-        .populate('updatedBy', 'firstName lastName email');
+      })
+        .populate("xpTier", "tierName xpMin xpMax")
+        .populate("updatedBy", "firstName lastName email");
 
       res.json({
         success: true,
         message: "Display rule updated successfully",
         data: {
           ...rule.toObject(),
-          status: rule.isEnabled ? 'Active' : 'Inactive'
+          status: rule.isEnabled ? "Active" : "Inactive",
         },
       });
     } catch (error) {
@@ -2078,10 +2138,11 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
     const { id } = req.params;
     const { confirm } = req.query; // Require confirmation query parameter
 
-    if (confirm !== 'true') {
+    if (confirm !== "true") {
       return res.status(400).json({
         success: false,
-        message: "Deletion requires confirmation. Add ?confirm=true to the URL.",
+        message:
+          "Deletion requires confirmation. Add ?confirm=true to the URL.",
       });
     }
 
@@ -2099,7 +2160,7 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
       message: "Display rule deleted successfully",
       data: {
         id: rule._id,
-        ruleName: rule.ruleName
+        ruleName: rule.ruleName,
       },
     });
   } catch (error) {
@@ -2120,15 +2181,18 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
     const { gameId } = req.params;
 
     const rule = await TaskProgressionRule.findByGame(gameId)
-      .populate('gameId', 'title gameId')
-      .populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order')
+      .populate("gameId", "title gameId")
+      .populate(
+        "postThresholdTasks.taskId",
+        "name description completionRule rewardType rewardValue order"
+      )
       .lean();
 
     if (!rule) {
       return res.json({
         success: true,
         data: null,
-        message: "No progression rule configured for this game"
+        message: "No progression rule configured for this game",
       });
     }
 
@@ -2139,9 +2203,9 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
       gameGameId: rule.gameId.gameId || null,
       minimumEventThreshold: rule.minimumEventThreshold,
       postThresholdTasks: rule.postThresholdTasks
-        .filter(pt => pt.isEnabled)
+        .filter((pt) => pt.isEnabled)
         .sort((a, b) => a.order - b.order)
-        .map(pt => ({
+        .map((pt) => ({
           taskId: pt.taskId._id || pt.taskId,
           order: pt.order,
           name: pt.taskId.name || null,
@@ -2151,11 +2215,11 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
           rewardValue: pt.taskId.rewardValue || null,
           requiredXpTier: pt.requiredXpTier,
           requiredMembershipTier: pt.requiredMembershipTier,
-          isEnabled: pt.isEnabled
+          isEnabled: pt.isEnabled,
         })),
       isActive: rule.isActive,
       createdAt: rule.createdAt,
-      updatedAt: rule.updatedAt
+      updatedAt: rule.updatedAt,
     };
 
     res.json({
@@ -2194,11 +2258,11 @@ router.post(
       .withMessage("Order must be at least 1"),
     body("postThresholdTasks.*.requiredXpTier")
       .optional()
-      .isIn(['junior', 'mid', 'senior', null])
+      .isIn(["junior", "mid", "senior", null])
       .withMessage("Invalid XP tier"),
     body("postThresholdTasks.*.requiredMembershipTier")
       .optional()
-      .isIn(['bronze', 'gold', 'platinum', null])
+      .isIn(["bronze", "gold", "platinum", null])
       .withMessage("Invalid membership tier"),
   ],
   async (req, res) => {
@@ -2227,7 +2291,7 @@ router.post(
       // Validate post threshold tasks if provided
       if (postThresholdTasks.length > 0) {
         // Check for duplicate task IDs
-        const taskIds = postThresholdTasks.map(pt => pt.taskId.toString());
+        const taskIds = postThresholdTasks.map((pt) => pt.taskId.toString());
         const uniqueTaskIds = [...new Set(taskIds)];
         if (taskIds.length !== uniqueTaskIds.length) {
           return res.status(400).json({
@@ -2239,13 +2303,14 @@ router.post(
         // Validate that all task IDs exist and belong to this game
         const existingTasks = await GameTask.find({
           _id: { $in: taskIds },
-          gameId: gameId
+          gameId: gameId,
         });
 
         if (existingTasks.length !== taskIds.length) {
           return res.status(400).json({
             success: false,
-            message: "One or more task IDs are invalid or do not belong to this game",
+            message:
+              "One or more task IDs are invalid or do not belong to this game",
           });
         }
       }
@@ -2256,12 +2321,12 @@ router.post(
       if (rule) {
         // Update existing rule
         rule.minimumEventThreshold = minimumEventThreshold;
-        rule.postThresholdTasks = postThresholdTasks.map(pt => ({
+        rule.postThresholdTasks = postThresholdTasks.map((pt) => ({
           taskId: pt.taskId,
           order: pt.order,
           requiredXpTier: pt.requiredXpTier || null,
           requiredMembershipTier: pt.requiredMembershipTier || null,
-          isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
+          isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
         }));
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
@@ -2270,12 +2335,12 @@ router.post(
         rule = new TaskProgressionRule({
           gameId: gameId,
           minimumEventThreshold: minimumEventThreshold,
-          postThresholdTasks: postThresholdTasks.map(pt => ({
+          postThresholdTasks: postThresholdTasks.map((pt) => ({
             taskId: pt.taskId,
             order: pt.order,
             requiredXpTier: pt.requiredXpTier || null,
             requiredMembershipTier: pt.requiredMembershipTier || null,
-            isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
+            isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
           })),
           createdBy: req.user.userId,
         });
@@ -2285,15 +2350,19 @@ router.post(
       if (!rule.isValidConfiguration()) {
         return res.status(400).json({
           success: false,
-          message: "Invalid configuration. Please check your post threshold tasks setup.",
+          message:
+            "Invalid configuration. Please check your post threshold tasks setup.",
         });
       }
 
       await rule.save();
 
       // Populate before returning
-      await rule.populate('gameId', 'title gameId');
-      await rule.populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order');
+      await rule.populate("gameId", "title gameId");
+      await rule.populate(
+        "postThresholdTasks.taskId",
+        "name description completionRule rewardType rewardValue order"
+      );
 
       // Format response
       const formattedData = {
@@ -2302,9 +2371,9 @@ router.post(
         gameGameId: rule.gameId.gameId || null,
         minimumEventThreshold: rule.minimumEventThreshold,
         postThresholdTasks: rule.postThresholdTasks
-          .filter(pt => pt.isEnabled)
+          .filter((pt) => pt.isEnabled)
           .sort((a, b) => a.order - b.order)
-          .map(pt => ({
+          .map((pt) => ({
             taskId: pt.taskId._id || pt.taskId,
             order: pt.order,
             name: pt.taskId.name || null,
@@ -2314,14 +2383,16 @@ router.post(
             rewardValue: pt.taskId.rewardValue || null,
             requiredXpTier: pt.requiredXpTier,
             requiredMembershipTier: pt.requiredMembershipTier,
-            isEnabled: pt.isEnabled
+            isEnabled: pt.isEnabled,
           })),
-        isActive: rule.isActive
+        isActive: rule.isActive,
       };
 
       res.json({
         success: true,
-        message: rule.isNew ? "Progression rule created successfully" : "Progression rule updated successfully",
+        message: rule.isNew
+          ? "Progression rule created successfully"
+          : "Progression rule updated successfully",
         data: formattedData,
       });
     } catch (error) {
@@ -2336,49 +2407,53 @@ router.post(
 );
 
 // Delete task progression rule for a game
-router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
-  try {
-    const { gameId } = req.params;
-    const { confirm } = req.query;
+router.delete(
+  "/progression-rules/game/:gameId",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const { gameId } = req.params;
+      const { confirm } = req.query;
 
-    if (confirm !== "true") {
-      return res.status(400).json({
+      if (confirm !== "true") {
+        return res.status(400).json({
+          success: false,
+          message: "Please confirm deletion by adding ?confirm=true to the URL",
+        });
+      }
+
+      const rule = await TaskProgressionRule.findByGame(gameId);
+
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "Progression rule not found for this game",
+        });
+      }
+
+      rule.isActive = false;
+      rule.updatedBy = req.user.userId;
+      rule.updatedAt = new Date();
+      await rule.save();
+
+      res.json({
+        success: true,
+        message: "Progression rule deleted successfully",
+        data: {
+          id: rule._id,
+          gameId: rule.gameId,
+        },
+      });
+    } catch (error) {
+      console.error("Error deleting progression rule:", error);
+      res.status(500).json({
         success: false,
-        message: "Please confirm deletion by adding ?confirm=true to the URL",
+        message: "Failed to delete progression rule",
+        error: error.message,
       });
     }
-
-    const rule = await TaskProgressionRule.findByGame(gameId);
-
-    if (!rule) {
-      return res.status(404).json({
-        success: false,
-        message: "Progression rule not found for this game",
-      });
-    }
-
-    rule.isActive = false;
-    rule.updatedBy = req.user.userId;
-    rule.updatedAt = new Date();
-    await rule.save();
-
-    res.json({
-      success: true,
-      message: "Progression rule deleted successfully",
-      data: {
-        id: rule._id,
-        gameId: rule.gameId,
-      },
-    });
-  } catch (error) {
-    console.error("Error deleting progression rule:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete progression rule",
-      error: error.message,
-    });
   }
-});
+);
 
 // ==================== WELCOME BONUS TIMER RULES ====================
 
@@ -2386,8 +2461,11 @@ router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => 
 router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   try {
     const rules = await WelcomeBonusTimer.find({ isActive: true })
-      .populate('gameBonusTasks.gameId', 'title gameId')
-      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+      .populate("gameBonusTasks.gameId", "title gameId")
+      .populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      )
       .sort({ createdAt: -1 })
       .lean();
 
@@ -2409,33 +2487,36 @@ router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
 router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    
-    const rule = await WelcomeBonusTimer.findOne({ 
+
+    const rule = await WelcomeBonusTimer.findOne({
       isActive: true,
-      'gameBonusTasks.gameId': gameId,
-      'gameBonusTasks.isEnabled': true
+      "gameBonusTasks.gameId": gameId,
+      "gameBonusTasks.isEnabled": true,
     })
-      .populate('gameBonusTasks.gameId', 'title gameId')
-      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+      .populate("gameBonusTasks.gameId", "title gameId")
+      .populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      )
       .lean();
 
     if (!rule) {
       return res.json({
         success: true,
         data: null,
-        message: "No bonus tasks configured for this game"
+        message: "No bonus tasks configured for this game",
       });
     }
 
     const gameBonusConfig = rule.gameBonusTasks.find(
-      config => config.gameId._id.toString() === gameId && config.isEnabled
+      (config) => config.gameId._id.toString() === gameId && config.isEnabled
     );
 
     if (!gameBonusConfig) {
       return res.json({
         success: true,
         data: null,
-        message: "No bonus tasks configured for this game"
+        message: "No bonus tasks configured for this game",
       });
     }
 
@@ -2448,9 +2529,9 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
       completionDeadlineHours: 24, // Fixed 24 hours
       taskLogic: "sequential", // Always sequential
       bonusTasks: gameBonusConfig.bonusTasks
-        .filter(bt => bt.isEnabled)
+        .filter((bt) => bt.isEnabled)
         .sort((a, b) => a.order - b.order)
-        .map(bt => ({
+        .map((bt) => ({
           taskId: bt.taskId._id || bt.taskId,
           order: bt.order,
           name: bt.taskId.name || null,
@@ -2459,9 +2540,9 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
           rewardType: bt.taskId.rewardType || null,
           rewardValue: bt.taskId.rewardValue || null,
           unlockCondition: bt.unlockCondition,
-          isEnabled: bt.isEnabled
+          isEnabled: bt.isEnabled,
         })),
-      isEnabled: gameBonusConfig.isEnabled
+      isEnabled: gameBonusConfig.isEnabled,
     };
 
     res.json({
@@ -2560,9 +2641,7 @@ router.post(
     body("bonusTasks")
       .isArray({ max: 3 })
       .withMessage("Maximum 3 bonus tasks allowed"),
-    body("bonusTasks.*.taskId")
-      .isMongoId()
-      .withMessage("Invalid task ID"),
+    body("bonusTasks.*.taskId").isMongoId().withMessage("Invalid task ID"),
     body("bonusTasks.*.order")
       .isInt({ min: 1, max: 3 })
       .withMessage("Order must be between 1 and 3"),
@@ -2598,7 +2677,7 @@ router.post(
       }
 
       // Validate that order values are unique and sequential
-      const orders = bonusTasks.map(bt => bt.order).sort();
+      const orders = bonusTasks.map((bt) => bt.order).sort();
       const expectedOrders = [1, 2, 3].slice(0, bonusTasks.length);
       if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
         return res.status(400).json({
@@ -2608,32 +2687,36 @@ router.post(
       }
 
       // Validate no duplicate task IDs
-      const taskIdsForDuplicateCheck = bonusTasks.map(bt => bt.taskId);
-      const uniqueTaskIds = [...new Set(taskIdsForDuplicateCheck.map(id => id.toString()))];
+      const taskIdsForDuplicateCheck = bonusTasks.map((bt) => bt.taskId);
+      const uniqueTaskIds = [
+        ...new Set(taskIdsForDuplicateCheck.map((id) => id.toString())),
+      ];
       if (taskIdsForDuplicateCheck.length !== uniqueTaskIds.length) {
         return res.status(400).json({
           success: false,
-          message: "Duplicate task IDs are not allowed. Each task can only be selected once.",
+          message:
+            "Duplicate task IDs are not allowed. Each task can only be selected once.",
         });
       }
 
       // Validate that all task IDs exist
-      const taskIds = bonusTasks.map(bt => bt.taskId);
-      const existingTasks = await GameTask.find({ 
+      const taskIds = bonusTasks.map((bt) => bt.taskId);
+      const existingTasks = await GameTask.find({
         _id: { $in: taskIds },
-        gameId: gameId
+        gameId: gameId,
       });
-      
+
       if (existingTasks.length !== taskIds.length) {
         return res.status(400).json({
           success: false,
-          message: "One or more task IDs are invalid or do not belong to this game",
+          message:
+            "One or more task IDs are invalid or do not belong to this game",
         });
       }
 
       // Find or create active rule
       let rule = await WelcomeBonusTimer.findOne({ isActive: true });
-      
+
       if (!rule) {
         rule = new WelcomeBonusTimer({
           unlockTimeHours: 24,
@@ -2644,19 +2727,21 @@ router.post(
 
       // Find existing game bonus task configuration
       const existingGameIndex = rule.gameBonusTasks.findIndex(
-        config => config.gameId.toString() === gameId
+        (config) => config.gameId.toString() === gameId
       );
 
-      const bonusTasksData = bonusTasks.map(bt => ({
+      const bonusTasksData = bonusTasks.map((bt) => ({
         taskId: bt.taskId,
         order: bt.order,
-        unlockCondition: "Unlock this Bonus Task after Minimum Event Threshold is met.",
-        isEnabled: true
+        unlockCondition:
+          "Unlock this Bonus Task after Minimum Event Threshold is met.",
+        isEnabled: true,
       }));
 
       if (existingGameIndex >= 0) {
         // Update existing configuration
-        rule.gameBonusTasks[existingGameIndex].minimumEventThreshold = minimumEventThreshold;
+        rule.gameBonusTasks[existingGameIndex].minimumEventThreshold =
+          minimumEventThreshold;
         rule.gameBonusTasks[existingGameIndex].bonusTasks = bonusTasksData;
         rule.gameBonusTasks[existingGameIndex].isEnabled = true;
         rule.gameBonusTasks[existingGameIndex].updatedAt = new Date();
@@ -2666,7 +2751,7 @@ router.post(
           gameId: gameId,
           minimumEventThreshold: minimumEventThreshold,
           bonusTasks: bonusTasksData,
-          isEnabled: true
+          isEnabled: true,
         });
       }
 
@@ -2677,18 +2762,22 @@ router.post(
       if (!rule.isValidConfiguration()) {
         return res.status(400).json({
           success: false,
-          message: "Invalid configuration. Please check your bonus tasks setup.",
+          message:
+            "Invalid configuration. Please check your bonus tasks setup.",
         });
       }
 
       await rule.save();
 
       // Populate before returning
-      await rule.populate('gameBonusTasks.gameId', 'title gameId');
-      await rule.populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue');
+      await rule.populate("gameBonusTasks.gameId", "title gameId");
+      await rule.populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      );
 
       const gameBonusConfig = rule.gameBonusTasks.find(
-        config => config.gameId._id.toString() === gameId
+        (config) => config.gameId._id.toString() === gameId
       );
 
       // Format response for frontend
@@ -2700,9 +2789,9 @@ router.post(
         completionDeadlineHours: 24, // Fixed 24 hours
         taskLogic: "sequential", // Always sequential
         bonusTasks: gameBonusConfig.bonusTasks
-          .filter(bt => bt.isEnabled)
+          .filter((bt) => bt.isEnabled)
           .sort((a, b) => a.order - b.order)
-          .map(bt => ({
+          .map((bt) => ({
             taskId: bt.taskId._id || bt.taskId,
             order: bt.order,
             name: bt.taskId.name || null,
@@ -2711,9 +2800,9 @@ router.post(
             rewardType: bt.taskId.rewardType || null,
             rewardValue: bt.taskId.rewardValue || null,
             unlockCondition: bt.unlockCondition,
-            isEnabled: bt.isEnabled
+            isEnabled: bt.isEnabled,
           })),
-        isEnabled: gameBonusConfig.isEnabled
+        isEnabled: gameBonusConfig.isEnabled,
       };
 
       res.json({
@@ -2741,7 +2830,7 @@ router.delete(
       const { gameId } = req.params;
 
       const rule = await WelcomeBonusTimer.findOne({ isActive: true });
-      
+
       if (!rule) {
         return res.status(404).json({
           success: false,
@@ -2750,7 +2839,7 @@ router.delete(
       }
 
       const gameIndex = rule.gameBonusTasks.findIndex(
-        config => config.gameId.toString() === gameId
+        (config) => config.gameId.toString() === gameId
       );
 
       if (gameIndex < 0) {
@@ -2939,12 +3028,19 @@ router.get(
 
       const { offerType = "all", status = "all" } = req.query;
 
+      console.log("🔵 [ADMIN BACKEND] Get configured offers request:", {
+        offerType,
+        status,
+        query: req.query,
+      });
+
       // Find BitLab SDK
       const bitlabSDK = await SurveySDK.findOne({
         name: { $regex: /bitlab/i },
       });
 
       if (!bitlabSDK) {
+        console.log("⚠️ [ADMIN BACKEND] BitLab SDK not found");
         return res.json({
           success: true,
           data: {
@@ -2961,6 +3057,11 @@ router.get(
         });
       }
 
+      console.log("✅ [ADMIN BACKEND] BitLab SDK found:", {
+        id: bitlabSDK._id,
+        name: bitlabSDK.name,
+      });
+
       // Build base query
       const baseQuery = {
         sdkId: bitlabSDK._id,
@@ -2970,16 +3071,20 @@ router.get(
         baseQuery.status = status;
       }
 
+      console.log("🔍 [ADMIN BACKEND] Base query:", baseQuery);
+
       // Fetch from both models based on offerType
       let allOffers = [];
 
       if (offerType === "all" || offerType === "survey") {
         // Get surveys from SurveyOffer
         const surveyQuery = { ...baseQuery, offerType: "survey" };
+        console.log("🔍 [ADMIN BACKEND] Survey query:", surveyQuery);
         const surveys = await SurveyOffer.find(surveyQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
+        console.log(`✅ [ADMIN BACKEND] Found ${surveys.length} surveys`);
         allOffers.push(...surveys);
       }
 
@@ -2994,10 +3099,50 @@ router.get(
         if (offerType !== "all") {
           nonGameQuery.offerType = offerType;
         }
+        console.log("🔍 [ADMIN BACKEND] Non-game query:", nonGameQuery);
         const nonGameOffers = await NonGameOffer.find(nonGameQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
+        console.log(
+          `✅ [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
+        );
+
+        // Debug: Check all non-gaming offers regardless of query
+        const allNonGameOffersDebug = await NonGameOffer.find({})
+          .populate("sdkId", "name displayName")
+          .sort({ createdAt: -1 })
+          .lean();
+        console.log(
+          `🔍 [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
+        );
+        if (allNonGameOffersDebug.length > 0) {
+          console.log(
+            "📋 [ADMIN BACKEND] All non-gaming offers in DB:",
+            allNonGameOffersDebug.map((o) => ({
+              id: o._id,
+              externalId: o.externalId,
+              title: o.title,
+              offerType: o.offerType,
+              status: o.status,
+              sdkId: o.sdkId?._id || o.sdkId,
+              sdkName: o.sdkId?.name || "N/A",
+            }))
+          );
+        }
+
+        if (nonGameOffers.length > 0) {
+          console.log(
+            "📋 [ADMIN BACKEND] Non-gaming offers matching query:",
+            nonGameOffers.slice(0, 3).map((o) => ({
+              id: o._id,
+              externalId: o.externalId,
+              title: o.title,
+              offerType: o.offerType,
+              status: o.status,
+            }))
+          );
+        }
         allOffers.push(...nonGameOffers);
       }
 
@@ -3331,6 +3476,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       autoActivate = true,
       devices,
       country, // Add country support for syncing
+      targetAudience, // Array of { offerId, targetAudience: { age: [], gender: [] } }
     } = req.body;
 
     // Build userProfile with country and device support
@@ -3392,27 +3538,6 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     if (offerType === "all" || offerType === "survey") {
       const surveys = result.categorized.surveys || [];
 
-      // 🔍 DEBUG: Log surveys being synced
-      console.log("\n🔍 ========== SYNC SURVEYS - BITLABS RESPONSE ==========");
-      console.log(`📊 Total Surveys from Bitlabs: ${surveys.length}`);
-      surveys.forEach((survey, index) => {
-        console.log(`\n   Survey ${index + 1}:`);
-        console.log(`     id: ${survey.id || survey.surveyId || "N/A"}`);
-        console.log(
-          `     value: ${survey.value || "MISSING"} (publisher reward points)`
-        );
-        console.log(
-          `     cpi: ${survey.cpi || "MISSING"} (USD payment to publisher)`
-        );
-        console.log(`     title: ${survey.title || survey.name || "N/A"}`);
-        console.log(`     country: ${survey.country || "N/A"}`);
-        console.log(`     loi: ${survey.loi || "N/A"} minutes`);
-        console.log(
-          `     click_url: ${survey.click_url || survey.clickUrl || "N/A"}`
-        );
-      });
-      console.log("==================================================\n");
-
       allOffers.push(
         ...surveys.map((o) => ({
           ...o,
@@ -3446,11 +3571,30 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     }
 
     // Filter by offerIds if provided
+    // For cashback: ID is merchant_id (number or string)
+    // For shopping/magic receipts: ID might be product_id or anchor
+    // For surveys: ID is surveyId or id
     const offersToSync =
       offerIds && offerIds.length > 0
-        ? allOffers.filter((o) =>
-            offerIds.includes(o.id || o.surveyId || o.offerId)
-          )
+        ? allOffers.filter((o) => {
+            // Get all possible ID formats for this offer
+            const offerId = o.id || o.surveyId || o.offerId || o.externalId;
+            const merchantId = o.merchant_id?.toString();
+            const productId = o.product_id?.toString();
+            const anchor = o.anchor?.toString(); // Add anchor for magic receipts and shopping
+
+            // Convert offerIds to strings for comparison
+            const offerIdsStr = offerIds.map((id) => id?.toString());
+
+            // Check if any ID matches (normalize all to strings)
+            const matches =
+              offerIdsStr.includes(offerId?.toString()) ||
+              (merchantId && offerIdsStr.includes(merchantId)) ||
+              (productId && offerIdsStr.includes(productId)) ||
+              (anchor && offerIdsStr.includes(anchor)); // Check anchor for magic receipts/shopping
+
+            return matches;
+          })
         : allOffers;
 
     let syncedCount = 0;
@@ -3460,8 +3604,31 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
     for (const offer of offersToSync) {
       try {
-        const externalId =
-          offer.id || offer.surveyId || offer.offerId || offer.externalId;
+        // For cashback: use merchant_id as externalId
+        // For shopping/magic receipts: use product_id or anchor
+        // For surveys: use id, surveyId, or offerId
+        let externalId;
+        if (offer.offerType === "cashback") {
+          externalId =
+            offer.merchant_id?.toString() ||
+            offer.id ||
+            offer.offerId ||
+            offer.externalId;
+        } else if (
+          offer.offerType === "shopping" ||
+          offer.offerType === "magic_receipt"
+        ) {
+          externalId =
+            offer.product_id?.toString() ||
+            offer.anchor ||
+            offer.id ||
+            offer.offerId ||
+            offer.externalId;
+        } else {
+          externalId =
+            offer.id || offer.surveyId || offer.offerId || offer.externalId;
+        }
+
         if (!externalId) {
           skippedCount++;
           continue;
@@ -3471,72 +3638,231 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         const isSurvey = offer.offerType === "survey";
         const OfferModel = isSurvey ? SurveyOffer : NonGameOffer;
 
+        // Find target audience for this offer if provided
+        const offerTargetAudience = targetAudience?.find(
+          (t) =>
+            t.offerId === offer.id ||
+            t.offerId === offer.surveyId ||
+            t.offerId === offer.offerId ||
+            t.offerId === externalId
+        );
+        const selectedAges = offerTargetAudience?.targetAudience?.age || [];
+        const selectedGenders =
+          offerTargetAudience?.targetAudience?.gender || [];
+
         // Check if already exists
         const existing = await OfferModel.findOne({
           sdkId: bitlabSDK._id,
           externalId: externalId,
         });
 
-        // Use normalized offer data (already includes userRewardCoins, userRewardXP, and all fields)
-        // The offer coming from getNonGameOffers is already normalized
+        // For cashback, magic receipts, and shopping: Preserve raw Bitlabs structure
+        // For surveys: Use normalized offer data
+        const isCashback = offer.offerType === "cashback";
+        const isMagicReceipt =
+          offer.offerType === "magic_receipt" ||
+          offer.offerType === "magic-receipts" ||
+          offer.offerType === "magicReceipts";
+        const isShopping = offer.offerType === "shopping";
         const normalizedOffer = offer;
 
         // Extract coinReward - use userRewardCoins (20% of value) for user reward
         // But store the full value in metadata for reference
         let coinReward = 0;
-        const publisherValue = parseFloat(normalizedOffer.value) || 0;
-        const userRewardCoins =
-          normalizedOffer.userRewardCoins || normalizedOffer.reward?.coins || 0;
-        const userRewardXP =
-          normalizedOffer.userRewardXP || normalizedOffer.reward?.xp || 0;
+        let publisherValue = 0;
+        let userRewardCoins = 0;
+        let userRewardXP = 0;
 
-        // Use userRewardCoins as the coinReward (what user gets)
-        coinReward = userRewardCoins;
-
-        // 🔍 DEBUG: Log reward extraction
-        if (offer.offerType === "survey") {
-          console.log(
-            `\n🔍 SYNC: Processing Survey ${
-              offer.id || offer.surveyId || "unknown"
-            }`
-          );
-          console.log(
-            `   Publisher value: ${publisherValue} (what Bitlabs gives publisher)`
-          );
-          console.log(
-            `   User reward coins: ${userRewardCoins} (20% of value - what user gets)`
-          );
-          console.log(`   User reward XP: ${userRewardXP} (50% of coins)`);
-          console.log(
-            `   CPI: ${normalizedOffer.cpi || "N/A"} (USD payment to publisher)`
-          );
+        if (isCashback) {
+          // For cashback: Extract from raw Bitlabs structure
+          // Cashback doesn't have 'value' field like surveys, so use cashback percentage
+          const cashbackValue = parseFloat(normalizedOffer.cashback) || 0;
+          publisherValue = cashbackValue; // Use cashback as base value
+          userRewardCoins = Math.round(cashbackValue * 0.2); // 20% margin
+          userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of coins as XP
+          coinReward = userRewardCoins;
+        } else if (isMagicReceipt || isShopping) {
+          // For magic receipts and shopping: Extract from total_points (sum of all events)
+          // Both have events array with total_points
+          const totalPoints = parseFloat(normalizedOffer.total_points) || 0;
+          publisherValue = totalPoints; // Use total_points as base value
+          userRewardCoins = Math.round(totalPoints * 0.2); // 20% margin
+          userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of coins as XP
+          coinReward = userRewardCoins;
+        } else {
+          // For surveys and other offers: Use existing logic
+          publisherValue = parseFloat(normalizedOffer.value) || 0;
+          userRewardCoins =
+            normalizedOffer.userRewardCoins ||
+            normalizedOffer.reward?.coins ||
+            0;
+          userRewardXP =
+            normalizedOffer.userRewardXP || normalizedOffer.reward?.xp || 0;
+          coinReward = userRewardCoins;
         }
 
-        // Extract and store full category object from Bitlabs API
-        let categoryObject = {
-          name: "General",
-          name_internal: "Other",
-          icon_name: "shapes",
-          icon_url: "",
-        };
+        // Extract and store category - NonGameOffer model expects a string (enum), not an object
+        // For cashback: use primary_category as string
+        // For shopping/magic receipts: use first category from categories array or category.name
+        let categoryString = "other"; // Default to "other" (valid enum value)
 
-        if (offer.category) {
-          if (typeof offer.category === "object") {
-            // Store full category object
-            categoryObject = {
-              name: offer.category.name || "General",
-              name_internal: offer.category.name_internal || "Other",
-              icon_name: offer.category.icon_name || "shapes",
-              icon_url: offer.category.icon_url || "",
-            };
-          } else {
-            // Fallback: if category is a string, create object with defaults
-            categoryObject = {
-              name: offer.category,
-              name_internal: offer.category,
-              icon_name: "shapes",
-              icon_url: "",
-            };
+        if (isCashback) {
+          // Cashback offers have primary_category as a string
+          const primaryCategory = normalizedOffer.primary_category || "";
+          // Map to valid enum values
+          if (primaryCategory) {
+            const categoryLower = primaryCategory.toLowerCase();
+            // Map common categories to enum values
+            if (
+              categoryLower.includes("finance") ||
+              categoryLower.includes("banking")
+            ) {
+              categoryString = "finance";
+            } else if (
+              categoryLower.includes("shopping") ||
+              categoryLower.includes("retail") ||
+              categoryLower.includes("clothing") ||
+              categoryLower.includes("accessories") ||
+              categoryLower.includes("fashion") ||
+              categoryLower.includes("store") ||
+              categoryLower.includes("merchant")
+            ) {
+              categoryString = "shopping";
+            } else if (
+              categoryLower.includes("entertainment") ||
+              categoryLower.includes("music") ||
+              categoryLower.includes("video")
+            ) {
+              categoryString = "entertainment";
+            } else if (
+              categoryLower.includes("technology") ||
+              categoryLower.includes("tech") ||
+              categoryLower.includes("software")
+            ) {
+              categoryString = "technology";
+            } else if (
+              categoryLower.includes("health") ||
+              categoryLower.includes("fitness") ||
+              categoryLower.includes("medical")
+            ) {
+              categoryString = "health";
+            } else if (
+              categoryLower.includes("travel") ||
+              categoryLower.includes("hotel") ||
+              categoryLower.includes("flight")
+            ) {
+              categoryString = "travel";
+            } else if (
+              categoryLower.includes("education") ||
+              categoryLower.includes("learning") ||
+              categoryLower.includes("course")
+            ) {
+              categoryString = "education";
+            } else {
+              categoryString = "other";
+            }
+          }
+        } else if (isMagicReceipt || isShopping) {
+          // Shopping/magic receipts have categories array or category object
+          const categoryName =
+            normalizedOffer.categories?.[0] ||
+            normalizedOffer.category?.name ||
+            normalizedOffer.category ||
+            "";
+          if (categoryName) {
+            const categoryLower = categoryName.toLowerCase();
+            // Map to valid enum values (same logic as cashback)
+            if (
+              categoryLower.includes("finance") ||
+              categoryLower.includes("banking")
+            ) {
+              categoryString = "finance";
+            } else if (
+              categoryLower.includes("shopping") ||
+              categoryLower.includes("retail") ||
+              categoryLower.includes("clothing") ||
+              categoryLower.includes("accessories") ||
+              categoryLower.includes("fashion") ||
+              categoryLower.includes("store") ||
+              categoryLower.includes("merchant")
+            ) {
+              categoryString = "shopping";
+            } else if (
+              categoryLower.includes("entertainment") ||
+              categoryLower.includes("music") ||
+              categoryLower.includes("video")
+            ) {
+              categoryString = "entertainment";
+            } else if (
+              categoryLower.includes("technology") ||
+              categoryLower.includes("tech") ||
+              categoryLower.includes("software")
+            ) {
+              categoryString = "technology";
+            } else if (
+              categoryLower.includes("health") ||
+              categoryLower.includes("fitness") ||
+              categoryLower.includes("medical")
+            ) {
+              categoryString = "health";
+            } else if (
+              categoryLower.includes("travel") ||
+              categoryLower.includes("hotel") ||
+              categoryLower.includes("flight")
+            ) {
+              categoryString = "travel";
+            } else if (
+              categoryLower.includes("education") ||
+              categoryLower.includes("learning") ||
+              categoryLower.includes("course")
+            ) {
+              categoryString = "education";
+            } else {
+              categoryString = "other";
+            }
+          }
+        } else {
+          // For surveys and other offers: use existing category logic
+          if (normalizedOffer.category) {
+            if (typeof normalizedOffer.category === "string") {
+              const categoryLower = normalizedOffer.category.toLowerCase();
+              // Map to valid enum values
+              if (
+                [
+                  "finance",
+                  "shopping",
+                  "entertainment",
+                  "technology",
+                  "health",
+                  "travel",
+                  "education",
+                  "other",
+                ].includes(categoryLower)
+              ) {
+                categoryString = categoryLower;
+              } else {
+                categoryString = "other";
+              }
+            } else if (typeof normalizedOffer.category === "object") {
+              const categoryName = normalizedOffer.category.name || "";
+              const categoryLower = categoryName.toLowerCase();
+              if (
+                [
+                  "finance",
+                  "shopping",
+                  "entertainment",
+                  "technology",
+                  "health",
+                  "travel",
+                  "education",
+                  "other",
+                ].includes(categoryLower)
+              ) {
+                categoryString = categoryLower;
+              } else {
+                categoryString = "other";
+              }
+            }
           }
         }
 
@@ -3556,9 +3882,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           console.log(`   offer.cpi: ${offer.cpi}`);
           console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
           console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
-          console.log(
-            `   Category object: ${JSON.stringify(categoryObject)}`
-          );
+          console.log(`   Category string: ${categoryString}`);
           console.log(
             `   publisherRevenue will be: cpi=${
               parseFloat(offer.cpi) || 0
@@ -3572,40 +3896,98 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         }
 
         // Store ALL normalized offer fields in the same format
+        // For cashback: Preserve exact Bitlabs API structure in metadata
+
         const offerData = {
           sdkId: bitlabSDK._id,
           externalId: externalId,
-          title:
-            normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
+          title: isCashback
+            ? normalizedOffer.merchant_name || "Untitled Cashback"
+            : isMagicReceipt || isShopping
+            ? normalizedOffer.anchor ||
+              normalizedOffer.product_name ||
+              (isMagicReceipt ? "Untitled Magic Receipt" : "Untitled Shopping")
+            : normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
           description: normalizedOffer.description || "",
-          category: categoryObject, // Store full category object
+          category: categoryString, // Store as string (enum value) - MUST be one of: finance, shopping, entertainment, technology, health, travel, education, other
           offerType: normalizedOffer.offerType || defaultOfferType,
           coinReward: coinReward, // User reward coins (20% of value)
-          estimatedTime:
-            normalizedOffer.estimatedTime ||
-            normalizedOffer.duration ||
-            normalizedOffer.loi ||
-            5,
+          estimatedTime: isCashback
+            ? 1 // Cashback doesn't have estimated time, but model requires min 1
+            : isMagicReceipt || isShopping
+            ? Math.max(
+                1,
+                Math.round((normalizedOffer.session_hours || 0) / 60) ||
+                  normalizedOffer.estimatedTime ||
+                  1
+              ) // Ensure minimum of 1
+            : Math.max(
+                1,
+                normalizedOffer.estimatedTime ||
+                  normalizedOffer.duration ||
+                  normalizedOffer.loi ||
+                  5
+              ), // Ensure minimum of 1
           status: autoActivate ? "live" : "paused",
           targetAudience: {
-            countries:
-              normalizedOffer.countries || normalizedOffer.country
-                ? [normalizedOffer.country]
-                : [],
+            age:
+              selectedAges.length === 0 || selectedAges.includes("all")
+                ? [] // Empty array means all ages
+                : selectedAges.filter((a) => a !== "all"),
+            gender:
+              selectedGenders.length === 0 || selectedGenders.includes("all")
+                ? [] // Empty array means all genders
+                : selectedGenders.filter((g) => g !== "all"),
+            countries: isCashback
+              ? normalizedOffer.country_code
+                ? [normalizedOffer.country_code]
+                : []
+              : isMagicReceipt || isShopping
+              ? normalizedOffer.country_code
+                ? [normalizedOffer.country_code]
+                : []
+              : normalizedOffer.countries || normalizedOffer.country
+              ? [normalizedOffer.country]
+              : [],
             minXP: normalizedOffer.minXP || 0,
           },
           metadata: {
             // Store all normalized offer fields in the same format
+            // ⚠️ IMPORTANT: externalUrl is stored for REFERENCE ONLY (applies to ALL offer types).
+            //
+            // INDUSTRIAL-LEVEL BEST PRACTICE (Based on Bitlabs Official Documentation):
+            // - Click URLs are user-specific and contain session IDs linked to X-User-Id
+            // - URLs expire and cannot be reused across users
+            // - When users fetch offers (surveys, cashback, magic receipts, shopping),
+            //   fresh URLs MUST be generated with their X-User-Id
+            // - This ensures proper tracking: Bitlabs knows which user clicked/completed
+            // - Callbacks will include correct userId matching the user who clicked
+            //
+            // Implementation:
+            // - Admin sync stores offer ID (externalId) + metadata (title, reward, etc.)
+            // - User fetch calls Bitlabs API with user's X-User-Id to get fresh URLs
+            // - See: /api/non-game-offers/* routes for user-side implementation
+            // - Applies to: surveys, cashback, magic receipts, shopping offers
+            //
+            // Reference: BITLABS_INDUSTRIAL_SOLUTION.md
             externalUrl:
               normalizedOffer.clickUrl ||
               normalizedOffer.surveyUrl ||
               normalizedOffer.url ||
-              normalizedOffer.click_url,
+              normalizedOffer.click_url ||
+              "",
             surveyUrl:
               normalizedOffer.surveyUrl || normalizedOffer.clickUrl || "",
             deepLink: normalizedOffer.deepLink || "",
             supportUrl: normalizedOffer.supportUrl || "",
-            thumbnail: normalizedOffer.icon || normalizedOffer.banner,
+            thumbnail: isCashback
+              ? normalizedOffer.images?.cardImage || ""
+              : isMagicReceipt || isShopping
+              ? normalizedOffer.creatives?.icon ||
+                normalizedOffer.icon_url ||
+                normalizedOffer.icon ||
+                ""
+              : normalizedOffer.icon || normalizedOffer.banner,
             priority: normalizedOffer.priority || 0,
 
             // Store complete reward object
@@ -3622,68 +4004,159 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
               currency: "USD",
             },
 
-            // Preserve ALL Bitlabs fields in the same format
-            bitlabsData: {
-              // Core Bitlabs fields - ensure proper parsing (preserve 0 values)
-              cpi:
-                normalizedOffer.cpi !== undefined &&
-                normalizedOffer.cpi !== null
-                  ? parseFloat(normalizedOffer.cpi)
-                  : 0, // Cost per install (USD payment to publisher)
-              cr:
-                normalizedOffer.cr !== undefined && normalizedOffer.cr !== null
-                  ? parseFloat(normalizedOffer.cr)
-                  : 0, // Conversion rate (0-1, e.g., 0.078 = 7.8%)
-              loi:
-                normalizedOffer.loi !== undefined &&
-                normalizedOffer.loi !== null
-                  ? parseFloat(normalizedOffer.loi)
-                  : normalizedOffer.estimatedTime || 0, // Length of interview (minutes)
-              value: publisherValue, // Full value from Bitlabs (what publisher receives)
-              rating: normalizedOffer.rating || 0, // Survey rating
-              country: normalizedOffer.country || null, // Survey country
-              language: normalizedOffer.language || null, // Survey language
-              tags: normalizedOffer.tags || [], // Survey tags
+            // For cashback and magic receipts: Store complete raw Bitlabs API structure
+            // For surveys: Store normalized Bitlabs fields
+            ...(isCashback
+              ? {
+                  // CASHBACK: Store exact Bitlabs API structure (same keys and values)
+                  rawBitlabsData: {
+                    cashback: normalizedOffer.cashback || "0",
+                    click_url: normalizedOffer.click_url || "",
+                    country_code: normalizedOffer.country_code || "",
+                    currency: normalizedOffer.currency || "USD",
+                    description: normalizedOffer.description || "",
+                    flat_payout: normalizedOffer.flat_payout || false,
+                    images: normalizedOffer.images || {},
+                    merchant_id: normalizedOffer.merchant_id || 0,
+                    merchant_name: normalizedOffer.merchant_name || "",
+                    original_cashback: normalizedOffer.original_cashback || "0",
+                    primary_category: normalizedOffer.primary_category || "",
+                    rank: normalizedOffer.rank || 0,
+                    reward_delay_days: normalizedOffer.reward_delay_days || 0,
+                    terms: normalizedOffer.terms || [],
+                    tier_mappings: normalizedOffer.tier_mappings || [],
+                    up_to: normalizedOffer.up_to || false,
+                  },
+                }
+              : isMagicReceipt || isShopping
+              ? {
+                  // MAGIC RECEIPTS & SHOPPING: Store exact Bitlabs API structure (same keys and values)
+                  rawBitlabsData: {
+                    anchor: normalizedOffer.anchor || "",
+                    app_metadata: normalizedOffer.app_metadata || {},
+                    categories: normalizedOffer.categories || [],
+                    click_url: normalizedOffer.click_url || "",
+                    confirmation_time: normalizedOffer.confirmation_time || "",
+                    creatives: normalizedOffer.creatives || {},
+                    description: normalizedOffer.description || "",
+                    disclaimer: normalizedOffer.disclaimer || "",
+                    epc: normalizedOffer.epc || "0",
+                    events: normalizedOffer.events || [],
+                    funnel_id: normalizedOffer.funnel_id || "",
+                    icon_url: normalizedOffer.icon_url || "",
+                    id: normalizedOffer.id || 0,
+                    impression_url: normalizedOffer.impression_url || "",
+                    is_game: normalizedOffer.is_game || false,
+                    is_sticky: normalizedOffer.is_sticky || false,
+                    lowest_cap_left: normalizedOffer.lowest_cap_left || null,
+                    mobile_verification_required:
+                      normalizedOffer.mobile_verification_required || false,
+                    offer_expires_at: normalizedOffer.offer_expires_at || null,
+                    pending_time: normalizedOffer.pending_time || 0,
+                    product_id: normalizedOffer.product_id || "",
+                    product_name: normalizedOffer.product_name || "",
+                    requirements: normalizedOffer.requirements || "",
+                    session_hours: normalizedOffer.session_hours || 0,
+                    stats: normalizedOffer.stats || {},
+                    support_url: normalizedOffer.support_url || "",
+                    things_to_know: normalizedOffer.things_to_know || [],
+                    total_points: normalizedOffer.total_points || "0",
+                    web_to_mobile: normalizedOffer.web_to_mobile || false,
+                    web_to_mobile_devices:
+                      normalizedOffer.web_to_mobile_devices || [],
+                  },
+                }
+              : {
+                  // SURVEYS: Preserve ALL Bitlabs fields in the same format
+                  bitlabsData: {
+                    // Core Bitlabs fields - ensure proper parsing (preserve 0 values)
+                    cpi:
+                      normalizedOffer.cpi !== undefined &&
+                      normalizedOffer.cpi !== null
+                        ? parseFloat(normalizedOffer.cpi)
+                        : 0, // Cost per install (USD payment to publisher)
+                    cr:
+                      normalizedOffer.cr !== undefined &&
+                      normalizedOffer.cr !== null
+                        ? parseFloat(normalizedOffer.cr)
+                        : 0, // Conversion rate (0-1, e.g., 0.078 = 7.8%)
+                    loi:
+                      normalizedOffer.loi !== undefined &&
+                      normalizedOffer.loi !== null
+                        ? parseFloat(normalizedOffer.loi)
+                        : normalizedOffer.estimatedTime || 0, // Length of interview (minutes)
+                    value: publisherValue, // Full value from Bitlabs (what publisher receives)
+                    rating: normalizedOffer.rating || 0, // Survey rating
+                    country: normalizedOffer.country || null, // Survey country
+                    language: normalizedOffer.language || null, // Survey language
+                    tags: normalizedOffer.tags || [], // Survey tags
 
-              // Additional normalized fields
-              estimatedTime: normalizedOffer.estimatedTime || 0,
-              confirmationTime: normalizedOffer.confirmationTime || "",
-              pendingTime: normalizedOffer.pendingTime || 0,
-              offerExpiresAt: normalizedOffer.offerExpiresAt || null,
-              sessionHours: normalizedOffer.sessionHours || 0,
-              isSticky: normalizedOffer.isSticky || false,
-              isAvailable: normalizedOffer.isAvailable !== false,
-              mobileVerificationRequired:
-                normalizedOffer.mobileVerificationRequired || false,
-              webToMobile: normalizedOffer.webToMobile || false,
-              webToMobileDevices: normalizedOffer.webToMobileDevices || [],
-              thingsToKnow: normalizedOffer.thingsToKnow || [],
-              requirements: normalizedOffer.requirements || "",
-              provider: normalizedOffer.provider || "bitlabs",
-              sdkProvider: normalizedOffer.sdkProvider || "bitlabs",
-            },
+                    // Additional normalized fields
+                    estimatedTime: normalizedOffer.estimatedTime || 0,
+                    confirmationTime: normalizedOffer.confirmationTime || "",
+                    pendingTime: normalizedOffer.pendingTime || 0,
+                    offerExpiresAt: normalizedOffer.offerExpiresAt || null,
+                    sessionHours: normalizedOffer.sessionHours || 0,
+                    isSticky: normalizedOffer.isSticky || false,
+                    isAvailable: normalizedOffer.isAvailable !== false,
+                    mobileVerificationRequired:
+                      normalizedOffer.mobileVerificationRequired || false,
+                    webToMobile: normalizedOffer.webToMobile || false,
+                    webToMobileDevices:
+                      normalizedOffer.webToMobileDevices || [],
+                    thingsToKnow: normalizedOffer.thingsToKnow || [],
+                    requirements: normalizedOffer.requirements || "",
+                    provider: normalizedOffer.provider || "bitlabs",
+                    sdkProvider: normalizedOffer.sdkProvider || "bitlabs",
+                  },
 
-            // Store complete normalized offer for reference (all fields)
-            normalizedOffer: normalizedOffer, // Store the complete normalized object
+                  // Store complete normalized offer for reference (all fields)
+                  normalizedOffer: normalizedOffer, // Store the complete normalized object
+                }),
           },
           updatedBy: req.user.userId,
         };
 
         if (existing) {
           // Update existing
+          console.log(
+            `🔄 [ADMIN BACKEND SYNC] Updating existing ${offer.offerType} offer:`,
+            externalId
+          );
           Object.assign(existing, offerData);
           await existing.save();
           updatedCount++;
+          console.log(
+            `✅ [ADMIN BACKEND SYNC] Updated ${offer.offerType} offer:`,
+            externalId
+          );
         } else {
           // Create new
+          console.log(
+            `➕ [ADMIN BACKEND SYNC] Creating new ${offer.offerType} offer:`,
+            externalId
+          );
           const newOffer = new OfferModel({
             ...offerData,
             createdBy: req.user.userId,
           });
           await newOffer.save();
           syncedCount++;
+          console.log(
+            `✅ [ADMIN BACKEND SYNC] Created ${offer.offerType} offer:`,
+            externalId
+          );
         }
       } catch (error) {
+        console.error(
+          `❌ [ADMIN BACKEND SYNC] Error saving ${offer.offerType} offer:`,
+          {
+            externalId:
+              offer.id || offer.surveyId || offer.offerId || offer.externalId,
+            error: error.message,
+            stack: error.stack,
+          }
+        );
         errors.push({
           offerId: offer.id || offer.surveyId,
           error: error.message,
@@ -3695,6 +4168,15 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     bitlabSDK.analytics.totalOffers = syncedCount + updatedCount;
     bitlabSDK.analytics.lastSyncAt = new Date();
     await bitlabSDK.save();
+
+    console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
+      syncedCount,
+      updatedCount,
+      skippedCount,
+      errorCount: errors.length,
+      totalProcessed: offersToSync.length,
+      errors: errors.length > 0 ? errors.slice(0, 5) : "None",
+    });
 
     res.json({
       success: true,

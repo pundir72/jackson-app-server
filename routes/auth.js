@@ -706,6 +706,19 @@ router.post(
         expiresIn: "24h",
       });
 
+      // TODO: Firebase token generation - uncomment when Firebase credentials are available
+      // Generate Firebase custom token for V2 S2S endpoints (if Firebase is configured)
+      // let firebaseCustomToken = null;
+      // try {
+      //   const { generateFirebaseToken } = require("../utils/firebaseTokenGenerator");
+      //   firebaseCustomToken = await generateFirebaseToken(user._id.toString());
+      // } catch (error) {
+      //   // Firebase not configured or error - continue without it
+      //   // This is non-critical - V2 endpoints will work once Firebase is configured
+      //   console.warn("Firebase token generation failed (non-critical):", error.message);
+      // }
+      const firebaseCustomToken = null; // Temporarily disabled - waiting for Firebase credentials
+
       // Update login analytics and device info
       try {
         const updateData = {
@@ -764,6 +777,7 @@ router.post(
 
       res.status(200).json({
         token,
+        firebaseCustomToken, // For V2 S2S endpoints - client should exchange this for ID token
         biometricRequired: false,
         user: {
           _id: user._id,
@@ -948,8 +962,21 @@ router.post(
         console.error("Failed to update admin login analytics:", e.message);
       }
 
+      // TODO: Firebase token generation - uncomment when Firebase credentials are available
+      // Generate Firebase custom token for V2 S2S endpoints (if Firebase is configured)
+      // let firebaseCustomToken = null;
+      // try {
+      //   const { generateFirebaseToken } = require("../utils/firebaseTokenGenerator");
+      //   firebaseCustomToken = await generateFirebaseToken(user._id.toString());
+      // } catch (error) {
+      //   // Firebase not configured or error - continue without it
+      //   console.warn("Firebase token generation failed (non-critical):", error.message);
+      // }
+      const firebaseCustomToken = null; // Temporarily disabled - waiting for Firebase credentials
+
       res.status(200).json({
         token,
+        firebaseCustomToken, // For V2 S2S endpoints - client should exchange this for ID token (currently null)
         biometricRequired: false,
         user: {
           _id: user._id,

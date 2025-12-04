@@ -184,7 +184,9 @@ mongoose
     const dailyChallengeRoutes = require("./routes/daily-challenge");
     const webhookRoutes = require("./routes/webhooks");
     const dailyRewardsRoutes = require("./routes/daily-rewards");
+    const dailyRewardsV2Routes = require("./routes/daily-rewards-v2");
     const adminDailyRewardsRoutes = require("./routes/admin-daily-rewards");
+    const adminDailyRewardsV2Routes = require("./routes/admin-daily-rewards-v2");
     const adminCreativesRoutes = require("./routes/admin-creatives");
     const adminTransactionsRoutes = require("./routes/admin-transactions");
     const adminSpinWheelRoutes = require("./routes/admin-spin-wheel");
@@ -274,7 +276,9 @@ mongoose
     app.use("/api/daily-challenge", dailyChallengeRoutes);
     app.use("/api/webhooks", webhookRoutes);
     app.use("/api/daily-rewards", dailyRewardsRoutes);
+    app.use("/api/v2/daily-rewards", dailyRewardsV2Routes);
     app.use("/api/admin/daily-rewards", adminDailyRewardsRoutes);
+    app.use("/api/admin/daily-rewards-v2", adminDailyRewardsV2Routes);
     app.use("/api/admin/creatives", adminCreativesRoutes);
     app.use("/api/admin/transactions", adminTransactionsRoutes);
     app.use("/api/admin/spin-wheel", adminSpinWheelRoutes);

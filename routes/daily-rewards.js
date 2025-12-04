@@ -299,7 +299,6 @@ router.get('/week', protect, async (req, res) => {
     const today = new Date();
     const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1; // 1..7 Mon..Sun
 
-    // compute next unlock timer (end of UTC day)
     const endOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999));
 
     res.json({

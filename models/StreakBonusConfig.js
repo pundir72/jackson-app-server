@@ -1,5 +1,18 @@
 const mongoose = require('mongoose');
 
+const rewardSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    required: true,
+    enum: ['coins', 'xp']
+  },
+  value: {
+    type: Number,
+    required: true,
+    min: 0
+  }
+}, { _id: false });
+
 const milestoneSchema = new mongoose.Schema({
   day: {
     type: Number,
@@ -10,15 +23,16 @@ const milestoneSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  rewardType: {
-    type: String,
+  rewards: {
+    type: [rewardSchema],
     required: true,
-    enum: ['coins', 'xp']
-  },
-  rewardValue: {
-    type: Number,
-    required: true,
-    min: 0
+    validate: {
+      validator: function(rewards) {
+        // At least one reward is required, maximum 2 rewards allowed (coins and xp)
+        return Array.isArray(rewards) && rewards.length > 0 && rewards.length <= 2;
+      },
+      message: 'At least one reward is required, maximum 2 rewards allowed per milestone (Coins and XP)'
+    }
   },
   claimMode: {
     type: String,
@@ -59,14 +73,45 @@ streakBonusConfigSchema.statics.getConfig = async function() {
   if (!config) {
     config = new this({
       milestones: [
-        { day: 7, active: true, rewardType: 'coins', rewardValue: 50, claimMode: 'auto' },
-        { day: 14, active: true, rewardType: 'coins', rewardValue: 150, claimMode: 'auto' },
-        { day: 21, active: true, rewardType: 'coins', rewardValue: 300, claimMode: 'auto' },
-        { day: 30, active: true, rewardType: 'coins', rewardValue: 500, claimMode: 'auto' }
+        { day: 7, active: true, rewards: [{ type: 'coins', value: 50 }], claimMode: 'auto' },
+        { day: 14, active: true, rewards: [{ type: 'coins', value: 150 }], claimMode: 'auto' },
+        { day: 21, active: true, rewards: [{ type: 'coins', value: 300 }], claimMode: 'auto' },
+        { day: 30, active: true, rewards: [{ type: 'coins', value: 500 }], claimMode: 'auto' }
       ],
       updatedBy: new mongoose.Types.ObjectId() // Temporary, will be updated on first save
     });
     await config.save();
+  } else {
+    // Migrate old format to new format if needed
+    let needsMigration = false;
+    const migratedMilestones = config.milestones.map(milestone => {
+      // Check if this milestone uses old format (rewardType/rewardValue)
+      if (milestone.rewardType && milestone.rewardValue !== undefined && (!milestone.rewards || !Array.isArray(milestone.rewards))) {
+        needsMigration = true;
+        return {
+          day: milestone.day,
+          active: milestone.active !== undefined ? milestone.active : true,
+          rewards: [{ type: milestone.rewardType, value: milestone.rewardValue }],
+          claimMode: milestone.claimMode || 'auto'
+        };
+      }
+      // Ensure rewards array exists and is valid
+      if (!milestone.rewards || !Array.isArray(milestone.rewards) || milestone.rewards.length === 0) {
+        needsMigration = true;
+        return {
+          day: milestone.day,
+          active: milestone.active !== undefined ? milestone.active : true,
+          rewards: [{ type: 'coins', value: 0 }],
+          claimMode: milestone.claimMode || 'auto'
+        };
+      }
+      return milestone;
+    });
+    
+    if (needsMigration) {
+      config.milestones = migratedMilestones;
+      await config.save();
+    }
   }
   
   return config;

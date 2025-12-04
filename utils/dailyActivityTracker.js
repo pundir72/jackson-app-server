@@ -37,14 +37,13 @@ async function getStreakConfig() {
     const config = await StreakBonusConfig.getConfig();
     const activeMilestones = config.getActiveMilestones();
     
-    // Build milestones and rewards from active milestones
+    // Build milestones and rewards from active milestones (now supports multiple rewards per milestone)
     const milestones = activeMilestones.map(m => m.day).sort((a, b) => a - b);
     const rewards = {};
     
     activeMilestones.forEach(milestone => {
       rewards[milestone.day] = {
-        rewardType: milestone.rewardType,
-        rewardValue: milestone.rewardValue,
+        rewards: milestone.rewards || [], // Array of { type, value }
         claimMode: milestone.claimMode
       };
     });
@@ -58,10 +57,21 @@ async function getStreakConfig() {
     return streakConfigCache;
   } catch (error) {
     console.error('Error loading streak config from database, using defaults:', error);
-    // Return default config if DB fails
+    // Return default config if DB fails (convert to new format)
+    const defaultRewards = {};
+    Object.keys(DEFAULT_STREAK_REWARDS).forEach(day => {
+      const reward = DEFAULT_STREAK_REWARDS[day];
+      defaultRewards[day] = {
+        rewards: [
+          { type: 'coins', value: reward.coins || 0 },
+          { type: 'xp', value: reward.xp || 0 }
+        ].filter(r => r.value > 0),
+        claimMode: 'auto'
+      };
+    });
     streakConfigCache = {
       milestones: DEFAULT_STREAK_MILESTONES,
-      rewards: DEFAULT_STREAK_REWARDS
+      rewards: defaultRewards
     };
     streakConfigCacheTime = now;
     return streakConfigCache;
@@ -141,7 +151,7 @@ async function trackUserActivity(userId, options = {}) {
     let milestoneRewardInfo = null;
     const currentStreak = activity.currentStreak || 0;
     if (
-      STREAK_MILESTONES.includes(currentStreak) &&
+      DEFAULT_STREAK_MILESTONES.includes(currentStreak) &&
       activity.awardedMilestones &&
       activity.awardedMilestones.includes(currentStreak)
     ) {
@@ -469,52 +479,58 @@ async function checkAndAwardMilestoneRewards(user, activity) {
     if (STREAK_MILESTONES.includes(currentStreak)) {
       // Check if this milestone has already been awarded
       if (!activity.awardedMilestones.includes(currentStreak)) {
-        const reward = STREAK_REWARDS[currentStreak];
+        const rewardConfig = STREAK_REWARDS[currentStreak];
 
-        if (reward) {
-          // Award reward based on reward type
+        if (rewardConfig && rewardConfig.rewards && rewardConfig.rewards.length > 0) {
+          // Award all rewards for this milestone
           if (!user.wallet) user.wallet = { balance: 0 };
           if (!user.xp) user.xp = { current: 0, total: 0 };
 
-          if (reward.rewardType === 'coins') {
-            user.wallet.balance = (user.wallet.balance || 0) + reward.rewardValue;
-            user.wallet.lastUpdated = new Date();
-          } else if (reward.rewardType === 'xp') {
-            const { finalXP } = await applyTierMultiplierToXP(user, reward.rewardValue || 0);
-            user.xp.current = (user.xp.current || 0) + finalXP;
-            user.xp.total = (user.xp.total || 0) + finalXP;
+          const rewardsEarned = [];
+
+          for (const reward of rewardConfig.rewards) {
+            if (reward.type === 'coins') {
+              user.wallet.balance = (user.wallet.balance || 0) + reward.value;
+              user.wallet.lastUpdated = new Date();
+            } else if (reward.type === 'xp') {
+              const { finalXP } = await applyTierMultiplierToXP(user, reward.value || 0);
+              user.xp.current = (user.xp.current || 0) + finalXP;
+              user.xp.total = (user.xp.total || 0) + finalXP;
+            }
+
+            // Create transaction record for each reward
+            const transaction = new Transaction({
+              user: user._id,
+              type: "credit",
+              balanceType: reward.type === 'coins' ? 'coins' : 'xp',
+              amount: reward.value,
+              description: `Streak Milestone Reward - Day ${currentStreak} - ${reward.type === 'coins' ? 'Coins' : 'XP'}`,
+              status: rewardConfig.claimMode === 'auto' ? "completed" : "pending",
+              referenceId: `STREAK-MILESTONE-${currentStreak}-${reward.type}-${Date.now()}`,
+              metadata: {
+                milestoneDay: currentStreak,
+                rewardType: reward.type,
+                rewardValue: reward.value,
+                claimMode: rewardConfig.claimMode,
+              },
+            });
+
+            await transaction.save();
+            rewardsEarned.push({ type: reward.type, value: reward.value });
           }
-
-          // Create transaction record
-          const transaction = new Transaction({
-            user: user._id,
-            type: "credit",
-            balanceType: reward.rewardType === 'coins' ? 'coins' : 'xp',
-            amount: reward.rewardValue,
-            description: `Streak Milestone Reward - Day ${currentStreak}`,
-            status: reward.claimMode === 'auto' ? "completed" : "pending",
-            referenceId: `STREAK-MILESTONE-${currentStreak}-${Date.now()}`,
-            metadata: {
-              milestoneDay: currentStreak,
-              rewardType: reward.rewardType,
-              claimMode: reward.claimMode,
-            },
-          });
-
-          await transaction.save();
 
           // Mark milestone as awarded
           activity.awardedMilestones.push(currentStreak);
 
+          const rewardsSummary = rewardsEarned.map(r => `${r.value} ${r.type}`).join(', ');
           console.log(
-            `✅ Milestone reward awarded: Day ${currentStreak} - ${reward.rewardValue} ${reward.rewardType} (claimMode: ${reward.claimMode})`
+            `✅ Milestone reward awarded: Day ${currentStreak} - ${rewardsSummary} (claimMode: ${rewardConfig.claimMode})`
           );
 
           return {
             day: currentStreak,
-            rewardType: reward.rewardType,
-            rewardValue: reward.rewardValue,
-            claimMode: reward.claimMode,
+            rewards: rewardsEarned,
+            claimMode: rewardConfig.claimMode,
           };
         }
       }

@@ -70,7 +70,7 @@ router.get('/configs', adminAuth, async (req, res) => {
 
 /**
  * @route   POST /api/admin/daily-rewards/config
- * @desc    Create or update daily reward configuration
+ * @desc    Create or update daily reward configuration (V1 - simple)
  * @access  Admin
  */
 router.post('/config', adminAuth, [

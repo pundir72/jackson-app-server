@@ -411,21 +411,21 @@ class BitlabsService {
 
         // Log MAGIC RECEIPTS structure - show actual values inside objects and arrays
         if (magicReceiptOffers.length > 0) {
-          console.log(
-            `\n========== MAGIC RECEIPTS - RAW BITLABS API RESPONSE ==========`
-          );
-          console.log(
-            `Total Magic Receipt Offers: ${magicReceiptOffers.length}`
-          );
-          console.log(
-            `First Magic Receipt Offer (from Bitlabs API - with full object/array values):`
-          );
-          const firstMagicReceipt = magicReceiptOffers[0];
-          // Show the complete object with actual values in objects and arrays
-          console.log(JSON.stringify(firstMagicReceipt, null, 2));
-          console.log(
-            `========================================================\n`
-          );
+          // console.log(
+          //   `\n========== MAGIC RECEIPTS - RAW BITLABS API RESPONSE ==========`
+          // );
+          // console.log(
+          //   `Total Magic Receipt Offers: ${magicReceiptOffers.length}`
+          // );
+          // console.log(
+          //   `First Magic Receipt Offer (from Bitlabs API - with full object/array values):`
+          // );
+          // const firstMagicReceipt = magicReceiptOffers[0];
+          // // Show the complete object with actual values in objects and arrays
+          // console.log(JSON.stringify(firstMagicReceipt, null, 2));
+          // console.log(
+          //   `========================================================\n`
+          // );
         }
       }
 
@@ -1224,9 +1224,9 @@ class BitlabsService {
         restrictionReason: restrictionReason || null, // Include restriction reason in response
       };
     } catch (error) {
-      console.error(`\n========== CASHBACK OFFERS ERROR ==========`);
-      console.error(`Error message:`, error.message);
-      console.error(`Error status:`, error.status || error.response?.status);
+      // console.error(`\n========== CASHBACK OFFERS ERROR ==========`);
+      // console.error(`Error message:`, error.message);
+      // console.error(`Error status:`, error.status || error.response?.status);
 
       // Log full error response data from BitLabs
       if (error.data) {

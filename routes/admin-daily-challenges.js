@@ -64,6 +64,22 @@ router.get(
       .optional()
       .isString()
       .withMessage("Search must be a string"),
+    query("country")
+      .optional()
+      .isString()
+      .withMessage("Country must be a string"),
+    query("minAge")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Minimum age must be a non-negative integer"),
+    query("maxAge")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Maximum age must be a non-negative integer"),
+    query("gender")
+      .optional()
+      .isIn(["male", "female", "other"])
+      .withMessage("Gender must be male, female, or other"),
   ],
   async (req, res) => {
     try {
@@ -84,6 +100,10 @@ router.get(
         type,
         status,
         search,
+        country,
+        minAge,
+        maxAge,
+        gender,
       } = req.query;
 
       let query = {};
@@ -120,6 +140,88 @@ router.get(
           { title: { $regex: search, $options: "i" } },
           { description: { $regex: search, $options: "i" } },
         ];
+      }
+
+      // Country filter
+      if (country) {
+        // Only match challenges that explicitly have the country in their countries array
+        // Ensure the countries array exists, is not empty, and contains the selected country
+        query.$and = query.$and || [];
+        query.$and.push(
+          { "targetAudience.countries": { $exists: true } },
+          { "targetAudience.countries": { $ne: [] } },
+          { "targetAudience.countries": country }
+        );
+      }
+
+      // Age range filter
+      if (minAge !== undefined || maxAge !== undefined) {
+        // Match challenges where the age range overlaps with the filter
+        // Challenge matches if: challenge.minAge <= filter.maxAge AND challenge.maxAge >= filter.minAge
+        const ageConditions = [];
+        if (minAge !== undefined && maxAge !== undefined) {
+          // Both min and max specified - find challenges that overlap
+          ageConditions.push({
+            $or: [
+              // Challenge has no age restriction (defaults)
+              {
+                $and: [
+                  { "targetAudience.ageRange.min": { $exists: false } },
+                  { "targetAudience.ageRange.max": { $exists: false } },
+                ],
+              },
+              // Challenge age range overlaps with filter range
+              {
+                $and: [
+                  {
+                    $or: [
+                      { "targetAudience.ageRange.min": { $exists: false } },
+                      { "targetAudience.ageRange.min": { $lte: parseInt(maxAge) } },
+                    ],
+                  },
+                  {
+                    $or: [
+                      { "targetAudience.ageRange.max": { $exists: false } },
+                      { "targetAudience.ageRange.max": { $gte: parseInt(minAge) } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          });
+        } else if (minAge !== undefined) {
+          // Only min age specified - find challenges where maxAge >= minAge
+          ageConditions.push({
+            $or: [
+              { "targetAudience.ageRange.max": { $exists: false } },
+              { "targetAudience.ageRange.max": { $gte: parseInt(minAge) } },
+            ],
+          });
+        } else if (maxAge !== undefined) {
+          // Only max age specified - find challenges where minAge <= maxAge
+          ageConditions.push({
+            $or: [
+              { "targetAudience.ageRange.min": { $exists: false } },
+              { "targetAudience.ageRange.min": { $lte: parseInt(maxAge) } },
+            ],
+          });
+        }
+        if (ageConditions.length > 0) {
+          query.$and = query.$and || [];
+          query.$and.push(...ageConditions);
+        }
+      }
+
+      // Gender filter
+      if (gender) {
+        // Only match challenges that explicitly have the gender in their gender array
+        // Ensure the gender array exists, is not empty, and contains the selected gender
+        query.$and = query.$and || [];
+        query.$and.push(
+          { "targetAudience.gender": { $exists: true } },
+          { "targetAudience.gender": { $ne: [] } },
+          { "targetAudience.gender": gender }
+        );
       }
 
       const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -189,6 +291,22 @@ router.get(
       .optional()
       .isIn(["scheduled", "live", "completed", "expired", "draft"])
       .withMessage("Invalid status"),
+    query("country")
+      .optional()
+      .isString()
+      .withMessage("Country must be a string"),
+    query("minAge")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Minimum age must be a non-negative integer"),
+    query("maxAge")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Maximum age must be a non-negative integer"),
+    query("gender")
+      .optional()
+      .isIn(["male", "female", "other"])
+      .withMessage("Gender must be male, female, or other"),
   ],
   async (req, res) => {
     try {
@@ -201,7 +319,7 @@ router.get(
         });
       }
 
-      const { year, month, type, status } = req.query;
+      const { year, month, type, status, country, minAge, maxAge, gender } = req.query;
       const currentDate = new Date();
       const targetYear = year ? parseInt(year) : currentDate.getFullYear();
       const targetMonth = month ? parseInt(month) : currentDate.getMonth();
@@ -209,6 +327,76 @@ router.get(
       let filters = {};
       if (type) filters.type = type;
       if (status) filters.status = status;
+      if (country) {
+        // Only match challenges that explicitly have the country in their countries array
+        filters.$and = filters.$and || [];
+        filters.$and.push(
+          { "targetAudience.countries": { $exists: true } },
+          { "targetAudience.countries": { $ne: [] } },
+          { "targetAudience.countries": country }
+        );
+      }
+      
+      // Age range filter
+      if (minAge !== undefined || maxAge !== undefined) {
+        const ageConditions = [];
+        if (minAge !== undefined && maxAge !== undefined) {
+          ageConditions.push({
+            $or: [
+              {
+                $and: [
+                  { "targetAudience.ageRange.min": { $exists: false } },
+                  { "targetAudience.ageRange.max": { $exists: false } },
+                ],
+              },
+              {
+                $and: [
+                  {
+                    $or: [
+                      { "targetAudience.ageRange.min": { $exists: false } },
+                      { "targetAudience.ageRange.min": { $lte: parseInt(maxAge) } },
+                    ],
+                  },
+                  {
+                    $or: [
+                      { "targetAudience.ageRange.max": { $exists: false } },
+                      { "targetAudience.ageRange.max": { $gte: parseInt(minAge) } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          });
+        } else if (minAge !== undefined) {
+          ageConditions.push({
+            $or: [
+              { "targetAudience.ageRange.max": { $exists: false } },
+              { "targetAudience.ageRange.max": { $gte: parseInt(minAge) } },
+            ],
+          });
+        } else if (maxAge !== undefined) {
+          ageConditions.push({
+            $or: [
+              { "targetAudience.ageRange.min": { $exists: false } },
+              { "targetAudience.ageRange.min": { $lte: parseInt(maxAge) } },
+            ],
+          });
+        }
+        if (ageConditions.length > 0) {
+          filters.$and = filters.$and || [];
+          filters.$and.push(...ageConditions);
+        }
+      }
+      
+      if (gender) {
+        // Only match challenges that explicitly have the gender in their gender array
+        filters.$and = filters.$and || [];
+        filters.$and.push(
+          { "targetAudience.gender": { $exists: true } },
+          { "targetAudience.gender": { $ne: [] } },
+          { "targetAudience.gender": gender }
+        );
+      }
 
       const challenges = await DailyChallenge.getCalendarView(
         targetYear,
@@ -1116,10 +1304,13 @@ router.put(
     body("milestones.*.active")
       .isBoolean()
       .withMessage("Active must be a boolean"),
-    body("milestones.*.rewardType")
+    body("milestones.*.rewards")
+      .isArray({ min: 1, max: 2 })
+      .withMessage("At least one reward is required, maximum 2 rewards allowed per milestone (Coins and XP)"),
+    body("milestones.*.rewards.*.type")
       .isIn(["coins", "xp"])
       .withMessage("Reward type must be coins or xp"),
-    body("milestones.*.rewardValue")
+    body("milestones.*.rewards.*.value")
       .isInt({ min: 0 })
       .withMessage("Reward value must be a non-negative integer"),
     body("milestones.*.claimMode")

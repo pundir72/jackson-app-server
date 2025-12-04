@@ -632,8 +632,10 @@ router.post(
       }
 
       const { emailOrMobile, password } = req.body;
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedEmailOrMobile = emailOrMobile.toLowerCase();
       // Try to find user by email first
-      let user = await User.findOne({ email: emailOrMobile, role: "USER" });
+      let user = await User.findOne({ email: normalizedEmailOrMobile, role: "USER" });
 
       // If not found by email, try by phone number
       if (!user) {
@@ -816,10 +818,12 @@ router.post(
         });
       }
 
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedIdentifier = identifier.toLowerCase();
       // Try to find admin user by email first
-      let user = await User.findOne({ email: identifier, role: "ADMIN" });
+      let user = await User.findOne({ email: normalizedIdentifier, role: "ADMIN" });
 
-      // If not found by email, try by phone number
+      // If not found by email, try by phone number (use original identifier, not normalized)
       if (!user) {
         user = await findUserByPhone(User, identifier);
         // Make sure it's an admin user

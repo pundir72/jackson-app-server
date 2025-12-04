@@ -113,6 +113,7 @@ router.post('/xp-decay', async (req, res) => {
       decayRuleType,
       inactivityDuration,
       minimumXpLimit,
+      xpDeductionAmount,
       status = true,
       notificationToggle = true
     } = req.body;
@@ -211,6 +212,7 @@ router.post('/xp-decay', async (req, res) => {
       inactivityDuration,
       inactivityDurationDays,
       minimumXpLimit: minimumXpLimit || 0,
+      xpDeductionAmount: xpDeductionAmount !== undefined ? xpDeductionAmount : undefined,
       decayPercentage: '25%', // Default
       decayPercentageValue: 25, // Default
       sendNotification: notificationToggle,
@@ -246,6 +248,7 @@ router.put('/xp-decay/:id', async (req, res) => {
       inactivityDuration,
       inactivityDurationDays,
       minimumXpLimit,
+      xpDeductionAmount,
       decayPercentage,
       decayPercentageValue,
       sendNotification,
@@ -297,6 +300,7 @@ router.put('/xp-decay/:id', async (req, res) => {
     if (inactivityDuration !== undefined) setting.inactivityDuration = inactivityDuration;
     if (inactivityDurationDays !== undefined) setting.inactivityDurationDays = inactivityDurationDays;
     if (minimumXpLimit !== undefined) setting.minimumXpLimit = minimumXpLimit;
+    if (xpDeductionAmount !== undefined) setting.xpDeductionAmount = xpDeductionAmount;
     if (decayPercentage !== undefined) setting.decayPercentage = decayPercentage;
     if (decayPercentageValue !== undefined) setting.decayPercentageValue = decayPercentageValue;
     if (sendNotification !== undefined) setting.sendNotification = sendNotification;

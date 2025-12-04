@@ -42,6 +42,11 @@ const xpDecaySettingSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  xpDeductionAmount: {
+    type: Number,
+    required: false,
+    min: 0
+  },
   decayPercentage: {
     type: String,
     required: true,

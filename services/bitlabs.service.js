@@ -392,36 +392,21 @@ class BitlabsService {
           );
         });
 
-        // Log SHOPPING structure
+        // Log SHOPPING structure - show actual values inside arrays and objects
         if (shoppingOffers.length > 0) {
           console.log(
             `\n========== SHOPPING - RAW BITLABS API RESPONSE ==========`
           );
           console.log(`Total Shopping Offers: ${shoppingOffers.length}`);
-          console.log(`First Shopping Offer Structure (from Bitlabs API):`);
+          console.log(
+            `First Shopping Offer Structure (from Bitlabs API - with full object/array values):`
+          );
           const firstShopping = shoppingOffers[0];
-          const shoppingStructure = {};
-          Object.keys(firstShopping).forEach((key) => {
-            const value = firstShopping[key];
-            if (value === null || value === undefined) {
-              shoppingStructure[key] = value;
-            } else if (Array.isArray(value)) {
-              shoppingStructure[key] = `[Array(${value.length})]`;
-            } else if (typeof value === "object") {
-              shoppingStructure[key] = `{Object with keys: ${Object.keys(
-                value
-              ).join(", ")} }`;
-            } else {
-              shoppingStructure[key] =
-                typeof value === "string" && value.length > 50
-                  ? value.substring(0, 50) + "..."
-                  : value;
-            }
-          });
-          // console.log(JSON.stringify(shoppingStructure, null, 2));
-          // console.log(
-          //   `========================================================\n`
-          // );
+          // Show the complete object with actual values in objects and arrays
+          console.log(JSON.stringify(firstShopping, null, 2));
+          console.log(
+            `========================================================\n`
+          );
         }
 
         // Log MAGIC RECEIPTS structure - show actual values inside objects and arrays
@@ -679,31 +664,72 @@ class BitlabsService {
         "🔴 [BITLABS API SERVICE] ==================================================\n"
       );
 
-      const response = await this.client.get(endpoint, {
-        headers: headers,
-        params: normalizedParams,
-        paramsSerializer: paramsSerializer,
-      });
+      let response;
+      try {
+        response = await this.client.get(endpoint, {
+          headers: headers,
+          params: normalizedParams,
+          paramsSerializer: paramsSerializer,
+        });
 
-      // 🔴 DEBUG: Log raw response from Bitlabs
-      console.log(
-        "\n🔴 [BITLABS API SERVICE] ========== SURVEY API RESPONSE FROM THIRD PARTY =========="
-      );
-      console.log(
-        "🔴 [BITLABS API SERVICE] 📊 Response Status:",
-        response.status
-      );
-      console.log(
-        "🔴 [BITLABS API SERVICE] 📦 Response Data Keys:",
-        response.data ? Object.keys(response.data) : "NO DATA"
-      );
-      console.log(
-        "🔴 [BITLABS API SERVICE] 📋 Full Response Structure:",
-        JSON.stringify(response.data, null, 2)
-      );
-      console.log(
-        "🔴 [BITLABS API SERVICE] ==================================================\n"
-      );
+        // 🔴 DEBUG: Log raw response from Bitlabs
+        console.log(
+          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API RESPONSE FROM THIRD PARTY =========="
+        );
+        console.log(
+          "🔴 [BITLABS API SERVICE] 📊 Response Status:",
+          response.status
+        );
+        console.log(
+          "🔴 [BITLABS API SERVICE] 📦 Response Data Keys:",
+          response.data ? Object.keys(response.data) : "NO DATA"
+        );
+        console.log(
+          "🔴 [BITLABS API SERVICE] 📋 Full Response Structure:",
+          JSON.stringify(response.data, null, 2)
+        );
+        console.log(
+          "🔴 [BITLABS API SERVICE] ==================================================\n"
+        );
+      } catch (error) {
+        // 🔴 ENHANCED ERROR LOGGING: Log full error details for 403 errors
+        console.error(
+          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API ERROR =========="
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Error Status:",
+          error.response?.status || error.status
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Error Message:",
+          error.message
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Error Response Data:",
+          JSON.stringify(error.response?.data || error.data, null, 2)
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Error Details:",
+          error.response?.data?.error || error.error
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Trace ID:",
+          error.response?.data?.trace_id || error.data?.trace_id
+        );
+        console.error("🔴 [BITLABS API SERVICE] ❌ Request URL:", fullURL);
+        console.error("🔴 [BITLABS API SERVICE] ❌ Request Headers:", {
+          "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+          "X-User-Id": userIdentifier,
+        });
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Request Params:",
+          JSON.stringify(normalizedParams, null, 2)
+        );
+        console.error(
+          "🔴 [BITLABS API SERVICE] ==================================================\n"
+        );
+        throw error; // Re-throw to be handled by outer catch
+      }
 
       // Normalize response - Bitlabs surveys API structure
       let rawSurveys = [];
@@ -924,7 +950,57 @@ class BitlabsService {
         restrictionReason: restrictionReason || null, // Include restriction reason in response
       };
     } catch (error) {
-      console.error("Bitlabs getSurveys error:", error);
+      // 🔴 ENHANCED ERROR LOGGING: Log full error details
+      console.error(
+        "\n🔴 [BITLABS API SERVICE] ========== getSurveys() ERROR =========="
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Error Type:",
+        error.constructor.name
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Error Message:",
+        error.message
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Error Status:",
+        error.response?.status || error.status || "N/A"
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Error Status Text:",
+        error.response?.statusText || "N/A"
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Full Error Response:",
+        JSON.stringify(error.response?.data || error.data || {}, null, 2)
+      );
+      if (error.response?.data?.error) {
+        console.error(
+          "🔴 [BITLABS API SERVICE] ❌ Error Details Object:",
+          JSON.stringify(error.response.data.error, null, 2)
+        );
+        if (error.response.data.error.details) {
+          console.error(
+            "🔴 [BITLABS API SERVICE] ❌ Error Details Array:",
+            JSON.stringify(error.response.data.error.details, null, 2)
+          );
+        }
+      }
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Trace ID:",
+        error.response?.data?.trace_id || error.data?.trace_id || "N/A"
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ Request URL:",
+        `${this.baseURL}/v2/client/surveys`
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ❌ User ID Used:",
+        userId || queryParams.userId || "static-inventory"
+      );
+      console.error(
+        "🔴 [BITLABS API SERVICE] ==================================================\n"
+      );
       throw error;
     }
   }
@@ -1075,36 +1151,21 @@ class BitlabsService {
         });
       }
 
-      // Log raw Bitlabs API response structure for CASHBACK
+      // Log raw Bitlabs API response structure for CASHBACK - show actual values inside arrays and objects
       if (rawCashback.length > 0) {
-        // console.log(
-        //   `\n========== CASHBACK - RAW BITLABS API RESPONSE ==========`
-        // );
-        // console.log(`Total Cashback Offers: ${rawCashback.length}`);
-        // console.log(`First Cashback Offer Structure (from Bitlabs API):`);
+        console.log(
+          `\n========== CASHBACK - RAW BITLABS API RESPONSE ==========`
+        );
+        console.log(`Total Cashback Offers: ${rawCashback.length}`);
+        console.log(
+          `First Cashback Offer Structure (from Bitlabs API - with full object/array values):`
+        );
         const firstCashback = rawCashback[0];
-        const cashbackStructure = {};
-        Object.keys(firstCashback).forEach((key) => {
-          const value = firstCashback[key];
-          if (value === null || value === undefined) {
-            cashbackStructure[key] = value;
-          } else if (Array.isArray(value)) {
-            cashbackStructure[key] = `[Array(${value.length})]`;
-          } else if (typeof value === "object") {
-            cashbackStructure[key] = `{Object with keys: ${Object.keys(
-              value
-            ).join(", ")} }`;
-          } else {
-            cashbackStructure[key] =
-              typeof value === "string" && value.length > 50
-                ? value.substring(0, 50) + "..."
-                : value;
-          }
-        });
-        // console.log(JSON.stringify(cashbackStructure, null, 2));
-        // console.log(
-        //   `========================================================\n`
-        // );
+        // Show the complete object with actual values in objects and arrays
+        console.log(JSON.stringify(firstCashback, null, 2));
+        console.log(
+          `========================================================\n`
+        );
       }
 
       // Return raw Bitlabs cashback format - preserve original structure

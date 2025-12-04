@@ -36,7 +36,7 @@ const surveyOfferSchema = new mongoose.Schema(
         default: "shapes",
       },
       icon_url: {
-        type: String,
+      type: String,
         default: "",
       },
     },

@@ -208,6 +208,12 @@ mongoose
     const adminGameTipsRoutes = require("./routes/admin-game-tips");
     const zohoRoutes = require("./routes/zoho");
     const adjustRoutes = require("./routes/adjust");
+    const adjustV2Routes = require("./routes/adjust-v2");
+    const adminAdjustEventsRoutes = require("./routes/admin-adjust-events");
+    
+    // Initialize Firebase Admin SDK (for V2 S2S implementation)
+    const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
+    initializeFirebaseAdmin();
 
     // API Routes
     app.use("/api/auth", authRoutes);
@@ -272,6 +278,8 @@ mongoose
     app.use("/api/besitos", besitosRoutes);
     app.use("/api/bitlabs", bitlabsRoutes);
     app.use("/api/adjust", adjustRoutes);
+    app.use("/api/v2/adjust", adjustV2Routes);
+    app.use("/api/admin/adjust-events", adminAdjustEventsRoutes);
     app.use("/api/non-game-offers", nonGameOffersRoutes);
     app.use("/api/daily-challenge", dailyChallengeRoutes);
     app.use("/api/webhooks", webhookRoutes);

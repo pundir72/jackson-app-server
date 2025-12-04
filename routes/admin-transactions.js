@@ -608,15 +608,15 @@ router.post(
             : previousBalance - amount;
 
         // Debug logging
-        console.log("Wallet Adjustment Debug:", {
-          userId,
-          balanceType,
-          adjustmentType,
-          amount,
-          previousBalance,
-          newBalance,
-          userWalletBalance: user.wallet.balance,
-        });
+        // console.log("Wallet Adjustment Debug:", {
+        //   userId,
+        //   balanceType,
+        //   adjustmentType,
+        //   amount,
+        //   previousBalance,
+        //   newBalance,
+        //   userWalletBalance: user.wallet.balance,
+        // });
 
         if (newBalance < 0) {
           return res.status(400).json({
@@ -975,18 +975,18 @@ router.put(
       // Note: Conversion settings are system-wide, not user-specific
       // Since WalletAuditLog requires a targetUserId, we'll skip audit logging for system settings
       // In a production system, you might want a separate SystemAuditLog for system-wide changes
-      console.log(`Conversion settings updated by admin ${req.user.userId}:`, {
-        currency,
-        coinsPerDollar: updatedSettings.coinsPerDollar,
-        coinsPerUnit: updatedSettings.coinsPerUnit,
-        currencyAmount: updatedSettings.currencyAmount,
-        previousRate: previousSettings
-          ? previousSettings.coinsPerDollar > 0
-            ? 1 / previousSettings.coinsPerDollar
-            : 0.01
-          : 0.01,
-        newRate: conversionRate,
-      });
+      // console.log(`Conversion settings updated by admin ${req.user.userId}:`, {
+      //   currency,
+      //   coinsPerDollar: updatedSettings.coinsPerDollar,
+      //   coinsPerUnit: updatedSettings.coinsPerUnit,
+      //   currencyAmount: updatedSettings.currencyAmount,
+      //   previousRate: previousSettings
+      //     ? previousSettings.coinsPerDollar > 0
+      //       ? 1 / previousSettings.coinsPerDollar
+      //       : 0.01
+      //     : 0.01,
+      //   newRate: conversionRate,
+      // });
 
       res.json({
         success: true,

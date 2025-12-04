@@ -871,7 +871,7 @@ router.get("/games", adminAuth, async (req, res) => {
 router.get("/games/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    console.log({ id });
+    // console.log({ id });
     const game = await Game.findById(id).populate("sdkProvider", "name").lean();
 
     if (!game) {
@@ -985,7 +985,7 @@ router.post(
           });
         }
 
-        console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
+        // console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
 
         // Helper function to check if offer matches gameId
         const matchesGameId = (offer) => {
@@ -1020,50 +1020,50 @@ router.post(
         // Try each query combination
         for (const queryParams of queryCombinations) {
           try {
-            console.log(`Trying query: ${JSON.stringify(queryParams)}`);
+            // console.log(`Trying query: ${JSON.stringify(queryParams)}`);
             offers = await bitlabsOfferCache.getOffers(queryParams);
-            console.log(
-              `Found ${offers.length} offers with query: ${JSON.stringify(
-                queryParams
-              )}`
-            );
+            // console.log(
+            //   `Found ${offers.length} offers with query: ${JSON.stringify(
+            //     queryParams
+            //   )}`
+            // );
 
             // Search in current offers
             external = offers.find(matchesGameId);
 
             if (external) {
-              console.log(
-                `✅ Found game in Bitlabs: ${JSON.stringify({
-                  id: external.id,
-                  gameId: external.gameId,
-                  title: external.title,
-                })}`
-              );
+              // console.log(
+              //   `✅ Found game in Bitlabs: ${JSON.stringify({
+              //     id: external.id,
+              //     gameId: external.gameId,
+              //     title: external.title,
+              //   })}`
+              // );
               found = true;
               break;
             }
 
             // If not found, try refreshing cache for this query
-            console.log(
-              `Game not found in cache, refreshing for query: ${JSON.stringify(
-                queryParams
-              )}`
-            );
+            // console.log(
+            //   `Game not found in cache, refreshing for query: ${JSON.stringify(
+            //     queryParams
+            //   )}`
+            // );
             const refreshedOffers = await bitlabsOfferCache.refreshOffers(
               queryParams
             );
-            console.log(`Refreshed ${refreshedOffers.length} offers`);
+            // console.log(`Refreshed ${refreshedOffers.length} offers`);
 
             external = refreshedOffers.find(matchesGameId);
 
             if (external) {
-              console.log(
-                `✅ Found game after refresh: ${JSON.stringify({
-                  id: external.id,
-                  gameId: external.gameId,
-                  title: external.title,
-                })}`
-              );
+              // console.log(
+              //   `✅ Found game after refresh: ${JSON.stringify({
+              //     id: external.id,
+              //     gameId: external.gameId,
+              //     title: external.title,
+              //   })}`
+              // );
               found = true;
               break;
             }
@@ -3028,11 +3028,11 @@ router.get(
 
       const { offerType = "all", status = "all" } = req.query;
 
-      console.log("🔵 [ADMIN BACKEND] Get configured offers request:", {
-        offerType,
-        status,
-        query: req.query,
-      });
+      // console.log("🔵 [ADMIN BACKEND] Get configured offers request:", {
+      //   offerType,
+      //   status,
+      //   query: req.query,
+      // });
 
       // Find BitLab SDK
       const bitlabSDK = await SurveySDK.findOne({
@@ -3040,7 +3040,7 @@ router.get(
       });
 
       if (!bitlabSDK) {
-        console.log("⚠️ [ADMIN BACKEND] BitLab SDK not found");
+        // console.log("⚠️ [ADMIN BACKEND] BitLab SDK not found");
         return res.json({
           success: true,
           data: {
@@ -3057,10 +3057,10 @@ router.get(
         });
       }
 
-      console.log("✅ [ADMIN BACKEND] BitLab SDK found:", {
-        id: bitlabSDK._id,
-        name: bitlabSDK.name,
-      });
+      // console.log("✅ [ADMIN BACKEND] BitLab SDK found:", {
+      //   id: bitlabSDK._id,
+      //   name: bitlabSDK.name,
+      // });
 
       // Build base query
       const baseQuery = {
@@ -3071,7 +3071,7 @@ router.get(
         baseQuery.status = status;
       }
 
-      console.log("🔍 [ADMIN BACKEND] Base query:", baseQuery);
+      // console.log("🔍 [ADMIN BACKEND] Base query:", baseQuery);
 
       // Fetch from both models based on offerType
       let allOffers = [];
@@ -3079,12 +3079,12 @@ router.get(
       if (offerType === "all" || offerType === "survey") {
         // Get surveys from SurveyOffer
         const surveyQuery = { ...baseQuery, offerType: "survey" };
-        console.log("🔍 [ADMIN BACKEND] Survey query:", surveyQuery);
+        // console.log("🔍 [ADMIN BACKEND] Survey query:", surveyQuery);
         const surveys = await SurveyOffer.find(surveyQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
-        console.log(`✅ [ADMIN BACKEND] Found ${surveys.length} surveys`);
+        // console.log(`✅ [ADMIN BACKEND] Found ${surveys.length} surveys`);
         allOffers.push(...surveys);
       }
 
@@ -3099,49 +3099,49 @@ router.get(
         if (offerType !== "all") {
           nonGameQuery.offerType = offerType;
         }
-        console.log("🔍 [ADMIN BACKEND] Non-game query:", nonGameQuery);
+        // console.log("🔍 [ADMIN BACKEND] Non-game query:", nonGameQuery);
         const nonGameOffers = await NonGameOffer.find(nonGameQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
-        console.log(
-          `✅ [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
-        );
+        // console.log(
+        //   `✅ [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
+        // );
 
         // Debug: Check all non-gaming offers regardless of query
         const allNonGameOffersDebug = await NonGameOffer.find({})
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
-        console.log(
-          `🔍 [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
-        );
+        // console.log(
+        //   `🔍 [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
+        // );
         if (allNonGameOffersDebug.length > 0) {
-          console.log(
-            "📋 [ADMIN BACKEND] All non-gaming offers in DB:",
-            allNonGameOffersDebug.map((o) => ({
-              id: o._id,
-              externalId: o.externalId,
-              title: o.title,
-              offerType: o.offerType,
-              status: o.status,
-              sdkId: o.sdkId?._id || o.sdkId,
-              sdkName: o.sdkId?.name || "N/A",
-            }))
-          );
+          // console.log(
+          //   "📋 [ADMIN BACKEND] All non-gaming offers in DB:",
+          //   allNonGameOffersDebug.map((o) => ({
+          //     id: o._id,
+          //     externalId: o.externalId,
+          //     title: o.title,
+          //     offerType: o.offerType,
+          //     status: o.status,
+          //     sdkId: o.sdkId?._id || o.sdkId,
+          //     sdkName: o.sdkId?.name || "N/A",
+          //   }))
+          // );
         }
 
         if (nonGameOffers.length > 0) {
-          console.log(
-            "📋 [ADMIN BACKEND] Non-gaming offers matching query:",
-            nonGameOffers.slice(0, 3).map((o) => ({
-              id: o._id,
-              externalId: o.externalId,
-              title: o.title,
-              offerType: o.offerType,
-              status: o.status,
-            }))
-          );
+          // console.log(
+          //   "📋 [ADMIN BACKEND] Non-gaming offers matching query:",
+          //   nonGameOffers.slice(0, 3).map((o) => ({
+          //     id: o._id,
+          //     externalId: o.externalId,
+          //     title: o.title,
+          //     offerType: o.offerType,
+          //     status: o.status,
+          //   }))
+          // );
         }
         allOffers.push(...nonGameOffers);
       }
@@ -3250,18 +3250,18 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
     const { sdk } = req.params;
     const { type = "all", devices, is_game = false, country } = req.query;
 
-    console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
-      endpoint: "/non-game-offers/by-sdk/:sdk",
-      sdk,
-      queryParams: {
-        type,
-        devices,
-        is_game,
-        country,
-      },
-      allQueryParams: req.query,
-      userId: req.user?.userId,
-    });
+    // console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
+    //   endpoint: "/non-game-offers/by-sdk/:sdk",
+    //   sdk,
+    //   queryParams: {
+    //     type,
+    //     devices,
+    //     is_game,
+    //     country,
+    //   },
+    //   allQueryParams: req.query,
+    //   userId: req.user?.userId,
+    // });
 
     if (sdk === "bitlabs") {
       const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
@@ -3283,16 +3283,16 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
       const userProfile = {};
       if (country) {
         userProfile.country = country;
-        console.log(
-          `🌍 Admin request: Using country "${country}" for non-game offers`
-        );
+        // console.log(
+        //   `🌍 Admin request: Using country "${country}" for non-game offers`
+        // );
       } else {
-        console.log(
-          `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
-        );
-        console.log(
-          `   To test with India-targeted offers, add ?country=IN to the request URL`
-        );
+        // console.log(
+        //   `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
+        // );
+        // console.log(
+        //   `   To test with India-targeted offers, add ?country=IN to the request URL`
+        // );
       }
 
       // Convert devices array to platform for userProfile
@@ -3313,11 +3313,11 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         } else {
           userProfile.platform = "mobile"; // Default to mobile
         }
-        console.log(
-          `📱 Admin request: Using platform "${
-            userProfile.platform
-          }" for devices: ${devicesArray.join(", ")}`
-        );
+        // console.log(
+        //   `📱 Admin request: Using platform "${
+        //     userProfile.platform
+        //   }" for devices: ${devicesArray.join(", ")}`
+        // );
       }
 
       // Get offers - also pass devices directly for general offers API
@@ -3328,22 +3328,22 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         category: "all",
         devices: queryParams.devices, // Pass devices for shopping/magic receipts
       };
-      console.log(
-        "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
-        utilityParams
-      );
+      // console.log(
+      //   "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
+      //   utilityParams
+      // );
 
       const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
 
-      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
-        success: result.success,
-        totalOffers: result.totalOffers || 0,
-        surveysCount: result.categorized?.surveys?.length || 0,
-        cashbackCount: result.categorized?.cashback?.length || 0,
-        shoppingCount: result.categorized?.shopping?.length || 0,
-        magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
-        error: result.error,
-      });
+      // console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
+      //   success: result.success,
+      //   totalOffers: result.totalOffers || 0,
+      //   surveysCount: result.categorized?.surveys?.length || 0,
+      //   cashbackCount: result.categorized?.cashback?.length || 0,
+      //   shoppingCount: result.categorized?.shopping?.length || 0,
+      //   magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
+      //   error: result.error,
+      // });
 
       if (!result.success) {
         console.error(
@@ -3484,13 +3484,13 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     const userProfile = {};
     if (country) {
       userProfile.country = country;
-      console.log(
-        `🌍 Sync request: Using country "${country}" for BitLabs offers`
-      );
+      // console.log(
+      //   `🌍 Sync request: Using country "${country}" for BitLabs offers`
+      // );
     } else {
-      console.log(
-        `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
-      );
+      // console.log(
+      //   `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
+      // );
     }
 
     // Convert devices array to platform for userProfile
@@ -3508,11 +3508,11 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       } else {
         userProfile.platform = "mobile"; // Default to mobile
       }
-      console.log(
-        `📱 Sync request: Using platform "${
-          userProfile.platform
-        }" for devices: ${devicesArray.join(", ")}`
-      );
+      // console.log(
+      //   `📱 Sync request: Using platform "${
+      //     userProfile.platform
+      //   }" for devices: ${devicesArray.join(", ")}`
+      // );
     }
 
     // Fetch offers from BitLab
@@ -3876,23 +3876,23 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
         // 🔍 DEBUG: Log offer data for surveys before saving
         if (isSurvey || offer.offerType === "survey") {
-          console.log(`\n🔍 SYNC: Preparing to save Survey ${externalId}`);
-          console.log(`   coinReward: ${coinReward}`);
-          console.log(`   offer.value: ${offer.value}`);
-          console.log(`   offer.cpi: ${offer.cpi}`);
-          console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
-          console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
-          console.log(`   Category string: ${categoryString}`);
-          console.log(
-            `   publisherRevenue will be: cpi=${
-              parseFloat(offer.cpi) || 0
-            }, value=${parseFloat(offer.value) || 0}`
-          );
-          console.log(
-            `   bitlabsData will store: cpi=${parseFloat(offer.cpi) || 0}, cr=${
-              parseFloat(offer.cr) || 0
-            }, loi=${parseFloat(offer.loi) || offer.estimatedTime || 0}`
-          );
+          // console.log(`\n🔍 SYNC: Preparing to save Survey ${externalId}`);
+          // console.log(`   coinReward: ${coinReward}`);
+          // console.log(`   offer.value: ${offer.value}`);
+          // console.log(`   offer.cpi: ${offer.cpi}`);
+          // console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
+          // console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
+          // console.log(`   Category string: ${categoryString}`);
+          // console.log(
+          //   `   publisherRevenue will be: cpi=${
+          //     parseFloat(offer.cpi) || 0
+          //   }, value=${parseFloat(offer.value) || 0}`
+          // );
+          // console.log(
+          //   `   bitlabsData will store: cpi=${parseFloat(offer.cpi) || 0}, cr=${
+          //     parseFloat(offer.cr) || 0
+          //   }, loi=${parseFloat(offer.loi) || offer.estimatedTime || 0}`
+          // );
         }
 
         // Store ALL normalized offer fields in the same format
@@ -4169,14 +4169,14 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     bitlabSDK.analytics.lastSyncAt = new Date();
     await bitlabSDK.save();
 
-    console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
-      syncedCount,
-      updatedCount,
-      skippedCount,
-      errorCount: errors.length,
-      totalProcessed: offersToSync.length,
-      errors: errors.length > 0 ? errors.slice(0, 5) : "None",
-    });
+    // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
+    //   syncedCount,
+    //   updatedCount,
+    //   skippedCount,
+    //   errorCount: errors.length,
+    //   totalProcessed: offersToSync.length,
+    //   errors: errors.length > 0 ? errors.slice(0, 5) : "None",
+    // });
 
     res.json({
       success: true,

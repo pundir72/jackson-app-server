@@ -518,7 +518,7 @@ router.post(
               },
             }
           );
-          console.log("Referral processed successfully:", referralResult);
+          // console.log("Referral processed successfully:", referralResult);
         } catch (referralError) {
           // Don't fail signup if referral processing fails, just log it
           console.error("Referral processing error:", referralError.message);
@@ -632,21 +632,23 @@ router.post(
       }
 
       const { emailOrMobile, password } = req.body;
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedEmailOrMobile = emailOrMobile.toLowerCase();
       // Try to find user by email first
-      let user = await User.findOne({ email: emailOrMobile, role: "USER" });
+      let user = await User.findOne({ email: normalizedEmailOrMobile, role: "USER" });
 
       // If not found by email, try by phone number
       if (!user) {
         user = await findUserByPhone(User, emailOrMobile);
       }
-      console.log(user);
+      // console.log(user);
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       // Verify password
       const isValidPassword = await user.comparePassword(password);
-      console.log("Password verification result:", isValidPassword);
+      // console.log("Password verification result:", isValidPassword);
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -816,10 +818,12 @@ router.post(
         });
       }
 
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedIdentifier = identifier.toLowerCase();
       // Try to find admin user by email first
-      let user = await User.findOne({ email: identifier, role: "ADMIN" });
+      let user = await User.findOne({ email: normalizedIdentifier, role: "ADMIN" });
 
-      // If not found by email, try by phone number
+      // If not found by email, try by phone number (use original identifier, not normalized)
       if (!user) {
         user = await findUserByPhone(User, identifier);
         // Make sure it's an admin user
@@ -890,10 +894,10 @@ router.post(
 
       // Ensure user has ADMIN role (fix if missing)
       if (user.role !== 'ADMIN') {
-        console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
+        // console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
         user.role = 'ADMIN';
         await user.save();
-        console.log(`✅ Updated user ${user.email} to ADMIN role`);
+        // console.log(`✅ Updated user ${user.email} to ADMIN role`);
       }
 
       // Generate JWT token
@@ -985,7 +989,7 @@ router.get(
   }),
   async (req, res) => {
     try {
-      console.log("Google OAuth callback route hit");
+      // console.log("Google OAuth callback route hit");
 
       const user = req.user;
 
@@ -1031,7 +1035,7 @@ router.get(
         };
 
         const updatedUser = await User.findByIdAndUpdate(user._id, updateData, { new: true });
-        console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
+        // console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
       } catch (updateError) {
         console.error("Error updating login analytics for Google login:", updateError);
         // Continue even if update fails
@@ -1230,7 +1234,7 @@ router.post(
   ],
   async (req, res) => {
     try {
-      console.log("============called ");
+      // console.log("============called ");
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -1315,8 +1319,8 @@ router.post(
         // Send SMS with reset code (simplified version)
         try {
           // In production, integrate with Twilio or similar service
-          console.log("Password reset SMS would be sent to:", user.mobile);
-          console.log("Reset token:", resetToken);
+          // console.log("Password reset SMS would be sent to:", user.mobile);
+          // console.log("Reset token:", resetToken);
 
           res.json({
             message: "Password reset code has been sent to your mobile number",
@@ -1405,7 +1409,7 @@ router.post(
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      console.log(errors);
+      // console.log(errors);
       if (!errors.isEmpty()) {
         return res.status(400).json({
           error: "Validation failed",
@@ -1442,9 +1446,9 @@ router.post(
       await user.save();
 
       // Log the password change for security
-      console.log(
-        `Password reset completed for user: ${user.email || user.mobile}`
-      );
+      // console.log(
+      //   `Password reset completed for user: ${user.email || user.mobile}`
+      // );
 
       res.json({
         message:

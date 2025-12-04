@@ -88,7 +88,7 @@ async function getStreakConfig() {
  */
 async function trackUserActivity(userId, options = {}) {
   try {
-    console.log("Tracking user activity for user:", userId);
+    // console.log("Tracking user activity for user:", userId);
     const user = await User.findById(userId).select(
       "wallet xp badges dailyActivity"
     );
@@ -523,9 +523,9 @@ async function checkAndAwardMilestoneRewards(user, activity) {
           activity.awardedMilestones.push(currentStreak);
 
           const rewardsSummary = rewardsEarned.map(r => `${r.value} ${r.type}`).join(', ');
-          console.log(
-            `✅ Milestone reward awarded: Day ${currentStreak} - ${rewardsSummary} (claimMode: ${rewardConfig.claimMode})`
-          );
+          // console.log(
+          //   `✅ Milestone reward awarded: Day ${currentStreak} - ${rewardsSummary} (claimMode: ${rewardConfig.claimMode})`
+          // );
 
           return {
             day: currentStreak,

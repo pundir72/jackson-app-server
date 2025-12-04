@@ -1165,11 +1165,11 @@ userSchema.pre('save', async function (next) {
 
 // Method to compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
-    console.log('comparePassword method called');
-    console.log('candidatePassword:', candidatePassword);
-    console.log('this.password:', this.password);
+    // console.log('comparePassword method called');
+    // console.log('candidatePassword:', candidatePassword);
+    // console.log('this.password:', this.password);
     const result = await bcrypt.compare(candidatePassword, this.password);
-    console.log('bcrypt.compare result:', result);
+    // console.log('bcrypt.compare result:', result);
     return result;
 };
 

@@ -46,14 +46,38 @@ function getUserAge(user) {
   return 25;
 }
 
-// Helper function to get user gender
+// Helper function to get user gender (normalized to lowercase)
+// Uses the same collection/field as admin users route: user.onboarding.gender
+// Admin route shows gender from: user.onboarding.gender (stored as lowercase in DB)
 function getUserGender(user) {
-  return user.onboarding?.gender || "other";
+  // Gender is stored in onboarding.gender (same as admin users route)
+  // Admin route displays it capitalized but stores it lowercase: "male", "female", "other"
+  const gender = user.onboarding?.gender || "other";
+  // Normalize to lowercase for consistent matching with offer targetAudience.gender
+  return String(gender).toLowerCase();
 }
 
 // Helper function to get admin-configured offers with fresh URLs from Bitlabs
 // INDUSTRIAL-LEVEL SOLUTION: Fetches fresh click URLs per user (same as surveys)
-async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
+async function getAdminConfiguredOffers(
+  offerType,
+  userProfile,
+  userId,
+  req,
+  category = "all"
+) {
+  console.log("\n🟢 ========== getAdminConfiguredOffers DEBUG ==========");
+  console.log("🟢 [getAdminConfiguredOffers] Parameters:", {
+    offerType,
+    userId,
+    category,
+    userProfile: {
+      age: userProfile.age,
+      gender: userProfile.gender,
+      country: userProfile.country,
+    },
+  });
+
   try {
     const SurveySDK = require("../models/SurveySDK");
     const SurveyOffer = require("../models/SurveyOffer");
@@ -63,8 +87,14 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
     const bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
 
     if (!bitlabSDK) {
+      console.warn("⚠️ [getAdminConfiguredOffers] BitLab SDK not found");
       return [];
     }
+
+    console.log("🟢 [getAdminConfiguredOffers] BitLab SDK found:", {
+      sdkId: bitlabSDK._id.toString(),
+      name: bitlabSDK.name,
+    });
 
     let allOffers = [];
 
@@ -118,19 +148,53 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
       }
 
       // Get configured offers
+      console.log(
+        "🟢 [getAdminConfiguredOffers] Database query:",
+        JSON.stringify(query, null, 2)
+      );
       allOffers = await OfferModel.find(query)
         .populate("sdkId", "name displayName")
         .sort({ createdAt: -1 })
         .lean();
+
+      console.log("🟢 [getAdminConfiguredOffers] Offers from database:", {
+        totalCount: allOffers.length,
+        sampleOffers: allOffers.slice(0, 3).map((o) => ({
+          _id: o._id?.toString(),
+          externalId: o.externalId,
+          title: o.title,
+          offerType: o.offerType,
+          status: o.status,
+        })),
+      });
     }
 
     // Filter by user eligibility
+    console.log(
+      "🟢 [getAdminConfiguredOffers] Filtering by user eligibility..."
+    );
     const eligibleOffers = allOffers.filter((offer) => {
       // Determine which model to use for eligibility check
       const isSurvey = offer.offerType === "survey";
       const OfferModel = isSurvey ? SurveyOffer : NonGameOffer;
       const offerDoc = new OfferModel(offer);
-      return offerDoc.isEligibleForUser(userProfile);
+      const isEligible = offerDoc.isEligibleForUser(userProfile);
+
+      if (!isEligible && offerType === "cashback") {
+        console.log("🟡 [getAdminConfiguredOffers] Offer not eligible:", {
+          externalId: offer.externalId,
+          title: offer.title,
+          targetAudience: offer.targetAudience,
+        });
+      }
+
+      return isEligible;
+    });
+
+    console.log("🟢 [getAdminConfiguredOffers] Eligible offers:", {
+      beforeFilter: allOffers.length,
+      afterFilter: eligibleOffers.length,
+      filteredOut: allOffers.length - eligibleOffers.length,
     });
 
     // INDUSTRIAL-LEVEL: Fetch fresh offers from Bitlabs with user's X-User-Id
@@ -153,13 +217,13 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
           bitlabsResult = await bitlabsNonGames.getSurveys({
             userId: userId,
             userProfile: userProfileForAPI,
-            category: userProfile.category || "all",
+            category: category || "all",
           });
         } else if (offerType === "cashback") {
           bitlabsResult = await bitlabsNonGames.getCashbackOffers({
             userId: userId,
             userProfile: userProfileForAPI,
-            category: userProfile.category || "all",
+            category: category || "all",
           });
         } else if (
           offerType === "magic_receipt" ||
@@ -169,13 +233,13 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
           bitlabsResult = await bitlabsNonGames.getMagicReceipts({
             userId: userId,
             userProfile: userProfileForAPI,
-            category: userProfile.category || "all",
+            category: category || "all",
           });
         } else if (offerType === "shopping") {
           bitlabsResult = await bitlabsNonGames.getShoppingOffers({
             userId: userId,
             userProfile: userProfileForAPI,
-            category: userProfile.category || "all",
+            category: category || "all",
           });
         } else if (offerType === "all") {
           // For "all", fetch all types and combine
@@ -183,7 +247,7 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
             userId: userId,
             userProfile: userProfileForAPI,
             type: "all",
-            category: userProfile.category || "all",
+            category: category || "all",
           });
         }
 
@@ -246,6 +310,15 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
               bitlabsResult.categorized?.cashback ||
               bitlabsResult.cashback ||
               [];
+            console.log(
+              "🟢 [getAdminConfiguredOffers] Fresh cashback offers from Bitlabs:",
+              {
+                count: freshOffersList.length,
+                sampleIds: freshOffersList
+                  .slice(0, 5)
+                  .map((o) => o.merchant_id),
+              }
+            );
           } else if (
             offerType === "magic_receipt" ||
             offerType === "magic-receipts" ||
@@ -264,7 +337,17 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
             ];
           }
 
+          console.log(
+            "🟢 [getAdminConfiguredOffers] Matching admin offers with fresh Bitlabs offers..."
+          );
+          console.log("🟢 [getAdminConfiguredOffers] Matching:", {
+            eligibleOffersCount: eligibleOffers.length,
+            freshOffersCount: freshOffersList.length,
+          });
+
           // Match each admin-configured offer with fresh Bitlabs response
+          let matchedCount = 0;
+          let unmatchedCount = 0;
           for (const configuredOffer of eligibleOffers) {
             // For cashback: match by merchant_id (stored as externalId)
             const matchingFreshOffer = freshOffersList.find((fresh) => {
@@ -290,6 +373,22 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
               matchingFreshOffer &&
               (matchingFreshOffer.click_url || matchingFreshOffer.clickUrl)
             ) {
+              matchedCount++;
+              if (offerType === "cashback") {
+                console.log(
+                  "✅ [getAdminConfiguredOffers] Matched cashback offer:",
+                  {
+                    externalId: configuredOffer.externalId,
+                    merchant_id: matchingFreshOffer.merchant_id,
+                    merchant_name: matchingFreshOffer.merchant_name,
+                    hasClickUrl: !!(
+                      matchingFreshOffer.click_url ||
+                      matchingFreshOffer.clickUrl
+                    ),
+                  }
+                );
+              }
+
               // For cashback, magic receipts, and shopping: Preserve exact Bitlabs API structure
               if (
                 offerType === "cashback" ||
@@ -459,8 +558,18 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
                 });
               }
             } else {
+              unmatchedCount++;
               // Offer not found in fresh Bitlabs response - mark as unavailable
               if (offerType === "cashback") {
+                console.log(
+                  "⚠️ [getAdminConfiguredOffers] Cashback offer not matched:",
+                  {
+                    externalId: configuredOffer.externalId,
+                    title: configuredOffer.title,
+                    reason:
+                      "Not found in fresh Bitlabs response or no click_url",
+                  }
+                );
                 // For cashback: Return structure with isAvailable: false
                 // Use rawBitlabsData from metadata if available, otherwise use basic fields
                 const rawData = configuredOffer.metadata?.rawBitlabsData || {};
@@ -695,16 +804,50 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
             }
           }
 
+          console.log("🟢 [getAdminConfiguredOffers] Matching complete:", {
+            matched: matchedCount,
+            unmatched: unmatchedCount,
+            totalReturned: freshOffers.length,
+          });
+
+          if (offerType === "cashback") {
+            console.log(
+              "🟢 [getAdminConfiguredOffers] Cashback offers summary:",
+              {
+                available: freshOffers.filter((o) => o.isAvailable).length,
+                unavailable: freshOffers.filter((o) => !o.isAvailable).length,
+              }
+            );
+          }
+
+          console.log(
+            "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n"
+          );
           return freshOffers;
         }
       } catch (freshUrlError) {
-        console.error("Error fetching fresh URLs from Bitlabs:", freshUrlError);
+        console.error(
+          "❌ [getAdminConfiguredOffers] Error fetching fresh URLs from Bitlabs:",
+          freshUrlError
+        );
+        console.error(
+          "❌ [getAdminConfiguredOffers] Error stack:",
+          freshUrlError.stack
+        );
         // Fallback: return offers without fresh URLs
       }
     }
 
+    console.log(
+      "🟢 [getAdminConfiguredOffers] No fresh URLs fetched, returning offers without URLs"
+    );
+    console.log(
+      "🟢 [getAdminConfiguredOffers] Eligible offers count:",
+      eligibleOffers.length
+    );
+
     // Fallback: return offers without fresh URLs (if fetching failed or userId not provided)
-    return eligibleOffers.map((offer) => {
+    const fallbackOffers = eligibleOffers.map((offer) => {
       // For cashback: Preserve raw Bitlabs structure from metadata
       if (offer.offerType === "cashback") {
         const rawData = offer.metadata?.rawBitlabsData || {};
@@ -810,8 +953,25 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
         source: "admin_configured",
       };
     });
+
+    console.log("🟢 [getAdminConfiguredOffers] Returning fallback offers:", {
+      count: fallbackOffers.length,
+      offerType,
+    });
+    console.log(
+      "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n"
+    );
+
+    return fallbackOffers;
   } catch (error) {
-    console.error("Error getting admin-configured offers:", error);
+    console.error(
+      "❌ [getAdminConfiguredOffers] Error getting admin-configured offers:",
+      error
+    );
+    console.error("❌ [getAdminConfiguredOffers] Error stack:", error.stack);
+    console.log(
+      "🟢 ========== getAdminConfiguredOffers DEBUG END (ERROR) ==========\n"
+    );
     return [];
   }
 }
@@ -822,24 +982,56 @@ async function getAdminConfiguredOffers(offerType, userProfile, userId, req) {
  * Checks admin-configured offers first, then falls back to BitLab API
  */
 router.get("/", protect, async (req, res) => {
+  console.log("\n🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG ==========");
+  console.log("🔵 [MAIN ROUTE] Request received at:", new Date().toISOString());
+
   try {
     const {
       type = "all",
       category = "all",
       page = 1,
       limit = 20,
-      useAdminConfig = "true",
+      useAdminConfig: rawUseAdminConfig = "true",
     } = req.query;
+
+    // Trim whitespace from useAdminConfig to handle cases like "true " or " true"
+    const useAdminConfig = String(rawUseAdminConfig).trim();
+
+    // Trim whitespace from useAdminConfig to handle cases like "true " or " true"
+    const trimmedUseAdminConfig = String(useAdminConfig).trim();
+
+    console.log("🔵 [MAIN ROUTE] Request Parameters:", {
+      type,
+      category,
+      page,
+      limit,
+      useAdminConfig: useAdminConfig,
+      useAdminConfigTrimmed: trimmedUseAdminConfig,
+      useAdminConfigLength: useAdminConfig?.length,
+      userId: req.user?.userId,
+    });
+
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences onboarding"
     );
 
     if (!user) {
+      console.error("❌ [MAIN ROUTE] User not found:", req.user?.userId);
       return res.status(404).json({
         success: false,
         error: "User not found",
       });
     }
+
+    console.log("🔵 [MAIN ROUTE] User found:", {
+      userId: user._id.toString(),
+      hasLocation: !!user.location,
+      hasPreferences: !!user.preferences,
+      hasXP: !!user.xp,
+      hasOnboarding: !!user.onboarding,
+      gender: user.onboarding?.gender || "N/A",
+      ageRange: user.onboarding?.ageRange || "N/A",
+    });
 
     const userProfile = {
       age: getUserAge(user),
@@ -849,6 +1041,15 @@ router.get("/", protect, async (req, res) => {
       xp: user.xp?.current || 0,
       deviceType: "mobile",
     };
+
+    console.log("🔵 [MAIN ROUTE] User Profile:", {
+      age: userProfile.age,
+      gender: userProfile.gender,
+      country: userProfile.country,
+      language: userProfile.language,
+      xp: userProfile.xp,
+      deviceType: userProfile.deviceType,
+    });
 
     let offers = [];
     let categorized = {
@@ -861,7 +1062,16 @@ router.get("/", protect, async (req, res) => {
     let source = "bitlab_direct";
 
     // Step 1: Check admin-configured offers first
+    console.log("🔵 [MAIN ROUTE] useAdminConfig check:", {
+      original: rawUseAdminConfig,
+      trimmed: useAdminConfig,
+      willExecute: useAdminConfig === "true",
+    });
+
     if (useAdminConfig === "true") {
+      console.log(
+        "🔵 [MAIN ROUTE] useAdminConfig=true - Fetching admin-configured offers..."
+      );
       try {
         // Map type to offerType
         const typeMap = {
@@ -876,12 +1086,34 @@ router.get("/", protect, async (req, res) => {
         };
 
         const offerType = typeMap[type] || "all";
+        console.log("🔵 [MAIN ROUTE] Type mapping:", {
+          requestedType: type,
+          mappedOfferType: offerType,
+        });
+
+        console.log("🔵 [MAIN ROUTE] Calling getAdminConfiguredOffers with:", {
+          offerType,
+          userId: user._id.toString(),
+          category,
+        });
+
         const adminOffers = await getAdminConfiguredOffers(
           offerType,
           userProfile,
           user._id.toString(),
-          req
+          req,
+          category
         );
+
+        console.log("🔵 [MAIN ROUTE] Admin offers received:", {
+          totalCount: adminOffers.length,
+          sampleOffers: adminOffers.slice(0, 3).map((o) => ({
+            type: o.type || o.offerType,
+            merchant_id: o.merchant_id,
+            merchant_name: o.merchant_name,
+            primary_category: o.primary_category,
+          })),
+        });
 
         if (adminOffers.length > 0) {
           // Group by type
@@ -899,18 +1131,52 @@ router.get("/", protect, async (req, res) => {
             }
           });
 
+          console.log("🔵 [MAIN ROUTE] Categorized offers:", {
+            surveys: categorized.surveys.length,
+            cashback: categorized.cashback.length,
+            shopping: categorized.shopping.length,
+            magicReceipts: categorized.magicReceipts.length,
+            other: categorized.other.length,
+          });
+
           // Flatten all offers
           offers = adminOffers;
           source = "admin_configured";
+          console.log(
+            "✅ [MAIN ROUTE] Returning",
+            offers.length,
+            "admin-configured offers"
+          );
+        } else {
+          console.warn("⚠️ [MAIN ROUTE] No admin-configured offers found");
         }
       } catch (configError) {
-        console.error("Error fetching admin-configured offers:", configError);
+        console.error(
+          "❌ [MAIN ROUTE] Error fetching admin-configured offers:",
+          configError
+        );
+        console.error("❌ [MAIN ROUTE] Error stack:", configError.stack);
         // Fall through to BitLab API
       }
     }
 
     // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
-    if (offers.length === 0 || useAdminConfig === "false") {
+    // NOTE: For cashback offers, NO FALLBACK - only return admin-configured data
+    const isCashbackRequest = type === "cashback";
+    console.log("🔵 [MAIN ROUTE] Checking fallback conditions:", {
+      offersCount: offers.length,
+      useAdminConfig,
+      isCashbackRequest,
+      willFallback:
+        (offers.length === 0 || useAdminConfig === "false") &&
+        !isCashbackRequest,
+    });
+
+    if (
+      (offers.length === 0 || useAdminConfig === "false") &&
+      !isCashbackRequest
+    ) {
+      console.log("🔵 [MAIN ROUTE] Falling back to BitLab API...");
       const result = await bitlabsNonGames.getNonGameOffers({
         userId: user._id.toString(),
         userProfile: {
@@ -986,6 +1252,18 @@ router.get("/", protect, async (req, res) => {
         }
         source = "bitlab_direct";
       }
+    } else if (
+      isCashbackRequest &&
+      useAdminConfig === "true" &&
+      offers.length === 0
+    ) {
+      // For cashback: No fallback, return empty array if no admin config
+      console.warn(
+        "⚠️ [MAIN ROUTE] No admin-configured cashback offers found - returning empty array (no fallback)"
+      );
+      offers = [];
+      categorized.cashback = [];
+      source = "admin_configured";
     }
 
     // Paginate results
@@ -993,11 +1271,38 @@ router.get("/", protect, async (req, res) => {
     const endIndex = startIndex + parseInt(limit);
     const paginatedOffers = offers.slice(startIndex, endIndex);
 
+    console.log("🔵 [MAIN ROUTE] Pagination:", {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      startIndex,
+      endIndex,
+      totalOffers: offers.length,
+      paginatedCount: paginatedOffers.length,
+    });
+
     // Calculate totals
     const totalOffers = offers.length;
     const estimatedEarnings = offers.reduce(
       (sum, o) => sum + (o.reward?.coins || 0),
       0
+    );
+
+    console.log("🔵 [MAIN ROUTE] Final Response:", {
+      success: true,
+      totalOffers,
+      paginatedCount: paginatedOffers.length,
+      categorized: {
+        surveys: categorized.surveys.length,
+        cashback: categorized.cashback.length,
+        shopping: categorized.shopping.length,
+        magicReceipts: categorized.magicReceipts.length,
+      },
+      source,
+      estimatedEarnings,
+    });
+
+    console.log(
+      "🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG END ==========\n"
     );
 
     res.json({
@@ -1047,7 +1352,7 @@ router.get("/surveys", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences onboarding"
     );
 
     if (!user) {
@@ -1545,7 +1850,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences onboarding"
     );
 
     if (!user) {
@@ -1586,11 +1891,22 @@ router.get("/magic-receipts", protect, async (req, res) => {
           "magic_receipt",
           userProfile,
           user._id.toString(),
-          req
+          req,
+          category
         );
-        if (adminOffers.length > 0) {
+        // Filter by category if specified
+        let filteredOffers = adminOffers;
+        if (category && category !== "all") {
+          filteredOffers = adminOffers.filter((offer) => {
+            const offerCategory =
+              offer.primary_category || offer.category || "";
+            return offerCategory.toLowerCase().includes(category.toLowerCase());
+          });
+        }
+
+        if (filteredOffers.length > 0) {
           // Filter out offers that are not available (no fresh URL)
-          magicReceipts = adminOffers.filter((offer) => offer.isAvailable);
+          magicReceipts = filteredOffers.filter((offer) => offer.isAvailable);
           source = "admin_configured";
         }
       } catch (configError) {
@@ -1694,6 +2010,9 @@ router.get("/magic-receipts", protect, async (req, res) => {
  * Get cashback offers
  */
 router.get("/cashback", protect, async (req, res) => {
+  console.log("\n🔵 ========== CASHBACK ROUTE DEBUG ==========");
+  console.log("🔵 [CASHBACK] Request received at:", new Date().toISOString());
+
   try {
     const {
       category = "all",
@@ -1701,129 +2020,196 @@ router.get("/cashback", protect, async (req, res) => {
       limit = 20,
       useAdminConfig = "true",
     } = req.query;
+
+    console.log("🔵 [CASHBACK] Request Parameters:", {
+      category,
+      page,
+      limit,
+      useAdminConfig,
+      userId: req.user?.userId,
+    });
+
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences onboarding"
     );
 
     if (!user) {
+      console.error("❌ [CASHBACK] User not found:", req.user?.userId);
       return res.status(404).json({
         success: false,
         error: "User not found",
       });
     }
 
+    console.log("🔵 [CASHBACK] User found:", {
+      userId: user._id.toString(),
+      hasLocation: !!user.location,
+      hasPreferences: !!user.preferences,
+      hasXP: !!user.xp,
+    });
+
+    const userAge = getUserAge(user);
+    const userGender = getUserGender(user);
+
     const userProfile = {
-      age: getUserAge(user),
-      gender: getUserGender(user),
+      age: userAge,
+      gender: userGender,
       country: user.location?.current?.country || "US",
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
       deviceType: "mobile",
     };
 
+    console.log("🔵 [CASHBACK] User Profile:", {
+      age: userProfile.age,
+      gender: userProfile.gender,
+      country: userProfile.country,
+      language: userProfile.language,
+      xp: userProfile.xp,
+      deviceType: userProfile.deviceType,
+    });
+
     let cashbackOffers = [];
-    let source = "bitlab_direct";
+    let source = "admin_configured";
 
     //
-    // INDUSTRIAL-LEVEL SOLUTION (Same as surveys):
+    // ADMIN-CONFIGURED ONLY SOLUTION:
     // - Admin configures which cashback offers to show (stores offer IDs + metadata)
     // - When user requests cashback offers, we fetch FRESH click URLs from Bitlabs with user's X-User-Id
     // - This ensures proper tracking: each user gets URLs tied to their session
     // - Bitlabs callbacks will include correct userId matching the user who clicked
+    // - NO FALLBACK: Only return admin-configured offers
     //
     // Flow:
     // 1. Get admin-configured cashback offer IDs from database
     // 2. Call Bitlabs API with user's X-User-Id to get fresh cashback offers
     // 3. Match admin config with Bitlabs response by offer ID
     // 4. Return cashback offers with fresh, user-specific click URLs
+    // 5. Return all admin-configured offers even if some don't have fresh URLs
     //
     if (useAdminConfig === "true") {
+      console.log(
+        "🔵 [CASHBACK] useAdminConfig=true - Fetching admin-configured offers..."
+      );
       try {
+        console.log("🔵 [CASHBACK] Calling getAdminConfiguredOffers with:", {
+          offerType: "cashback",
+          userId: user._id.toString(),
+          category,
+        });
+
         const adminOffers = await getAdminConfiguredOffers(
           "cashback",
           userProfile,
           user._id.toString(),
-          req
+          req,
+          category
         );
-        if (adminOffers.length > 0) {
-          // Filter out offers that are not available (no fresh URL)
-          cashbackOffers = adminOffers.filter((offer) => offer.isAvailable);
+
+        console.log("🔵 [CASHBACK] Admin offers received:", {
+          totalCount: adminOffers.length,
+          sampleOffers: adminOffers.slice(0, 3).map((o) => ({
+            merchant_id: o.merchant_id,
+            merchant_name: o.merchant_name,
+            primary_category: o.primary_category,
+            category: o.category,
+            isAvailable: o.isAvailable,
+          })),
+        });
+
+        // Filter by category if specified (for cashback, use primary_category field)
+        let filteredOffers = adminOffers;
+        if (category && category !== "all") {
+          console.log("🔵 [CASHBACK] Filtering by category:", category);
+          const beforeFilter = adminOffers.length;
+          filteredOffers = adminOffers.filter((offer) => {
+            const offerCategory =
+              offer.primary_category || offer.category || "";
+            const matches = offerCategory
+              .toLowerCase()
+              .includes(category.toLowerCase());
+            if (!matches) {
+              console.log("🔵 [CASHBACK] Offer filtered out:", {
+                merchant_name: offer.merchant_name,
+                offerCategory,
+                requestedCategory: category,
+              });
+            }
+            return matches;
+          });
+          console.log("🔵 [CASHBACK] Category filtering result:", {
+            before: beforeFilter,
+            after: filteredOffers.length,
+            filteredOut: beforeFilter - filteredOffers.length,
+          });
+        } else {
+          console.log(
+            "🔵 [CASHBACK] No category filter applied (category='all')"
+          );
+        }
+
+        if (filteredOffers.length > 0) {
+          // Return ALL admin-configured offers (including unavailable ones)
+          // This ensures admin-configured offers are always shown
+          cashbackOffers = filteredOffers;
+          source = "admin_configured";
+          console.log(
+            "✅ [CASHBACK] Returning",
+            cashbackOffers.length,
+            "cashback offers"
+          );
+        } else {
+          // No admin-configured offers found
+          console.warn(
+            "⚠️ [CASHBACK] No admin-configured cashback offers found after filtering"
+          );
+          cashbackOffers = [];
           source = "admin_configured";
         }
       } catch (configError) {
         console.error(
-          "Error fetching admin-configured cashback offers:",
+          "❌ [CASHBACK] Error fetching admin-configured cashback offers:",
           configError
         );
+        console.error("❌ [CASHBACK] Error stack:", configError.stack);
+        cashbackOffers = [];
+        source = "admin_configured";
       }
-    }
-
-    // Step 2: Fallback to BitLab API
-    if (cashbackOffers.length === 0 || useAdminConfig === "false") {
-      const result = await bitlabsNonGames.getCashbackOffers({
-        userId: user._id.toString(),
-        userProfile: {
-          ...userProfile,
-          platform: "mobile",
-          osVersion: "iOS 15.0",
-          appVersion: "1.0.0",
-          deviceModel: "iPhone 13",
-          userAgent: req.headers["user-agent"],
-          ip: req.ip || req.connection.remoteAddress,
-        },
-        category,
-      });
-
-      // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-      console.log(
-        "\n🔵 [BITLABS API] ========== RAW API RESPONSE (CASHBACK) =========="
+    } else {
+      // If useAdminConfig is false, return empty array (no fallback)
+      console.warn(
+        "⚠️ useAdminConfig=false: Returning empty cashback offers (admin config only)"
       );
-      console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-      console.log("🔵 [BITLABS API] Success:", result?.success);
-      console.log(
-        "🔵 [BITLABS API] Full Response:",
-        JSON.stringify(result, null, 2)
-      );
-      if (result?.categorized?.cashback) {
-        console.log(
-          "🔵 [BITLABS API] Cashback Count:",
-          result.categorized.cashback.length
-        );
-        if (result.categorized.cashback.length > 0) {
-          console.log(
-            "🔵 [BITLABS API] First Cashback ID:",
-            result.categorized.cashback[0]?.id || "N/A"
-          );
-          console.log(
-            "🔵 [BITLABS API] First Cashback Value:",
-            result.categorized.cashback[0]?.value || "N/A"
-          );
-        }
-      }
-      if (result?.cashback) {
-        console.log(
-          "🔵 [BITLABS API] Cashback Array Length:",
-          result.cashback.length
-        );
-      }
-      console.log(
-        "🔵 [BITLABS API] ===========================================\n"
-      );
-
-      if (result.success && result.categorized?.cashback) {
-        // Preserve exact Bitlabs API structure for cashback
-        cashbackOffers = result.categorized.cashback.map((c) => ({
-          ...c, // Preserve all original Bitlabs fields
-          source: "bitlab_direct",
-        }));
-        source = "bitlab_direct";
-      }
+      cashbackOffers = [];
+      source = "admin_configured";
     }
 
     // Paginate results
     const startIndex = (parseInt(page) - 1) * parseInt(limit);
     const endIndex = startIndex + parseInt(limit);
     const paginatedOffers = cashbackOffers.slice(startIndex, endIndex);
+
+    console.log("🔵 [CASHBACK] Pagination:", {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      startIndex,
+      endIndex,
+      totalOffers: cashbackOffers.length,
+      paginatedCount: paginatedOffers.length,
+    });
+
+    console.log("🔵 [CASHBACK] Final Response:", {
+      success: true,
+      totalCashback: cashbackOffers.length,
+      paginatedCount: paginatedOffers.length,
+      source,
+      estimatedEarnings: cashbackOffers.reduce(
+        (sum, c) => sum + (c.reward?.coins || 0),
+        0
+      ),
+    });
+
+    console.log("🔵 ========== CASHBACK ROUTE DEBUG END ==========\n");
 
     res.json({
       success: true,
@@ -1890,7 +2276,7 @@ router.get("/shopping", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences onboarding"
     );
 
     if (!user) {
@@ -1931,11 +2317,22 @@ router.get("/shopping", protect, async (req, res) => {
           "shopping",
           userProfile,
           user._id.toString(),
-          req
+          req,
+          category
         );
-        if (adminOffers.length > 0) {
+        // Filter by category if specified
+        let filteredOffers = adminOffers;
+        if (category && category !== "all") {
+          filteredOffers = adminOffers.filter((offer) => {
+            const offerCategory =
+              offer.primary_category || offer.category || "";
+            return offerCategory.toLowerCase().includes(category.toLowerCase());
+          });
+        }
+
+        if (filteredOffers.length > 0) {
           // Filter out offers that are not available (no fresh URL)
-          shoppingOffers = adminOffers.filter((offer) => offer.isAvailable);
+          shoppingOffers = filteredOffers.filter((offer) => offer.isAvailable);
           source = "admin_configured";
         }
       } catch (configError) {

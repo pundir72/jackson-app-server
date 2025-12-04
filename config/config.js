@@ -94,6 +94,15 @@ module.exports = {
     ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,
     ADJUST_APP_TOKEN: process.env.ADJUST_APP_TOKEN,
     
+    // Adjust S2S V2 - Offerwall Campaign Filtering
+    // Comma-separated list of offerwall campaign names (case-insensitive matching)
+    // Example: "offerwall_campaign,offerwall_promo,wall_promotion"
+    OFFERWALL_CAMPAIGNS: process.env.OFFERWALL_CAMPAIGNS,
+    
+    // Adjust S2S V2 - Event Validation Settings
+    ALLOW_LEVEL_SKIPPING: process.env.ALLOW_LEVEL_SKIPPING === 'true', // Allow users to skip levels
+    ALLOW_ORGANIC_USERS: process.env.ALLOW_ORGANIC_USERS === 'true', // Allow organic users (no campaign)
+    
     // Error Codes
     ERROR_CODES: {
         INVALID_CREDENTIALS: 401,

@@ -27,17 +27,17 @@ async function getNonGameOffers(params = {}) {
       devices,
     } = params;
 
-    console.log(
-      "🟠 [BITLABS UTILITY] ========== getNonGameOffers called =========="
-    );
-    console.log("🟠 [BITLABS UTILITY] Input params:", {
-      userId,
-      userProfile,
-      type,
-      category,
-      devices,
-    });
-    console.log("🟠 [BITLABS UTILITY] Building queryParams for Bitlabs API...");
+    // console.log(
+    //   "🟠 [BITLABS UTILITY] ========== getNonGameOffers called =========="
+    // );
+    // console.log("🟠 [BITLABS UTILITY] Input params:", {
+    //   userId,
+    //   userProfile,
+    //   type,
+    //   category,
+    //   devices,
+    // });
+    // console.log("🟠 [BITLABS UTILITY] Building queryParams for Bitlabs API...");
 
     // Build query parameters
     const queryParams = {};
@@ -78,12 +78,12 @@ async function getNonGameOffers(params = {}) {
       // Default to US for admin/testing if no country specified
       // Change this to "IN" if you want to test with India-targeted offers
       queryParams.country = "US";
-      console.log(
-        `⚠️ No country specified in userProfile. Defaulting to "US" for testing.`
-      );
-      console.log(
-        `   If offers are targeted to other countries (e.g., India), specify country in userProfile.`
-      );
+      // console.log(
+      //   `⚠️ No country specified in userProfile. Defaulting to "US" for testing.`
+      // );
+      // console.log(
+      //   `   If offers are targeted to other countries (e.g., India), specify country in userProfile.`
+      // );
     }
 
     // Add client info if available
@@ -94,10 +94,10 @@ async function getNonGameOffers(params = {}) {
       queryParams.client_ip = userProfile.ip;
     }
 
-    console.log(
-      "🟠 [BITLABS UTILITY] Final queryParams to send to Bitlabs API:",
-      JSON.stringify(queryParams, null, 2)
-    );
+    // console.log(
+    //   "🟠 [BITLABS UTILITY] Final queryParams to send to Bitlabs API:",
+    //   JSON.stringify(queryParams, null, 2)
+    // );
 
     const categorizedOffers = {
       surveys: [],
@@ -152,9 +152,9 @@ async function getNonGameOffers(params = {}) {
               //   });
               // }
             } else {
-              console.log(
-                "🟠 [BITLABS UTILITY] ⚠️ No surveys in response or request failed"
-              );
+              // console.log(
+              //   "🟠 [BITLABS UTILITY] ⚠️ No surveys in response or request failed"
+              // );
             }
             // console.log(
             //   "🟠 [BITLABS UTILITY] ================================================="
@@ -384,11 +384,11 @@ async function getSurveys(params = {}) {
 
   try {
     // 🔍 DEBUG: Log input parameters
-    console.log("\n🔍 ========== getSurveys() - INPUT PARAMETERS ==========");
-    console.log("👤 User ID:", userId);
-    console.log("👤 User Profile:", JSON.stringify(userProfile, null, 2));
-    console.log("📂 Category Filter:", category);
-    console.log("==================================================\n");
+    // console.log("\n🔍 ========== getSurveys() - INPUT PARAMETERS ==========");
+    // console.log("👤 User ID:", userId);
+    // console.log("👤 User Profile:", JSON.stringify(userProfile, null, 2));
+    // console.log("📂 Category Filter:", category);
+    // console.log("==================================================\n");
 
     const queryParams = {};
 
@@ -407,12 +407,12 @@ async function getSurveys(params = {}) {
     } else {
       // Default to US for testing (same as getNonGameOffers)
       queryParams.country = "US";
-      console.log(
-        `⚠️ No country specified in userProfile. Defaulting to "US" for surveys.`
-      );
-      console.log(
-        `   If surveys are targeted to other countries (e.g., India), specify country in userProfile.`
-      );
+      // console.log(
+      //   `⚠️ No country specified in userProfile. Defaulting to "US" for surveys.`
+      // );
+      // console.log(
+      //   `   If surveys are targeted to other countries (e.g., India), specify country in userProfile.`
+      // );
     }
 
     // Add SDK parameter (recommended by Bitlabs, same as getNonGameOffers)
@@ -425,9 +425,9 @@ async function getSurveys(params = {}) {
     // For now, we'll work without them - surveys will still work correctly.
 
     // 🔍 DEBUG: Log query params being sent
-    console.log("\n🔍 ========== getSurveys() - QUERY PARAMS ==========");
-    console.log("📋 Query Parameters:", JSON.stringify(queryParams, null, 2));
-    console.log("==================================================\n");
+    // console.log("\n🔍 ========== getSurveys() - QUERY PARAMS ==========");
+    // console.log("📋 Query Parameters:", JSON.stringify(queryParams, null, 2));
+    // console.log("==================================================\n");
 
     const result = await bitlabsService.getSurveys(queryParams, userId);
 
@@ -450,22 +450,22 @@ async function getSurveys(params = {}) {
     let surveys = result.data || [];
 
     // 🔍 DEBUG: Log raw surveys from service
-    console.log(
-      "\n🔍 ========== getSurveys() - RAW SURVEYS FROM SERVICE =========="
-    );
-    console.log(`📊 Total Surveys: ${surveys.length}`);
-    if (surveys.length > 0) {
-      surveys.forEach((survey, index) => {
-        console.log(`\n   Survey ${index + 1} (Before Normalization):`);
-        console.log(`     id: ${survey.id || "N/A"}`);
-        console.log(`     value: ${survey.value || "MISSING"}`);
-        console.log(`     cpi: ${survey.cpi || "MISSING"}`);
-        console.log(
-          `     category: ${survey.category?.name || survey.category || "N/A"}`
-        );
-      });
-    }
-    console.log("==================================================\n");
+    // console.log(
+    //   "\n🔍 ========== getSurveys() - RAW SURVEYS FROM SERVICE =========="
+    // );
+    // console.log(`📊 Total Surveys: ${surveys.length}`);
+    // if (surveys.length > 0) {
+    //   surveys.forEach((survey, index) => {
+    //     console.log(`\n   Survey ${index + 1} (Before Normalization):`);
+    //     console.log(`     id: ${survey.id || "N/A"}`);
+    //     console.log(`     value: ${survey.value || "MISSING"}`);
+    //     console.log(`     cpi: ${survey.cpi || "MISSING"}`);
+    //     console.log(
+    //       `     category: ${survey.category?.name || survey.category || "N/A"}`
+    //     );
+    //   });
+    // }
+    // console.log("==================================================\n");
 
     // Filter by category if specified
     if (category && category !== "all") {
@@ -474,9 +474,9 @@ async function getSurveys(params = {}) {
         const surveyCategory = survey.category || "";
         return surveyCategory.toLowerCase().includes(category.toLowerCase());
       });
-      console.log(
-        `🔍 Filtered by category "${category}": ${beforeFilter} → ${surveys.length} surveys`
-      );
+      // console.log(
+      //   `🔍 Filtered by category "${category}": ${beforeFilter} → ${surveys.length} surveys`
+      // );
     }
 
     const normalizedSurveys = surveys.map((survey, index) => {
@@ -484,30 +484,30 @@ async function getSurveys(params = {}) {
 
       // 🔍 DEBUG: Log normalization for first survey
       if (index === 0) {
-        console.log("\n🔍 ========== NORMALIZATION EXAMPLE ==========");
-        console.log("📋 Original Survey (from Bitlabs):");
-        console.log(`   value: ${survey.value}`);
-        console.log(`   cpi: ${survey.cpi}`);
-        console.log(`   id: ${survey.id}`);
-        console.log("\n📋 Normalized Survey:");
-        console.log(
-          `   reward.coins: ${normalized.reward?.coins || "MISSING"}`
-        );
-        console.log(
-          `   reward.currency: ${normalized.reward?.currency || "MISSING"}`
-        );
-        console.log(`   reward.xp: ${normalized.reward?.xp || "MISSING"}`);
-        console.log(
-          `   publisherRevenue.cpi: ${
-            normalized.publisherRevenue?.cpi || "MISSING"
-          }`
-        );
-        console.log(
-          `   publisherRevenue.value: ${
-            normalized.publisherRevenue?.value || "MISSING"
-          }`
-        );
-        console.log("==================================================\n");
+        // console.log("\n🔍 ========== NORMALIZATION EXAMPLE ==========");
+        // console.log("📋 Original Survey (from Bitlabs):");
+        // console.log(`   value: ${survey.value}`);
+        // console.log(`   cpi: ${survey.cpi}`);
+        // console.log(`   id: ${survey.id}`);
+        // console.log("\n📋 Normalized Survey:");
+        // console.log(
+        //   `   reward.coins: ${normalized.reward?.coins || "MISSING"}`
+        // );
+        // console.log(
+        //   `   reward.currency: ${normalized.reward?.currency || "MISSING"}`
+        // );
+        // console.log(`   reward.xp: ${normalized.reward?.xp || "MISSING"}`);
+        // console.log(
+        //   `   publisherRevenue.cpi: ${
+        //     normalized.publisherRevenue?.cpi || "MISSING"
+        //   }`
+        // );
+        // console.log(
+        //   `   publisherRevenue.value: ${
+        //     normalized.publisherRevenue?.value || "MISSING"
+        //   }`
+        // );
+        // console.log("==================================================\n");
       }
 
       return normalized;
@@ -519,25 +519,25 @@ async function getSurveys(params = {}) {
     );
 
     // 🔍 DEBUG: Log final result
-    console.log("\n🔍 ========== getSurveys() - FINAL RESULT ==========");
-    console.log(`📊 Total Normalized Surveys: ${normalizedSurveys.length}`);
-    console.log(`💰 Estimated Earnings: ${estimatedEarnings} coins`);
-    normalizedSurveys.forEach((survey, index) => {
-      console.log(`\n   Survey ${index + 1}:`);
-      console.log(`     id: ${survey.id || survey.offerId || "N/A"}`);
-      console.log(`     reward.coins: ${survey.reward?.coins || "MISSING"}`);
-      console.log(
-        `     publisherRevenue.cpi: ${
-          survey.publisherRevenue?.cpi || "MISSING"
-        }`
-      );
-      console.log(
-        `     publisherRevenue.value: ${
-          survey.publisherRevenue?.value || "MISSING"
-        }`
-      );
-    });
-    console.log("==================================================\n");
+    // console.log("\n🔍 ========== getSurveys() - FINAL RESULT ==========");
+    // console.log(`📊 Total Normalized Surveys: ${normalizedSurveys.length}`);
+    // console.log(`💰 Estimated Earnings: ${estimatedEarnings} coins`);
+    // normalizedSurveys.forEach((survey, index) => {
+    //   console.log(`\n   Survey ${index + 1}:`);
+    //   console.log(`     id: ${survey.id || survey.offerId || "N/A"}`);
+    //   console.log(`     reward.coins: ${survey.reward?.coins || "MISSING"}`);
+    //   console.log(
+    //     `     publisherRevenue.cpi: ${
+    //       survey.publisherRevenue?.cpi || "MISSING"
+    //     }`
+    //   );
+    //   console.log(
+    //     `     publisherRevenue.value: ${
+    //       survey.publisherRevenue?.value || "MISSING"
+    //     }`
+    //   );
+    // });
+    // console.log("==================================================\n");
 
     return {
       success: true,
@@ -649,12 +649,12 @@ async function getCashbackOffers(params = {}) {
       // Default to US for admin/testing if no country specified
       // Change this to "IN" if you want to test with India-targeted offers
       queryParams.country = "US";
-      console.log(
-        `⚠️ No country specified for cashback. Defaulting to "US" for testing.`
-      );
-      console.log(
-        `   If offers are targeted to India, set userProfile.country = "IN"`
-      );
+      // console.log(
+      //   `⚠️ No country specified for cashback. Defaulting to "US" for testing.`
+      // );
+      // console.log(
+      //   `   If offers are targeted to India, set userProfile.country = "IN"`
+      // );
     }
 
     const result = await bitlabsService.getCashbackOffers(queryParams, userId);
@@ -745,9 +745,9 @@ async function trackOfferClick(params = {}) {
     const { userId, offerId, offerType, trackingId } = params;
 
     // Log the click for analytics
-    console.log(
-      `Tracking offer click: ${offerId} by user ${userId} (type: ${offerType})`
-    );
+    // console.log(
+    //   `Tracking offer click: ${offerId} by user ${userId} (type: ${offerType})`
+    // );
 
     // In the future, this could call Bitlabs tracking API
     // For now, just return success
@@ -776,9 +776,9 @@ async function trackCompletion(params = {}) {
   try {
     const { userId, offerId, offerType, completionData, reward } = params;
 
-    console.log(
-      `Tracking offer completion: ${offerId} by user ${userId} (type: ${offerType})`
-    );
+    // console.log(
+    //   `Tracking offer completion: ${offerId} by user ${userId} (type: ${offerType})`
+    // );
 
     // In the future, this could verify completion with Bitlabs API
     // For now, just return success

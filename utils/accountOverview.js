@@ -457,7 +457,7 @@ class AccountOverviewService {
           return gameDate >= today && gameDate < tomorrow && game.completed === true;
         }).length;
 
-        console.log(`Games played today: ${gamesPlayedToday}, Target: ${dailyGoals.gamesPlayed}`);
+        // console.log(`Games played today: ${gamesPlayedToday}, Target: ${dailyGoals.gamesPlayed}`);
         return gamesPlayedToday >= dailyGoals.gamesPlayed;
 
       case 'coinsEarned':
@@ -468,7 +468,7 @@ class AccountOverviewService {
         });
         const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 
-        console.log(`Coins earned today: ${coinsEarnedToday}, Target: ${dailyGoals.coinsEarned}`);
+        // console.log(`Coins earned today: ${coinsEarnedToday}, Target: ${dailyGoals.coinsEarned}`);
         return coinsEarnedToday >= dailyGoals.coinsEarned;
 
       case 'challengesCompleted':
@@ -483,7 +483,7 @@ class AccountOverviewService {
           return challengeDate >= today && challengeDate < tomorrow && challenge.completed === true;
         }).length;
 
-        console.log(`Challenges completed today: ${challengesCompletedToday}, Target: ${dailyGoals.challengesCompleted}`);
+        // console.log(`Challenges completed today: ${challengesCompletedToday}, Target: ${dailyGoals.challengesCompleted}`);
         return challengesCompletedToday >= dailyGoals.challengesCompleted;
 
       default:

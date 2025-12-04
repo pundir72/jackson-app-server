@@ -1442,10 +1442,12 @@ router.put(
         });
       }
 
-      // Check email uniqueness if being updated
-      if (updateData.email && updateData.email !== existingUser.email) {
+      // Check email uniqueness if being updated (compare case-insensitively)
+      const normalizedNewEmail = updateData.email ? updateData.email.toLowerCase() : null;
+      const normalizedExistingEmail = existingUser.email ? existingUser.email.toLowerCase() : null;
+      if (normalizedNewEmail && normalizedNewEmail !== normalizedExistingEmail) {
         const emailExists = await User.findOne({
-          email: updateData.email.toLowerCase(),
+          email: normalizedNewEmail,
           _id: { $ne: id },
         });
         if (emailExists) {

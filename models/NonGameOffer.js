@@ -260,14 +260,50 @@ nonGameOfferSchema.statics.getTopPerformers = function (limit = 10) {
     .limit(limit);
 };
 
+// Helper function to parse age group string to min/max ages
+// e.g., "18-24" -> { min: 18, max: 24 }, "65+" -> { min: 65, max: null }
+nonGameOfferSchema.methods.parseAgeGroup = function (ageGroup) {
+  if (!ageGroup || typeof ageGroup !== "string") {
+    return null;
+  }
+  
+  // Handle "65+" format
+  if (ageGroup.endsWith("+")) {
+    const min = parseInt(ageGroup.replace("+", ""));
+    return { min, max: null };
+  }
+  
+  // Handle "18-24" format
+  if (ageGroup.includes("-")) {
+    const [minStr, maxStr] = ageGroup.split("-");
+    const min = parseInt(minStr);
+    const max = parseInt(maxStr);
+    if (!isNaN(min) && !isNaN(max)) {
+      return { min, max };
+    }
+  }
+  
+  return null;
+};
+
 // Instance methods
 nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
-  // Check age requirements
+  // Check age requirements (minAge/maxAge from requirements)
   if (this.requirements.minAge && userProfile.age < this.requirements.minAge) {
+    console.log(`🟡 [isEligibleForUser] Age below minimum:`, {
+      userAge: userProfile.age,
+      minAge: this.requirements.minAge,
+      offerTitle: this.title || this.merchant_name,
+    });
     return false;
   }
 
   if (this.requirements.maxAge && userProfile.age > this.requirements.maxAge) {
+    console.log(`🟡 [isEligibleForUser] Age above maximum:`, {
+      userAge: userProfile.age,
+      maxAge: this.requirements.maxAge,
+      offerTitle: this.title || this.merchant_name,
+    });
     return false;
   }
 
@@ -280,17 +316,70 @@ nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
     return false;
   }
 
-  // Check age targeting
+  // Check age targeting - NEW: Check if user's age falls within any configured age group range
   if (this.targetAudience.age && this.targetAudience.age.length > 0) {
-    const userAgeGroup = this.getAgeGroup(userProfile.age);
-    if (!this.targetAudience.age.includes(userAgeGroup)) {
-      return false;
+    if (userProfile.age) {
+      // Check if user's age falls within any of the configured age groups
+      let ageMatches = false;
+      
+      for (const ageGroup of this.targetAudience.age) {
+        const ageRange = this.parseAgeGroup(ageGroup);
+        if (ageRange) {
+          const { min, max } = ageRange;
+          // Check if user's age falls within this range
+          if (max === null) {
+            // "65+" format - user must be >= min
+            if (userProfile.age >= min) {
+              ageMatches = true;
+              break;
+            }
+          } else {
+            // "18-24" format - user must be >= min and <= max
+            if (userProfile.age >= min && userProfile.age <= max) {
+              ageMatches = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!ageMatches) {
+        console.log(`🟡 [isEligibleForUser] Age not in any configured range:`, {
+          userAge: userProfile.age,
+          offerAgeGroups: this.targetAudience.age,
+          offerTitle: this.title || this.merchant_name,
+        });
+        return false;
+      }
+    } else {
+      // Fallback to old method if user doesn't have age
+      const userAgeGroup = this.getAgeGroup(userProfile.age || 25);
+      if (!this.targetAudience.age.includes(userAgeGroup)) {
+        console.log(`🟡 [isEligibleForUser] Age group mismatch:`, {
+          userAge: userProfile.age,
+          userAgeGroup,
+          offerAgeGroups: this.targetAudience.age,
+          offerTitle: this.title || this.merchant_name,
+        });
+        return false;
+      }
     }
   }
 
-  // Check gender targeting
+  // Check gender targeting (case-insensitive comparison)
   if (this.targetAudience.gender && this.targetAudience.gender.length > 0) {
-    if (!this.targetAudience.gender.includes(userProfile.gender)) {
+    const userGender = userProfile.gender
+      ? String(userProfile.gender).toLowerCase()
+      : null;
+    const offerGenders = this.targetAudience.gender.map((g) =>
+      String(g).toLowerCase()
+    );
+    if (!userGender || !offerGenders.includes(userGender)) {
+      console.log(`🟡 [isEligibleForUser] Gender mismatch:`, {
+        userGender,
+        offerGenders,
+        offerTitle: this.title || this.merchant_name,
+      });
       return false;
     }
   }
@@ -382,7 +471,3 @@ nonGameOfferSchema.methods.getEngagementFunnel = function () {
 const NonGameOffer = mongoose.model("NonGameOffer", nonGameOfferSchema);
 
 module.exports = NonGameOffer;
-
-
-
-

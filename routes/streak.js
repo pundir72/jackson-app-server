@@ -4,6 +4,7 @@ const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const StreakBonusConfig = require('../models/StreakBonusConfig');
+const BonusDay = require('../models/BonusDay');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // Cache for streak config (refresh every 5 minutes)
@@ -90,6 +91,105 @@ function clearStreakConfigCache() {
   streakConfigCacheTime = null;
 }
 
+// Get bonus days (user-facing endpoint)
+router.get('/bonus-days', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('streak country userSegment');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const currentStreak = user.streak?.current || 0;
+    
+    // Build user profile for eligibility check
+    const userProfile = {
+      currentStreak: currentStreak,
+      country: user.country || null,
+      userSegment: user.userSegment || 'all' // Default to 'all' if not set
+    };
+
+    // Get all active bonus days
+    const allBonusDays = await BonusDay.findActive();
+    
+    // Filter bonus days based on user eligibility
+    const eligibleBonusDays = allBonusDays
+      .filter(bonusDay => bonusDay.isEligibleForUser(userProfile))
+      .map(bonusDay => {
+        // Check if user has reached this bonus day
+        const isReached = currentStreak >= bonusDay.conditions.minStreak;
+        const isUpcoming = currentStreak < bonusDay.conditions.minStreak;
+        const daysRemaining = Math.max(0, bonusDay.conditions.minStreak - currentStreak);
+
+        return {
+          id: bonusDay._id,
+          dayNumber: bonusDay.dayNumber,
+          title: bonusDay.title,
+          description: bonusDay.description,
+          primaryReward: {
+            type: bonusDay.primaryReward.type,
+            value: bonusDay.primaryReward.value,
+            metadata: bonusDay.primaryReward.metadata || {}
+          },
+          alternateReward: bonusDay.alternateReward ? {
+            type: bonusDay.alternateReward.type,
+            value: bonusDay.alternateReward.value,
+            metadata: bonusDay.alternateReward.metadata || {}
+          } : null,
+          resetRule: {
+            onMiss: bonusDay.resetRule.onMiss,
+            gracePeriod: bonusDay.resetRule.gracePeriod,
+            fallbackAction: bonusDay.resetRule.fallbackAction
+          },
+          status: {
+            isReached: isReached,
+            isUpcoming: isUpcoming,
+            isEligible: true,
+            daysRemaining: daysRemaining,
+            currentStreak: currentStreak,
+            requiredStreak: bonusDay.conditions.minStreak
+          },
+          notification: bonusDay.notification.enabled ? {
+            title: bonusDay.notification.title || bonusDay.title,
+            message: bonusDay.notification.message || bonusDay.description,
+            imageUrl: bonusDay.notification.imageUrl,
+            actionText: bonusDay.notification.actionText,
+            scheduledTime: bonusDay.notification.scheduledTime
+          } : null,
+          banner: bonusDay.banner.enabled ? {
+            title: bonusDay.banner.title || bonusDay.title,
+            subtitle: bonusDay.banner.subtitle || bonusDay.description,
+            imageUrl: bonusDay.banner.imageUrl,
+            backgroundColor: bonusDay.banner.backgroundColor,
+            textColor: bonusDay.banner.textColor,
+            position: bonusDay.banner.position
+          } : null
+        };
+      })
+      .sort((a, b) => a.dayNumber - b.dayNumber); // Sort by day number
+
+    res.json({
+      success: true,
+      data: {
+        bonusDays: eligibleBonusDays,
+        currentStreak: currentStreak,
+        totalBonusDays: eligibleBonusDays.length,
+        reachedBonusDays: eligibleBonusDays.filter(bd => bd.status.isReached).length,
+        upcomingBonusDays: eligibleBonusDays.filter(bd => bd.status.isUpcoming).length
+      }
+    });
+  } catch (error) {
+    console.error('Error getting bonus days:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get bonus days'
+    });
+  }
+});
+
 // Get streak status
 router.get('/status', protect, async (req, res) => {
   try {
@@ -103,20 +203,62 @@ router.get('/status', protect, async (req, res) => {
       });
     }
 
-    const streak = user.streak || {};
-    const currentStreak = streak.current || 0;
-    const lastMilestone = getLastMilestone(currentStreak, STREAK_CONFIG);
-    const nextMilestone = getNextMilestone(currentStreak, STREAK_CONFIG);
-    
-    // Check if streak needs to be updated
+    // Check if streak needs to be updated BEFORE reading currentStreak
     const today = new Date();
+    const streak = user.streak || {};
     const lastUpdate = streak.lastUpdated ? new Date(streak.lastUpdated) : null;
     const needsUpdate = !lastUpdate || !isSameDay(today, lastUpdate);
     
     if (needsUpdate) {
       await updateStreakStatus(user, STREAK_CONFIG);
+      // Re-fetch user to ensure we have the latest streak data after update
+      const updatedUser = await User.findById(req.user.userId).select('xp streak country userSegment');
+      if (updatedUser) {
+        user.streak = updatedUser.streak;
+        if (updatedUser.country) user.country = updatedUser.country;
+        if (updatedUser.userSegment) user.userSegment = updatedUser.userSegment;
+      }
+    }
+    
+    // Read currentStreak AFTER potential update to ensure we have the latest value
+    const currentStreak = (user.streak || {}).current || 0;
+    const lastMilestone = getLastMilestone(currentStreak, STREAK_CONFIG);
+    const nextMilestone = getNextMilestone(currentStreak, STREAK_CONFIG);
+
+    // Optionally include bonus days if requested
+    let bonusDays = null;
+    if (req.query.includeBonusDays === 'true') {
+      try {
+        const userProfile = {
+          currentStreak: currentStreak,
+          country: user.country || null,
+          userSegment: user.userSegment || 'all'
+        };
+        
+        const allBonusDays = await BonusDay.findActive();
+        const eligibleBonusDays = allBonusDays
+          .filter(bonusDay => bonusDay.isEligibleForUser(userProfile))
+          .map(bonusDay => ({
+            dayNumber: bonusDay.dayNumber,
+            title: bonusDay.title,
+            description: bonusDay.description,
+            primaryReward: bonusDay.primaryReward,
+            alternateReward: bonusDay.alternateReward,
+            isReached: currentStreak >= bonusDay.conditions.minStreak,
+            daysRemaining: Math.max(0, bonusDay.conditions.minStreak - currentStreak)
+          }))
+          .sort((a, b) => a.dayNumber - b.dayNumber);
+        
+        bonusDays = eligibleBonusDays;
+      } catch (error) {
+        console.error('Error loading bonus days in streak status:', error);
+        // Don't fail the request if bonus days fail to load
+      }
     }
 
+    // Get completed tasks to properly determine which days are actually completed
+    const completedTasks = (user.streak || {}).completedTasks || [];
+    
     res.json({
       success: true,
       data: {
@@ -131,7 +273,8 @@ router.get('/status', protect, async (req, res) => {
           percentage: nextMilestone ? Math.round((currentStreak / nextMilestone.day) * 100) : 100
         },
         rewards: getAvailableRewards(currentStreak, STREAK_CONFIG),
-        streakTree: generateStreakTree(currentStreak, STREAK_CONFIG)
+        streakTree: generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks),
+        ...(bonusDays && { bonusDays })
       }
     });
   } catch (error) {
@@ -148,7 +291,7 @@ router.post('/complete-task', protect, async (req, res) => {
   try {
     const STREAK_CONFIG = await getStreakConfig();
     const { taskType, taskId } = req.body;
-    const user = await User.findById(req.user.userId).select('xp streak wallet');
+    const user = await User.findById(req.user.userId).select('xp streak wallet country');
     
     if (!user) {
       return res.status(404).json({
@@ -190,8 +333,9 @@ router.post('/complete-task', protect, async (req, res) => {
       lastTaskId: taskId
     };
 
-    // Check for milestone rewards
-    const milestoneReward = getMilestoneReward(newStreak, STREAK_CONFIG);
+    // Check for milestone rewards - get country-specific config if available
+    const userCountry = user.country || null;
+    const milestoneReward = await getMilestoneRewardForUser(newStreak, STREAK_CONFIG, userCountry);
     let rewardEarned = null;
     
     if (milestoneReward && milestoneReward.rewards && milestoneReward.rewards.length > 0) {
@@ -487,6 +631,27 @@ function getMilestoneReward(currentStreak, STREAK_CONFIG) {
   return STREAK_CONFIG.rewards[currentStreak] || null;
 }
 
+// Get milestone reward considering user's country (if country-specific configs exist)
+// Currently, StreakBonusConfig doesn't support country-specific rewards,
+// but this function allows for future extension
+async function getMilestoneRewardForUser(currentStreak, STREAK_CONFIG, userCountry) {
+  // For now, use the global config from STREAK_CONFIG
+  // The STREAK_CONFIG should already contain admin-configured rewards from the database
+  // If country-specific support is needed in the future, it can be added here
+  
+  // Ensure we're using the admin-configured rewards, not defaults
+  // The STREAK_CONFIG.rewards should already be populated from StreakBonusConfig.getConfig()
+  const reward = STREAK_CONFIG.rewards[currentStreak];
+  
+  if (reward && reward.rewards && reward.rewards.length > 0) {
+    // Admin-configured reward found
+    return reward;
+  }
+  
+  // Fallback: return null if no reward configured (shouldn't happen if admin configured properly)
+  return null;
+}
+
 function getAvailableRewards(currentStreak, STREAK_CONFIG) {
   const rewards = [];
   
@@ -506,11 +671,37 @@ function getAvailableRewards(currentStreak, STREAK_CONFIG) {
   return rewards;
 }
 
-function generateStreakTree(currentStreak, STREAK_CONFIG) {
+function generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks = []) {
   const tree = [];
+  const today = new Date();
+  
+  // Sort completed tasks by date (most recent first) to map to streak days
+  const sortedCompletedTasks = [...completedTasks]
+    .map(dateStr => new Date(dateStr))
+    .sort((a, b) => b - a)
+    .slice(0, currentStreak); // Only take the most recent completed tasks up to currentStreak
   
   for (let day = 1; day <= STREAK_CONFIG.maxDays; day++) {
-    const isCompleted = day <= currentStreak;
+    let isCompleted = false;
+    
+    if (day <= currentStreak && sortedCompletedTasks.length > 0) {
+      // For days within the current streak, check if there's a corresponding completed task
+      // Day 1 = most recent completed day, Day N = N days ago
+      const daysAgo = currentStreak - day;
+      
+      // Check if there's a completed task that matches this day's position in the streak
+      // We check if the date is within the last N days
+      const targetDate = new Date(today);
+      targetDate.setDate(targetDate.getDate() - daysAgo);
+      const targetDateStr = targetDate.toISOString().split('T')[0];
+      
+      // Only mark as completed if this specific date is in completedTasks
+      isCompleted = completedTasks.includes(targetDateStr);
+    } else {
+      // Days beyond current streak are not completed
+      isCompleted = false;
+    }
+    
     const isMilestone = STREAK_CONFIG.milestones.includes(day);
     
     const rewardConfig = isMilestone ? STREAK_CONFIG.rewards[day] : null;

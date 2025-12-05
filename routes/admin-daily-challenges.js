@@ -612,6 +612,24 @@ router.post(
           endTime: normalizedEnd,
         };
       }
+      
+      // Ensure challenge is visible and has correct status for immediate visibility
+      // If status is not explicitly set, default to "live" for today's challenges, "scheduled" for future
+      if (!req.body.status) {
+        const now = new Date();
+        if (normalizedStart <= now && normalizedEnd >= now) {
+          // Challenge is for today - set to "live" for immediate visibility
+          challengeData.status = "live";
+        } else {
+          // Challenge is for future - set to "scheduled"
+          challengeData.status = "scheduled";
+        }
+      }
+      
+      // Ensure isVisible is true for immediate visibility (unless explicitly set to false)
+      if (req.body.isVisible === undefined) {
+        challengeData.isVisible = true;
+      }
 
       // Fetch gameDetails from Besitos API if gameId and sdkProvider are provided
       if (req.body.gameId && req.body.sdkProvider === "besitos") {
@@ -883,6 +901,24 @@ router.put(
           startTime: normalizedStart,
           endTime: normalizedEnd,
         };
+        
+        // Ensure challenge is visible and has correct status for immediate visibility
+        // If status is not explicitly being updated, auto-set based on date
+        if (!req.body.status) {
+          const now = new Date();
+          if (normalizedStart <= now && normalizedEnd >= now) {
+            // Challenge is for today - set to "live" for immediate visibility
+            updateData.status = "live";
+          } else {
+            // Challenge is for future - set to "scheduled"
+            updateData.status = "scheduled";
+          }
+        }
+        
+        // Ensure isVisible is true for immediate visibility (unless explicitly set to false)
+        if (req.body.isVisible === undefined) {
+          updateData.isVisible = true;
+        }
       }
 
       // If the date is being changed, ensure no other challenge exists on that date
@@ -1085,7 +1121,15 @@ router.patch("/challenges/:id/visibility", adminAuth, async (req, res) => {
 // Get bonus days
 router.get("/bonus-days", adminAuth, async (req, res) => {
   try {
-    const bonusDays = await BonusDay.find({ isActive: true })
+    // Allow filtering by isActive via query parameter, default to all
+    const { isActive } = req.query;
+    const query = {};
+    
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true' || isActive === true;
+    }
+    
+    const bonusDays = await BonusDay.find(query)
       .sort({ dayNumber: 1 })
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email");
@@ -1164,23 +1208,26 @@ router.put(
       }
 
       const dayNumber = parseInt(req.params.dayNumber);
+      
+      // Check if bonus day already exists
+      const existingBonusDay = await BonusDay.findOne({ dayNumber });
+      
       const updateData = {
         ...req.body,
         dayNumber,
         updatedBy: req.user.userId,
       };
+      
+      // Set createdBy if it's a new document (required field)
+      if (!existingBonusDay) {
+        updateData.createdBy = req.user.userId;
+      }
 
       const bonusDay = await BonusDay.findOneAndUpdate(
         { dayNumber },
         updateData,
         { new: true, upsert: true, runValidators: true }
       );
-
-      // Set createdBy if it's a new document
-      if (!bonusDay.createdBy) {
-        bonusDay.createdBy = req.user.userId;
-        await bonusDay.save();
-      }
 
       res.json({
         success: true,

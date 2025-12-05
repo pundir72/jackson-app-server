@@ -2,23 +2,15 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
-const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
-
-// XP Tier configuration
-const XP_TIER_CONFIG = {
-  tiers: [
-    { id: 'junior', name: 'Junior', minXP: 0, maxXP: 999, multiplier: 1.0, color: '#4CAF50' },
-    { id: 'mid', name: 'Mid-Level', minXP: 1000, maxXP: 4999, multiplier: 1.2, color: '#FF9800' },
-    { id: 'senior', name: 'Senior', minXP: 5000, maxXP: 9999, multiplier: 1.5, color: '#9C27B0' },
-    { id: 'expert', name: 'Expert', minXP: 10000, maxXP: Infinity, multiplier: 2.0, color: '#F44336' }
-  ],
-  examples: {
-    junior: { baseCoins: 10, multiplierCoins: 10, description: 'Earn 10 coins per task' },
-    mid: { baseCoins: 10, multiplierCoins: 12, description: 'Earn 12 coins per task (1.2x multiplier)' },
-    senior: { baseCoins: 10, multiplierCoins: 15, description: 'Earn 15 coins per task (1.5x multiplier)' },
-    expert: { baseCoins: 10, multiplierCoins: 20, description: 'Earn 20 coins per task (2.0x multiplier)' }
-  }
-};
+const XPTierV2 = require('../models/XPTierV2');
+const XPMultiplier = require('../models/XPMultiplier');
+const { 
+  getTierFromXPV2, 
+  getTierKeyFromXPV2, 
+  applyTierMultiplierToXPV2,
+  getUserTierInfoV2 
+} = require('../utils/xpTierMultiplierV2');
+const { applyXPDecay, checkDecayStatus } = require('../utils/xpDecayV2');
 
 // Get XP tier progress and info
 router.get('/progress', protect, async (req, res) => {
@@ -33,40 +25,74 @@ router.get('/progress', protect, async (req, res) => {
     }
 
     const currentXP = user.xp.current || 0;
-    const currentTier = getCurrentTier(currentXP);
-    const nextTier = getNextTier(currentTier);
     
+    // Get current tier from V2 database
+    const currentTierDoc = await XPTierV2.findByXpValue(currentXP);
+    if (!currentTierDoc) {
+      return res.status(500).json({
+        success: false,
+        error: 'No tier configuration found. Please configure tiers in admin panel.'
+      });
+    }
+
+    // Get multiplier for current tier
+    const tierKey = await getTierKeyFromXPV2(currentXP);
+    const multiplierDoc = await XPMultiplier.findOne({
+      tier: tierKey,
+      isActive: true
+    }).lean();
+    const multiplier = multiplierDoc?.multiplier || 1.0;
+
+    // Get next tier (tier with xpMin > currentXP)
+    const nextTierDoc = await XPTierV2.findOne({
+      xpMin: { $gt: currentXP },
+      status: true
+    }).sort({ xpMin: 1 });
+
     // Calculate progress towards next tier
-    const progressToNext = nextTier ? 
-      Math.min(((currentXP - currentTier.minXP) / (nextTier.minXP - currentTier.minXP)) * 100, 100) : 100;
-    
-    const xpToNext = nextTier ? Math.max(nextTier.minXP - currentXP, 0) : 0;
+    let progressToNext = 100;
+    let xpToNext = 0;
+    if (nextTierDoc) {
+      const currentTierMax = currentTierDoc.xpMax || Infinity;
+      const rangeSize = nextTierDoc.xpMin - currentTierDoc.xpMin;
+      if (rangeSize > 0) {
+        const progressInRange = currentXP - currentTierDoc.xpMin;
+        progressToNext = Math.min((progressInRange / rangeSize) * 100, 100);
+      }
+      xpToNext = Math.max(nextTierDoc.xpMin - currentXP, 0);
+    }
+
+    // Map tier names to lowercase IDs for backward compatibility
+    const tierIdMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
 
     res.json({
       success: true,
       data: {
         currentTier: {
-          id: currentTier.id,
-          name: currentTier.name,
-          minXP: currentTier.minXP,
-          maxXP: currentTier.maxXP,
-          multiplier: currentTier.multiplier,
-          color: currentTier.color
+          id: tierIdMap[currentTierDoc.tier] || currentTierDoc.tier.toLowerCase(),
+          name: currentTierDoc.tier,
+          minXP: currentTierDoc.xpMin,
+          maxXP: currentTierDoc.xpMax,
+          multiplier: multiplier,
+          xpRange: currentTierDoc.xpRange
         },
-        nextTier: nextTier ? {
-          id: nextTier.id,
-          name: nextTier.name,
-          minXP: nextTier.minXP,
-          multiplier: nextTier.multiplier,
-          color: nextTier.color
+        nextTier: nextTierDoc ? {
+          id: tierIdMap[nextTierDoc.tier] || nextTierDoc.tier.toLowerCase(),
+          name: nextTierDoc.tier,
+          minXP: nextTierDoc.xpMin,
+          maxXP: nextTierDoc.xpMax,
+          xpRange: nextTierDoc.xpRange
         } : null,
         progress: {
           currentXP,
           xpToNext,
           progressPercentage: Math.round(progressToNext),
-          isMaxTier: !nextTier
-        },
-        examples: XP_TIER_CONFIG.examples
+          isMaxTier: !nextTierDoc
+        }
       }
     });
   } catch (error) {
@@ -83,22 +109,90 @@ router.get('/info', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('xp');
     const currentXP = user.xp.current || 0;
-    const currentTier = getCurrentTier(currentXP);
+    
+    // Get all active tiers from V2 database
+    const allTiers = await XPTierV2.find({ status: true }).sort({ xpMin: 1 }).lean();
+    if (allTiers.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: 'No tier configuration found. Please configure tiers in admin panel.'
+      });
+    }
+
+    // Get current tier
+    const currentTierDoc = await XPTierV2.findByXpValue(currentXP);
+    if (!currentTierDoc) {
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to determine current tier'
+      });
+    }
+
+    // Get multipliers for all tiers
+    const tierKeyMap = {
+      'Junior': 'JUNIOR',
+      'Middle': 'MID',
+      'Senior': 'SENIOR'
+    };
+
+    const tierIdMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
+
+    const tiersWithMultipliers = await Promise.all(
+      allTiers.map(async (tier) => {
+        const tierKey = tierKeyMap[tier.tier] || 'JUNIOR';
+        const multiplierDoc = await XPMultiplier.findOne({
+          tier: tierKey,
+          isActive: true
+        }).lean();
+        const multiplier = multiplierDoc?.multiplier || 1.0;
+
+        return {
+          id: tierIdMap[tier.tier] || tier.tier.toLowerCase(),
+          name: tier.tier,
+          minXP: tier.xpMin,
+          maxXP: tier.xpMax,
+          multiplier: multiplier,
+          xpRange: tier.xpRange,
+          isCurrent: tier.tier === currentTierDoc.tier,
+          isUnlocked: currentXP >= tier.xpMin,
+          example: {
+            baseCoins: 10,
+            multiplierCoins: Math.round(10 * multiplier),
+            description: `Earn ${Math.round(10 * multiplier)} coins per task (${multiplier}x multiplier)`
+          }
+        };
+      })
+    );
+
+    const currentTierKey = tierKeyMap[currentTierDoc.tier] || 'JUNIOR';
+    const currentMultiplierDoc = await XPMultiplier.findOne({
+      tier: currentTierKey,
+      isActive: true
+    }).lean();
+    const currentMultiplier = currentMultiplierDoc?.multiplier || 1.0;
 
     res.json({
       success: true,
       data: {
         title: 'XP Points: How it benefits you',
         description: 'XP Points grant multipliers to your coin earnings. Higher tiers mean more rewards for the same effort!',
-        tiers: XP_TIER_CONFIG.tiers.map(tier => ({
-          ...tier,
-          isCurrent: tier.id === currentTier.id,
-          isUnlocked: currentXP >= tier.minXP,
-          example: XP_TIER_CONFIG.examples[tier.id]
-        })),
+        tiers: tiersWithMultipliers,
         currentTier: {
-          ...currentTier,
-          example: XP_TIER_CONFIG.examples[currentTier.id]
+          id: tierIdMap[currentTierDoc.tier] || currentTierDoc.tier.toLowerCase(),
+          name: currentTierDoc.tier,
+          minXP: currentTierDoc.xpMin,
+          maxXP: currentTierDoc.xpMax,
+          multiplier: currentMultiplier,
+          xpRange: currentTierDoc.xpRange,
+          example: {
+            baseCoins: 10,
+            multiplierCoins: Math.round(10 * currentMultiplier),
+            description: `Earn ${Math.round(10 * currentMultiplier)} coins per task (${currentMultiplier}x multiplier)`
+          }
         },
         benefits: [
           'Higher XP tiers multiply your coin earnings',
@@ -135,8 +229,8 @@ router.post('/update', protect, async (req, res) => {
     const vipMultiplier = await getVIPMultiplier(user);
     const vipAdjustedXP = Math.round(xpEarned * vipMultiplier);
 
-    // Apply tier multiplier after VIP
-    const { finalXP, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+    // Apply tier multiplier after VIP using V2 logic
+    const { finalXP, multiplier: tierMultiplier, tier } = await applyTierMultiplierToXPV2(
       user,
       vipAdjustedXP
     );
@@ -149,12 +243,19 @@ router.post('/update', protect, async (req, res) => {
     user.xp.total = (user.xp.total || 0) + finalXP;
     user.xp.lastUpdated = new Date();
     
-    // Check for tier upgrade
-    const oldTier = getCurrentTier(oldXP);
-    const newTier = getCurrentTier(newXP);
-    const tierUpgraded = oldTier.id !== newTier.id;
+    // Check for tier upgrade using V2
+    const oldTierDoc = await XPTierV2.findByXpValue(oldXP);
+    const newTierDoc = await XPTierV2.findByXpValue(newXP);
+    const tierUpgraded = oldTierDoc && newTierDoc && oldTierDoc.tier !== newTierDoc.tier;
     
     await user.save();
+    
+    // Map tier names to lowercase IDs for backward compatibility
+    const tierIdMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
     
     res.json({
       success: true,
@@ -162,8 +263,8 @@ router.post('/update', protect, async (req, res) => {
         xpEarned: finalXP,
         oldXP,
         newXP,
-        oldTier: oldTier.id,
-        newTier: newTier.id,
+        oldTier: oldTierDoc ? (tierIdMap[oldTierDoc.tier] || oldTierDoc.tier.toLowerCase()) : 'junior',
+        newTier: newTierDoc ? (tierIdMap[newTierDoc.tier] || newTierDoc.tier.toLowerCase()) : 'junior',
         tierUpgraded,
         vipMultiplier,
         tierMultiplier,
@@ -184,20 +285,72 @@ router.get('/comparison', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('xp');
     const currentXP = user.xp.current || 0;
-    const currentTier = getCurrentTier(currentXP);
+    
+    // Get all active tiers from V2 database
+    const allTiers = await XPTierV2.find({ status: true }).sort({ xpMin: 1 }).lean();
+    if (allTiers.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: 'No tier configuration found. Please configure tiers in admin panel.'
+      });
+    }
+
+    // Get current tier
+    const currentTierDoc = await XPTierV2.findByXpValue(currentXP);
+    if (!currentTierDoc) {
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to determine current tier'
+      });
+    }
+
+    // Get multipliers for all tiers
+    const tierKeyMap = {
+      'Junior': 'JUNIOR',
+      'Middle': 'MID',
+      'Senior': 'SENIOR'
+    };
+
+    const tierIdMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
+
+    const tiersWithData = await Promise.all(
+      allTiers.map(async (tier) => {
+        const tierKey = tierKeyMap[tier.tier] || 'JUNIOR';
+        const multiplierDoc = await XPMultiplier.findOne({
+          tier: tierKey,
+          isActive: true
+        }).lean();
+        const multiplier = multiplierDoc?.multiplier || 1.0;
+
+        return {
+          id: tierIdMap[tier.tier] || tier.tier.toLowerCase(),
+          name: tier.tier,
+          minXP: tier.xpMin,
+          maxXP: tier.xpMax,
+          multiplier: multiplier,
+          xpRange: tier.xpRange,
+          isCurrent: tier.tier === currentTierDoc.tier,
+          isUnlocked: currentXP >= tier.xpMin,
+          xpNeeded: Math.max(tier.xpMin - currentXP, 0),
+          example: {
+            baseCoins: 10,
+            multiplierCoins: Math.round(10 * multiplier),
+            description: `Earn ${Math.round(10 * multiplier)} coins per task (${multiplier}x multiplier)`
+          },
+          benefits: getTierBenefits(tierIdMap[tier.tier] || tier.tier.toLowerCase())
+        };
+      })
+    );
 
     res.json({
       success: true,
       data: {
-        currentTier: currentTier.id,
-        tiers: XP_TIER_CONFIG.tiers.map(tier => ({
-          ...tier,
-          isCurrent: tier.id === currentTier.id,
-          isUnlocked: currentXP >= tier.minXP,
-          xpNeeded: Math.max(tier.minXP - currentXP, 0),
-          example: XP_TIER_CONFIG.examples[tier.id],
-          benefits: getTierBenefits(tier.id)
-        }))
+        currentTier: tierIdMap[currentTierDoc.tier] || currentTierDoc.tier.toLowerCase(),
+        tiers: tiersWithData
       }
     });
   } catch (error) {
@@ -210,21 +363,6 @@ router.get('/comparison', protect, async (req, res) => {
 });
 
 // Helper functions
-function getCurrentTier(xp) {
-  for (let i = XP_TIER_CONFIG.tiers.length - 1; i >= 0; i--) {
-    const tier = XP_TIER_CONFIG.tiers[i];
-    if (xp >= tier.minXP) {
-      return tier;
-    }
-  }
-  return XP_TIER_CONFIG.tiers[0]; // Default to Junior
-}
-
-function getNextTier(currentTier) {
-  const currentIndex = XP_TIER_CONFIG.tiers.findIndex(tier => tier.id === currentTier.id);
-  return currentIndex < XP_TIER_CONFIG.tiers.length - 1 ? 
-    XP_TIER_CONFIG.tiers[currentIndex + 1] : null;
-}
 
 async function getVIPMultiplier(user) {
   try {
@@ -253,5 +391,59 @@ function getTierBenefits(tierId) {
   };
   return benefits[tierId] || [];
 }
+
+// Check XP Decay status for current user
+router.get('/decay-status', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('xp lastActive lastLoginAt createdAt');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const decayStatus = await checkDecayStatus(user);
+
+    res.json({
+      success: true,
+      data: decayStatus
+    });
+  } catch (error) {
+    console.error('Error checking decay status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check decay status'
+    });
+  }
+});
+
+// Apply XP Decay for current user (if eligible)
+router.post('/apply-decay', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('xp lastActive lastLoginAt createdAt');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const decayResult = await applyXPDecay(user);
+
+    res.json({
+      success: true,
+      data: decayResult
+    });
+  } catch (error) {
+    console.error('Error applying decay:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to apply decay'
+    });
+  }
+});
 
 module.exports = router;

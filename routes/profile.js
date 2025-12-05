@@ -547,7 +547,16 @@ router.get("/dashboard", protect, async (req, res) => {
 
     const currentXP = profileData.xp?.current || 0;
     const totalXP = profileData.xp?.total || 0;
-    const tier = getTierFromXP(currentXP);
+    // Use V2 tier calculation from database configuration
+    const { getTierFromXPV2 } = require('../utils/xpTierMultiplierV2');
+    const tierV2 = await getTierFromXPV2(currentXP);
+    // Map V2 tier names to lowercase for backward compatibility
+    const tierMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
+    const tier = tierV2 ? (tierMap[tierV2] || tierV2.toLowerCase()) : 'junior';
 
     res.json({
       success: true,

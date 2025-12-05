@@ -715,6 +715,9 @@ router.get("/users", adminAuth, async (req, res) => {
           profile.avatar || "https://c.animaapp.com/t66hdvJZ/img/avatar.svg",
         createdAt: user.createdAt,
         lastActive: user.lastActive || user.createdAt,
+        social: user.social || {},
+        isGoogleUser: !!(user.social && user.social.googleId),
+        socialProvider: user.social?.provider || null,
       };
     });
 
@@ -1442,9 +1445,23 @@ router.put(
         });
       }
 
-      // Check email uniqueness if being updated (compare case-insensitively)
+      // Prevent email changes for Google-authenticated users
       const normalizedNewEmail = updateData.email ? updateData.email.toLowerCase() : null;
       const normalizedExistingEmail = existingUser.email ? existingUser.email.toLowerCase() : null;
+      if (normalizedNewEmail && normalizedNewEmail !== normalizedExistingEmail) {
+        // Check if user is a Google-authenticated user
+        if (existingUser.social && existingUser.social.googleId) {
+          return res.status(400).json({
+            success: false,
+            message: "Email cannot be changed for Google-authenticated users",
+            errors: [
+              { field: "email", message: "Email address cannot be modified for users who signed in with Google" },
+            ],
+          });
+        }
+      }
+
+      // Check email uniqueness if being updated (compare case-insensitively)
       if (normalizedNewEmail && normalizedNewEmail !== normalizedExistingEmail) {
         const emailExists = await User.findOne({
           email: normalizedNewEmail,

@@ -20,6 +20,30 @@ const bitlabsController = require("../controllers/bitlabs.controller");
 // Admin authentication middleware
 const { adminAuth } = require("../middleware/adminAuth");
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Safely parse JSON values from form-data
+ * Handles strings, arrays, and already parsed values
+ * @param {any} value - Value to parse
+ * @param {any} defaultValue - Default value if parsing fails
+ * @returns {any} - Parsed value or default
+ */
+function safeParseJSON(value, defaultValue = []) {
+  if (!value) return defaultValue;
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed;
+    } catch (e) {
+      console.error("JSON parse error:", e.message, "Value:", value);
+      return defaultValue;
+    }
+  }
+  return value;
+}
+
 // Configure multer for offer creative uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -776,6 +800,7 @@ router.get("/games", adminAuth, async (req, res) => {
       xpTier = "",
       adGame = "",
       status = "all",
+      gender = "",
     } = req.query;
 
     let query = {};
@@ -824,6 +849,11 @@ router.get("/games", adminAuth, async (req, res) => {
       } else if (statusLower === "inactive") {
         query.isActive = false;
       }
+    }
+
+    // Gender filter
+    if (gender && gender !== "all" && gender.trim() !== "") {
+      query.gender = gender.toLowerCase();
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -1113,11 +1143,9 @@ router.post(
         };
       }
 
-      // Parse JSON fields from form-data
-      const parsedCountries = JSON.parse(req.body.countries || "[]");
-      const parsedAgeGroups = req.body.ageGroups
-        ? JSON.parse(req.body.ageGroups)
-        : [];
+      // Parse JSON fields from form-data (using safe parsing)
+      const parsedCountries = safeParseJSON(req.body.countries, []);
+      const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
       const targetGender = (req.body.gender || "all").toLowerCase();
       const targetUiSection = req.body.uiSection || "";
       const targetAgeGroup =
@@ -1125,6 +1153,26 @@ router.post(
         (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
           ? parsedAgeGroups[0]
           : "");
+
+      // Parse XP Tiers (multi-select) - already validated above
+      const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
+
+      // Parse XP Reward Config - already validated above
+      const baseXP = parseFloat(req.body.baseXP);
+      const xpMultiplier = parseFloat(req.body.xpMultiplier);
+
+      // Parse third-party game data if provided from frontend
+      let thirdPartyData = null;
+      if (req.body.thirdPartyGameData) {
+        try {
+          thirdPartyData =
+            typeof req.body.thirdPartyGameData === "string"
+              ? JSON.parse(req.body.thirdPartyGameData)
+              : req.body.thirdPartyGameData;
+        } catch (error) {
+          console.error("Error parsing thirdPartyGameData:", error);
+        }
+      }
 
       const gameData = {
         gameId: req.body.gameId,
@@ -1137,17 +1185,25 @@ router.post(
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
           coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0,
         },
-        defaultTaskCount: req.body.defaultTaskCount
-          ? parseInt(req.body.defaultTaskCount)
-          : 0,
+        defaultTaskCount:
+          req.body.defaultTaskCount !== undefined &&
+          req.body.defaultTaskCount !== null &&
+          req.body.defaultTaskCount !== ""
+            ? parseInt(req.body.defaultTaskCount) || 0
+            : 0,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
+        xpTiers: parsedXpTiers, // Multi-select XP tiers
+        xpRewardConfig: {
+          baseXP: baseXP,
+          multiplier: xpMultiplier,
+        },
         isDefaultFallback: req.body.isDefaultFallback === "true",
         ageGroups: parsedAgeGroups,
         gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         tierRestrictions: {
-          minTier: req.body.tier || "free",
+          minTier: req.body.tier ? req.body.tier.toLowerCase() : "free",
           maxTier: "platinum",
         },
         metadata: {
@@ -1163,6 +1219,8 @@ router.post(
         createdBy: req.user.userId,
         deviceType: req.body.deviceType || "android",
         uiSection: targetUiSection,
+        // Store third-party game data (use provided data or fallback to external)
+        besitosRawData: thirdPartyData || external || null,
       };
 
       // Map external details into gameDetails snapshot
@@ -1181,6 +1239,14 @@ router.post(
             : external.category || "",
         downloadUrl: external.url || "",
       };
+
+      // Store complete raw data from third-party API (Besitos, Bitlabs, etc.)
+      // Prioritize thirdPartyGameData from frontend, otherwise use external data
+      if (thirdPartyData) {
+        gameData.besitosRawData = thirdPartyData;
+      } else if (sdkProvider === "besitos" || sdkProvider === "bitlabs") {
+        gameData.besitosRawData = external;
+      }
 
       // Handle uploaded game thumbnail
       if (req.files && req.files.gameThumbnail && req.files.gameThumbnail[0]) {
@@ -1228,6 +1294,16 @@ router.post(
           gender: targetGender,
           ageGroup: targetAgeGroup,
           ageGroups: parsedAgeGroups,
+          xpTier: gameData.xpTier,
+          xpTiers: gameData.xpTiers,
+          xpRewardConfig: gameData.xpRewardConfig,
+          defaultTaskCount: gameData.defaultTaskCount,
+          tierRestrictions: gameData.tierRestrictions,
+          marketingChannel: gameData.marketingChannel,
+          campaignName: gameData.campaignName,
+          isDefaultFallback: gameData.isDefaultFallback,
+          // Store complete raw data from third-party API
+          besitosRawData: gameData.besitosRawData || null,
         },
         $setOnInsert: {
           createdBy: req.user.userId,
@@ -1299,16 +1375,61 @@ router.put(
         updatedAt: new Date(),
       };
 
+      // Check if gameId or sdkProvider is being updated (to refresh external data)
+      const gameIdChanged =
+        req.body.gameId && req.body.gameId.trim() !== existingGame.gameId;
+      const sdkProviderChanged =
+        req.body.sdkProvider &&
+        req.body.sdkProvider !== existingGame.sdkProvider;
+      const shouldRefreshExternalData = gameIdChanged || sdkProviderChanged;
+
       // Update basic fields if provided
-      if (req.body.gameId) updateData.gameId = req.body.gameId;
-      if (req.body.title) updateData.title = req.body.title;
+      if (req.body.gameId) {
+        if (!req.body.gameId.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "Game ID cannot be empty",
+            error: "INVALID_GAME_ID",
+          });
+        }
+        updateData.gameId = req.body.gameId.trim();
+      }
+      if (req.body.title) {
+        if (!req.body.title.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "Game title cannot be empty",
+            error: "INVALID_TITLE",
+          });
+        }
+        updateData.title = req.body.title.trim();
+      }
       if (req.body.description) updateData.description = req.body.description;
       if (req.body.sdkProvider) updateData.sdkProvider = req.body.sdkProvider;
-      if (req.body.countries)
-        updateData.countries = JSON.parse(req.body.countries);
-      if (req.body.xptrRules) updateData.xptrRules = req.body.xptrRules;
-      if (req.body.ageGroups)
-        updateData.ageGroups = JSON.parse(req.body.ageGroups);
+      if (req.body.countries) {
+        const parsedCountries = safeParseJSON(req.body.countries, []);
+        if (!Array.isArray(parsedCountries) || parsedCountries.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "At least one country is required",
+            error: "COUNTRIES_REQUIRED",
+          });
+        }
+        updateData.countries = parsedCountries;
+      }
+      if (req.body.xptrRules) {
+        if (!req.body.xptrRules.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "XPTR Rules cannot be empty",
+            error: "INVALID_XPTR_RULES",
+          });
+        }
+        updateData.xptrRules = req.body.xptrRules.trim();
+      }
+      if (req.body.ageGroups) {
+        updateData.ageGroups = safeParseJSON(req.body.ageGroups, []);
+      }
       if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
       if (req.body.uiSection !== undefined)
@@ -1327,15 +1448,93 @@ router.put(
       if (req.body.isAdSupported !== undefined)
         updateData.isAdSupported = req.body.isAdSupported === "true";
 
-      // Update rewards
-      if (req.body.rewardXP || req.body.rewardCoins) {
-        updateData.rewards = {
-          xp: req.body.rewardXP
-            ? parseFloat(req.body.rewardXP)
-            : existingGame.rewards?.xp || 0,
-          coins: req.body.rewardCoins
-            ? parseFloat(req.body.rewardCoins)
-            : existingGame.rewards?.coins || 0,
+      // Reject coins updates (read-only from API)
+      if (req.body.rewardCoins !== undefined) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Coins cannot be updated. They are read-only and come from 3rd-party API.",
+          error: "COINS_READ_ONLY",
+        });
+      }
+
+      // Update rewards (XP only - coins are read-only from API)
+      if (req.body.rewardXP !== undefined) {
+        if (!updateData.rewards) updateData.rewards = {};
+        updateData.rewards.xp = req.body.rewardXP
+          ? parseFloat(req.body.rewardXP)
+          : existingGame.rewards?.xp || 0;
+        // Keep existing coins (read-only, from API)
+        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      }
+
+      // Update XP Tiers (multi-select) with validation
+      if (req.body.xpTiers !== undefined) {
+        const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
+        // Validate XP tiers
+        if (Array.isArray(parsedXpTiers) && parsedXpTiers.length > 0) {
+          const validTiers = ["Junior", "Mid", "Senior"];
+          const invalidTiers = parsedXpTiers.filter(
+            (t) => !validTiers.includes(t)
+          );
+          if (invalidTiers.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid XP tiers: ${invalidTiers.join(
+                ", "
+              )}. Must be one of: Junior, Mid, Senior`,
+              error: "INVALID_XP_TIERS",
+            });
+          }
+          updateData.xpTiers = parsedXpTiers;
+        } else if (parsedXpTiers.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "At least one XP Tier must be selected",
+            error: "XP_TIERS_REQUIRED",
+          });
+        }
+      }
+
+      // Update XP Reward Config (baseXP and multiplier) with validation
+      if (
+        req.body.baseXP !== undefined ||
+        req.body.xpMultiplier !== undefined
+      ) {
+        const baseXP =
+          req.body.baseXP !== undefined
+            ? parseFloat(req.body.baseXP)
+            : existingGame.xpRewardConfig?.baseXP || 0;
+        const xpMultiplier =
+          req.body.xpMultiplier !== undefined
+            ? parseFloat(req.body.xpMultiplier)
+            : existingGame.xpRewardConfig?.multiplier || 1.0;
+
+        // Validate baseXP
+        if (req.body.baseXP !== undefined && (isNaN(baseXP) || baseXP <= 0)) {
+          return res.status(400).json({
+            success: false,
+            message: "Base XP must be a number greater than 0",
+            error: "INVALID_BASE_XP",
+          });
+        }
+
+        // Validate multiplier
+        if (
+          req.body.xpMultiplier !== undefined &&
+          (isNaN(xpMultiplier) || xpMultiplier < 0.1)
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Stepwise Multiplier must be a number greater than or equal to 0.1",
+            error: "INVALID_MULTIPLIER",
+          });
+        }
+
+        updateData.xpRewardConfig = {
+          baseXP: baseXP,
+          multiplier: xpMultiplier,
         };
       }
 
@@ -1389,6 +1588,85 @@ router.put(
 
         // Update metadata imageUrl for backward compatibility
         updateData.metadata.imageUrl = imageUrl;
+      }
+
+      // If gameId or sdkProvider changed, fetch fresh external data
+      if (shouldRefreshExternalData) {
+        const sdkProvider = updateData.sdkProvider || existingGame.sdkProvider;
+        const gameId = updateData.gameId || existingGame.gameId;
+        let external = null;
+
+        if (sdkProvider === "besitos") {
+          try {
+            req.query.offer_id = gameId;
+            const captureGame = () => {
+              let payload = null;
+              let code = 200;
+              return {
+                res: {
+                  status(c) {
+                    code = c;
+                    return this;
+                  },
+                  json(obj) {
+                    payload = obj;
+                    return this;
+                  },
+                },
+                get() {
+                  return payload || { success: false, data: [] };
+                },
+              };
+            };
+            const cap2 = captureGame();
+            await besitosController.getOffers(req, cap2.res);
+            const ext = cap2.get();
+            if (
+              ext &&
+              ext.success === true &&
+              Array.isArray(ext.data) &&
+              ext.data.length > 0
+            ) {
+              external = ext.data[0];
+              updateData.besitosRawData = external;
+              // Also update gameDetails with fresh data
+              updateData.gameDetails = {
+                id: external.id || "",
+                name:
+                  external.title ||
+                  external.name ||
+                  updateData.title ||
+                  existingGame.title,
+                description:
+                  external.description ||
+                  updateData.description ||
+                  existingGame.description,
+                image: external.image || external.large_image || "",
+                square_image: external.square_image || "",
+                large_image: external.large_image || external.image || "",
+                category:
+                  Array.isArray(external.categories) &&
+                  external.categories[0] &&
+                  external.categories[0].name
+                    ? external.categories[0].name
+                    : external.category || "",
+                downloadUrl: external.url || "",
+              };
+            }
+          } catch (error) {
+            console.error("Error fetching external data during update:", error);
+            // Continue without updating external data
+          }
+        } else if (sdkProvider === "bitlabs") {
+          // Similar logic for Bitlabs if needed
+          // For now, preserve existing besitosRawData
+        }
+      } else {
+        // Preserve existing besitosRawData if not refreshing
+        // (MongoDB will preserve it automatically, but being explicit)
+        if (existingGame.besitosRawData) {
+          updateData.besitosRawData = existingGame.besitosRawData;
+        }
       }
 
       const game = await Game.findByIdAndUpdate(id, updateData, {
@@ -1882,7 +2160,9 @@ router.post(
       .withMessage("At least one user milestone is required"),
     body("userMilestones.*")
       .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
-      .withMessage("Invalid milestone type"),
+      .withMessage(
+        "Invalid milestone type. Must be one of: first_time_user, returning_user, xp_tier, membership_tier"
+      ),
     body("xpTier")
       .optional()
       .custom((value, { req }) => {
@@ -1912,8 +2192,8 @@ router.post(
         return true;
       }),
     body("maxGamesToShow")
-      .isNumeric()
-      .withMessage("Max games to show must be numeric"),
+      .isInt({ min: 1 })
+      .withMessage("Max games to show must be a positive integer"),
     body("isEnabled")
       .optional()
       .isBoolean()
@@ -2175,6 +2455,88 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
 
 // ==================== TASK PROGRESSION RULES ====================
 
+// Get all task progression rules
+router.get("/progression-rules", adminAuth, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Get all progression rules with pagination
+    const [rules, total] = await Promise.all([
+      TaskProgressionRule.find()
+        .populate("gameId", "title gameId")
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email")
+        .populate(
+          "postThresholdTasks.taskId",
+          "name description completionRule rewardType rewardValue order"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      TaskProgressionRule.countDocuments(),
+    ]);
+
+    // Format response
+    const formattedRules = rules.map((rule) => {
+      // Safely handle postThresholdTasks - it might be undefined or null
+      const postThresholdTasks = Array.isArray(rule.postThresholdTasks)
+        ? rule.postThresholdTasks
+        : [];
+
+      const formattedTasks = postThresholdTasks
+        .filter((pt) => pt && pt.isEnabled !== false) // Filter enabled tasks, handle null/undefined
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map((pt) => ({
+          taskId: pt.taskId?._id || pt.taskId || null,
+          order: pt.order || 0,
+          name: pt.taskId?.name || null,
+          description: pt.taskId?.description || null,
+          completionRule: pt.taskId?.completionRule || null,
+          rewardType: pt.taskId?.rewardType || null,
+          rewardValue: pt.taskId?.rewardValue || null,
+          requiredXpTier: pt.requiredXpTier || null,
+          requiredMembershipTier: pt.requiredMembershipTier || null,
+          isEnabled: pt.isEnabled !== false,
+        }));
+
+      return {
+        _id: rule._id,
+        gameId: rule.gameId?._id || rule.gameId || null,
+        gameTitle: rule.gameId?.title || null,
+        gameGameId: rule.gameId?.gameId || null,
+        minimumEventThreshold: rule.minimumEventThreshold || 5,
+        postThresholdTasks: formattedTasks,
+        isActive: rule.isActive !== false,
+        createdBy: rule.createdBy || null,
+        updatedBy: rule.updatedBy || null,
+        createdAt: rule.createdAt || new Date(),
+        updatedAt: rule.updatedAt || new Date(),
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedRules,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error getting progression rules:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get progression rules",
+      error: error.message,
+    });
+  }
+});
+
 // Get task progression rule for a specific game
 router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
   try {
@@ -2290,28 +2652,134 @@ router.post(
 
       // Validate post threshold tasks if provided
       if (postThresholdTasks.length > 0) {
-        // Check for duplicate task IDs
-        const taskIds = postThresholdTasks.map((pt) => pt.taskId.toString());
-        const uniqueTaskIds = [...new Set(taskIds)];
-        if (taskIds.length !== uniqueTaskIds.length) {
-          return res.status(400).json({
-            success: false,
-            message: "Duplicate task IDs are not allowed",
+        // Separate tasks with IDs and tasks without IDs (goal-based)
+        const tasksWithIds = postThresholdTasks.filter((pt) => pt.taskId);
+        const tasksWithoutIds = postThresholdTasks.filter((pt) => !pt.taskId);
+
+        // Validate tasks with IDs
+        if (tasksWithIds.length > 0) {
+          // Check for duplicate task IDs
+          const taskIds = tasksWithIds
+            .map((pt) => pt.taskId.toString())
+            .filter((id) => id);
+          const uniqueTaskIds = [...new Set(taskIds)];
+          if (taskIds.length !== uniqueTaskIds.length) {
+            return res.status(400).json({
+              success: false,
+              message: "Duplicate task IDs are not allowed",
+              error: "DUPLICATE_TASK_IDS",
+            });
+          }
+
+          // Validate that all task IDs exist and belong to this game
+          const existingTasks = await GameTask.find({
+            _id: { $in: taskIds },
+            gameId: gameId,
+            isActive: true, // Only allow active tasks
           });
+
+          if (existingTasks.length !== taskIds.length) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "One or more task IDs are invalid, inactive, or do not belong to this game",
+              error: "INVALID_TASK_IDS",
+            });
+          }
         }
 
-        // Validate that all task IDs exist and belong to this game
-        const existingTasks = await GameTask.find({
-          _id: { $in: taskIds },
-          gameId: gameId,
-        });
+        // For tasks without IDs, try to find or create them from goals
+        if (tasksWithoutIds.length > 0) {
+          const game = await Game.findById(gameId);
+          if (!game || !game.besitosRawData || !game.besitosRawData.goals) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Cannot create tasks from goals: Game does not have besitosRawData.goals",
+              error: "MISSING_GOALS",
+            });
+          }
 
-        if (existingTasks.length !== taskIds.length) {
+          // Try to find matching tasks by goal information
+          for (const pt of tasksWithoutIds) {
+            if (pt.goalId || pt.goalText) {
+              // Try to find existing task by matching goal text or position
+              const matchingTask = await GameTask.findOne({
+                gameId: gameId,
+                isActive: true,
+                $or: [
+                  { name: pt.goalText },
+                  { description: { $regex: pt.goalText, $options: "i" } },
+                  { order: pt.order },
+                ],
+              });
+
+              if (matchingTask) {
+                pt.taskId = matchingTask._id;
+              } else {
+                // Task doesn't exist yet - this is okay, it will be created later
+                // For now, we'll skip validation and allow null taskId
+                console.log(
+                  `Task not found for goal: ${
+                    pt.goalText || pt.goalId
+                  }. Will be created later.`
+                );
+              }
+            }
+          }
+        }
+
+        // Validate order values are unique and sequential
+        const orders = postThresholdTasks
+          .map((pt) => pt.order)
+          .sort((a, b) => a - b);
+        const expectedOrders = Array.from(
+          { length: orders.length },
+          (_, i) => i + 1
+        );
+        const hasSequentialOrders = orders.every(
+          (order, index) => order === expectedOrders[index]
+        );
+
+        if (!hasSequentialOrders) {
           return res.status(400).json({
             success: false,
             message:
-              "One or more task IDs are invalid or do not belong to this game",
+              "Post threshold tasks must have sequential order starting from 1",
+            error: "INVALID_TASK_ORDER",
           });
+        }
+
+        // Validate requiredXpTier values if provided
+        const validXpTiers = ["junior", "mid", "senior"];
+        for (const pt of postThresholdTasks) {
+          if (
+            pt.requiredXpTier &&
+            !validXpTiers.includes(pt.requiredXpTier.toLowerCase())
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid XP tier: ${pt.requiredXpTier}. Must be one of: junior, mid, senior`,
+              error: "INVALID_XP_TIER",
+            });
+          }
+        }
+
+        // Validate requiredMembershipTier values if provided
+        const validMembershipTiers = ["bronze", "gold", "platinum"];
+        for (const pt of postThresholdTasks) {
+          if (
+            pt.requiredMembershipTier &&
+            !validMembershipTiers.includes(
+              pt.requiredMembershipTier.toLowerCase()
+            )
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid membership tier: ${pt.requiredMembershipTier}. Must be one of: bronze, gold, platinum`,
+              error: "INVALID_MEMBERSHIP_TIER",
+            });
+          }
         }
       }
 
@@ -2321,27 +2789,33 @@ router.post(
       if (rule) {
         // Update existing rule
         rule.minimumEventThreshold = minimumEventThreshold;
-        rule.postThresholdTasks = postThresholdTasks.map((pt) => ({
-          taskId: pt.taskId,
-          order: pt.order,
-          requiredXpTier: pt.requiredXpTier || null,
-          requiredMembershipTier: pt.requiredMembershipTier || null,
-          isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
-        }));
-        rule.updatedBy = req.user.userId;
-        rule.updatedAt = new Date();
-      } else {
-        // Create new rule
-        rule = new TaskProgressionRule({
-          gameId: gameId,
-          minimumEventThreshold: minimumEventThreshold,
-          postThresholdTasks: postThresholdTasks.map((pt) => ({
+        // Only include tasks with IDs (tasks without IDs will be added later when tasks are created)
+        rule.postThresholdTasks = postThresholdTasks
+          .filter((pt) => pt.taskId) // Only include tasks with valid IDs
+          .map((pt) => ({
             taskId: pt.taskId,
             order: pt.order,
             requiredXpTier: pt.requiredXpTier || null,
             requiredMembershipTier: pt.requiredMembershipTier || null,
             isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
-          })),
+          }));
+        rule.updatedBy = req.user.userId;
+        rule.updatedAt = new Date();
+      } else {
+        // Create new rule
+        // Only include tasks with IDs (tasks without IDs will be added later when tasks are created)
+        rule = new TaskProgressionRule({
+          gameId: gameId,
+          minimumEventThreshold: minimumEventThreshold,
+          postThresholdTasks: postThresholdTasks
+            .filter((pt) => pt.taskId) // Only include tasks with valid IDs
+            .map((pt) => ({
+              taskId: pt.taskId,
+              order: pt.order,
+              requiredXpTier: pt.requiredXpTier || null,
+              requiredMembershipTier: pt.requiredMembershipTier || null,
+              isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
+            })),
           createdBy: req.user.userId,
         });
       }
@@ -2677,12 +3151,20 @@ router.post(
       }
 
       // Validate that order values are unique and sequential
-      const orders = bonusTasks.map((bt) => bt.order).sort();
-      const expectedOrders = [1, 2, 3].slice(0, bonusTasks.length);
-      if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+      const orders = bonusTasks.map((bt) => bt.order).sort((a, b) => a - b);
+      const expectedOrders = Array.from(
+        { length: bonusTasks.length },
+        (_, i) => i + 1
+      );
+      const hasSequentialOrders = orders.every(
+        (order, index) => order === expectedOrders[index]
+      );
+
+      if (!hasSequentialOrders) {
         return res.status(400).json({
           success: false,
-          message: "Bonus tasks must have sequential order (1, 2, 3)",
+          message: "Bonus tasks must have sequential order starting from 1",
+          error: "INVALID_TASK_ORDER",
         });
       }
 
@@ -2696,21 +3178,24 @@ router.post(
           success: false,
           message:
             "Duplicate task IDs are not allowed. Each task can only be selected once.",
+          error: "DUPLICATE_TASK_IDS",
         });
       }
 
-      // Validate that all task IDs exist
+      // Validate that all task IDs exist and are active
       const taskIds = bonusTasks.map((bt) => bt.taskId);
       const existingTasks = await GameTask.find({
         _id: { $in: taskIds },
         gameId: gameId,
+        isActive: true, // Only allow active tasks
       });
 
       if (existingTasks.length !== taskIds.length) {
         return res.status(400).json({
           success: false,
           message:
-            "One or more task IDs are invalid or do not belong to this game",
+            "One or more task IDs are invalid, inactive, or do not belong to this game",
+          error: "INVALID_TASK_IDS",
         });
       }
 
@@ -2734,6 +3219,7 @@ router.post(
         taskId: bt.taskId,
         order: bt.order,
         unlockCondition:
+          bt.unlockCondition ||
           "Unlock this Bonus Task after Minimum Event Threshold is met.",
         isEnabled: true,
       }));
@@ -2966,7 +3452,6 @@ router.get("/master-data/tier-access", adminAuth, async (req, res) => {
     const tiers = [
       { id: "free", name: "Free" },
       { id: "bronze", name: "Bronze" },
-      { id: "silver", name: "Silver" },
       { id: "gold", name: "Gold" },
       { id: "platinum", name: "Platinum" },
     ];
@@ -4377,6 +4862,9 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                 downloadUrl: external.url || "",
               },
 
+              // Store complete raw data from Besitos API
+              besitosRawData: external,
+
               uiSection: uiSectionKey,
               gender: gender,
               ageGroup: ageRangeKey,
@@ -4406,6 +4894,8 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                   rewards: gameData.rewards,
                   metadata: gameData.metadata,
                   gameDetails: gameData.gameDetails,
+                  // Store complete raw data from Besitos API
+                  besitosRawData: gameData.besitosRawData,
                   uiSection: uiSectionKey,
                   gender: gender,
                   ageGroup: ageRangeKey,

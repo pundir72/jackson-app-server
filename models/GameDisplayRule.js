@@ -36,6 +36,64 @@ const gameDisplayRuleSchema = new mongoose.Schema({
     min: 1,
     max: 50
   },
+  // Game count limits based on XP Tier, Membership Tier, and New Users
+  gameCountLimits: {
+    // XP Tier limits
+    xpTierLimits: {
+      junior: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null // null means use maxGamesToShow
+      },
+      mid: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      },
+      senior: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      }
+    },
+    // Membership/VIP Tier limits
+    membershipTierLimits: {
+      bronze: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      },
+      gold: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      },
+      platinum: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      },
+      free: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null
+      }
+    },
+    // New users limit
+    newUsersLimit: {
+      type: Number,
+      min: 1,
+      max: 50,
+      default: null
+    }
+  },
   segmentOverrides: [{
     type: {
       type: String,
@@ -255,8 +313,42 @@ gameDisplayRuleSchema.methods.applyToUser = async function(userProfile) {
     return null;
   }
   
-  // Get max games based on segments
+  // Get max games based on tiers and segments
   let maxGames = this.maxGamesToShow;
+  
+  // Check gameCountLimits if available
+  if (this.gameCountLimits) {
+    // Check new users limit
+    if (gamesPlayed === 0 && this.gameCountLimits.newUsersLimit !== null && this.gameCountLimits.newUsersLimit !== undefined) {
+      maxGames = this.gameCountLimits.newUsersLimit;
+    }
+    
+    // Check XP tier limit
+    if (this.gameCountLimits.xpTierLimits && xp !== undefined && xp !== null) {
+      // Determine XP tier based on XP value
+      // Junior: 0-500, Mid: 501-2000, Senior: 2001+
+      let xpTier = 'junior';
+      if (xp >= 2001) {
+        xpTier = 'senior';
+      } else if (xp >= 501) {
+        xpTier = 'mid';
+      }
+      
+      const tierLimit = this.gameCountLimits.xpTierLimits[xpTier];
+      if (tierLimit !== null && tierLimit !== undefined) {
+        maxGames = tierLimit;
+      }
+    }
+    
+    // Check membership tier limit
+    if (this.gameCountLimits.membershipTierLimits && membershipTier) {
+      const membershipTierLower = membershipTier.toLowerCase();
+      const tierLimit = this.gameCountLimits.membershipTierLimits[membershipTierLower];
+      if (tierLimit !== null && tierLimit !== undefined) {
+        maxGames = tierLimit;
+      }
+    }
+  }
   
   // Check age override
   if (age && this.segmentOverrides) {

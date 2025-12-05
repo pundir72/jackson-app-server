@@ -2462,9 +2462,11 @@ router.get("/progression-rules", adminAuth, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get all progression rules with pagination
+    // Get only progression rules that have been configured by admins (have createdBy)
+    const query = { createdBy: { $exists: true, $ne: null } };
+
     const [rules, total] = await Promise.all([
-      TaskProgressionRule.find()
+      TaskProgressionRule.find(query)
         .populate("gameId", "title gameId")
         .populate("createdBy", "firstName lastName email")
         .populate("updatedBy", "firstName lastName email")
@@ -2476,7 +2478,7 @@ router.get("/progression-rules", adminAuth, async (req, res) => {
         .skip(skip)
         .limit(limit)
         .lean(),
-      TaskProgressionRule.countDocuments(),
+      TaskProgressionRule.countDocuments(query),
     ]);
 
     // Format response

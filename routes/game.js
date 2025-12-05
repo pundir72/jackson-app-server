@@ -266,6 +266,15 @@ router.post("/install", protect, async (req, res) => {
     }
 
     await user.save();
+    
+    // Invalidate profile cache so GET /api/profile reflects latest games
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      invalidateUserCaches(req.user.userId);
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after game installation:', e.message);
+    }
+    
     return res.json({ success: true, message: "Game installation recorded" });
   } catch (error) {
     console.error("Error recording game installation:", error);

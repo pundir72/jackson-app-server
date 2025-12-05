@@ -52,7 +52,13 @@ router.get("/", protect, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json(profileData);
+    // Ensure faceVerified is included in response
+    const response = {
+      ...profileData,
+      faceVerified: profileData.biometric?.faceVerified || false
+    };
+
+    res.json(response);
   } catch (error) {
     console.error("Profile fetch error:", error);
     res.status(500).json({
@@ -578,6 +584,7 @@ router.get("/dashboard", protect, async (req, res) => {
           vipLevel: profileData.vip?.level || "free",
           vipActive: profileData.vip?.isActive || false,
           vipExpires: profileData.vip?.expires || null,
+          faceVerified: profileData.biometric?.faceVerified || false, // Add face verification status
         },
         // Wallet & XP details
         wallet: {
@@ -597,6 +604,7 @@ router.get("/dashboard", protect, async (req, res) => {
         // Progress stats
         progress: {
           gamesPlayed: stats.gamesPlayed,
+          gamesDownloaded: stats.gamesDownloaded || 0, // Add downloaded games count
           surveysCompleted: stats.surveysCompleted,
           racesCompleted: stats.racesCompleted,
           currentStreak: stats.streak,

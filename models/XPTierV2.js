@@ -100,20 +100,51 @@ xpTierV2Schema.methods.isWithinRange = function(xp) {
 };
 
 // Static method to find tier for a given XP value
-xpTierV2Schema.statics.findByXpValue = function(xp) {
-  return this.findOne({
-    $and: [
-      { xpMin: { $lte: xp } },
-      {
-        $or: [
-          { xpMax: { $gte: xp } },
-          { xpMax: null },
-          { xpMax: { $exists: false } }
-        ]
-      },
-      { status: true }
-    ]
-  }).sort({ xpMin: -1 }); // Sort descending to get the highest matching tier first
+// Returns the tier that the XP value falls within based on configured ranges
+xpTierV2Schema.statics.findByXpValue = async function(xp) {
+  const xpValue = Number(xp) || 0;
+  
+  // Get all active tiers sorted by xpMin ascending
+  const allTiers = await this.find({ status: true }).sort({ xpMin: 1 }).lean();
+  
+  if (allTiers.length === 0) {
+    return null;
+  }
+  
+  // Find the tier where xpMin <= xpValue and (xpMax >= xpValue OR xpMax is null for Senior tier)
+  // If multiple tiers match, prefer the one with the highest xpMin (most specific tier)
+  let matchingTier = null;
+  let highestMin = -1;
+  
+  for (const tier of allTiers) {
+    const minMatch = tier.xpMin <= xpValue;
+    const maxMatch = tier.xpMax === null || tier.xpMax === undefined || tier.xpMax >= xpValue;
+    
+    if (minMatch && maxMatch && tier.xpMin > highestMin) {
+      matchingTier = tier;
+      highestMin = tier.xpMin;
+    }
+  }
+  
+  // If no exact match found, return the highest tier (Senior) if xpValue exceeds all max values
+  if (!matchingTier) {
+    // Check if xpValue is higher than all max values (except null)
+    const tiersWithMax = allTiers.filter(t => t.xpMax !== null && t.xpMax !== undefined);
+    if (tiersWithMax.length > 0) {
+      const maxMaxValue = Math.max(...tiersWithMax.map(t => t.xpMax));
+      if (xpValue > maxMaxValue) {
+        // Return Senior tier (the one with null xpMax or highest xpMin)
+        matchingTier = allTiers.find(t => t.xpMax === null || t.xpMax === undefined) || 
+                       allTiers[allTiers.length - 1];
+      }
+    } else {
+      // All tiers have null xpMax (shouldn't happen, but handle it)
+      // Return the tier with highest xpMin
+      matchingTier = allTiers[allTiers.length - 1];
+    }
+  }
+  
+  return matchingTier ? this.findById(matchingTier._id) : null;
 };
 
 // Static method to get all active tiers

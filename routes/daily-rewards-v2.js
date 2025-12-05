@@ -15,7 +15,7 @@ const {
   applyMultiplier
 } = require('../utils/dailyRewardHelpersV2');
 const { trackAchievements } = require('../utils/achievements');
-const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
+const { applyTierMultiplierToXPV2 } = require('../utils/xpTierMultiplierV2');
 
 // V2 copy of loadProgress / loadConfig reused from V1, but referencing V2 helpers/config
 
@@ -481,33 +481,25 @@ router.post('/claim', protect, async (req, res) => {
     const coins = finalCoins + bigRewardCoins;
     const xp = finalXP + bigRewardXP;
 
-    day.status = 'claimed';
-    day.claimedAt = now;
-    day.coins = coins;
-    day.xp = xp;
-
-    if (todayIdx + 1 < progress.days.length) {
-      const next = progress.days[todayIdx + 1];
-      if (next.status === 'locked') next.status = 'claimable';
+    // CRITICAL: Credit rewards FIRST before marking as claimed
+    // This ensures atomicity - if crediting fails, status remains claimable
+    const user = await User.findById(userId).select('wallet xp badges');
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    progress.days.forEach((d, idx) => {
-      if (idx < todayIdx && d.status === 'locked') d.status = 'missed';
-    });
+    const oldBalance = user.wallet.balance || 0;
+    const oldXP = user.xp.current || 0;
 
-    progress.lastUpdated = now;
-    await progress.save();
-
-    const user = await User.findById(userId).select('wallet xp badges');
-    user.wallet.balance = (user.wallet.balance || 0) + coins;
+    user.wallet.balance = oldBalance + coins;
     user.wallet.lastUpdated = now;
 
-    const { finalXP: finalXPWithTier, multiplier: tierMultiplier } = await applyTierMultiplierToXP(
+    const { finalXP: finalXPWithTier, multiplier: tierMultiplier } = await applyTierMultiplierToXPV2(
       user,
       xp || 0
     );
 
-    user.xp.current = (user.xp.current || 0) + finalXPWithTier;
+    user.xp.current = oldXP + finalXPWithTier;
     user.xp.total = (user.xp.total || 0) + finalXPWithTier;
     
     if (bigReward && cfg.bigReward?.awardBadge && cfg.bigReward?.badgeName) {
@@ -532,7 +524,34 @@ router.post('/claim', protect, async (req, res) => {
       }
     });
 
-    await Promise.all([user.save(), tx.save()]);
+    // Save user and transaction together - if this fails, status won't be marked as claimed
+    try {
+      await Promise.all([user.save(), tx.save()]);
+    } catch (error) {
+      // Rollback user changes if transaction save fails
+      user.wallet.balance = oldBalance;
+      user.xp.current = oldXP;
+      await user.save();
+      throw error;
+    }
+
+    // ONLY AFTER successfully crediting rewards, mark as claimed
+    day.status = 'claimed';
+    day.claimedAt = now;
+    day.coins = coins;
+    day.xp = xp;
+
+    if (todayIdx + 1 < progress.days.length) {
+      const next = progress.days[todayIdx + 1];
+      if (next.status === 'locked') next.status = 'claimable';
+    }
+
+    progress.days.forEach((d, idx) => {
+      if (idx < todayIdx && d.status === 'locked') d.status = 'missed';
+    });
+
+    progress.lastUpdated = now;
+    await progress.save();
 
     setImmediate(async () => {
       try {
@@ -564,7 +583,9 @@ router.post('/claim', protect, async (req, res) => {
       data: {
         day: day.dayNumber,
         coins,
-        xp: finalXPWithTier,
+        baseXP: xp, // Base XP before tier multiplier
+        xp: finalXPWithTier, // Final XP after tier multiplier applied
+        tierMultiplier: tierMultiplier, // Show the multiplier that was applied
         bigReward: !!bigReward,
         weekNumber,
         weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
@@ -574,7 +595,42 @@ router.post('/claim', protect, async (req, res) => {
     });
   } catch (e) {
     console.error('Error claiming daily reward V2:', e);
-    res.status(500).json({ success: false, error: 'Failed to claim daily reward V2' });
+    
+    // If progress was already saved with status='claimed' but rewards weren't credited,
+    // we need to rollback the status (though this shouldn't happen with the new order)
+    // This is a safety check in case of unexpected errors
+    try {
+      const progress = await DailyRewardProgress.findOne({ userId: req.user.userId, weekStart: { $lte: new Date() } })
+        .sort({ weekStart: -1 });
+      if (progress) {
+        const todayIdx = ((new Date().getUTCDay() + 6) % 7);
+        const day = progress.days[todayIdx];
+        // Only rollback if status is claimed but no transaction exists
+        if (day && day.status === 'claimed' && day.claimedAt) {
+          const tx = await Transaction.findOne({
+            user: req.user.userId,
+            'metadata.rewardDay': day.dayNumber,
+            'metadata.weekNumber': progress.weekNumber || 1,
+            createdAt: { $gte: new Date(day.claimedAt.getTime() - 5000) } // Within 5 seconds
+          });
+          if (!tx) {
+            // No transaction found, rollback status
+            day.status = 'claimable';
+            day.claimedAt = null;
+            await progress.save();
+            console.log(`Rolled back daily reward V2 claim status for user ${req.user.userId}, day ${day.dayNumber}`);
+          }
+        }
+      }
+    } catch (rollbackError) {
+      console.error('Error during rollback:', rollbackError);
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to claim daily reward V2',
+      message: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 

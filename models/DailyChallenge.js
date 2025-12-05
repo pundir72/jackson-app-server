@@ -399,19 +399,26 @@ dailyChallengeSchema.methods.canUserAccess = function (userProfile) {
   }
 
   // Check age requirements
-  if (userProfile.age && audience.ageRange) {
-    if (
-      userProfile.age < audience.ageRange.min ||
-      userProfile.age > audience.ageRange.max
-    ) {
+  // Only enforce if both user has age data AND challenge has age restrictions
+  if (userProfile.age && typeof userProfile.age === 'number' && audience.ageRange) {
+    const userAge = userProfile.age;
+    const minAge = audience.ageRange.min || 13; // Default min age
+    const maxAge = audience.ageRange.max || 100; // Default max age
+    
+    // Check if user's age is within the allowed range (inclusive)
+    if (userAge < minAge || userAge > maxAge) {
       return false;
     }
   }
 
   // Check country requirements
+  // Only enforce country restrictions if user has a country set
+  // If user doesn't have country data (e.g., Google login users before onboarding),
+  // allow access to avoid blocking users with incomplete profiles
   if (
     Array.isArray(audience.countries) &&
     audience.countries.length > 0 &&
+    userProfile.country && // Only check if user has country data
     !audience.countries.includes(userProfile.country)
   ) {
     return false;

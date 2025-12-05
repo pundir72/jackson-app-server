@@ -116,5 +116,9 @@ module.exports = {
     IMAGE_BASE_URL: process.env.IMAGE_BASE_URL || 'http://localhost:4001',
 
     EMAIL: process.env.EMAIL,
-    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
+    
+    // Cloudflare Turnstile (Captcha)
+    CLOUDFLARE_TURNSTILE_SITE_KEY: process.env.CLOUDFLARE_TURNSTILE_SITE_KEY,
+    CLOUDFLARE_TURNSTILE_SECRET_KEY: process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY
 };

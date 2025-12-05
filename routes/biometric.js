@@ -154,28 +154,39 @@ router.post("/verify", async (req, res) => {
     });
 
     // Update user's biometric status
+    // CRITICAL: Use $set operator to properly update nested fields
     const update = {
-      "biometric.attempts": attempts,
-      "biometric.lastVerification": new Date(),
-      "biometric.lastLogin": new Date(),
-      "biometric.token": null,
-      "biometric.tokenExpiresAt": null,
+      $set: {
+        "biometric.attempts": attempts,
+        "biometric.lastVerification": new Date(),
+        "biometric.lastLogin": new Date(),
+        "biometric.token": null,
+        "biometric.tokenExpiresAt": null,
+      }
     };
 
     // Update face verification status if applicable
     if (verificationData) {
-      update["biometric.faceVerification.verified"] = true;
-      update["biometric.faceVerification.confidenceScore"] =
+      update.$set["biometric.faceVerification.verified"] = true;
+      update.$set["biometric.faceVerification.confidenceScore"] =
         verificationData.faceMatchScore;
-      update["biometric.faceVerification.lastVerified"] = new Date();
-      update["biometric.livenessCheck.lastChecked"] = new Date();
-      update["biometric.livenessCheck.lastScore"] =
+      update.$set["biometric.faceVerification.lastVerified"] = new Date();
+      update.$set["biometric.livenessCheck.lastChecked"] = new Date();
+      update.$set["biometric.livenessCheck.lastScore"] =
         verificationData.livenessScore;
-      update["biometric.livenessCheck.lastDeviceId"] = deviceId;
-      update["biometric.livenessCheck.lastScanType"] = scanType || "os_face_id";
+      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
+      update.$set["biometric.livenessCheck.lastScanType"] = scanType || "os_face_id";
     }
 
     await User.findByIdAndUpdate(user._id, update);
+
+    // Invalidate profile cache so GET /api/profile reflects latest face verification status
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      invalidateUserCaches(user._id.toString());
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after face verification:', e.message);
+    }
 
     // Log successful verification
     await analytics.log("face_verified", {
@@ -265,27 +276,38 @@ router.post("/setup", async (req, res) => {
     }
 
     // Update biometric setup
+    // CRITICAL: Use $set operator to properly update nested fields
     const update = {
-      "biometric.setup": true,
-      "biometric.type": type,
-      "biometric.lastSetupAt": new Date(),
-      "biometric.attempts": 0,
-      "biometric.lockedUntil": null,
+      $set: {
+        "biometric.setup": true,
+        "biometric.type": type,
+        "biometric.lastSetupAt": new Date(),
+        "biometric.attempts": 0,
+        "biometric.lockedUntil": null,
+      }
     };
 
     if (verificationData) {
-      update["biometric.faceVerification.verified"] = true;
-      update["biometric.faceVerification.confidenceScore"] =
+      update.$set["biometric.faceVerification.verified"] = true;
+      update.$set["biometric.faceVerification.confidenceScore"] =
         verificationData.faceMatchScore;
-      update["biometric.faceVerification.lastVerified"] = new Date();
-      update["biometric.livenessCheck.lastChecked"] = new Date();
-      update["biometric.livenessCheck.lastScore"] =
+      update.$set["biometric.faceVerification.lastVerified"] = new Date();
+      update.$set["biometric.livenessCheck.lastChecked"] = new Date();
+      update.$set["biometric.livenessCheck.lastScore"] =
         verificationData.livenessScore;
-      update["biometric.livenessCheck.lastDeviceId"] = deviceId;
-      update["biometric.livenessCheck.lastScanType"] = type;
+      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
+      update.$set["biometric.livenessCheck.lastScanType"] = type;
     }
 
     await User.findByIdAndUpdate(user._id, update);
+
+    // Invalidate profile cache so GET /api/profile reflects latest face verification status
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      invalidateUserCaches(user._id.toString());
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after biometric setup:', e.message);
+    }
 
     // Log successful setup
     await analytics.log("face_verification_success", {

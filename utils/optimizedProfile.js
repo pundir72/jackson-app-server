@@ -16,7 +16,7 @@ async function getOptimizedProfile(userId) {
 
     // Get user data with minimal fields
     const user = await User.findById(userId)
-      .select('firstName lastName mobile profile email socialTag xp wallet badges titles vip location lastIp')
+      .select('firstName lastName mobile profile email socialTag xp wallet badges titles vip location lastIp biometric')
       .lean();
 
     if (!user) {
@@ -54,6 +54,17 @@ async function getOptimizedProfile(userId) {
         historyCount: Array.isArray(user.location?.history) ? user.location.history.length : 0
       },
       lastIp: user.lastIp || null,
+      biometric: user.biometric ? {
+        enabled: user.biometric.enabled || false,
+        faceVerified: user.biometric?.faceVerification?.verified === true,
+        lastVerified: user.biometric?.faceVerification?.lastVerified || null,
+        confidenceScore: user.biometric?.faceVerification?.confidenceScore || null
+      } : {
+        enabled: false,
+        faceVerified: false,
+        lastVerified: null,
+        confidenceScore: null
+      },
       achievements: {
         recent: recentAchievements,
         total: achievementCount
@@ -94,11 +105,29 @@ async function getOptimizedStats(userId) {
       return null;
     }
 
+    // Calculate downloaded games count (games with installedAt or status: 'installed')
+    // A game is considered downloaded if:
+    // 1. It has installedAt date (explicitly installed)
+    // 2. It has status: 'installed' (explicitly marked as installed)
+    // 3. It has a date but no completed flag (legacy games that were started but not explicitly marked as installed)
+    const downloadedGamesCount = user.games?.filter(game => {
+      // Primary check: has installedAt or status: 'installed'
+      if (game.installedAt || game.status === 'installed') {
+        return true;
+      }
+      // Secondary check: has date (legacy games) but not completed (still active)
+      if (game.date && !game.completed) {
+        return true;
+      }
+      return false;
+    }).length || 0;
+
     // Calculate basic stats
     const stats = {
       xp: user.xp?.current || 0,
       balance: user.wallet?.balance || 0,
       gamesPlayed: user.games?.length || 0,
+      gamesDownloaded: downloadedGamesCount, // Add downloaded games count
       surveysCompleted: user.surveys?.filter(s => s.completed).length || 0,
       racesCompleted: user.races?.filter(r => r.completed).length || 0,
       streak: user.streak?.current || 0,

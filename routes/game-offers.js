@@ -126,13 +126,19 @@ router.get('/offers', protect, async (req, res) => {
 router.post('/install', protect, async (req, res) => {
   try {
     const { offerId, gameId, provider = 'besitos' } = req.body;
-    const user = await User.findById(req.user.userId).select('profile location');
+    // CRITICAL: Must select 'games' field to update it
+    const user = await User.findById(req.user.userId).select('games profile location');
     
     if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
+    }
+    
+    // Ensure games array exists
+    if (!user.games) {
+      user.games = [];
     }
 
     let trackingResult;
@@ -192,6 +198,14 @@ router.post('/install', protect, async (req, res) => {
     }
 
     await user.save();
+
+    // Invalidate profile cache so GET /api/profile reflects latest games
+    try {
+      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      invalidateUserCaches(req.user.userId);
+    } catch (e) {
+      console.warn('Failed to invalidate user caches after game installation:', e.message);
+    }
 
     res.json({
       success: true,

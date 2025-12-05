@@ -1198,6 +1198,34 @@ router.put(
   }
 );
 
+// Delete bonus day
+router.delete("/bonus-days/:id", adminAuth, async (req, res) => {
+  try {
+    const bonusDay = await BonusDay.findById(req.params.id);
+    
+    if (!bonusDay) {
+      return res.status(404).json({
+        success: false,
+        message: "Bonus day not found",
+      });
+    }
+
+    await BonusDay.findByIdAndDelete(req.params.id);
+
+    res.json({
+      success: true,
+      message: "Bonus day deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting bonus day:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete bonus day",
+      error: error.message,
+    });
+  }
+});
+
 // Preview bonus day notification/banner
 router.post(
   "/bonus-days/:dayNumber/preview",

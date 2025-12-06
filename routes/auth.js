@@ -1100,12 +1100,16 @@ router.get(
       callbackUrl: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL
     });
     
-    // Don't use state parameter - it might be causing issues with Facebook
-    // Facebook will redirect back to callback URL regardless
-    passport.authenticate("facebook", { 
-      scope: ["email"]
-      // Removed state parameter - Facebook handles redirects automatically
-    })(req, res, next);
+    // Facebook OAuth configuration
+    // Try with auth_type to force re-authentication and bypass consent page
+    const authOptions = {
+      scope: ["email"],
+      // auth_type: 'reauthenticate' // Uncomment if needed to force re-auth
+    };
+    
+    console.log('[Facebook OAuth] Starting authentication with options:', authOptions);
+    
+    passport.authenticate("facebook", authOptions)(req, res, next);
   }
 );
 
@@ -1119,12 +1123,20 @@ router.get(
     })(req, res, (err) => {
       if (err) {
         console.error('[Facebook Callback] Passport authentication error:', err);
-        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        // Ensure URL has protocol
+        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
+          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
+        }
         return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(err.message || 'Facebook authentication failed')}`);
       }
       if (!req.user) {
         console.error('[Facebook Callback] No user after authentication');
-        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        // Ensure URL has protocol
+        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
+          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
+        }
         return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('Facebook authentication failed - no user data')}`);
       }
       next(); // Continue to the callback handler
@@ -1136,7 +1148,11 @@ router.get(
       
       if (!user) {
         console.error('[Facebook Callback] User is null');
-        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        // Ensure URL has protocol
+        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
+          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
+        }
         return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('User not found after Facebook authentication')}`);
       }
 
@@ -1219,7 +1235,25 @@ router.get(
       });
 
       // Always redirect to admin panel (web) for now
-      const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+      // Get redirect URL from query param, env var, or default
+      let adminPanelUrl = req.query.redirect || process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
+      
+      // Ensure URL has protocol (http:// or https://)
+      // Sometimes query params get URL decoded and lose protocol
+      if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
+        // If no protocol, assume http for localhost, https for others
+        if (adminPanelUrl.includes('localhost') || adminPanelUrl.startsWith('127.0.0.1')) {
+          adminPanelUrl = 'http://' + adminPanelUrl;
+        } else {
+          adminPanelUrl = 'https://' + adminPanelUrl;
+        }
+      }
+      
+      console.log('[Facebook Callback] Admin panel URL:', {
+        original: req.query.redirect,
+        processed: adminPanelUrl,
+        fromEnv: process.env.ADMIN_PANEL_URL
+      });
       
       // Include basic user data in redirect URL
       const userData = {
@@ -1260,7 +1294,11 @@ router.get(
         hasUser: !!req.user
       });
       
-      const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+      let adminPanelUrl = req.query.redirect || process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
+      // Ensure URL has protocol
+      if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
+        adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
+      }
       const errorMessage = error.message || 'Facebook authentication failed';
       return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(errorMessage)}`);
     }

@@ -1088,7 +1088,23 @@ router.get(
 // Facebook OAuth Routes
 router.get(
   "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] })
+  (req, res, next) => {
+    // Store web flag in state parameter for callback
+    // Passport will preserve state in callback URL
+    const isWeb = req.query.web === 'true' || req.query.web === '1';
+    const state = isWeb ? 'web=true' : 'web=false';
+    
+    console.log('[Facebook OAuth Init]', {
+      isWeb,
+      state,
+      query: req.query
+    });
+    
+    passport.authenticate("facebook", { 
+      scope: ["email"],
+      state: state
+    })(req, res, next);
+  }
 );
 
 router.get(
@@ -1100,6 +1116,34 @@ router.get(
   async (req, res) => {
     try {
       const user = req.user;
+
+      // Check if this is a web request (for admin panel)
+      // Facebook redirects don't preserve referer, so we need to check multiple sources
+      const referer = req.headers.referer || req.headers.origin || '';
+      const userAgent = req.headers['user-agent'] || '';
+      
+      // Check for explicit mobile indicators first
+      const isMobileApp = userAgent.includes('JacksonApp') || 
+                         userAgent.includes('com.jackson.app') ||
+                         req.query.mobile === 'true' ||
+                         req.query.provider === 'mobile';
+      
+      // Default to web unless explicitly mobile (for admin panel testing)
+      // Also check state parameter from OAuth initiation
+      const state = req.query.state || '';
+      // Default to web - only treat as mobile if explicitly detected
+      // Since we're testing from admin panel, default to web
+      const isWeb = !isMobileApp; // Simple: if not mobile, it's web
+      
+      console.log('[Facebook Callback] Web detection:', {
+        isWeb,
+        isMobileApp,
+        referer,
+        state,
+        userAgent: userAgent.substring(0, 50),
+        queryParams: Object.keys(req.query),
+        allQueryParams: req.query
+      });
 
       // Update login analytics and device info (same as normal login)
       try {
@@ -1115,7 +1159,7 @@ router.get(
             "device.type":
               req.headers["x-device-type"] ||
               user.device?.type ||
-              "Unknown",
+              (isWeb ? "Web" : "Unknown"),
             "device.model":
               req.headers["x-device-model"] ||
               user.device?.model ||
@@ -1123,7 +1167,7 @@ router.get(
             "device.os":
               req.headers["x-device-os"] ||
               user.device?.os ||
-              "Unknown",
+              (isWeb ? "Browser" : "Unknown"),
             "device.lastUpdated": new Date(),
             "location.current.ip":
               req.ip ||
@@ -1151,11 +1195,44 @@ router.get(
         expiresIn: "24h",
       });
 
-      // Redirect to frontend with token
+      // For web requests (admin panel), return JSON or redirect to admin panel with token and user data
+      if (isWeb) {
+        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        // Include basic user data in redirect URL
+        const userData = {
+          _id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          mobile: user.mobile,
+          role: user.role,
+        };
+        const userDataEncoded = encodeURIComponent(JSON.stringify(userData));
+        const tokenEncoded = encodeURIComponent(token);
+        const redirectUrl = `${adminPanelUrl}/auth/facebook/callback?token=${tokenEncoded}&userId=${user._id.toString()}&user=${userDataEncoded}`;
+        
+        console.log('[Facebook Callback] Redirecting to admin panel:', {
+          adminPanelUrl,
+          userId: user._id.toString(),
+          hasToken: !!token,
+          tokenLength: token.length
+        });
+        
+        return res.redirect(redirectUrl);
+      }
+
+      // For mobile app, redirect to deep link
       const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Facebook OAuth callback error:", error);
+      const isWeb = req.query.web === 'true' || req.query.return === 'web';
+      
+      if (isWeb) {
+        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        return res.redirect(`${adminPanelUrl}/login?error=Facebook authentication failed`);
+      }
+      
       res.redirect(
         `com.jackson.app://auth/error?message=Facebook authentication failed`
       );

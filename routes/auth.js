@@ -1196,7 +1196,7 @@ router.get(
       });
 
       // For web requests (admin panel), return JSON or redirect to admin panel with token and user data
-      if (isWeb) {
+      // if (isWeb) {
         const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
         // Include basic user data in redirect URL
         const userData = {
@@ -1219,11 +1219,11 @@ router.get(
         });
         
         return res.redirect(redirectUrl);
-      }
+      // }
 
       // For mobile app, redirect to deep link
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
-      res.redirect(redirectUrl);
+      // const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
+      // res.redirect(redirectUrl);
     } catch (error) {
       console.error("Facebook OAuth callback error:", error);
       const isWeb = req.query.web === 'true' || req.query.return === 'web';

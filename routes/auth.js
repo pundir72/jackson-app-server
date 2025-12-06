@@ -1089,33 +1089,56 @@ router.get(
 router.get(
   "/facebook",
   (req, res, next) => {
-    // Store web flag in state parameter for callback
-    // Passport will preserve state in callback URL
-    const isWeb = req.query.web === 'true' || req.query.web === '1';
-    const state = isWeb ? 'web=true' : 'web=false';
-    
     console.log('[Facebook OAuth Init]', {
-      isWeb,
-      state,
-      query: req.query
+      query: req.query,
+      headers: {
+        referer: req.headers.referer,
+        origin: req.headers.origin,
+        host: req.headers.host
+      },
+      appId: process.env.FACEBOOK_APP_ID ? 'SET' : 'MISSING',
+      callbackUrl: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL
     });
     
+    // Don't use state parameter - it might be causing issues with Facebook
+    // Facebook will redirect back to callback URL regardless
     passport.authenticate("facebook", { 
-      scope: ["email"],
-      state: state
+      scope: ["email"]
+      // Removed state parameter - Facebook handles redirects automatically
     })(req, res, next);
   }
 );
 
 router.get(
   "/facebook/callback",
-  passport.authenticate("facebook", {
-    session: false,
-    failureRedirect: "/login",
-  }),
+  (req, res, next) => {
+    // Custom error handling for Facebook OAuth
+    passport.authenticate("facebook", {
+      session: false,
+      failureRedirect: false, // Don't auto-redirect, handle manually
+    })(req, res, (err) => {
+      if (err) {
+        console.error('[Facebook Callback] Passport authentication error:', err);
+        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(err.message || 'Facebook authentication failed')}`);
+      }
+      if (!req.user) {
+        console.error('[Facebook Callback] No user after authentication');
+        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('Facebook authentication failed - no user data')}`);
+      }
+      next(); // Continue to the callback handler
+    });
+  },
   async (req, res) => {
     try {
       const user = req.user;
+      
+      if (!user) {
+        console.error('[Facebook Callback] User is null');
+        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('User not found after Facebook authentication')}`);
+      }
 
       // Check if this is a web request (for admin panel)
       // Facebook redirects don't preserve referer, so we need to check multiple sources
@@ -1195,47 +1218,51 @@ router.get(
         expiresIn: "24h",
       });
 
-      // For web requests (admin panel), return JSON or redirect to admin panel with token and user data
-      // if (isWeb) {
-        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
-        // Include basic user data in redirect URL
-        const userData = {
-          _id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          mobile: user.mobile,
-          role: user.role,
-        };
+      // Always redirect to admin panel (web) for now
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+      
+      // Include basic user data in redirect URL
+      const userData = {
+        _id: user._id.toString(),
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        email: user.email || '',
+        mobile: user.mobile || '',
+        role: user.role || 'USER',
+      };
+      
+      try {
         const userDataEncoded = encodeURIComponent(JSON.stringify(userData));
         const tokenEncoded = encodeURIComponent(token);
         const redirectUrl = `${adminPanelUrl}/auth/facebook/callback?token=${tokenEncoded}&userId=${user._id.toString()}&user=${userDataEncoded}`;
         
-        console.log('[Facebook Callback] Redirecting to admin panel:', {
+        console.log('[Facebook Callback] Success - Redirecting to admin panel:', {
           adminPanelUrl,
           userId: user._id.toString(),
+          email: user.email,
           hasToken: !!token,
-          tokenLength: token.length
+          tokenLength: token.length,
+          redirectUrlLength: redirectUrl.length
         });
         
         return res.redirect(redirectUrl);
-      // }
-
-      // For mobile app, redirect to deep link
-      // const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
-      // res.redirect(redirectUrl);
-    } catch (error) {
-      console.error("Facebook OAuth callback error:", error);
-      const isWeb = req.query.web === 'true' || req.query.return === 'web';
-      
-      if (isWeb) {
-        const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
-        return res.redirect(`${adminPanelUrl}/login?error=Facebook authentication failed`);
+      } catch (redirectError) {
+        console.error('[Facebook Callback] Error creating redirect URL:', redirectError);
+        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('Failed to process Facebook login')}`);
       }
+    } catch (error) {
+      console.error("[Facebook Callback] Error in callback handler:", error);
+      console.error("[Facebook Callback] Error stack:", error.stack);
+      console.error("[Facebook Callback] Error details:", {
+        message: error.message,
+        name: error.name,
+        query: req.query,
+        hasUser: !!req.user
+      });
       
-      res.redirect(
-        `com.jackson.app://auth/error?message=Facebook authentication failed`
-      );
+      const adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
+      const errorMessage = error.message || 'Facebook authentication failed';
+      return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(errorMessage)}`);
     }
   }
 );

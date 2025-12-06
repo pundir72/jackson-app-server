@@ -1085,34 +1085,35 @@ router.get(
   }
 );
 
-// Facebook OAuth Routes
+// ========================================
+// MOBILE FACEBOOK OAUTH ROUTE
+// ========================================
+
+// Facebook OAuth Route for Mobile App Only
+// This route is for mobile app authentication - redirects to mobile deep link
 router.get(
   "/facebook",
   (req, res, next) => {
-    console.log('[Facebook OAuth Init]', {
+    console.log('[Facebook OAuth Mobile Init]', {
       query: req.query,
       headers: {
         referer: req.headers.referer,
         origin: req.headers.origin,
-        host: req.headers.host
+        host: req.headers.host,
+        'user-agent': req.headers['user-agent']
       },
       appId: process.env.FACEBOOK_APP_ID ? 'SET' : 'MISSING',
       callbackUrl: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL
     });
     
-    // Facebook OAuth configuration
-    // Try with auth_type to force re-authentication and bypass consent page
-    const authOptions = {
-      scope: ["email"],
-      // auth_type: 'reauthenticate' // Uncomment if needed to force re-auth
-    };
-    
-    console.log('[Facebook OAuth] Starting authentication with options:', authOptions);
-    
-    passport.authenticate("facebook", authOptions)(req, res, next);
+    // Mobile OAuth - always redirects to mobile deep link
+    passport.authenticate("facebook", { 
+      scope: ["email"]
+    })(req, res, next);
   }
 );
 
+// Facebook OAuth Callback for Mobile App
 router.get(
   "/facebook/callback",
   (req, res, next) => {
@@ -1122,22 +1123,14 @@ router.get(
       failureRedirect: false, // Don't auto-redirect, handle manually
     })(req, res, (err) => {
       if (err) {
-        console.error('[Facebook Callback] Passport authentication error:', err);
-        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
-        // Ensure URL has protocol
-        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
-          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
-        }
-        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(err.message || 'Facebook authentication failed')}`);
+        console.error('[Facebook Mobile Callback] Passport authentication error:', err);
+        // Redirect to mobile app error deep link
+        const errorMessage = encodeURIComponent(err.message || 'Facebook authentication failed');
+        return res.redirect(`com.jackson.app://auth/error?message=${errorMessage}`);
       }
       if (!req.user) {
-        console.error('[Facebook Callback] No user after authentication');
-        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
-        // Ensure URL has protocol
-        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
-          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
-        }
-        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('Facebook authentication failed - no user data')}`);
+        console.error('[Facebook Mobile Callback] No user after authentication');
+        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('Facebook authentication failed - no user data')}`);
       }
       next(); // Continue to the callback handler
     });
@@ -1147,44 +1140,11 @@ router.get(
       const user = req.user;
       
       if (!user) {
-        console.error('[Facebook Callback] User is null');
-        let adminPanelUrl = process.env.ADMIN_PANEL_URL || req.query.redirect || 'http://localhost:3000';
-        // Ensure URL has protocol
-        if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
-          adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
-        }
-        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('User not found after Facebook authentication')}`);
+        console.error('[Facebook Mobile Callback] User is null');
+        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('User not found after Facebook authentication')}`);
       }
 
-      // Check if this is a web request (for admin panel)
-      // Facebook redirects don't preserve referer, so we need to check multiple sources
-      const referer = req.headers.referer || req.headers.origin || '';
-      const userAgent = req.headers['user-agent'] || '';
-      
-      // Check for explicit mobile indicators first
-      const isMobileApp = userAgent.includes('JacksonApp') || 
-                         userAgent.includes('com.jackson.app') ||
-                         req.query.mobile === 'true' ||
-                         req.query.provider === 'mobile';
-      
-      // Default to web unless explicitly mobile (for admin panel testing)
-      // Also check state parameter from OAuth initiation
-      const state = req.query.state || '';
-      // Default to web - only treat as mobile if explicitly detected
-      // Since we're testing from admin panel, default to web
-      const isWeb = !isMobileApp; // Simple: if not mobile, it's web
-      
-      console.log('[Facebook Callback] Web detection:', {
-        isWeb,
-        isMobileApp,
-        referer,
-        state,
-        userAgent: userAgent.substring(0, 50),
-        queryParams: Object.keys(req.query),
-        allQueryParams: req.query
-      });
-
-      // Update login analytics and device info (same as normal login)
+      // Update login analytics and device info for mobile
       try {
         const updateData = {
           $inc: { loginCount: 1 },
@@ -1198,7 +1158,7 @@ router.get(
             "device.type":
               req.headers["x-device-type"] ||
               user.device?.type ||
-              (isWeb ? "Web" : "Unknown"),
+              "Mobile",
             "device.model":
               req.headers["x-device-model"] ||
               user.device?.model ||
@@ -1206,7 +1166,7 @@ router.get(
             "device.os":
               req.headers["x-device-os"] ||
               user.device?.os ||
-              (isWeb ? "Browser" : "Unknown"),
+              "Unknown",
             "device.lastUpdated": new Date(),
             "location.current.ip":
               req.ip ||
@@ -1225,7 +1185,7 @@ router.get(
 
         await User.findByIdAndUpdate(user._id, updateData);
       } catch (updateError) {
-        console.error("Error updating login analytics for Facebook login:", updateError);
+        console.error("Error updating login analytics for Facebook mobile login:", updateError);
         // Continue even if update fails
       }
 
@@ -1234,76 +1194,33 @@ router.get(
         expiresIn: "24h",
       });
 
-      // Always redirect to admin panel (web) for now
-      // Get redirect URL from query param, env var, or default
-      let adminPanelUrl = req.query.redirect || process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
+      // Redirect to mobile app with token
+      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(token)}&provider=facebook&userId=${user._id.toString()}`;
       
-      // Ensure URL has protocol (http:// or https://)
-      // Sometimes query params get URL decoded and lose protocol
-      if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
-        // If no protocol, assume http for localhost, https for others
-        if (adminPanelUrl.includes('localhost') || adminPanelUrl.startsWith('127.0.0.1')) {
-          adminPanelUrl = 'http://' + adminPanelUrl;
-        } else {
-          adminPanelUrl = 'https://' + adminPanelUrl;
-        }
-      }
-      
-      console.log('[Facebook Callback] Admin panel URL:', {
-        original: req.query.redirect,
-        processed: adminPanelUrl,
-        fromEnv: process.env.ADMIN_PANEL_URL
+      console.log('[Facebook Mobile Callback] Success - Redirecting to mobile app:', {
+        userId: user._id.toString(),
+        email: user.email,
+        hasToken: !!token,
+        tokenLength: token.length
       });
       
-      // Include basic user data in redirect URL
-      const userData = {
-        _id: user._id.toString(),
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        email: user.email || '',
-        mobile: user.mobile || '',
-        role: user.role || 'USER',
-      };
-      
-      try {
-        const userDataEncoded = encodeURIComponent(JSON.stringify(userData));
-        const tokenEncoded = encodeURIComponent(token);
-        const redirectUrl = `${adminPanelUrl}/auth/facebook/callback?token=${tokenEncoded}&userId=${user._id.toString()}&user=${userDataEncoded}`;
-        
-        console.log('[Facebook Callback] Success - Redirecting to admin panel:', {
-          adminPanelUrl,
-          userId: user._id.toString(),
-          email: user.email,
-          hasToken: !!token,
-          tokenLength: token.length,
-          redirectUrlLength: redirectUrl.length
-        });
-        
-        return res.redirect(redirectUrl);
-      } catch (redirectError) {
-        console.error('[Facebook Callback] Error creating redirect URL:', redirectError);
-        return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent('Failed to process Facebook login')}`);
-      }
+      return res.redirect(redirectUrl);
     } catch (error) {
-      console.error("[Facebook Callback] Error in callback handler:", error);
-      console.error("[Facebook Callback] Error stack:", error.stack);
-      console.error("[Facebook Callback] Error details:", {
+      console.error("[Facebook Mobile Callback] Error in callback handler:", error);
+      console.error("[Facebook Mobile Callback] Error stack:", error.stack);
+      console.error("[Facebook Mobile Callback] Error details:", {
         message: error.message,
         name: error.name,
         query: req.query,
         hasUser: !!req.user
       });
       
-      let adminPanelUrl = req.query.redirect || process.env.ADMIN_PANEL_URL || 'http://localhost:3000';
-      // Ensure URL has protocol
-      if (adminPanelUrl && !adminPanelUrl.match(/^https?:\/\//)) {
-        adminPanelUrl = adminPanelUrl.includes('localhost') ? 'http://' + adminPanelUrl : 'https://' + adminPanelUrl;
-      }
       const errorMessage = error.message || 'Facebook authentication failed';
-      return res.redirect(`${adminPanelUrl}/login?error=${encodeURIComponent(errorMessage)}`);
+      return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent(errorMessage)}`);
     }
   }
 );
+
 
 // Social login status check
 router.get("/social/status", async (req, res) => {

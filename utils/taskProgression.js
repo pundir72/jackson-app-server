@@ -59,6 +59,8 @@ function getUserMembershipTier(user) {
 
 /**
  * Check if user meets XP tier requirement
+ * Supports hierarchy: senior >= mid >= junior
+ * A user with a higher tier can access lower tier requirements
  *
  * @param {Object} user - User object
  * @param {string} requiredTier - Required tier: 'junior', 'mid', or 'senior'
@@ -68,11 +70,26 @@ function meetsXpTierRequirement(user, requiredTier) {
   if (!requiredTier) return true; // No requirement means always pass
 
   const userTier = getUserXpTier(user);
-  return userTier === requiredTier.toLowerCase();
+  const required = requiredTier.toLowerCase();
+
+  // Define tier hierarchy (higher number = higher tier)
+  const tierHierarchy = {
+    junior: 1,
+    mid: 2,
+    senior: 3,
+  };
+
+  const userTierLevel = tierHierarchy[userTier] || 0;
+  const requiredTierLevel = tierHierarchy[required] || 0;
+
+  // User meets requirement if their tier level is >= required tier level
+  return userTierLevel >= requiredTierLevel;
 }
 
 /**
  * Check if user meets membership tier requirement
+ * Supports hierarchy: platinum >= gold >= bronze
+ * A user with a higher tier can access lower tier requirements
  *
  * @param {Object} user - User object
  * @param {string} requiredTier - Required tier: 'bronze', 'gold', or 'platinum'
@@ -84,7 +101,20 @@ function meetsMembershipTierRequirement(user, requiredTier) {
   const userTier = getUserMembershipTier(user);
   if (!userTier) return false; // User has no membership
 
-  return userTier === requiredTier.toLowerCase();
+  const required = requiredTier.toLowerCase();
+
+  // Define tier hierarchy (higher number = higher tier)
+  const tierHierarchy = {
+    bronze: 1,
+    gold: 2,
+    platinum: 3,
+  };
+
+  const userTierLevel = tierHierarchy[userTier] || 0;
+  const requiredTierLevel = tierHierarchy[required] || 0;
+
+  // User meets requirement if their tier level is >= required tier level
+  return userTierLevel >= requiredTierLevel;
 }
 
 /**
@@ -117,3 +147,4 @@ module.exports = {
   meetsMembershipTierRequirement,
   getTierComparison,
 };
+

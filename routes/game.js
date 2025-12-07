@@ -266,15 +266,18 @@ router.post("/install", protect, async (req, res) => {
     }
 
     await user.save();
-    
+
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {
-      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      const { invalidateUserCaches } = require("../utils/optimizedProfile");
       invalidateUserCaches(req.user.userId);
     } catch (e) {
-      console.warn('Failed to invalidate user caches after game installation:', e.message);
+      console.warn(
+        "Failed to invalidate user caches after game installation:",
+        e.message
+      );
     }
-    
+
     return res.json({ success: true, message: "Game installation recorded" });
   } catch (error) {
     console.error("Error recording game installation:", error);
@@ -491,10 +494,14 @@ router.post("/earn", protect, async (req, res) => {
 /**
  * GET /api/game/discover
  * Query games for user by uiSection, ageGroup, gender
+ * Applies Game Display Rules, Bonus Task eligibility, and Task Progression Rules
  * Query params: uiSection, ageGroup, gender, page=1, limit=20, country (optional)
  */
 router.get("/discover", protect, async (req, res) => {
   try {
+    console.log("=== GAME DISCOVER START ===");
+    console.log("Raw Query Params:", req.query);
+    
     const {
       uiSection,
       ageGroup,
@@ -504,50 +511,377 @@ router.get("/discover", protect, async (req, res) => {
       country,
     } = req.query;
 
+    console.log("Parsed Query Params:", {
+      uiSection: uiSection || "NOT PROVIDED",
+      ageGroup: ageGroup || "NOT PROVIDED",
+      gender: gender || "NOT PROVIDED",
+      page: page,
+      limit: limit,
+      country: country || "NOT PROVIDED",
+    });
+
+    const userId = req.user.userId;
+    console.log("User ID from JWT token:", userId);
+    console.log("Tracking activity for user:", userId, "on route:", req.path);
+    
+    const user = await User.findById(userId).lean();
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Calculate user profile for display rules
+    const gamesDownloaded =
+      user.games?.filter((g) => {
+        return (
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
+        );
+      }).length || 0;
+
+    // Get user's VIP tier
+    let membershipTier = "free";
+    if (user.vip?.tier) {
+      membershipTier = user.vip.tier;
+    } else if (user.vip?.level && user.vip.level !== "free") {
+      membershipTier = user.vip.level;
+    }
+
+    // Build user profile for display rules
+    const userProfile = {
+      age:
+        user.profile?.age ||
+        (user.onboarding?.ageRange
+          ? parseInt(user.onboarding.ageRange.split("-")[0])
+          : null) ||
+        25,
+      gender:
+        user.profile?.gender || user.onboarding?.gender || gender || "other",
+      country:
+        user.location?.current?.country ||
+        user.location?.country ||
+        country ||
+        "US",
+      xp: user.xp?.current || 0,
+      gamesPlayed: gamesDownloaded,
+      membershipTier: membershipTier,
+    };
+
+    // Get active display rules and apply to user
+    const GameDisplayRule = require("../models/GameDisplayRule");
+    const activeRules = await GameDisplayRule.findActive()
+      .populate("xpTier", "tierName xpMin xpMax")
+      .lean();
+
+    // Find matching display rule
+    let matchingRule = null;
+    let maxGamesFromRule = null;
+    for (const rule of activeRules) {
+      const ruleModel = new GameDisplayRule(rule);
+      const result = await ruleModel.applyToUser(userProfile);
+      if (result) {
+        if (
+          !matchingRule ||
+          (rule.metadata?.priority || 0) >
+            (matchingRule.metadata?.priority || 0)
+        ) {
+          matchingRule = rule;
+          maxGamesFromRule = result.maxGames;
+        }
+      }
+    }
+
+    // Build base filter
     const filter = { isActive: true };
     if (uiSection) filter.uiSection = uiSection;
     if (ageGroup) filter.ageGroup = ageGroup;
     if (gender) filter.gender = gender;
-    if (country) filter.countries = country;
+    // Note: countries field was removed, so we skip country filter from Game model
+
+    console.log("=== FILTER ANALYSIS ===");
+    console.log("Query Params Used in Filter:", {
+      uiSection: uiSection || "NOT PROVIDED",
+      ageGroup: ageGroup || "NOT PROVIDED",
+      gender: gender || "NOT PROVIDED",
+    });
+    console.log("User Profile (Actual):", {
+      gender: userProfile.gender,
+      age: userProfile.age,
+      country: userProfile.country,
+    });
+    console.log("⚠️ MISMATCH CHECK:");
+    if (gender && gender !== userProfile.gender) {
+      console.log(`  ⚠️ Gender mismatch: Query="${gender}" vs User="${userProfile.gender}"`);
+    }
+    if (ageGroup) {
+      const [minAge, maxAge] = ageGroup.split("-").map(Number);
+      if (userProfile.age < minAge || userProfile.age > maxAge) {
+        console.log(`  ⚠️ Age mismatch: Query="${ageGroup}" vs User age="${userProfile.age}"`);
+      }
+    }
+    console.log("Database Filter:", JSON.stringify(filter, null, 2));
+    console.log("User Profile:", JSON.stringify(userProfile, null, 2));
+    console.log(
+      "Matching Display Rule:",
+      matchingRule
+        ? {
+            ruleId: matchingRule._id,
+            ruleName: matchingRule.ruleName,
+            maxGames: maxGamesFromRule,
+          }
+        : "None"
+    );
+
+    // Check what games exist in database with different filters
+    console.log("=== DATABASE GAME COUNTS ===");
+    const totalActiveGames = await Game.countDocuments({ isActive: true });
+    console.log(`Total active games: ${totalActiveGames}`);
+    
+    if (uiSection) {
+      const uiSectionCount = await Game.countDocuments({ isActive: true, uiSection });
+      console.log(`Games with uiSection="${uiSection}": ${uiSectionCount}`);
+    }
+    if (ageGroup) {
+      const ageGroupCount = await Game.countDocuments({ isActive: true, ageGroup });
+      console.log(`Games with ageGroup="${ageGroup}": ${ageGroupCount}`);
+    }
+    if (gender) {
+      const genderCount = await Game.countDocuments({ isActive: true, gender });
+      console.log(`Games with gender="${gender}": ${genderCount}`);
+    }
+    
+    // Check games matching user profile instead
+    const userProfileFilter = { isActive: true };
+    if (uiSection) userProfileFilter.uiSection = uiSection;
+    // Use user's actual gender if query param doesn't match
+    if (userProfile.gender && userProfile.gender !== "other") {
+      userProfileFilter.gender = userProfile.gender;
+    }
+    // Try to match ageGroup based on user's age
+    if (userProfile.age) {
+      let matchedAgeGroup = null;
+      if (userProfile.age >= 13 && userProfile.age <= 17) matchedAgeGroup = "13-17";
+      else if (userProfile.age >= 18 && userProfile.age <= 24) matchedAgeGroup = "18-24";
+      else if (userProfile.age >= 25 && userProfile.age <= 34) matchedAgeGroup = "25-34";
+      else if (userProfile.age >= 35 && userProfile.age <= 44) matchedAgeGroup = "35-44";
+      else if (userProfile.age >= 45 && userProfile.age <= 54) matchedAgeGroup = "45-54";
+      else if (userProfile.age >= 55 && userProfile.age <= 64) matchedAgeGroup = "55-64";
+      else if (userProfile.age >= 65) matchedAgeGroup = "65+";
+      
+      if (matchedAgeGroup) {
+        userProfileFilter.ageGroup = matchedAgeGroup;
+        console.log(`Matched ageGroup="${matchedAgeGroup}" for user age=${userProfile.age}`);
+      }
+    }
+    
+    const userProfileGamesCount = await Game.countDocuments(userProfileFilter);
+    console.log(`Games matching user profile filter: ${userProfileGamesCount}`);
+    if (userProfileGamesCount > 0 && allGames.length === 0) {
+      console.log("⚠️ WARNING: Games exist for user profile but not for query params!");
+      console.log("User Profile Filter:", JSON.stringify(userProfileFilter, null, 2));
+    }
+    console.log("=== END FILTER ANALYSIS ===");
 
     const pageNum = Math.max(parseInt(page) || 1, 1);
     const pageSize = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
 
-    const [items, total] = await Promise.all([
-      Game.find(filter)
-        .sort({ "displayRules.priority": -1, createdAt: -1 })
-        .select(
-          "uiSection gender ageGroup rewards metadata.thumbnail gameDetails"
-        )
-        .lean()
-        .skip((pageNum - 1) * pageSize)
-        .limit(pageSize),
-      Game.countDocuments(filter),
-    ]);
+    // Get all matching games first (before pagination)
+    console.log("Querying games from database with filter...");
+    let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
+    console.log(`✅ Found ${allGames.length} games matching filter`);
+    if (allGames.length > 0) {
+      console.log(
+        "Sample games:",
+        allGames.slice(0, 3).map((g) => ({
+          _id: g._id,
+          gameId: g.gameId,
+          title: g.title,
+          isActive: g.isActive,
+          uiSection: g.uiSection,
+          gender: g.gender,
+          ageGroup: g.ageGroup,
+          rewards: g.rewards,
+          xpTier: g.xpTier,
+        }))
+      );
+    } else {
+      // If no games found, show what games exist with similar filters
+      console.log("=== DEBUGGING: No games found, checking alternatives ===");
+      const gamesWithoutGender = await Game.find({ isActive: true, uiSection: uiSection || undefined, ageGroup: ageGroup || undefined }).limit(5).lean();
+      if (gamesWithoutGender.length > 0) {
+        console.log(`Found ${gamesWithoutGender.length} games without gender filter:`, gamesWithoutGender.map(g => ({
+          gameId: g.gameId,
+          title: g.title,
+          gender: g.gender,
+          ageGroup: g.ageGroup,
+          uiSection: g.uiSection,
+        })));
+      }
+      
+      const gamesWithUserGender = await Game.find({ isActive: true, gender: userProfile.gender, uiSection: uiSection || undefined }).limit(5).lean();
+      if (gamesWithUserGender.length > 0) {
+        console.log(`Found ${gamesWithUserGender.length} games with user's gender (${userProfile.gender}):`, gamesWithUserGender.map(g => ({
+          gameId: g.gameId,
+          title: g.title,
+          gender: g.gender,
+          ageGroup: g.ageGroup,
+          uiSection: g.uiSection,
+        })));
+      }
+    }
 
-    const games = items.map((g) => ({
-      gameId: g.gameId,
-      title: g.title,
-      description: g.description,
-      category: g.category,
-      uiSection: g.uiSection,
-      gender: g.gender,
-      ageGroup: g.ageGroup,
-      rewards: g.rewards,
-      icon:
-        g.metadata?.thumbnail?.url ||
-        g.gameDetails?.square_image ||
-        g.gameDetails?.image ||
-        "",
-      images: {
-        icon: g.metadata?.images?.icon || g.gameDetails?.square_image || "",
-        banner: g.metadata?.images?.banner || g.gameDetails?.large_image || "",
-      },
-      details: g.gameDetails || {},
-      _id: g._id,
-    }));
+    // Apply display rule limit if rule matches
+    if (maxGamesFromRule && allGames.length > maxGamesFromRule) {
+      console.log(
+        `Applying display rule limit: ${allGames.length} -> ${maxGamesFromRule}`
+      );
+      allGames = allGames.slice(0, maxGamesFromRule);
+    }
+
+    // Apply pagination
+    const total = allGames.length;
+    const paginatedGames = allGames.slice(
+      (pageNum - 1) * pageSize,
+      pageNum * pageSize
+    );
+    console.log(
+      `Pagination: page ${pageNum}, size ${pageSize}, total ${total}, showing ${paginatedGames.length} games`
+    );
+
+    // Get user's first N games for bonus task eligibility
+    const userGames = user.games || [];
+    const sortedUserGames = [...userGames].sort((a, b) => {
+      const dateA = new Date(a.installedAt || a.date || a.firstPlayed || 0);
+      const dateB = new Date(b.installedAt || b.date || b.firstPlayed || 0);
+      return dateA - dateB; // Oldest first
+    });
+
+    // Get maxGamesWithBonusTasks from WelcomeBonusTimer config
+    const bonusRule = await WelcomeBonusTimer.findOne({
+      isActive: true,
+    }).lean();
+    const maxGamesWithBonus = bonusRule?.maxGamesWithBonusTasks || 3;
+    const eligibleGameIdsForBonus = sortedUserGames
+      .slice(0, maxGamesWithBonus)
+      .map((g) => String(g.gameId));
+
+    // Get all task progression rules
+    const progressionRules = await TaskProgressionRule.find({ isActive: true })
+      .populate("gameId", "title gameId")
+      .lean();
+
+    // Get user's task progression data (Map becomes object with lean())
+    const userTaskProgression = user.taskProgression || {};
+
+    // Enrich games with additional information
+    const games = await Promise.all(
+      paginatedGames.map(async (g) => {
+        const gameIdString = String(g._id);
+
+        // Check if game is eligible for bonus tasks
+        const isEligibleForBonus = eligibleGameIdsForBonus.some((id) => {
+          if (id === gameIdString) return true;
+          if (
+            mongoose.Types.ObjectId.isValid(id) &&
+            mongoose.Types.ObjectId.isValid(gameIdString)
+          ) {
+            return id === gameIdString;
+          }
+          return false;
+        });
+
+        // Check if game has task progression rule
+        const progressionRule = progressionRules.find((pr) => {
+          const prGameId = pr.gameId?._id || pr.gameId;
+          return String(prGameId) === gameIdString;
+        });
+
+        // Get user's progression data for this game (taskProgression is a Map in schema, becomes object with lean)
+        const gameProgression = userTaskProgression[gameIdString] || {};
+        const completedTasks = gameProgression.completedTasks || 0;
+        const thresholdReached = gameProgression.thresholdReached || false;
+        const rewardTransferred = gameProgression.rewardTransferred || false;
+
+        // Calculate progression status
+        let progressionStatus = null;
+        if (progressionRule) {
+          const canUnlock = progressionRule.minimumEventThreshold
+            ? completedTasks >= progressionRule.minimumEventThreshold
+            : true;
+
+          progressionStatus = {
+            hasProgressionRule: true,
+            minimumEventThreshold: progressionRule.minimumEventThreshold,
+            completedTasks: completedTasks,
+            thresholdReached: thresholdReached,
+            rewardTransferred: rewardTransferred,
+            canUnlockNextTasks: canUnlock && rewardTransferred,
+            postThresholdTasksCount:
+              progressionRule.postThresholdTasks?.filter((pt) => pt.isEnabled)
+                .length || 0,
+          };
+        }
+
+        return {
+          gameId: g.gameId,
+          title: g.title,
+          description: g.description,
+          category: g.category,
+          uiSection: g.uiSection,
+          gender: g.gender,
+          ageGroup: g.ageGroup,
+          rewards: g.rewards,
+          icon:
+            g.metadata?.thumbnail?.url ||
+            g.gameDetails?.square_image ||
+            g.gameDetails?.image ||
+            "",
+          images: {
+            icon: g.metadata?.images?.icon || g.gameDetails?.square_image || "",
+            banner:
+              g.metadata?.images?.banner || g.gameDetails?.large_image || "",
+          },
+          details: g.gameDetails || {},
+          _id: g._id,
+          // Bonus task eligibility - check if this game is in user's downloaded games
+          bonusTasks: (() => {
+            const userGameMatch = sortedUserGames.findIndex((ug) => {
+              const ugGameId = String(ug.gameId);
+              // Match by _id (MongoDB ID) or gameId (external game ID)
+              return (
+                ugGameId === gameIdString ||
+                ugGameId === String(g._id) ||
+                ugGameId === String(g.gameId) ||
+                (mongoose.Types.ObjectId.isValid(ugGameId) &&
+                  mongoose.Types.ObjectId.isValid(gameIdString) &&
+                  ugGameId === gameIdString)
+              );
+            });
+
+            return {
+              eligible: isEligibleForBonus,
+              maxGamesWithBonus: maxGamesWithBonus,
+              userDownloadOrder: userGameMatch >= 0 ? userGameMatch + 1 : null,
+            };
+          })(),
+          // Task progression rule info
+          taskProgression: progressionStatus,
+        };
+      })
+    );
 
     const uiSections = await Game.distinct("uiSection");
+
+    console.log(`✅ Returning ${games.length} games to client`);
+    console.log("Response Summary:", {
+      totalGames: total,
+      returnedGames: games.length,
+      hasDisplayRule: !!matchingRule,
+      maxGamesFromRule: maxGamesFromRule,
+    });
+    console.log("=== GAME DISCOVER END ===");
 
     res.json({
       success: true,
@@ -559,9 +893,24 @@ router.get("/discover", protect, async (req, res) => {
         pages: Math.ceil(total / pageSize),
       },
       uiSections,
+      // Display rule info
+      displayRule: matchingRule
+        ? {
+            ruleId: matchingRule._id,
+            ruleName: matchingRule.ruleName,
+            maxGames: maxGamesFromRule,
+            appliedMilestones: matchingRule.userMilestones,
+          }
+        : null,
     });
   } catch (error) {
-    console.error("Error fetching discover games:", error);
+    console.error("=== ERROR FETCHING DISCOVER GAMES ===");
+    console.error("Error:", error);
+    console.error("Error Stack:", error.stack);
+    console.error("Error Message:", error.message);
+    console.error("Query Params:", req.query);
+    console.error("User ID:", req.user?.userId);
+    console.error("=== END ERROR ===");
     res.status(500).json({
       success: false,
       message: "Failed to fetch games",
@@ -781,20 +1130,62 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
       });
     }
 
-    // Get bonus tasks configuration to exclude them
-    const rule = await WelcomeBonusTimer.findOne({
-      isActive: true,
-      "gameBonusTasks.gameId": gameId,
-      "gameBonusTasks.isEnabled": true,
+    // Get user data to check if game is in first 3 (for bonus tasks exclusion)
+    const user = await User.findById(userId)
+      .select("games tasks taskProgression xp vip")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const userGames = user?.games || [];
+    const sortedGames = [...userGames].sort((a, b) => {
+      const dateA = new Date(a.installedAt || a.date || a.firstPlayed || 0);
+      const dateB = new Date(b.installedAt || b.date || b.firstPlayed || 0);
+      return dateA - dateB; // Oldest first
     });
+
+    // Get maxGamesWithBonusTasks from configuration (need to fetch rule first)
+    const bonusRule = await WelcomeBonusTimer.findOne({
+      isActive: true,
+    }).lean();
+    const maxGames = bonusRule?.maxGamesWithBonusTasks || 3;
+    const eligibleGameIds = sortedGames
+      .slice(0, maxGames)
+      .map((g) => String(g.gameId));
+    const currentGameIdString = String(gameId);
+    const isInFirstThree = eligibleGameIds.some((id) => {
+      if (id === currentGameIdString) return true;
+      if (
+        mongoose.Types.ObjectId.isValid(id) &&
+        mongoose.Types.ObjectId.isValid(currentGameIdString)
+      ) {
+        return id === currentGameIdString;
+      }
+      return false;
+    });
+
+    // Get global bonus tasks configuration (only if game is in first 3)
+    const rule = isInFirstThree
+      ? await WelcomeBonusTimer.findOne({
+          isActive: true,
+          "gameBonusTasks.bonusTasks.0": { $exists: true },
+          "gameBonusTasks.isEnabled": true,
+        })
+      : null;
 
     let query = { gameId: gameId, isActive: true };
 
-    // Exclude bonus tasks from normal task list
-    if (rule) {
+    // Exclude bonus tasks from normal task list (only if game is in first 3)
+    if (rule && isInFirstThree) {
+      // Get the first enabled gameBonusTasks config as global template
       const gameBonusConfig = rule.gameBonusTasks.find(
         (config) =>
-          config.gameId.toString() === gameId.toString() && config.isEnabled
+          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
       );
 
       if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
@@ -802,11 +1193,6 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
         query._id = { $nin: bonusTaskIds };
       }
     }
-
-    // Get user's completed tasks and progression data
-    const user = await User.findById(userId)
-      .select("tasks taskProgression xp vip")
-      .lean();
     const completedTaskIds =
       user?.tasks?.filter((t) => t.completed).map((t) => t.taskId) || [];
 
@@ -815,12 +1201,40 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
 
     // Get user's progression data for this game
     const gameIdString = gameId.toString();
-    const progression = user?.taskProgression?.get?.(gameIdString) || {
-      completedTasks: 0,
-      thresholdReached: false,
-      rewardTransferred: false,
-      coinBoxBalance: 0,
-    };
+    let progression = user?.taskProgression?.get?.(gameIdString);
+
+    // If progression doesn't exist but rule exists, initialize from existing completed tasks
+    if (!progression && progressionRule) {
+      // Count all existing completed tasks for this game
+      const allGameTasks = await GameTask.find({
+        gameId: gameId,
+        isActive: true,
+      })
+        .select("_id")
+        .lean();
+      const allGameTaskIds = allGameTasks.map((t) => t._id.toString());
+      const completedGameTasks =
+        user?.tasks?.filter(
+          (t) => t.completed && allGameTaskIds.includes(t.taskId)
+        ) || [];
+
+      progression = {
+        completedTasks: completedGameTasks.length,
+        thresholdReached: false,
+        rewardTransferred: false,
+        coinBoxBalance: 0,
+      };
+    }
+
+    // Fallback to default if still no progression
+    if (!progression) {
+      progression = {
+        completedTasks: 0,
+        thresholdReached: false,
+        rewardTransferred: false,
+        coinBoxBalance: 0,
+      };
+    }
 
     const completedTasksCount = progression.completedTasks || 0;
     const thresholdReached = progression.thresholdReached || false;
@@ -937,7 +1351,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
                         postThresholdTask.requiredXpTier.toLowerCase();
                       if (!meetsXpTierRequirement(user, requiredTier)) {
                         isUnlocked = false;
-                        unlockReason = `Requires ${requiredTier} XP tier (current: ${userXpTier})`;
+                        unlockReason = `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`;
                       }
                     }
 
@@ -952,7 +1366,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
                       if (!meetsMembershipTierRequirement(user, requiredTier)) {
                         isUnlocked = false;
                         const currentTierDisplay = userMembershipTier || "none";
-                        unlockReason = `Requires ${requiredTier} membership tier (current: ${currentTierDisplay})`;
+                        unlockReason = `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`;
                       }
                     }
 
@@ -1066,10 +1480,19 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
       });
     }
 
-    // Get bonus tasks configuration
+    // NEW: Check if this game is in user's first 3 downloaded games
+    const userGames = user.games || [];
+    // Sort by installedAt/date (oldest first) to get download order
+    const sortedGames = [...userGames].sort((a, b) => {
+      const dateA = new Date(a.installedAt || a.date || a.firstPlayed || 0);
+      const dateB = new Date(b.installedAt || b.date || b.firstPlayed || 0);
+      return dateA - dateB; // Oldest first
+    });
+
+    // Get global bonus tasks configuration first to get maxGamesWithBonusTasks
     const rule = await WelcomeBonusTimer.findOne({
       isActive: true,
-      "gameBonusTasks.gameId": gameId,
+      "gameBonusTasks.bonusTasks.0": { $exists: true }, // Has at least one bonus task
       "gameBonusTasks.isEnabled": true,
     })
       .populate(
@@ -1078,20 +1501,62 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
       )
       .lean();
 
-    if (!rule) {
+    // Get maxGamesWithBonusTasks from configuration
+    const maxGames = rule?.maxGamesWithBonusTasks || 3;
+    const eligibleGames = sortedGames.slice(0, maxGames);
+    const eligibleGameIds = eligibleGames.map((g) => String(g.gameId));
+
+    // Check if current game is in eligible games
+    const currentGameIdString = String(gameId);
+    const isInFirstThree = eligibleGameIds.some((id) => {
+      // Handle both string and ObjectId comparisons
+      if (id === currentGameIdString) return true;
+      if (
+        mongoose.Types.ObjectId.isValid(id) &&
+        mongoose.Types.ObjectId.isValid(currentGameIdString)
+      ) {
+        return id === currentGameIdString;
+      }
+      return false;
+    });
+
+    if (!isInFirstThree) {
+      // Game is not in eligible games - no bonus tasks
       return res.json({
         success: true,
         data: {
           hasBonusTasks: false,
           bonusTasks: [],
-          message: "No bonus tasks configured for this game",
+          message: `Bonus tasks are only available for your first ${maxGames} downloaded games`,
+          isEligible: false,
+          maxGamesWithBonusTasks: maxGames,
+          userDownloadOrder: sortedGames.map((g, idx) => ({
+            gameId: String(g.gameId),
+            position: idx + 1,
+            installedAt: g.installedAt || g.date || g.firstPlayed,
+          })),
         },
       });
     }
 
+    if (!rule || !rule.gameBonusTasks || rule.gameBonusTasks.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          hasBonusTasks: false,
+          bonusTasks: [],
+          message: "No bonus tasks configured",
+        },
+      });
+    }
+
+    // Get maxBonusTasksPerGame from configuration
+    const maxTasksPerGame = rule?.maxBonusTasksPerGame || 3;
+
+    // Get the first enabled gameBonusTasks config as global template
     const gameBonusConfig = rule.gameBonusTasks.find(
       (config) =>
-        config.gameId.toString() === gameId.toString() && config.isEnabled
+        config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
     );
 
     if (
@@ -1104,7 +1569,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
         data: {
           hasBonusTasks: false,
           bonusTasks: [],
-          message: "No bonus tasks configured for this game",
+          message: "No bonus tasks configured",
         },
       });
     }
@@ -1455,8 +1920,8 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
                 if (!meetsXpTierRequirement(user, requiredTier)) {
                   return res.status(403).json({
                     success: false,
-                    message: `Requires ${requiredTier} XP tier (current: ${userXpTier})`,
-                    unlockReason: `Requires ${requiredTier} XP tier (current: ${userXpTier})`,
+                    message: `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`,
+                    unlockReason: `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`,
                   });
                 }
               }
@@ -1470,8 +1935,8 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
                   const currentTierDisplay = userMembershipTier || "none";
                   return res.status(403).json({
                     success: false,
-                    message: `Requires ${requiredTier} membership tier (current: ${currentTierDisplay})`,
-                    unlockReason: `Requires ${requiredTier} membership tier (current: ${currentTierDisplay})`,
+                    message: `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`,
+                    unlockReason: `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`,
                   });
                 }
               }
@@ -1493,24 +1958,55 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       coinBoxBalance: 0,
     };
 
-    // Get bonus tasks configuration to check if this is a bonus task
-    const rule = await WelcomeBonusTimer.findOne({
+    // Check if this game is in user's first 3 downloaded games for bonus tasks
+    const userGames = user.games || [];
+    const sortedGames = [...userGames].sort((a, b) => {
+      const dateA = new Date(a.installedAt || a.date || a.firstPlayed || 0);
+      const dateB = new Date(b.installedAt || b.date || b.firstPlayed || 0);
+      return dateA - dateB; // Oldest first
+    });
+
+    // Get maxGamesWithBonusTasks from configuration
+    const bonusRule = await WelcomeBonusTimer.findOne({
       isActive: true,
-      "gameBonusTasks.gameId": gameId,
-      "gameBonusTasks.isEnabled": true,
-    })
-      .populate("gameBonusTasks.bonusTasks.taskId")
-      .lean();
+    }).lean();
+    const maxGames = bonusRule?.maxGamesWithBonusTasks || 3;
+    const eligibleGameIds = sortedGames
+      .slice(0, maxGames)
+      .map((g) => String(g.gameId));
+    const currentGameIdString = String(gameId);
+    const isInFirstThree = eligibleGameIds.some((id) => {
+      if (id === currentGameIdString) return true;
+      if (
+        mongoose.Types.ObjectId.isValid(id) &&
+        mongoose.Types.ObjectId.isValid(currentGameIdString)
+      ) {
+        return id === currentGameIdString;
+      }
+      return false;
+    });
+
+    // Get global bonus tasks configuration (only if game is in first 3)
+    const rule = isInFirstThree
+      ? await WelcomeBonusTimer.findOne({
+          isActive: true,
+          "gameBonusTasks.bonusTasks.0": { $exists: true },
+          "gameBonusTasks.isEnabled": true,
+        })
+          .populate("gameBonusTasks.bonusTasks.taskId")
+          .lean()
+      : null;
 
     let isBonusTask = false;
     let bonusTaskOrder = null;
     let nextBonusTaskUnlocked = false;
     let nextBonusTaskId = null;
 
-    if (rule) {
+    if (rule && isInFirstThree) {
+      // Get the first enabled gameBonusTasks config as global template
       const gameBonusConfig = rule.gameBonusTasks.find(
         (config) =>
-          config.gameId.toString() === gameId.toString() && config.isEnabled
+          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
       );
 
       if (gameBonusConfig) {
@@ -1523,7 +2019,8 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
           bonusTaskOrder = bonusTask.order;
 
           // Check if next bonus task should unlock
-          if (bonusTaskOrder < 3) {
+          const maxTasks = bonusRule?.maxBonusTasksPerGame || 3;
+          if (bonusTaskOrder < maxTasks) {
             const nextBonusTask = gameBonusConfig.bonusTasks.find(
               (bt) => bt.order === bonusTaskOrder + 1
             );
@@ -1623,13 +2120,32 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       }
 
       const gameIdString = gameId.toString();
-      const progression = user.taskProgression.get(gameIdString) || {
-        completedTasks: 0,
-        thresholdReached: false,
-        rewardTransferred: false,
-        coinBoxBalance: 0,
-        coinBoxTransferredAt: null,
-      };
+      let progression = user.taskProgression.get(gameIdString);
+
+      // If progression doesn't exist, initialize it
+      if (!progression) {
+        // Count all existing completed tasks for this game to initialize properly
+        // This handles cases where a rule is added after tasks are already completed
+        const allGameTasks = await GameTask.find({
+          gameId: gameId,
+          isActive: true,
+        })
+          .select("_id")
+          .lean();
+        const allGameTaskIds = allGameTasks.map((t) => t._id.toString());
+        const completedGameTasks =
+          user.tasks?.filter(
+            (t) => t.completed && allGameTaskIds.includes(t.taskId)
+          ) || [];
+
+        progression = {
+          completedTasks: completedGameTasks.length,
+          thresholdReached: false,
+          rewardTransferred: false,
+          coinBoxBalance: 0,
+          coinBoxTransferredAt: null,
+        };
+      }
 
       // Increment completed tasks count
       progression.completedTasks = (progression.completedTasks || 0) + 1;
@@ -1756,7 +2272,10 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
         taskId: nextBonusTaskId,
         message: "Next bonus task unlocked! You have 24 hours to complete it.",
       };
-    } else if (isBonusTask && bonusTaskOrder < 3) {
+    } else if (
+      isBonusTask &&
+      bonusTaskOrder < (bonusRule?.maxBonusTasksPerGame || 3)
+    ) {
       // Get user's game data for event threshold info
       const userGame = user.games?.find((g) => {
         if (mongoose.Types.ObjectId.isValid(gameId)) {

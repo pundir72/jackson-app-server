@@ -22,12 +22,6 @@ const gameSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    countries: [
-      {
-        type: String,
-        required: true,
-      },
-    ],
     xptrRules: {
       type: String,
       required: true,
@@ -108,14 +102,6 @@ const gameSchema = new mongoose.Schema(
     tipsEnabled: {
       type: Boolean,
       default: true,
-    },
-    bannerImage: {
-      url: String,
-      alt: String,
-      dimensions: {
-        width: { type: Number, default: 1200 },
-        height: { type: Number, default: 400 },
-      },
     },
     metadata: {
       genre: {
@@ -286,14 +272,39 @@ const gameSchema = new mongoose.Schema(
 
 // Update the updatedAt field before saving
 gameSchema.pre("save", function (next) {
+  console.log("=== GAME MODEL PRE-SAVE ===");
+  console.log("Game ID:", this.gameId);
+  console.log("Game Title:", this.title);
+  console.log("Is New:", this.isNew);
+  console.log("Is Active:", this.isActive);
+  console.log("Rewards:", this.rewards);
+  console.log("XP Tier:", this.xpTier);
+  console.log("XP Tiers:", this.xpTiers);
+  console.log("XP Reward Config:", this.xpRewardConfig);
+  console.log("Modified Fields:", this.modifiedPaths());
   this.updatedAt = Date.now();
+  console.log("=== END PRE-SAVE ===");
   next();
+});
+
+// Post-save hook to log successful saves
+gameSchema.post("save", function (doc) {
+  console.log("=== GAME MODEL POST-SAVE ===");
+  console.log("✅ Game saved successfully");
+  console.log("Game ID:", doc.gameId);
+  console.log("MongoDB _id:", doc._id);
+  console.log("Title:", doc.title);
+  console.log("Is Active:", doc.isActive);
+  console.log("Rewards:", doc.rewards);
+  console.log("XP Tier:", doc.xpTier);
+  console.log("XP Tiers:", doc.xpTiers);
+  console.log("XP Reward Config:", doc.xpRewardConfig);
+  console.log("=== END POST-SAVE ===");
 });
 
 // Indexes for efficient queries
 gameSchema.index({ title: 1 });
 gameSchema.index({ sdkProvider: 1, isActive: 1 });
-gameSchema.index({ countries: 1 });
 gameSchema.index({ tags: 1 });
 gameSchema.index({ "metadata.genre": 1 });
 gameSchema.index({
@@ -316,12 +327,7 @@ gameSchema.statics.findActive = function () {
   });
 };
 
-gameSchema.statics.findByCountry = function (country) {
-  return this.find({
-    countries: country,
-    isActive: true,
-  }).sort({ "displayRules.priority": -1, createdAt: -1 });
-};
+// Removed findByCountry static method - countries field removed
 
 gameSchema.statics.findByTier = function (tier) {
   return this.find({
@@ -355,9 +361,7 @@ gameSchema.methods.isEligibleForTier = function (tier) {
   return userTierIndex >= minTierIndex && userTierIndex <= maxTierIndex;
 };
 
-gameSchema.methods.isEligibleForCountry = function (country) {
-  return this.countries.includes(country);
-};
+// Removed isEligibleForCountry method - countries field removed
 
 gameSchema.methods.getTips = function () {
   const GameTip = require("./GameTip");

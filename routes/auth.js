@@ -88,7 +88,10 @@ function calculateAge(dateOfBirth) {
   const birthDate = new Date(dateOfBirth);
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
     age--;
   }
   return age;
@@ -96,29 +99,44 @@ function calculateAge(dateOfBirth) {
 
 // Helper function to format user response with additional fields
 function formatUserResponse(user) {
-  // Calculate age from dateOfBirth or use ageRange
+  // Calculate age with priority: dateOfBirth > profile.age > ageRange
   let age = null;
+
+  // Priority 1: Use dateOfBirth (most accurate)
   if (user.dateOfBirth) {
     age = calculateAge(user.dateOfBirth);
-  } else if (user.onboarding?.ageRange) {
-    // Extract numeric age from ageRange if available (e.g., "18-25" -> 21)
+    console.log(`Age calculated from dateOfBirth: ${age}`);
+  }
+  // Priority 2: Use profile.age if available (direct age field)
+  else if (user.profile?.age && typeof user.profile.age === "number") {
+    age = user.profile.age;
+    console.log(`Age from profile.age: ${age}`);
+  }
+  // Priority 3: Use ageRange format directly (return in same format: "25-34" or "65+")
+  else if (user.onboarding?.ageRange) {
     const ageRange = user.onboarding.ageRange;
-    if (ageRange.includes('-')) {
-      const [min, max] = ageRange.split('-').map(Number);
-      age = Math.floor((min + max) / 2); // Use midpoint as approximate age
-    }
+    // Return ageRange in the same format (e.g., "25-34" or "65+")
+    age = ageRange;
+    console.log(`Age from ageRange: ${ageRange} (returning in same format)`);
+  }
+
+  // If still no age, log warning
+  if (age === null) {
+    console.warn(`No age could be determined for user ${user._id}`);
   }
 
   // Get gender from onboarding
   const gender = user.onboarding?.gender || user.gender || null;
 
   // Format location from location.current
-  const location = user.location?.current ? {
-    country: user.location.current.country || null,
-    city: user.location.current.city || null,
-    latitude: user.location.current.latitude || null,
-    longitude: user.location.current.longitude || null
-  } : null;
+  const location = user.location?.current
+    ? {
+        country: user.location.current.country || null,
+        city: user.location.current.city || null,
+        latitude: user.location.current.latitude || null,
+        longitude: user.location.current.longitude || null,
+      }
+    : null;
 
   // Permission status (using disclosureAccepted as permission status)
   const permissionStatus = user.disclosureAccepted || false;
@@ -127,7 +145,7 @@ function formatUserResponse(user) {
     age,
     gender,
     location,
-    permissionStatus
+    permissionStatus,
   };
 }
 
@@ -635,7 +653,10 @@ router.post(
       // Normalize email to lowercase for consistent matching (emails are stored lowercase)
       const normalizedEmailOrMobile = emailOrMobile.toLowerCase();
       // Try to find user by email first
-      let user = await User.findOne({ email: normalizedEmailOrMobile, role: "USER" });
+      let user = await User.findOne({
+        email: normalizedEmailOrMobile,
+        role: "USER",
+      });
 
       // If not found by email, try by phone number
       if (!user) {
@@ -764,7 +785,7 @@ router.post(
           },
         };
         await User.findByIdAndUpdate(user._id, updateData);
-        
+
         // Refresh user data after update to get latest location
         const updatedUser = await User.findById(user._id);
         if (updatedUser) {
@@ -816,26 +837,32 @@ router.post(
       }
 
       const { emailOrMobile, email, password } = req.body;
-      
+
       // Validate that at least one identifier is provided
-      const identifier = (emailOrMobile && emailOrMobile.trim()) || (email && email.trim());
-      
+      const identifier =
+        (emailOrMobile && emailOrMobile.trim()) || (email && email.trim());
+
       if (!identifier) {
-        return res.status(400).json({ 
-          errors: [{
-            type: "field",
-            value: "",
-            msg: "emailOrMobile or email is required",
-            path: "emailOrMobile",
-            location: "body"
-          }]
+        return res.status(400).json({
+          errors: [
+            {
+              type: "field",
+              value: "",
+              msg: "emailOrMobile or email is required",
+              path: "emailOrMobile",
+              location: "body",
+            },
+          ],
         });
       }
 
       // Normalize email to lowercase for consistent matching (emails are stored lowercase)
       const normalizedIdentifier = identifier.toLowerCase();
       // Try to find admin user by email first
-      let user = await User.findOne({ email: normalizedIdentifier, role: "ADMIN" });
+      let user = await User.findOne({
+        email: normalizedIdentifier,
+        role: "ADMIN",
+      });
 
       // If not found by email, try by phone number (use original identifier, not normalized)
       if (!user) {
@@ -845,7 +872,7 @@ router.post(
           user = null;
         }
       }
-      
+
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -907,9 +934,9 @@ router.post(
       }
 
       // Ensure user has ADMIN role (fix if missing)
-      if (user.role !== 'ADMIN') {
+      if (user.role !== "ADMIN") {
         // console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
-        user.role = 'ADMIN';
+        user.role = "ADMIN";
         await user.save();
         // console.log(`✅ Updated user ${user.email} to ADMIN role`);
       }
@@ -1030,21 +1057,13 @@ router.get(
             lastLoginAt: new Date(),
             lastActive: new Date(),
             appVersion:
-              req.headers["x-app-version"] ||
-              user.appVersion ||
-              "1.0.0",
+              req.headers["x-app-version"] || user.appVersion || "1.0.0",
             "device.type":
-              req.headers["x-device-type"] ||
-              user.device?.type ||
-              "Unknown",
+              req.headers["x-device-type"] || user.device?.type || "Unknown",
             "device.model":
-              req.headers["x-device-model"] ||
-              user.device?.model ||
-              "Unknown",
+              req.headers["x-device-model"] || user.device?.model || "Unknown",
             "device.os":
-              req.headers["x-device-os"] ||
-              user.device?.os ||
-              "Unknown",
+              req.headers["x-device-os"] || user.device?.os || "Unknown",
             "device.lastUpdated": new Date(),
             "location.current.ip":
               req.ip ||
@@ -1061,10 +1080,15 @@ router.get(
           },
         };
 
-        const updatedUser = await User.findByIdAndUpdate(user._id, updateData, { new: true });
+        const updatedUser = await User.findByIdAndUpdate(user._id, updateData, {
+          new: true,
+        });
         // console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
       } catch (updateError) {
-        console.error("Error updating login analytics for Google login:", updateError);
+        console.error(
+          "Error updating login analytics for Google login:",
+          updateError
+        );
         // Continue even if update fails
       }
 
@@ -1091,27 +1115,25 @@ router.get(
 
 // Facebook OAuth Route for Mobile App Only
 // This route is for mobile app authentication - redirects to mobile deep link
-router.get(
-  "/facebook",
-  (req, res, next) => {
-    console.log('[Facebook OAuth Mobile Init]', {
-      query: req.query,
-      headers: {
-        referer: req.headers.referer,
-        origin: req.headers.origin,
-        host: req.headers.host,
-        'user-agent': req.headers['user-agent']
-      },
-      appId: process.env.FACEBOOK_APP_ID ? 'SET' : 'MISSING',
-      callbackUrl: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL
-    });
-    
-    // Mobile OAuth - always redirects to mobile deep link
-    passport.authenticate("facebook", { 
-      scope: ["email"]
-    })(req, res, next);
-  }
-);
+router.get("/facebook", (req, res, next) => {
+  console.log("[Facebook OAuth Mobile Init]", {
+    query: req.query,
+    headers: {
+      referer: req.headers.referer,
+      origin: req.headers.origin,
+      host: req.headers.host,
+      "user-agent": req.headers["user-agent"],
+    },
+    appId: process.env.FACEBOOK_APP_ID ? "SET" : "MISSING",
+    callbackUrl:
+      process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL,
+  });
+
+  // Mobile OAuth - always redirects to mobile deep link
+  passport.authenticate("facebook", {
+    scope: ["email"],
+  })(req, res, next);
+});
 
 // Facebook OAuth Callback for Mobile App
 router.get(
@@ -1123,14 +1145,27 @@ router.get(
       failureRedirect: false, // Don't auto-redirect, handle manually
     })(req, res, (err) => {
       if (err) {
-        console.error('[Facebook Mobile Callback] Passport authentication error:', err);
+        console.error(
+          "[Facebook Mobile Callback] Passport authentication error:",
+          err
+        );
         // Redirect to mobile app error deep link
-        const errorMessage = encodeURIComponent(err.message || 'Facebook authentication failed');
-        return res.redirect(`com.jackson.app://auth/error?message=${errorMessage}`);
+        const errorMessage = encodeURIComponent(
+          err.message || "Facebook authentication failed"
+        );
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${errorMessage}`
+        );
       }
       if (!req.user) {
-        console.error('[Facebook Mobile Callback] No user after authentication');
-        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('Facebook authentication failed - no user data')}`);
+        console.error(
+          "[Facebook Mobile Callback] No user after authentication"
+        );
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${encodeURIComponent(
+            "Facebook authentication failed - no user data"
+          )}`
+        );
       }
       next(); // Continue to the callback handler
     });
@@ -1138,10 +1173,14 @@ router.get(
   async (req, res) => {
     try {
       const user = req.user;
-      
+
       if (!user) {
-        console.error('[Facebook Mobile Callback] User is null');
-        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('User not found after Facebook authentication')}`);
+        console.error("[Facebook Mobile Callback] User is null");
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${encodeURIComponent(
+            "User not found after Facebook authentication"
+          )}`
+        );
       }
 
       // Update login analytics and device info for mobile
@@ -1152,21 +1191,13 @@ router.get(
             lastLoginAt: new Date(),
             lastActive: new Date(),
             appVersion:
-              req.headers["x-app-version"] ||
-              user.appVersion ||
-              "1.0.0",
+              req.headers["x-app-version"] || user.appVersion || "1.0.0",
             "device.type":
-              req.headers["x-device-type"] ||
-              user.device?.type ||
-              "Mobile",
+              req.headers["x-device-type"] || user.device?.type || "Mobile",
             "device.model":
-              req.headers["x-device-model"] ||
-              user.device?.model ||
-              "Unknown",
+              req.headers["x-device-model"] || user.device?.model || "Unknown",
             "device.os":
-              req.headers["x-device-os"] ||
-              user.device?.os ||
-              "Unknown",
+              req.headers["x-device-os"] || user.device?.os || "Unknown",
             "device.lastUpdated": new Date(),
             "location.current.ip":
               req.ip ||
@@ -1185,7 +1216,10 @@ router.get(
 
         await User.findByIdAndUpdate(user._id, updateData);
       } catch (updateError) {
-        console.error("Error updating login analytics for Facebook mobile login:", updateError);
+        console.error(
+          "Error updating login analytics for Facebook mobile login:",
+          updateError
+        );
         // Continue even if update fails
       }
 
@@ -1195,32 +1229,43 @@ router.get(
       });
 
       // Redirect to mobile app with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(token)}&provider=facebook&userId=${user._id.toString()}`;
-      
-      console.log('[Facebook Mobile Callback] Success - Redirecting to mobile app:', {
-        userId: user._id.toString(),
-        email: user.email,
-        hasToken: !!token,
-        tokenLength: token.length
-      });
-      
+      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(
+        token
+      )}&provider=facebook&userId=${user._id.toString()}`;
+
+      console.log(
+        "[Facebook Mobile Callback] Success - Redirecting to mobile app:",
+        {
+          userId: user._id.toString(),
+          email: user.email,
+          hasToken: !!token,
+          tokenLength: token.length,
+        }
+      );
+
       return res.redirect(redirectUrl);
     } catch (error) {
-      console.error("[Facebook Mobile Callback] Error in callback handler:", error);
+      console.error(
+        "[Facebook Mobile Callback] Error in callback handler:",
+        error
+      );
       console.error("[Facebook Mobile Callback] Error stack:", error.stack);
       console.error("[Facebook Mobile Callback] Error details:", {
         message: error.message,
         name: error.name,
         query: req.query,
-        hasUser: !!req.user
+        hasUser: !!req.user,
       });
-      
-      const errorMessage = error.message || 'Facebook authentication failed';
-      return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent(errorMessage)}`);
+
+      const errorMessage = error.message || "Facebook authentication failed";
+      return res.redirect(
+        `com.jackson.app://auth/error?message=${encodeURIComponent(
+          errorMessage
+        )}`
+      );
     }
   }
 );
-
 
 // Social login status check
 router.get("/social/status", async (req, res) => {

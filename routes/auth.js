@@ -1085,23 +1085,66 @@ router.get(
   }
 );
 
-// Facebook OAuth Routes
+// ========================================
+// MOBILE FACEBOOK OAUTH ROUTE
+// ========================================
+
+// Facebook OAuth Route for Mobile App Only
+// This route is for mobile app authentication - redirects to mobile deep link
 router.get(
   "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] })
+  (req, res, next) => {
+    console.log('[Facebook OAuth Mobile Init]', {
+      query: req.query,
+      headers: {
+        referer: req.headers.referer,
+        origin: req.headers.origin,
+        host: req.headers.host,
+        'user-agent': req.headers['user-agent']
+      },
+      appId: process.env.FACEBOOK_APP_ID ? 'SET' : 'MISSING',
+      callbackUrl: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL
+    });
+    
+    // Mobile OAuth - always redirects to mobile deep link
+    passport.authenticate("facebook", { 
+      scope: ["email"]
+    })(req, res, next);
+  }
 );
 
+// Facebook OAuth Callback for Mobile App
 router.get(
   "/facebook/callback",
-  passport.authenticate("facebook", {
-    session: false,
-    failureRedirect: "/login",
-  }),
+  (req, res, next) => {
+    // Custom error handling for Facebook OAuth
+    passport.authenticate("facebook", {
+      session: false,
+      failureRedirect: false, // Don't auto-redirect, handle manually
+    })(req, res, (err) => {
+      if (err) {
+        console.error('[Facebook Mobile Callback] Passport authentication error:', err);
+        // Redirect to mobile app error deep link
+        const errorMessage = encodeURIComponent(err.message || 'Facebook authentication failed');
+        return res.redirect(`com.jackson.app://auth/error?message=${errorMessage}`);
+      }
+      if (!req.user) {
+        console.error('[Facebook Mobile Callback] No user after authentication');
+        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('Facebook authentication failed - no user data')}`);
+      }
+      next(); // Continue to the callback handler
+    });
+  },
   async (req, res) => {
     try {
       const user = req.user;
+      
+      if (!user) {
+        console.error('[Facebook Mobile Callback] User is null');
+        return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent('User not found after Facebook authentication')}`);
+      }
 
-      // Update login analytics and device info (same as normal login)
+      // Update login analytics and device info for mobile
       try {
         const updateData = {
           $inc: { loginCount: 1 },
@@ -1115,7 +1158,7 @@ router.get(
             "device.type":
               req.headers["x-device-type"] ||
               user.device?.type ||
-              "Unknown",
+              "Mobile",
             "device.model":
               req.headers["x-device-model"] ||
               user.device?.model ||
@@ -1142,7 +1185,7 @@ router.get(
 
         await User.findByIdAndUpdate(user._id, updateData);
       } catch (updateError) {
-        console.error("Error updating login analytics for Facebook login:", updateError);
+        console.error("Error updating login analytics for Facebook mobile login:", updateError);
         // Continue even if update fails
       }
 
@@ -1151,17 +1194,33 @@ router.get(
         expiresIn: "24h",
       });
 
-      // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
-      res.redirect(redirectUrl);
+      // Redirect to mobile app with token
+      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(token)}&provider=facebook&userId=${user._id.toString()}`;
+      
+      console.log('[Facebook Mobile Callback] Success - Redirecting to mobile app:', {
+        userId: user._id.toString(),
+        email: user.email,
+        hasToken: !!token,
+        tokenLength: token.length
+      });
+      
+      return res.redirect(redirectUrl);
     } catch (error) {
-      console.error("Facebook OAuth callback error:", error);
-      res.redirect(
-        `com.jackson.app://auth/error?message=Facebook authentication failed`
-      );
+      console.error("[Facebook Mobile Callback] Error in callback handler:", error);
+      console.error("[Facebook Mobile Callback] Error stack:", error.stack);
+      console.error("[Facebook Mobile Callback] Error details:", {
+        message: error.message,
+        name: error.name,
+        query: req.query,
+        hasUser: !!req.user
+      });
+      
+      const errorMessage = error.message || 'Facebook authentication failed';
+      return res.redirect(`com.jackson.app://auth/error?message=${encodeURIComponent(errorMessage)}`);
     }
   }
 );
+
 
 // Social login status check
 router.get("/social/status", async (req, res) => {

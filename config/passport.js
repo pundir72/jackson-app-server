@@ -106,10 +106,30 @@ passport.use(new GoogleStrategy({
 }));
 
 // Facebook OAuth Strategy
+const facebookCallbackURL = (process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL || '').replace(/['"]/g, ''); // Remove quotes if present
+const facebookAppId = (process.env.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID || '').replace(/['"]/g, '');
+const facebookAppSecret = (process.env.FACEBOOK_APP_SECRET || config.FACEBOOK_APP_SECRET || '').replace(/['"]/g, '');
+
+console.log('[Passport Facebook Config]', {
+    hasAppId: !!facebookAppId,
+    hasAppSecret: !!facebookAppSecret,
+    callbackURL: facebookCallbackURL,
+    appIdPreview: facebookAppId ? facebookAppId.substring(0, 10) + '...' : 'MISSING',
+    callbackURLValid: facebookCallbackURL.startsWith('http')
+});
+
+if (!facebookAppId || !facebookAppSecret || !facebookCallbackURL) {
+    console.error('[Passport Facebook] Missing required configuration!', {
+        hasAppId: !!facebookAppId,
+        hasAppSecret: !!facebookAppSecret,
+        hasCallbackURL: !!facebookCallbackURL
+    });
+}
+
 passport.use(new FacebookStrategy({
-    clientID: process.env.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID,
-    clientSecret: process.env.FACEBOOK_APP_SECRET || config.FACEBOOK_APP_SECRET,
-    callbackURL: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL,
+    clientID: facebookAppId,
+    clientSecret: facebookAppSecret,
+    callbackURL: facebookCallbackURL,
     profileFields: ['id', 'displayName', 'photos', 'email', 'first_name', 'last_name'],
     scope: ['email']
 }, async (accessToken, refreshToken, profile, done) => {

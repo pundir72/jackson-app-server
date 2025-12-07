@@ -8,6 +8,7 @@ const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const { getISOWeekKey, getWeekBoundsUtc, initWeekDays } = require('../utils/dailyRewardHelpers');
 const { trackAchievements } = require('../utils/achievements');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 // Load or create weekly progress
 async function loadProgress(userId, dateUtc = new Date()) {
@@ -242,6 +243,21 @@ router.get('/week', protect, async (req, res) => {
         });
       }
 
+      // Load admin configuration to include reward values
+      const cfg = await loadConfig();
+      
+      // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
+      const enrichedDays = progress.days.map(day => {
+        const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+        // Use admin config values only - if not found, config is invalid
+        return {
+          ...day.toObject(),
+          // Include reward values from admin config
+          rewardCoins: dayConfig ? dayConfig.coins : 0,
+          rewardXp: dayConfig ? dayConfig.xp : 0
+        };
+      });
+
       const today = new Date();
       const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1;
       const endOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999));
@@ -253,10 +269,16 @@ router.get('/week', protect, async (req, res) => {
           weekStart: progress.weekStart,
           weekEnd: progress.weekEnd,
           todayDayNumber,
-          days: progress.days,
+          days: enrichedDays,
           bigRewardEligible: progress.bigRewardEligible,
           bigRewardGranted: progress.bigRewardGranted,
-          countdown: Math.max(0, endOfDay - today)
+          countdown: Math.max(0, endOfDay - today),
+          // Include big reward configuration from admin
+          bigReward: {
+            coins: cfg.bigReward?.coins || 200,
+            xp: cfg.bigReward?.xp || 100,
+            awardBadge: cfg.bigReward?.awardBadge || false
+          }
         },
         message: 'You can only access data from your account creation date onward'
       });
@@ -276,6 +298,21 @@ router.get('/week', protect, async (req, res) => {
         });
       }
 
+      // Load admin configuration to include reward values
+      const cfg = await loadConfig();
+      
+      // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
+      const enrichedDays = currentProgress.days.map(day => {
+        const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+        // Use admin config values only - if not found, config is invalid
+        return {
+          ...day.toObject(),
+          // Include reward values from admin config
+          rewardCoins: dayConfig ? dayConfig.coins : 0,
+          rewardXp: dayConfig ? dayConfig.xp : 0
+        };
+      });
+
       const today = new Date();
       const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1;
       const endOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999));
@@ -287,14 +324,35 @@ router.get('/week', protect, async (req, res) => {
           weekStart: currentProgress.weekStart,
           weekEnd: currentProgress.weekEnd,
           todayDayNumber,
-          days: currentProgress.days,
+          days: enrichedDays,
           bigRewardEligible: currentProgress.bigRewardEligible,
           bigRewardGranted: currentProgress.bigRewardGranted,
-          countdown: Math.max(0, endOfDay - today)
+          countdown: Math.max(0, endOfDay - today),
+          // Include big reward configuration from admin
+          bigReward: {
+            coins: cfg.bigReward?.coins || 200,
+            xp: cfg.bigReward?.xp || 100,
+            awardBadge: cfg.bigReward?.awardBadge || false
+          }
         },
         message: 'Redirected to current week'
       });
     }
+
+    // Load admin configuration to include reward values
+    const cfg = await loadConfig();
+    
+    // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
+    const enrichedDays = progress.days.map(day => {
+      const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+      // Use admin config values only - if not found, config is invalid
+      return {
+        ...day.toObject(),
+        // Include reward values from admin config
+        rewardCoins: dayConfig ? dayConfig.coins : 0,
+        rewardXp: dayConfig ? dayConfig.xp : 0
+      };
+    });
 
     const today = new Date();
     const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1; // 1..7 Mon..Sun
@@ -308,10 +366,16 @@ router.get('/week', protect, async (req, res) => {
         weekStart: progress.weekStart,
         weekEnd: progress.weekEnd,
         todayDayNumber,
-        days: progress.days,
+        days: enrichedDays,
         bigRewardEligible: progress.bigRewardEligible,
         bigRewardGranted: progress.bigRewardGranted,
-        countdown: Math.max(0, endOfDay - today)
+        countdown: Math.max(0, endOfDay - today),
+        // Include big reward configuration from admin
+        bigReward: {
+          coins: cfg.bigReward?.coins || 200,
+          xp: cfg.bigReward?.xp || 100,
+          awardBadge: cfg.bigReward?.awardBadge || false
+        }
       }
     });
   } catch (e) {
@@ -335,7 +399,7 @@ router.post('/claim', protect, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Reward not claimable' });
     }
 
-    // Determine reward
+    // Determine reward from admin config
     const base = cfg.days.find(d => d.dayNumber === day.dayNumber) || { coins: 10, xp: 5 };
 
     // Check perfect streak for big reward on Day 7

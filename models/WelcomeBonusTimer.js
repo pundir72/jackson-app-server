@@ -13,6 +13,22 @@ const welcomeBonusTimerSchema = new mongoose.Schema({
     min: 1,
     max: 365 // Maximum 1 year
   },
+  // Maximum number of games that should have bonus tasks (per user)
+  maxGamesWithBonusTasks: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 50,
+    default: 3
+  },
+  // Maximum number of bonus tasks per game
+  maxBonusTasksPerGame: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 10,
+    default: 3
+  },
   gameOverrides: [{
     gameId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -76,9 +92,8 @@ const welcomeBonusTimerSchema = new mongoose.Schema({
       order: {
         type: Number,
         required: true,
-        min: 1,
-        max: 3,
-        enum: [1, 2, 3]
+        min: 1
+        // max will be validated dynamically based on maxBonusTasksPerGame
       },
       unlockCondition: {
         type: String,
@@ -269,8 +284,9 @@ welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
   }
   
   // Validate game bonus tasks
+  const maxTasks = this.maxBonusTasksPerGame || 3;
   for (const gameBonus of this.gameBonusTasks) {
-    if (gameBonus.bonusTasks && gameBonus.bonusTasks.length > 3) {
+    if (gameBonus.bonusTasks && gameBonus.bonusTasks.length > maxTasks) {
       return false;
     }
     
@@ -282,9 +298,14 @@ welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
         return false;
       }
       
-      // Check for sequential order
-      const expectedOrders = [1, 2, 3].slice(0, orders.length);
+      // Check for sequential order (1, 2, 3, ... up to maxTasks)
+      const expectedOrders = Array.from({ length: orders.length }, (_, i) => i + 1);
       if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+        return false;
+      }
+      
+      // Check that no order exceeds maxBonusTasksPerGame
+      if (orders.some(order => order > maxTasks)) {
         return false;
       }
     }

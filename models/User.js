@@ -1129,7 +1129,34 @@ const userSchema = new mongoose.Schema({
             type: Boolean,
             default: false
         }
-    }]
+    }],
+
+    // Task Progression Tracking (per game)
+    // Maps gameId (string) to progression data
+    taskProgression: {
+        type: Map,
+        of: {
+            completedTasks: {
+                type: Number,
+                default: 0
+            },
+            thresholdReached: {
+                type: Boolean,
+                default: false
+            },
+            rewardTransferred: {
+                type: Boolean,
+                default: false
+            },
+            coinBoxBalance: {
+                type: Number,
+                default: 0
+            },
+            coinBoxTransferredAt: {
+                type: Date
+            }
+        }
+    }
 }, {
     timestamps: true,
     toJSON: {

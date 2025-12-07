@@ -176,7 +176,7 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
     if (!meetsXpTierRequirement(user, requiredTier)) {
       return {
         canUnlock: false,
-        reason: `Requires ${requiredTier} XP tier (current: ${userXpTier})`,
+        reason: `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`,
       };
     }
   }
@@ -190,7 +190,7 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
       const currentTierDisplay = userMembershipTier || "none";
       return {
         canUnlock: false,
-        reason: `Requires ${requiredTier} membership tier (current: ${currentTierDisplay})`,
+        reason: `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`,
       };
     }
   }

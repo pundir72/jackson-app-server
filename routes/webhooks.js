@@ -291,22 +291,39 @@ router.post("/besitos/conversion", async (req, res) => {
  * @returns {boolean} Whether the verifier is valid
  */
 function verifyBesitosHash(queryParams, receivedVerifier) {
+  console.log("\n--- Hash Verification Details ---");
   const secret = config.BESITOS_WEBHOOK_SECRET;
+  console.log("Secret Key Configured:", secret ? "YES" : "NO");
+  console.log("Secret Key Length:", secret ? secret.length : 0);
+  console.log(
+    "Secret Key (first 10 chars):",
+    secret ? secret.substring(0, 10) + "..." : "N/A"
+  );
 
   if (!secret) {
     console.warn(
-      "BESITOS_WEBHOOK_SECRET not configured, skipping verification"
+      "⚠️ BESITOS_WEBHOOK_SECRET not configured, skipping verification"
     );
     return true; // Allow if not configured
   }
 
   if (!receivedVerifier) {
-    console.warn("No verifier provided in Besitos postback");
+    console.warn("⚠️ No verifier provided in Besitos postback");
     return false;
   }
 
+  console.log(
+    "Received Verifier (first 20 chars):",
+    receivedVerifier.substring(0, 20) + "..."
+  );
+  console.log("Received Verifier Length:", receivedVerifier.length);
+
   // Remove verifier from params for hash calculation
   const { verifier, ...paramsToHash } = queryParams;
+  console.log(
+    "Parameters to hash (excluding verifier):",
+    Object.keys(paramsToHash).sort()
+  );
 
   // Sort parameters alphabetically and create hash string
   const sortedKeys = Object.keys(paramsToHash).sort();
@@ -314,20 +331,36 @@ function verifyBesitosHash(queryParams, receivedVerifier) {
     .map((key) => `${key}=${paramsToHash[key]}`)
     .join("&");
 
+  console.log("Hash String:", hashString);
+  console.log("Hash String Length:", hashString.length);
+
   // Calculate hash using SHA256 HMAC
   const calculatedHash = crypto
     .createHmac("sha256", secret)
     .update(hashString)
     .digest("hex");
 
+  console.log(
+    "Calculated Hash (first 20 chars):",
+    calculatedHash.substring(0, 20) + "..."
+  );
+  console.log("Calculated Hash Length:", calculatedHash.length);
+  console.log(
+    "Received Verifier (first 20 chars):",
+    receivedVerifier.substring(0, 20) + "..."
+  );
+
   const isValid = calculatedHash === receivedVerifier;
+  console.log("Hash Match:", isValid ? "✅ MATCH" : "❌ MISMATCH");
 
   if (!isValid) {
-    console.warn("Besitos verifier hash mismatch:", {
-      calculated: calculatedHash,
-      received: receivedVerifier,
-      hashString: hashString,
-    });
+    console.warn("❌ Besitos verifier hash mismatch!");
+    console.warn("Calculated Hash:", calculatedHash);
+    console.warn("Received Verifier:", receivedVerifier);
+    console.warn("Hash String Used:", hashString);
+    console.warn("Secret Key Used:", secret);
+  } else {
+    console.log("✅ Hash verification successful!");
   }
 
   return isValid;
@@ -356,6 +389,12 @@ function verifyBesitosHash(queryParams, receivedVerifier) {
  */
 router.get("/besitos/postback", async (req, res) => {
   try {
+    console.log("\n=== BESITOS POSTBACK START ===");
+    console.log("Timestamp:", new Date().toISOString());
+    console.log("Request Method:", req.method);
+    console.log("Request URL:", req.originalUrl);
+    console.log("Request IP:", req.ip);
+
     const {
       user_id,
       transaction_id,
@@ -375,30 +414,60 @@ router.get("/besitos/postback", async (req, res) => {
       info,
     } = req.query;
 
-    console.log("Besitos postback received (GET):", {
-      user_id,
-      transaction_id,
-      offer_id: offer_id || deal_id || survey_id,
-      type,
-      reward,
-      payout,
-      reverse,
-      hasVerifier: !!verifier,
-    });
+    console.log("\n--- All Query Parameters ---");
+    console.log("Raw Query Params:", JSON.stringify(req.query, null, 2));
+    console.log("\n--- Parsed Parameters ---");
+    console.log("user_id:", user_id);
+    console.log("transaction_id:", transaction_id);
+    console.log("reward:", reward);
+    console.log("payout:", payout);
+    console.log("offer_id:", offer_id);
+    console.log("offer_name:", offer_name);
+    console.log("deal_id:", deal_id);
+    console.log("deal_name:", deal_name);
+    console.log("survey_id:", survey_id);
+    console.log("type:", type);
+    console.log("goal_id:", goal_id);
+    console.log("note:", note);
+    console.log("reward_local_currency:", reward_local_currency);
+    console.log("reverse:", reverse);
+    console.log("info:", info);
+    console.log("verifier:", verifier ? "***PRESENT***" : "MISSING");
+    console.log("hasVerifier:", !!verifier);
 
     // Verify the verifier hash for security
+    console.log("\n--- Verifier Hash Verification ---");
+    console.log(
+      "Secret Key (from config):",
+      config.BESITOS_WEBHOOK_SECRET ? "***CONFIGURED***" : "NOT CONFIGURED"
+    );
+    console.log(
+      "Secret Key Length:",
+      config.BESITOS_WEBHOOK_SECRET ? config.BESITOS_WEBHOOK_SECRET.length : 0
+    );
+
     if (verifier) {
+      console.log("Verifier received:", verifier.substring(0, 20) + "...");
       const isValid = verifyBesitosHash(req.query, verifier);
+      console.log(
+        "Verifier validation result:",
+        isValid ? "✅ VALID" : "❌ INVALID"
+      );
+
       if (!isValid) {
-        console.error("Invalid Besitos verifier hash");
+        console.error("❌ Invalid Besitos verifier hash - REJECTING REQUEST");
         // Still return 200 to prevent retries, but log the error
         return res.status(200).json({
           success: false,
           error: "Invalid verifier hash",
         });
+      } else {
+        console.log("✅ Verifier hash is valid - proceeding with request");
       }
     } else {
-      console.warn("Besitos postback received without verifier");
+      console.warn(
+        "⚠️ Besitos postback received without verifier - proceeding without verification"
+      );
     }
 
     // Check if this is a reversal
@@ -411,28 +480,53 @@ router.get("/besitos/postback", async (req, res) => {
       type || (survey_id ? "survey" : deal_id ? "deal" : "game");
 
     // Find user by user_id (case-insensitive per Besitos docs)
+    console.log("\n--- User Lookup ---");
+    console.log("Searching for user_id:", user_id);
+
     // Try to find by MongoDB _id first, then by besitos userId
     let user = null;
 
     // Try direct ID match first
     try {
+      console.log("Attempting direct MongoDB _id lookup...");
       user = await User.findById(user_id).select("wallet xp streak");
+      if (user) {
+        console.log("✅ User found by MongoDB _id:", user._id);
+      } else {
+        console.log("❌ User not found by MongoDB _id");
+      }
     } catch (e) {
+      console.log(
+        "⚠️ MongoDB _id lookup failed (not a valid ObjectId):",
+        e.message
+      );
       // Not a valid ObjectId, continue to search
     }
 
     // If not found, search by besitos userId (case-insensitive)
     if (!user) {
+      console.log("Attempting besitos.userId lookup (case-insensitive)...");
       user = await User.findOne({
         $or: [
           { "besitos.userId": { $regex: new RegExp(`^${user_id}$`, "i") } },
           { _id: { $regex: new RegExp(`^${user_id}$`, "i") } },
         ],
       }).select("wallet xp streak");
+
+      if (user) {
+        console.log("✅ User found by besitos.userId:", user._id);
+        console.log("User besitos.userId:", user.besitos?.userId);
+      } else {
+        console.log("❌ User not found by besitos.userId");
+      }
     }
 
     if (!user) {
-      console.warn("User not found for Besitos postback:", user_id);
+      console.error(
+        "❌ User not found for Besitos postback - user_id:",
+        user_id
+      );
+      console.log("=== BESITOS POSTBACK END (USER NOT FOUND) ===\n");
       // Still return 200 to prevent Besitos from retrying
       return res.status(200).json({
         success: false,
@@ -440,11 +534,26 @@ router.get("/besitos/postback", async (req, res) => {
       });
     }
 
+    console.log("✅ User found successfully");
+    console.log("User ID:", user._id);
+    console.log("User Wallet Balance:", user.wallet?.balance || 0);
+    console.log("User XP:", user.xp?.current || 0);
+
     // Create or update Besitos conversion record
+    console.log("\n--- Conversion Record Processing ---");
+    console.log("Transaction ID:", transaction_id);
+
     // Use transaction_id as unique identifier
     let conversion = await BesitosConversion.findOne({
       conversionId: transaction_id,
     });
+
+    if (conversion) {
+      console.log("✅ Existing conversion found:", conversion._id);
+      console.log("Current conversion status:", conversion.conversionStatus);
+    } else {
+      console.log("📝 Creating new conversion record...");
+    }
 
     if (!conversion) {
       conversion = new BesitosConversion({
@@ -491,9 +600,14 @@ router.get("/besitos/postback", async (req, res) => {
     }
 
     await conversion.save();
+    console.log("✅ Conversion record saved:", conversion._id);
+    console.log("Conversion Status:", conversion.conversionStatus);
+    console.log("Reward Amount:", conversion.rewardAmount);
+    console.log("Revenue Amount:", conversion.revenue?.amount);
 
     // If conversion is completed (not reversed), process rewards
     if (!isReversal && conversion.conversionStatus === "completed") {
+      console.log("\n--- Processing Rewards (Not a Reversal) ---");
       // Check if it's part of a daily challenge
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -655,19 +769,35 @@ router.get("/besitos/postback", async (req, res) => {
         await transaction.save();
         await conversion.creditRewards(challenge.coinReward, baseXp);
 
-        console.log(
-          `Daily challenge completed via Besitos postback for user ${user._id}`
-        );
+        console.log("✅ Daily challenge completed via Besitos postback");
+        console.log("User ID:", user._id);
+        console.log("Final Wallet Balance:", user.wallet.balance);
+        console.log("Final XP:", user.xp.current);
+      } else {
+        console.log("ℹ️ No matching daily challenge found for this offer");
       }
+    } else {
+      console.log("\n--- Skipping Rewards (Reversal or Not Completed) ---");
+      console.log("Is Reversal:", isReversal);
+      console.log("Conversion Status:", conversion.conversionStatus);
     }
 
     // Always return 200 OK to Besitos (they retry on errors)
+    console.log("\n--- Final Response ---");
+    console.log("Status: SUCCESS");
+    console.log("Response: Postback processed successfully");
+    console.log("=== BESITOS POSTBACK END (SUCCESS) ===\n");
+
     res.status(200).json({
       success: true,
       message: "Postback processed successfully",
     });
   } catch (error) {
-    console.error("Error processing Besitos postback:", error);
+    console.error("\n❌ ERROR PROCESSING BESITOS POSTBACK");
+    console.error("Error Message:", error.message);
+    console.error("Error Stack:", error.stack);
+    console.log("=== BESITOS POSTBACK END (ERROR) ===\n");
+
     // Still return 200 to prevent Besitos from retrying
     res.status(200).json({
       success: false,

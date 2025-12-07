@@ -90,8 +90,7 @@ module.exports = {
   BESITOS_BASE_URL: process.env.BESITOS_BASE_URL || "https://api.besitos.ai",
   BESITOS_PARTNER_ID: process.env.BESITOS_PARTNER_ID,
   BESITOS_API_TOKEN: process.env.BESITOS_API_TOKEN,
-  BESITOS_WEBHOOK_SECRET:
-    process.env.BESITOS_WEBHOOK_SECRET || "NVvhXplfe9DUG9lgK8oy",
+  BESITOS_WEBHOOK_SECRET: "NVvhXplfe9DUG9lgK8oy",
 
   // Bitlabs - Game Offers & Surveys Platform
   // Base URL should NOT include /v1 - it will be added to the endpoint path

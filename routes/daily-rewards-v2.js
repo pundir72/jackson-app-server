@@ -240,13 +240,49 @@ router.get('/week', protect, async (req, res) => {
       
       const enrichedDays = progress.days.map(day => {
         const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+        if (!dayConfig) {
+          return {
+            ...day.toObject(),
+            active: false,
+            rewardType: 'Both',
+            rewardCoins: 0,
+            rewardXp: 0,
+            claimButtonLabel: 'CLAIM NOW',
+            timerLabel: 'Next reward in',
+            claimableOnLoginOnly: false
+          };
+        }
+        
+        // Get base reward values from admin config
+        const rewardType = dayConfig.rewardType || 'Both';
+        let baseCoins = 0;
+        let baseXP = 0;
+        
+        if (rewardType === 'Coins' || rewardType === 'Both') {
+          baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+        }
+        if (rewardType === 'XP' || rewardType === 'Both') {
+          baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+        }
+        
+        // Apply weekly multiplier if enabled and week > 1
+        let finalCoins = baseCoins;
+        let finalXP = baseXP;
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+          const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+          finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+          finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+        }
+        
         return {
           ...day.toObject(),
-          active: dayConfig?.active !== false,
-          rewardType: dayConfig?.rewardType || 'Both',
-          claimButtonLabel: dayConfig?.claimButtonLabel || 'CLAIM NOW',
-          timerLabel: dayConfig?.timerLabel || 'Next reward in',
-          claimableOnLoginOnly: dayConfig?.claimableOnLoginOnly || false
+          active: dayConfig.active !== false,
+          rewardType: rewardType,
+          rewardCoins: finalCoins,
+          rewardXp: finalXP,
+          claimButtonLabel: dayConfig.claimButtonLabel || 'CLAIM NOW',
+          timerLabel: dayConfig.timerLabel || 'Next reward in',
+          claimableOnLoginOnly: dayConfig.claimableOnLoginOnly || false
         };
       });
 
@@ -271,7 +307,10 @@ router.get('/week', protect, async (req, res) => {
           },
           bigReward: {
             enabled: cfg.bigReward?.enabled !== false,
-            downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false
+            downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false,
+            coins: cfg.bigReward?.coinValue !== undefined ? cfg.bigReward.coinValue : (cfg.bigReward?.coins || 0),
+            xp: cfg.bigReward?.xpValue !== undefined ? cfg.bigReward.xpValue : (cfg.bigReward?.xp || 0),
+            awardBadge: cfg.bigReward?.awardBadge || false
           }
         },
         message: 'You can only access data from your account creation date onward'
@@ -331,7 +370,10 @@ router.get('/week', protect, async (req, res) => {
           },
           bigReward: {
             enabled: cfg.bigReward?.enabled !== false,
-            downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false
+            downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false,
+            coins: cfg.bigReward?.coinValue !== undefined ? cfg.bigReward.coinValue : (cfg.bigReward?.coins || 0),
+            xp: cfg.bigReward?.xpValue !== undefined ? cfg.bigReward.xpValue : (cfg.bigReward?.xp || 0),
+            awardBadge: cfg.bigReward?.awardBadge || false
           }
         },
         message: 'Redirected to current week'
@@ -348,13 +390,49 @@ router.get('/week', protect, async (req, res) => {
     
     const enrichedDays = progress.days.map(day => {
       const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+      if (!dayConfig) {
+        return {
+          ...day.toObject(),
+          active: false,
+          rewardType: 'Both',
+          rewardCoins: 0,
+          rewardXp: 0,
+          claimButtonLabel: 'CLAIM NOW',
+          timerLabel: 'Next reward in',
+          claimableOnLoginOnly: false
+        };
+      }
+      
+      // Get base reward values from admin config
+      const rewardType = dayConfig.rewardType || 'Both';
+      let baseCoins = 0;
+      let baseXP = 0;
+      
+      if (rewardType === 'Coins' || rewardType === 'Both') {
+        baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+      }
+      if (rewardType === 'XP' || rewardType === 'Both') {
+        baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+      }
+      
+      // Apply weekly multiplier if enabled and week > 1
+      let finalCoins = baseCoins;
+      let finalXP = baseXP;
+      if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+        const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+        finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+        finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+      }
+      
       return {
         ...day.toObject(),
-        active: dayConfig?.active !== false,
-        rewardType: dayConfig?.rewardType || 'Both',
-        claimButtonLabel: dayConfig?.claimButtonLabel || 'CLAIM NOW',
-        timerLabel: dayConfig?.timerLabel || 'Next reward in',
-        claimableOnLoginOnly: dayConfig?.claimableOnLoginOnly || false
+        active: dayConfig.active !== false,
+        rewardType: rewardType,
+        rewardCoins: finalCoins,
+        rewardXp: finalXP,
+        claimButtonLabel: dayConfig.claimButtonLabel || 'CLAIM NOW',
+        timerLabel: dayConfig.timerLabel || 'Next reward in',
+        claimableOnLoginOnly: dayConfig.claimableOnLoginOnly || false
       };
     });
 
@@ -379,7 +457,10 @@ router.get('/week', protect, async (req, res) => {
         },
         bigReward: {
           enabled: cfg.bigReward?.enabled !== false,
-          downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false
+          downgradeOnMiss: cfg.bigReward?.downgradeOnMiss !== false,
+          coins: cfg.bigReward?.coinValue !== undefined ? cfg.bigReward.coinValue : (cfg.bigReward?.coins || 0),
+          xp: cfg.bigReward?.xpValue !== undefined ? cfg.bigReward.xpValue : (cfg.bigReward?.xp || 0),
+          awardBadge: cfg.bigReward?.awardBadge || false
         }
       }
     });

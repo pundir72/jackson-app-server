@@ -813,10 +813,7 @@ router.get("/games", adminAuth, async (req, res) => {
       ];
     }
 
-    // Country filter
-    if (country) {
-      query.countries = { $in: [country] };
-    }
+    // Country filter removed - countries field no longer exists in Game model
 
     // SDK Provider filter
     if (sdkProvider) {
@@ -960,11 +957,19 @@ router.post(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
+      console.log("=== ADMIN GAME CREATE START ===");
+      console.log("Admin User ID:", req.user?.userId);
+      console.log("Request Body Keys:", Object.keys(req.body));
+      console.log("Request Body:", JSON.stringify(req.body, null, 2));
+      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
+
       // Fetch external details based on SDK provider
       const sdkProvider = req.body.sdkProvider || "besitos";
+      console.log("SDK Provider:", sdkProvider);
       let external = null;
 
       if (sdkProvider === "besitos") {
+        console.log("Fetching Besitos game with gameId:", req.body.gameId);
         req.query.offer_id = req.body.gameId;
         const captureGame = () => {
           let payload = null;
@@ -973,10 +978,15 @@ router.post(
             res: {
               status(c) {
                 code = c;
+                console.log("Besitos API Status Code:", c);
                 return this;
               },
               json(obj) {
                 payload = obj;
+                console.log(
+                  "Besitos API Response:",
+                  JSON.stringify(obj, null, 2)
+                );
                 return this;
               },
             },
@@ -988,12 +998,14 @@ router.post(
         const cap2 = captureGame();
         await besitosController.getOffers(req, cap2.res);
         const ext = cap2.get();
+        console.log("Besitos External Data:", ext ? "Found" : "Not found");
         if (
           !ext ||
           ext.success !== true ||
           !Array.isArray(ext.data) ||
           ext.data.length === 0
         ) {
+          console.error("❌ Besitos game not found. Response:", ext);
           return res.status(404).json({
             success: false,
             message:
@@ -1002,6 +1014,7 @@ router.post(
           });
         }
         external = ext.data[0];
+        console.log("✅ Besitos game found:", external.id, external.title);
       } else if (sdkProvider === "bitlabs") {
         // Fetch from Bitlabs using cached offers
         const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
@@ -1144,7 +1157,7 @@ router.post(
       }
 
       // Parse JSON fields from form-data (using safe parsing)
-      const parsedCountries = safeParseJSON(req.body.countries, []);
+      // Countries field removed - no longer parsing countries
       const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
       const targetGender = (req.body.gender || "all").toLowerCase();
       const targetUiSection = req.body.uiSection || "";
@@ -1153,6 +1166,12 @@ router.post(
         (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
           ? parsedAgeGroups[0]
           : "");
+
+      console.log("Parsed Fields:");
+      console.log("  - Age Groups:", parsedAgeGroups);
+      console.log("  - Gender:", targetGender);
+      console.log("  - UI Section:", targetUiSection);
+      console.log("  - Age Group:", targetAgeGroup);
 
       // Parse XP Tiers (multi-select) - already validated above
       const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
@@ -1179,7 +1198,7 @@ router.post(
         title: req.body.title,
         description: req.body.description,
         sdkProvider: req.body.sdkProvider,
-        countries: parsedCountries,
+        // Countries field removed
         xptrRules: req.body.xptrRules,
         rewards: {
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
@@ -1277,12 +1296,31 @@ router.post(
         uiSection: targetUiSection,
         ageGroup: targetAgeGroup,
       };
+      console.log("Upsert Filter:", JSON.stringify(filter, null, 2));
+      console.log(
+        "Game Data to Save:",
+        JSON.stringify(
+          {
+            title: gameData.title,
+            gameId: gameData.gameId,
+            sdkProvider: gameData.sdkProvider,
+            isActive: gameData.isActive,
+            rewards: gameData.rewards,
+            xpTier: gameData.xpTier,
+            xpTiers: gameData.xpTiers,
+            xpRewardConfig: gameData.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
+
       const update = {
         $set: {
           title: gameData.title,
           description: gameData.description,
           sdkProvider: gameData.sdkProvider,
-          countries: gameData.countries,
+          // Countries field removed
           xptrRules: gameData.xptrRules,
           isActive: gameData.isActive,
           isAdSupported: gameData.isAdSupported,
@@ -1310,10 +1348,29 @@ router.post(
         },
       };
 
+      console.log("Attempting to upsert game to database...");
       const upserted = await Game.findOneAndUpdate(filter, update, {
         upsert: true,
         new: true,
       });
+      console.log("✅ Game upserted successfully. ID:", upserted._id);
+      console.log(
+        "Upserted Game Data:",
+        JSON.stringify(
+          {
+            _id: upserted._id,
+            gameId: upserted.gameId,
+            title: upserted.title,
+            isActive: upserted.isActive,
+            rewards: upserted.rewards,
+            xpTier: upserted.xpTier,
+            xpTiers: upserted.xpTiers,
+          },
+          null,
+          2
+        )
+      );
+      console.log("=== ADMIN GAME CREATE END ===");
 
       res.status(201).json({
         success: true,
@@ -1321,7 +1378,14 @@ router.post(
         data: upserted,
       });
     } catch (error) {
-      console.error("Error creating game:", error);
+      console.error("=== ERROR CREATING GAME ===");
+      console.error("Error:", error);
+      console.error("Error Stack:", error.stack);
+      console.error("Error Message:", error.message);
+      console.error("Error Code:", error.code);
+      console.error("Error Name:", error.name);
+      console.error("Request Body:", req.body);
+      console.error("=== END ERROR ===");
 
       // Handle multer errors
       if (error.code === "LIMIT_FILE_SIZE") {
@@ -1358,16 +1422,45 @@ router.put(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
+      console.log("=== ADMIN GAME UPDATE START ===");
+      console.log("Game ID:", req.params.id);
+      console.log("Admin User ID:", req.user?.userId);
+      console.log("Request Body Keys:", Object.keys(req.body));
+      console.log("Request Body:", JSON.stringify(req.body, null, 2));
+      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
+
       const { id } = req.params;
 
       // Find existing game
       const existingGame = await Game.findById(id);
       if (!existingGame) {
+        console.error("❌ Game not found with ID:", id);
         return res.status(404).json({
           success: false,
           message: "Game not found",
         });
       }
+      console.log(
+        "✅ Existing game found:",
+        existingGame.gameId,
+        existingGame.title
+      );
+      console.log(
+        "Existing Game Data:",
+        JSON.stringify(
+          {
+            gameId: existingGame.gameId,
+            title: existingGame.title,
+            isActive: existingGame.isActive,
+            rewards: existingGame.rewards,
+            xpTier: existingGame.xpTier,
+            xpTiers: existingGame.xpTiers,
+            xpRewardConfig: existingGame.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
 
       // Build update data
       const updateData = {
@@ -1406,17 +1499,7 @@ router.put(
       }
       if (req.body.description) updateData.description = req.body.description;
       if (req.body.sdkProvider) updateData.sdkProvider = req.body.sdkProvider;
-      if (req.body.countries) {
-        const parsedCountries = safeParseJSON(req.body.countries, []);
-        if (!Array.isArray(parsedCountries) || parsedCountries.length === 0) {
-          return res.status(400).json({
-            success: false,
-            message: "At least one country is required",
-            error: "COUNTRIES_REQUIRED",
-          });
-        }
-        updateData.countries = parsedCountries;
-      }
+      // Countries field removed - no longer updating countries
       if (req.body.xptrRules) {
         if (!req.body.xptrRules.trim()) {
           return res.status(400).json({
@@ -1428,9 +1511,26 @@ router.put(
         updateData.xptrRules = req.body.xptrRules.trim();
       }
       if (req.body.ageGroups) {
-        updateData.ageGroups = safeParseJSON(req.body.ageGroups, []);
+        const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
+        updateData.ageGroups = parsedAgeGroups;
+
+        // Auto-update ageGroup (singular) from ageGroups array if not explicitly provided
+        // Use first ageGroup from array, or explicit ageGroup if provided
+        if (req.body.ageGroup) {
+          updateData.ageGroup = req.body.ageGroup;
+        } else if (
+          Array.isArray(parsedAgeGroups) &&
+          parsedAgeGroups.length > 0
+        ) {
+          updateData.ageGroup = parsedAgeGroups[0];
+          console.log(
+            `Auto-updating ageGroup to first value from ageGroups: ${parsedAgeGroups[0]}`
+          );
+        }
+      } else if (req.body.ageGroup) {
+        // If only ageGroup is provided (not ageGroups), update it
+        updateData.ageGroup = req.body.ageGroup;
       }
-      if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
       if (req.body.gender) updateData.gender = req.body.gender;
       if (req.body.uiSection !== undefined)
         updateData.uiSection = req.body.uiSection || "";
@@ -1448,14 +1548,12 @@ router.put(
       if (req.body.isAdSupported !== undefined)
         updateData.isAdSupported = req.body.isAdSupported === "true";
 
-      // Reject coins updates (read-only from API)
+      // Ignore coins updates (read-only from API) - silently skip if provided
       if (req.body.rewardCoins !== undefined) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Coins cannot be updated. They are read-only and come from 3rd-party API.",
-          error: "COINS_READ_ONLY",
-        });
+        console.log(
+          `⚠️ rewardCoins provided (${req.body.rewardCoins}) but ignored - coins are read-only from 3rd-party API`
+        );
+        // Don't return error, just ignore the field
       }
 
       // Update rewards (XP only - coins are read-only from API)
@@ -1465,6 +1563,10 @@ router.put(
           ? parseFloat(req.body.rewardXP)
           : existingGame.rewards?.xp || 0;
         // Keep existing coins (read-only, from API)
+        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      } else {
+        // If XP is not being updated, ensure coins are preserved
+        if (!updateData.rewards) updateData.rewards = {};
         updateData.rewards.coins = existingGame.rewards?.coins || 0;
       }
 
@@ -1669,10 +1771,33 @@ router.put(
         }
       }
 
+      console.log("Update Data:", JSON.stringify(updateData, null, 2));
+      console.log("Attempting to update game in database...");
+
       const game = await Game.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
       });
+
+      console.log("✅ Game updated successfully. ID:", game._id);
+      console.log(
+        "Updated Game Data:",
+        JSON.stringify(
+          {
+            _id: game._id,
+            gameId: game.gameId,
+            title: game.title,
+            isActive: game.isActive,
+            rewards: game.rewards,
+            xpTier: game.xpTier,
+            xpTiers: game.xpTiers,
+            xpRewardConfig: game.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
+      console.log("=== ADMIN GAME UPDATE END ===");
 
       res.json({
         success: true,
@@ -1680,7 +1805,15 @@ router.put(
         data: game,
       });
     } catch (error) {
-      console.error("Error updating game:", error);
+      console.error("=== ERROR UPDATING GAME ===");
+      console.error("Error:", error);
+      console.error("Error Stack:", error.stack);
+      console.error("Error Message:", error.message);
+      console.error("Error Code:", error.code);
+      console.error("Error Name:", error.name);
+      console.error("Game ID:", req.params.id);
+      console.error("Request Body:", req.body);
+      console.error("=== END ERROR ===");
 
       // Handle multer errors
       if (error.code === "LIMIT_FILE_SIZE") {
@@ -2157,7 +2290,19 @@ router.post(
     body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
     body("userMilestones")
       .isArray({ min: 1 })
-      .withMessage("At least one user milestone is required"),
+      .withMessage("At least one user milestone is required")
+      .custom((milestones) => {
+        // Validate that first_time_user and returning_user are not both selected
+        if (
+          milestones.includes("first_time_user") &&
+          milestones.includes("returning_user")
+        ) {
+          throw new Error(
+            "Cannot select both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive."
+          );
+        }
+        return true;
+      }),
     body("userMilestones.*")
       .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
       .withMessage(
@@ -2210,10 +2355,53 @@ router.post(
         });
       }
 
+      // Get targetSegment from request (top-level or metadata) or auto-generate
+      let targetSegment =
+        req.body.targetSegment || req.body.metadata?.targetSegment;
+      if (
+        !targetSegment &&
+        req.body.userMilestones &&
+        req.body.userMilestones.length > 0
+      ) {
+        const segmentParts = [];
+        req.body.userMilestones.forEach((milestone) => {
+          switch (milestone) {
+            case "first_time_user":
+              segmentParts.push("New Users");
+              break;
+            case "returning_user":
+              segmentParts.push("Engaged Users");
+              break;
+            case "xp_tier":
+              segmentParts.push("XP Tier");
+              break;
+            case "membership_tier":
+              if (req.body.membershipTier) {
+                const tierName =
+                  req.body.membershipTier.charAt(0).toUpperCase() +
+                  req.body.membershipTier.slice(1);
+                segmentParts.push(`${tierName} Tier`);
+              } else {
+                segmentParts.push("Membership Tier");
+              }
+              break;
+          }
+        });
+        targetSegment =
+          segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+      }
+
       const ruleData = {
         ...req.body,
         createdBy: req.user.userId,
+        targetSegment: targetSegment || "All Users", // Set as top-level field
       };
+
+      // Ensure metadata exists and set targetSegment for backward compatibility
+      if (!ruleData.metadata) {
+        ruleData.metadata = {};
+      }
+      ruleData.metadata.targetSegment = targetSegment || "All Users";
 
       // Check for duplicate rule
       const duplicate = await GameDisplayRule.findDuplicate(ruleData);
@@ -2275,7 +2463,20 @@ router.put(
     body("userMilestones")
       .optional()
       .isArray({ min: 1 })
-      .withMessage("At least one user milestone is required"),
+      .withMessage("At least one user milestone is required")
+      .custom((milestones) => {
+        // Validate that first_time_user and returning_user are not both selected
+        if (
+          milestones &&
+          milestones.includes("first_time_user") &&
+          milestones.includes("returning_user")
+        ) {
+          throw new Error(
+            "Cannot select both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive."
+          );
+        }
+        return true;
+      }),
     body("userMilestones.*")
       .optional()
       .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
@@ -2340,6 +2541,79 @@ router.put(
       // Determine final milestones after update
       const finalMilestones =
         updateData.userMilestones || existingRule.userMilestones;
+      const finalMembershipTier =
+        updateData.membershipTier !== undefined
+          ? updateData.membershipTier
+          : existingRule.membershipTier;
+
+      // Get targetSegment from request (top-level or metadata) or auto-generate
+      let targetSegment =
+        updateData.targetSegment || updateData.metadata?.targetSegment;
+
+      // Auto-generate targetSegment from userMilestones if milestones are being updated
+      if (
+        updateData.userMilestones ||
+        updateData.membershipTier !== undefined ||
+        !targetSegment
+      ) {
+        if (finalMilestones && finalMilestones.length > 0) {
+          const segmentParts = [];
+          finalMilestones.forEach((milestone) => {
+            switch (milestone) {
+              case "first_time_user":
+                segmentParts.push("New Users");
+                break;
+              case "returning_user":
+                segmentParts.push("Engaged Users");
+                break;
+              case "xp_tier":
+                segmentParts.push("XP Tier");
+                break;
+              case "membership_tier":
+                if (finalMembershipTier) {
+                  const tierName =
+                    finalMembershipTier.charAt(0).toUpperCase() +
+                    finalMembershipTier.slice(1);
+                  segmentParts.push(`${tierName} Tier`);
+                } else {
+                  segmentParts.push("Membership Tier");
+                }
+                break;
+            }
+          });
+          targetSegment =
+            segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+        } else {
+          targetSegment =
+            targetSegment || existingRule.targetSegment || "All Users";
+        }
+      } else {
+        targetSegment =
+          targetSegment || existingRule.targetSegment || "All Users";
+      }
+
+      // Set targetSegment as top-level field
+      updateData.targetSegment = targetSegment;
+
+      // Ensure metadata exists and set targetSegment for backward compatibility
+      if (!updateData.metadata) {
+        updateData.metadata = existingRule.metadata || {};
+      }
+      updateData.metadata.targetSegment = targetSegment;
+
+      // Validate that final milestones don't have conflicting values
+      if (
+        finalMilestones &&
+        finalMilestones.includes("first_time_user") &&
+        finalMilestones.includes("returning_user")
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          error:
+            "Cannot have both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive.",
+        });
+      }
 
       // Clear conditional fields if their milestones are removed
       if (finalMilestones && !finalMilestones.includes("xp_tier")) {
@@ -2614,8 +2888,22 @@ router.post(
       .withMessage("Post threshold tasks must be an array"),
     body("postThresholdTasks.*.taskId")
       .optional()
-      .isMongoId()
-      .withMessage("Invalid task ID"),
+      .custom((value) => {
+        // Allow null, undefined, or empty string (will be handled by goal matching)
+        if (!value || value === "" || value === null || value === undefined) {
+          return true;
+        }
+        // Allow MongoDB ObjectId format
+        if (mongoose.Types.ObjectId.isValid(value)) {
+          return true;
+        }
+        // Allow goal ID format (string with underscore, e.g., "ncnMFTerNjba_9676")
+        if (typeof value === "string" && value.length > 0) {
+          return true;
+        }
+        return false;
+      })
+      .withMessage("Invalid task ID. Must be a MongoDB ObjectId or goal ID"),
     body("postThresholdTasks.*.order")
       .optional()
       .isInt({ min: 1 })
@@ -2654,14 +2942,36 @@ router.post(
 
       // Validate post threshold tasks if provided
       if (postThresholdTasks.length > 0) {
-        // Separate tasks with IDs and tasks without IDs (goal-based)
-        const tasksWithIds = postThresholdTasks.filter((pt) => pt.taskId);
-        const tasksWithoutIds = postThresholdTasks.filter((pt) => !pt.taskId);
+        // Get game data for goal matching
+        const game = await Game.findById(gameId);
+        if (!game) {
+          return res.status(404).json({
+            success: false,
+            message: "Game not found",
+          });
+        }
 
-        // Validate tasks with IDs
-        if (tasksWithIds.length > 0) {
+        // Separate tasks by ID type: MongoDB ObjectIds vs Goal IDs
+        const tasksWithMongoIds = [];
+        const tasksWithGoalIds = [];
+        const tasksWithoutIds = [];
+
+        for (const pt of postThresholdTasks) {
+          if (!pt.taskId || pt.taskId === "" || pt.taskId === null) {
+            tasksWithoutIds.push(pt);
+          } else if (mongoose.Types.ObjectId.isValid(pt.taskId)) {
+            // Valid MongoDB ObjectId
+            tasksWithMongoIds.push(pt);
+          } else {
+            // Goal ID (string like "ncnMFTerNjba_9676")
+            tasksWithGoalIds.push(pt);
+          }
+        }
+
+        // Validate tasks with MongoDB ObjectIds
+        if (tasksWithMongoIds.length > 0) {
           // Check for duplicate task IDs
-          const taskIds = tasksWithIds
+          const taskIds = tasksWithMongoIds
             .map((pt) => pt.taskId.toString())
             .filter((id) => id);
           const uniqueTaskIds = [...new Set(taskIds)];
@@ -2677,7 +2987,7 @@ router.post(
           const existingTasks = await GameTask.find({
             _id: { $in: taskIds },
             gameId: gameId,
-            isActive: true, // Only allow active tasks
+            isActive: true,
           });
 
           if (existingTasks.length !== taskIds.length) {
@@ -2690,10 +3000,78 @@ router.post(
           }
         }
 
-        // For tasks without IDs, try to find or create them from goals
+        // Handle tasks with goal IDs - find or create GameTask documents
+        if (tasksWithGoalIds.length > 0) {
+          if (!game.besitosRawData || !game.besitosRawData.goals) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Cannot create tasks from goal IDs: Game does not have besitosRawData.goals",
+              error: "MISSING_GOALS",
+            });
+          }
+
+          const goals = game.besitosRawData.goals || [];
+
+          for (const pt of tasksWithGoalIds) {
+            const goalId = pt.taskId; // This is the goal ID (e.g., "ncnMFTerNjba_9676")
+
+            // Find the goal in besitosRawData
+            const goal = goals.find((g) => g.goal_id === goalId);
+
+            if (!goal) {
+              return res.status(400).json({
+                success: false,
+                message: `Goal ID "${goalId}" not found in game's besitosRawData.goals`,
+                error: "INVALID_GOAL_ID",
+              });
+            }
+
+            // Try to find existing GameTask by goal_id or goal text
+            let matchingTask = await GameTask.findOne({
+              gameId: gameId,
+              isActive: true,
+              $or: [
+                { "metadata.goalId": goalId },
+                { name: goal.text },
+                { description: { $regex: goal.text || "", $options: "i" } },
+              ],
+            });
+
+            // If task doesn't exist, create it from goal
+            if (!matchingTask) {
+              // Determine task order based on goal position
+              const goalIndex = goals.findIndex((g) => g.goal_id === goalId);
+              const taskOrder = goalIndex >= 0 ? goalIndex + 1 : pt.order || 1;
+
+              // Create new GameTask from goal
+              matchingTask = new GameTask({
+                gameId: gameId,
+                name: goal.text || `Task ${taskOrder}`,
+                description: goal.description || goal.text || "",
+                completionRule: goal.completion_rule || "complete",
+                rewardType: "xp", // Default to XP, can be configured later
+                rewardValue: goal.reward_value || 0,
+                order: taskOrder,
+                isActive: true,
+                metadata: {
+                  goalId: goalId,
+                  source: "besitos",
+                },
+                createdBy: req.user.userId,
+              });
+
+              await matchingTask.save();
+            }
+
+            // Replace goal ID with MongoDB ObjectId
+            pt.taskId = matchingTask._id;
+          }
+        }
+
+        // Handle tasks without IDs - try to find or create them from goals
         if (tasksWithoutIds.length > 0) {
-          const game = await Game.findById(gameId);
-          if (!game || !game.besitosRawData || !game.besitosRawData.goals) {
+          if (!game.besitosRawData || !game.besitosRawData.goals) {
             return res.status(400).json({
               success: false,
               message:
@@ -2720,7 +3098,6 @@ router.post(
                 pt.taskId = matchingTask._id;
               } else {
                 // Task doesn't exist yet - this is okay, it will be created later
-                // For now, we'll skip validation and allow null taskId
                 console.log(
                   `Task not found for goal: ${
                     pt.goalText || pt.goalId
@@ -3070,11 +3447,20 @@ router.put(
         if (req.body.completionDeadlineDays !== undefined) {
           rule.completionDeadlineDays = req.body.completionDeadlineDays;
         }
+        if (req.body.maxGamesWithBonusTasks !== undefined) {
+          rule.maxGamesWithBonusTasks = req.body.maxGamesWithBonusTasks;
+        }
+        if (req.body.maxBonusTasksPerGame !== undefined) {
+          rule.maxBonusTasksPerGame = req.body.maxBonusTasksPerGame;
+        }
         if (req.body.gameOverrides !== undefined) {
           rule.gameOverrides = req.body.gameOverrides;
         }
         if (req.body.xpTierOverrides !== undefined) {
           rule.xpTierOverrides = req.body.xpTierOverrides;
+        }
+        if (req.body.isActive !== undefined) {
+          rule.isActive = req.body.isActive;
         }
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
@@ -3082,8 +3468,11 @@ router.put(
         rule = new WelcomeBonusTimer({
           unlockTimeHours: req.body.unlockTimeHours || 24,
           completionDeadlineDays: req.body.completionDeadlineDays || 7,
+          maxGamesWithBonusTasks: req.body.maxGamesWithBonusTasks || 3,
+          maxBonusTasksPerGame: req.body.maxBonusTasksPerGame || 3,
           gameOverrides: req.body.gameOverrides || [],
           xpTierOverrides: req.body.xpTierOverrides || [],
+          isActive: req.body.isActive !== undefined ? req.body.isActive : true,
           createdBy: req.user.userId,
         });
       }
@@ -3144,11 +3533,26 @@ router.post(
         });
       }
 
-      // Validate bonus tasks
-      if (bonusTasks.length > 3) {
+      // Get maxBonusTasksPerGame from configuration
+      const activeRule = await WelcomeBonusTimer.findOne({
+        isActive: true,
+      }).lean();
+      const maxTasksPerGame = activeRule?.maxBonusTasksPerGame || 3;
+
+      // Validate bonus tasks count
+      if (bonusTasks.length > maxTasksPerGame) {
         return res.status(400).json({
           success: false,
-          message: "Maximum 3 bonus tasks allowed",
+          message: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
+        });
+      }
+
+      // Validate order values don't exceed maxBonusTasksPerGame
+      const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order));
+      if (maxOrder > maxTasksPerGame) {
+        return res.status(400).json({
+          success: false,
+          message: `Task order cannot exceed ${maxTasksPerGame}`,
         });
       }
 
@@ -3208,6 +3612,8 @@ router.post(
         rule = new WelcomeBonusTimer({
           unlockTimeHours: 24,
           completionDeadlineDays: 7,
+          maxGamesWithBonusTasks: 3,
+          maxBonusTasksPerGame: 3,
           createdBy: req.user.userId,
         });
       }
@@ -4889,7 +5295,7 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                   description: gameData.description,
                   category: gameData.category,
                   sdkProvider: gameData.sdkProvider,
-                  countries: gameData.countries,
+                  // Countries field removed
                   xptrRules: gameData.xptrRules,
                   platform: gameData.platform,
                   status: gameData.status,

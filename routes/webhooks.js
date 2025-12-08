@@ -14,7 +14,14 @@ const DailyChallenge = require("../models/DailyChallenge");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const AdjustCallback = require("../models/AdjustCallback");
+const Game = require("../models/Game");
+const GameTask = require("../models/GameTask");
+const TaskProgressionRule = require("../models/TaskProgressionRule");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
+const {
+  getUserXpTier,
+  getUserMembershipTier,
+} = require("../utils/taskProgression");
 const streakRouter = require("./streak");
 const getStreakConfig = streakRouter.getStreakConfig;
 const getMilestoneReward = streakRouter.getMilestoneReward;
@@ -775,6 +782,213 @@ router.get("/besitos/postback", async (req, res) => {
         console.log("Final XP:", user.xp.current);
       } else {
         console.log("ℹ️ No matching daily challenge found for this offer");
+
+        // Process as regular game task completion if goal_id is provided
+        if (goal_id && finalOfferId && offerType === "game") {
+          console.log("\n--- Processing Game Task Completion ---");
+          console.log("Goal ID:", goal_id);
+          console.log("Offer ID:", finalOfferId);
+
+          try {
+            // Find the game by offerId (besitos game ID)
+            const game = await Game.findOne({
+              gameId: finalOfferId,
+              sdkProvider: "besitos",
+            }).lean();
+
+            if (game) {
+              console.log("✅ Game found:", game._id, game.title);
+
+              // Find the task by goal_id - check multiple possible formats
+              const task = await GameTask.findOne({
+                gameId: game._id,
+                $or: [
+                  { besitosGoalId: goal_id },
+                  { "besitosRawData.goal_id": goal_id },
+                  { name: { $regex: new RegExp(goal_id, "i") } },
+                ],
+              }).lean();
+
+              if (task) {
+                console.log("✅ Task found:", task._id, task.name);
+
+                // Get full user with taskProgression
+                const fullUser = await User.findById(user._id).select(
+                  "taskProgression games tasks xp vip wallet"
+                );
+
+                // Build user profile for progression rule matching
+                const gamesDownloaded = fullUser.games?.length || 0;
+                const membershipTier = getUserMembershipTier(fullUser);
+                const userProfile = {
+                  xp: fullUser.xp?.current || 0,
+                  gamesPlayed: gamesDownloaded,
+                  membershipTier: membershipTier,
+                };
+
+                // Get user-based progression rule
+                const progressionRule =
+                  await TaskProgressionRule.findBestMatchForUser(userProfile);
+
+                const gameIdString = game._id.toString();
+                const taskIdString = task._id.toString();
+
+                // Initialize task progression if needed
+                if (!fullUser.taskProgression) {
+                  fullUser.taskProgression = new Map();
+                }
+
+                let progression = fullUser.taskProgression.get(gameIdString);
+                if (!progression) {
+                  // Count existing completed tasks for this game
+                  const completedGameTasks =
+                    fullUser.tasks?.filter(
+                      (t) => t.completed && String(t.gameId) === gameIdString
+                    ) || [];
+
+                  progression = {
+                    completedTasks: completedGameTasks.length,
+                    thresholdReached: false,
+                    rewardTransferred: false,
+                    coinBoxBalance: 0,
+                  };
+                }
+
+                // Check if task is already completed
+                const existingTask = fullUser.tasks?.find(
+                  (t) => String(t.taskId) === taskIdString && t.completed
+                );
+
+                if (!existingTask) {
+                  // Mark task as completed
+                  if (!fullUser.tasks) {
+                    fullUser.tasks = [];
+                  }
+
+                  const taskRecord = {
+                    taskId: task._id,
+                    gameId: game._id,
+                    completed: true,
+                    completedAt: new Date(),
+                    rewardType: task.rewardType || "coins",
+                    rewardValue:
+                      task.rewardValue || conversion.rewardAmount || 0,
+                  };
+
+                  fullUser.tasks.push(taskRecord);
+
+                  // Increment completed tasks count
+                  progression.completedTasks =
+                    (progression.completedTasks || 0) + 1;
+
+                  // Check if first batch (threshold) is reached
+                  if (
+                    progressionRule &&
+                    progression.completedTasks >= progressionRule.firstBatchSize
+                  ) {
+                    progression.thresholdReached = true;
+                    console.log("✅ First batch threshold reached!");
+                  }
+
+                  // Calculate reward amount
+                  const rewardAmount =
+                    task.rewardValue || conversion.rewardAmount || 0;
+
+                  // Apply coin box logic if progression rule exists
+                  if (progressionRule && task.rewardType === "coins") {
+                    // If threshold not reached or reward not transferred, accumulate in coin box
+                    if (
+                      !progression.thresholdReached ||
+                      !progression.rewardTransferred
+                    ) {
+                      progression.coinBoxBalance =
+                        (progression.coinBoxBalance || 0) + rewardAmount;
+                      console.log("💰 Reward added to coin box:", rewardAmount);
+                      console.log(
+                        "💰 Coin box balance:",
+                        progression.coinBoxBalance
+                      );
+                    } else {
+                      // Add directly to wallet if threshold reached and transferred
+                      fullUser.wallet.balance =
+                        (fullUser.wallet.balance || 0) + rewardAmount;
+                      fullUser.wallet.lastUpdated = new Date();
+                      console.log("💰 Reward added to wallet:", rewardAmount);
+                    }
+                  } else if (task.rewardType === "coins") {
+                    // No progression rule - add directly to wallet
+                    fullUser.wallet.balance =
+                      (fullUser.wallet.balance || 0) + rewardAmount;
+                    fullUser.wallet.lastUpdated = new Date();
+                    console.log(
+                      "💰 Reward added to wallet (no progression rule):",
+                      rewardAmount
+                    );
+                  }
+
+                  // Handle XP rewards (always go to wallet)
+                  if (task.rewardType === "xp") {
+                    const xpAmount = task.rewardValue || 0;
+                    const { finalXP } = await applyTierMultiplierToXP(
+                      fullUser,
+                      xpAmount
+                    );
+                    fullUser.xp.current = (fullUser.xp.current || 0) + finalXP;
+                    fullUser.xp.total = (fullUser.xp.total || 0) + finalXP;
+                    console.log("⭐ XP added:", finalXP);
+                  }
+
+                  // Save progression
+                  fullUser.taskProgression.set(gameIdString, progression);
+
+                  // Create transaction record
+                  const transaction = new Transaction({
+                    user: fullUser._id,
+                    type: "credit",
+                    amount: task.rewardType === "coins" ? rewardAmount : 0,
+                    balanceType: task.rewardType === "coins" ? "coins" : "xp",
+                    description: `Game task completed via Besitos - ${game.title} - ${task.name}`,
+                    status: "completed",
+                    referenceId: `BESITOS-TASK-${gameIdString}-${taskIdString}-${Date.now()}`,
+                    gameId: game.gameId,
+                    game: game._id,
+                    metadata: {
+                      gameId: game.gameId,
+                      taskId: taskIdString,
+                      goalId: goal_id,
+                      conversionId: conversion._id,
+                      source: "besitos_webhook",
+                      coinBoxAccumulated:
+                        progressionRule &&
+                        !progression.thresholdReached &&
+                        task.rewardType === "coins",
+                    },
+                  });
+
+                  await transaction.save();
+                  await fullUser.save();
+
+                  console.log("✅ Task completion processed successfully");
+                  console.log("Completed tasks:", progression.completedTasks);
+                  console.log(
+                    "Threshold reached:",
+                    progression.thresholdReached
+                  );
+                  console.log("Coin box balance:", progression.coinBoxBalance);
+                } else {
+                  console.log("ℹ️ Task already completed, skipping");
+                }
+              } else {
+                console.log("⚠️ Task not found for goal_id:", goal_id);
+              }
+            } else {
+              console.log("⚠️ Game not found for offer_id:", finalOfferId);
+            }
+          } catch (error) {
+            console.error("❌ Error processing game task completion:", error);
+            // Continue processing even if task completion fails
+          }
+        }
       }
     } else {
       console.log("\n--- Skipping Rewards (Reversal or Not Completed) ---");

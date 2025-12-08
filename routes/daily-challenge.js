@@ -660,11 +660,89 @@ router.get("/today", protect, async (req, res) => {
       console.log(
         "DEBUG - Challenge filtered out due to targetAudience restrictions"
       );
+
+      // Determine specific reason for access denial
+      const audience = challenge.targetAudience || {};
+      const reasons = [];
+
+      // Check XP
+      if (
+        typeof audience.minXP === "number" &&
+        audience.minXP > 0 &&
+        (user.xp?.current || 0) < audience.minXP
+      ) {
+        reasons.push(`XP requirement not met (minimum: ${audience.minXP})`);
+      }
+      if (
+        typeof audience.maxXP === "number" &&
+        audience.maxXP > 0 &&
+        (user.xp?.current || 0) > audience.maxXP
+      ) {
+        reasons.push(`XP requirement not met (maximum: ${audience.maxXP})`);
+      }
+
+      // Check age
+      if (userAge && typeof userAge === "number" && audience.ageRange) {
+        const minAge = audience.ageRange.min || 13;
+        const maxAge = audience.ageRange.max || 100;
+        if (userAge < minAge || userAge > maxAge) {
+          reasons.push(
+            `Age requirement not met (required: ${minAge}-${maxAge} years)`
+          );
+        }
+      }
+
+      // Check country
+      if (
+        Array.isArray(audience.countries) &&
+        audience.countries.length > 0 &&
+        user.location?.current?.country
+      ) {
+        if (!audience.countries.includes(user.location.current.country)) {
+          reasons.push(
+            `Country restriction (available in: ${audience.countries.join(
+              ", "
+            )})`
+          );
+        }
+      }
+
+      // Check gender
+      const genders = Array.isArray(audience.gender) ? audience.gender : [];
+      if (genders.length > 0 && user.onboarding?.gender) {
+        const normalizedGender = String(user.onboarding.gender).toLowerCase();
+        if (!genders.includes(normalizedGender)) {
+          reasons.push(
+            `Gender restriction (available for: ${genders.join(", ")})`
+          );
+        }
+      }
+
+      const errorMessage =
+        reasons.length > 0
+          ? `This challenge is not available for you. ${reasons.join("; ")}.`
+          : "This challenge is not available for you due to target audience restrictions.";
+
       return res.json({
         success: true,
         data: {
           hasChallenge: false,
-          message: "This challenge is not available for you",
+          message: errorMessage,
+          reason:
+            reasons.length > 0 ? reasons : ["Target audience restrictions"],
+          targetAudience: {
+            gender: audience.gender || [],
+            ageRange: audience.ageRange || null,
+            countries: audience.countries || [],
+            minXP: audience.minXP || null,
+            maxXP: audience.maxXP || null,
+          },
+          userProfile: {
+            gender: user.onboarding?.gender || null,
+            age: userAge,
+            country: user.location?.current?.country || null,
+            xp: user.xp?.current || 0,
+          },
         },
       });
     }
@@ -1718,102 +1796,153 @@ router.post("/complete", protect, async (req, res) => {
         if (!gameId) {
           validationError = "Game not selected or assigned for this challenge";
         } else {
-          // Get game ID string for comparison
-          const gameIdString = gameId.toString ? gameId.toString() : gameId;
-
-          // Check if game was actually played today by checking user's game history
-          const userWithGames = await User.findById(userId).select("games");
-          const gamePlayed = userWithGames?.games?.find((g) => {
-            const userGameId = g.gameId?.toString
-              ? g.gameId.toString()
-              : g.gameId;
-            return userGameId === gameIdString;
-          });
-
-          // STRICT VALIDATION: Game must be played, not just downloaded
-          if (!gamePlayed || !gamePlayed.lastPlayed) {
+          // ========== 10-MINUTE VERIFICATION LOGIC ==========
+          // Check if at least 10 minutes have passed since challenge was started
+          const challengeStartTime = progress.startedAt || progress.viewedAt;
+          if (!challengeStartTime) {
             validationError =
-              "Please play the game first to complete this challenge";
+              "Challenge must be started before completion. Please start the challenge first.";
           } else {
-            // Check if game was played today
-            const lastPlayedDate = new Date(gamePlayed.lastPlayed);
-            const todayStart = new Date(normalizedStart);
-            const isPlayedToday = lastPlayedDate >= todayStart;
+            const timeSinceStart =
+              (now - new Date(challengeStartTime)) / (1000 * 60); // Convert to minutes
+            const requiredWaitMinutes = 10;
 
-            if (!isPlayedToday) {
-              validationError =
-                "Please play the game today to complete this challenge";
-            } else if (challenge.requirements?.timeLimit) {
-              // TIME REQUIREMENT: Must play for the required time
-              // Check if minimum play time was met - REQUIRED for completion
-              const requiredMinutes = challenge.requirements.timeLimit;
-
-              // Get play time from progress metadata (updated by app when user plays)
-              const playTimeMinutes =
-                progress.progress?.metadata?.playTimeMinutes || 0;
-
-              // Also check game's totalDuration if available (in seconds, convert to minutes)
-              // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
-              const gameTotalDurationMinutes = gamePlayed.totalDuration
-                ? Math.floor((gamePlayed.totalDuration || 0) / 60)
-                : 0;
-
-              // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
-              let todayPlayTimeMinutes = 0;
-              if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
-                const firstPlayed = new Date(gamePlayed.firstPlayed);
-                const lastPlayed = new Date(gamePlayed.lastPlayed);
-                const todayStart = new Date(normalizedStart);
-
-                // Only calculate if both timestamps are today
-                if (firstPlayed >= todayStart && lastPlayed >= todayStart) {
-                  const timeDiffMinutes =
-                    (lastPlayed - firstPlayed) / (1000 * 60);
-                  // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
-                  todayPlayTimeMinutes = Math.min(timeDiffMinutes, 480);
-                }
-              }
-
-              // Use the maximum of all sources, but STRICTLY require play time tracking
-              const actualPlayTime = Math.max(
-                playTimeMinutes,
-                gameTotalDurationMinutes,
-                todayPlayTimeMinutes
+            if (timeSinceStart < requiredWaitMinutes) {
+              const remainingMinutes = Math.ceil(
+                requiredWaitMinutes - timeSinceStart
               );
-
-              // STRICT VALIDATION: Require actual play time tracking
-              // Reject if no play time is tracked at all
-              if (
-                playTimeMinutes === 0 &&
-                gameTotalDurationMinutes === 0 &&
-                todayPlayTimeMinutes === 0
-              ) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
-              } else if (actualPlayTime < requiredMinutes) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
-                  actualPlayTime
-                )} minutes`;
-              } else {
-                actionValidated = true;
-              }
+              validationError = `Please wait ${remainingMinutes} more minute(s) before completing this challenge. You must wait at least ${requiredWaitMinutes} minutes after starting.`;
             } else {
-              // No time requirement - but still require game to be actually played
-              // Check if game has been played (not just downloaded) by verifying playCount or progress
-              const hasActualPlay =
-                gamePlayed.playCount > 0 ||
-                (gamePlayed.progress !== undefined &&
-                  gamePlayed.progress > 0) ||
-                (gamePlayed.level !== undefined && gamePlayed.level > 1) ||
-                (gamePlayed.firstPlayed &&
-                  gamePlayed.lastPlayed &&
-                  new Date(gamePlayed.lastPlayed).getTime() >
-                    new Date(gamePlayed.firstPlayed).getTime() + 60000); // At least 1 minute difference
+              // ========== VERIFY GAME ID AND USER ID ==========
+              // Get game ID string for comparison
+              const gameIdString = gameId.toString ? gameId.toString() : gameId;
 
-              if (!hasActualPlay) {
+              // Verify user ID matches
+              if (String(progress.userId) !== String(userId)) {
                 validationError =
-                  "Please actually play the game (not just download) to complete this challenge";
+                  "User ID mismatch. Cannot complete challenge.";
               } else {
-                actionValidated = true;
+                // Check if game was actually played today by checking user's game history
+                const userWithGames = await User.findById(userId).select(
+                  "games"
+                );
+
+                if (!userWithGames) {
+                  validationError =
+                    "User not found. Cannot verify game installation.";
+                } else {
+                  // Verify user has the game installed/started
+                  const gamePlayed = userWithGames?.games?.find((g) => {
+                    const userGameId = g.gameId?.toString
+                      ? g.gameId.toString()
+                      : g.gameId;
+                    return userGameId === gameIdString;
+                  });
+
+                  // STRICT VERIFICATION: User must have the game in their games array
+                  if (!gamePlayed) {
+                    validationError = `Game verification failed. Please ensure you have installed and started the game (Game ID: ${gameIdString}) before completing this challenge.`;
+                  } else {
+                    // Game and user verification passed - continue with existing validation
+                    // STRICT VALIDATION: Game must be played, not just downloaded
+                    if (!gamePlayed.lastPlayed) {
+                      validationError =
+                        "Please play the game first to complete this challenge";
+                    } else {
+                      // Check if game was played today
+                      const lastPlayedDate = new Date(gamePlayed.lastPlayed);
+                      const todayStart = new Date(normalizedStart);
+                      const isPlayedToday = lastPlayedDate >= todayStart;
+
+                      if (!isPlayedToday) {
+                        validationError =
+                          "Please play the game today to complete this challenge";
+                      } else if (challenge.requirements?.timeLimit) {
+                        // TIME REQUIREMENT: Must play for the required time
+                        // Check if minimum play time was met - REQUIRED for completion
+                        const requiredMinutes =
+                          challenge.requirements.timeLimit;
+
+                        // Get play time from progress metadata (updated by app when user plays)
+                        const playTimeMinutes =
+                          progress.progress?.metadata?.playTimeMinutes || 0;
+
+                        // Also check game's totalDuration if available (in seconds, convert to minutes)
+                        // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
+                        const gameTotalDurationMinutes =
+                          gamePlayed.totalDuration
+                            ? Math.floor((gamePlayed.totalDuration || 0) / 60)
+                            : 0;
+
+                        // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
+                        let todayPlayTimeMinutes = 0;
+                        if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
+                          const firstPlayed = new Date(gamePlayed.firstPlayed);
+                          const lastPlayed = new Date(gamePlayed.lastPlayed);
+                          const todayStart = new Date(normalizedStart);
+
+                          // Only calculate if both timestamps are today
+                          if (
+                            firstPlayed >= todayStart &&
+                            lastPlayed >= todayStart
+                          ) {
+                            const timeDiffMinutes =
+                              (lastPlayed - firstPlayed) / (1000 * 60);
+                            // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
+                            todayPlayTimeMinutes = Math.min(
+                              timeDiffMinutes,
+                              480
+                            );
+                          }
+                        }
+
+                        // Use the maximum of all sources, but STRICTLY require play time tracking
+                        const actualPlayTime = Math.max(
+                          playTimeMinutes,
+                          gameTotalDurationMinutes,
+                          todayPlayTimeMinutes
+                        );
+
+                        // STRICT VALIDATION: Require actual play time tracking
+                        // Reject if no play time is tracked at all
+                        if (
+                          playTimeMinutes === 0 &&
+                          gameTotalDurationMinutes === 0 &&
+                          todayPlayTimeMinutes === 0
+                        ) {
+                          validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
+                        } else if (actualPlayTime < requiredMinutes) {
+                          validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
+                            actualPlayTime
+                          )} minutes`;
+                        } else {
+                          actionValidated = true;
+                        }
+                      } else {
+                        // No time requirement - but still require game to be actually played
+                        // Check if game has been played (not just downloaded) by verifying playCount or progress
+                        const hasActualPlay =
+                          gamePlayed.playCount > 0 ||
+                          (gamePlayed.progress !== undefined &&
+                            gamePlayed.progress > 0) ||
+                          (gamePlayed.level !== undefined &&
+                            gamePlayed.level > 1) ||
+                          (gamePlayed.firstPlayed &&
+                            gamePlayed.lastPlayed &&
+                            new Date(gamePlayed.lastPlayed).getTime() >
+                              new Date(gamePlayed.firstPlayed).getTime() +
+                                60000); // At least 1 minute difference
+
+                        if (!hasActualPlay) {
+                          validationError =
+                            "Please actually play the game (not just download) to complete this challenge";
+                        } else {
+                          actionValidated = true;
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }

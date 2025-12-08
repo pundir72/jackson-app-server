@@ -501,7 +501,7 @@ router.get("/discover", protect, async (req, res) => {
   try {
     console.log("=== GAME DISCOVER START ===");
     console.log("Raw Query Params:", req.query);
-    
+
     const {
       uiSection,
       ageGroup,
@@ -523,7 +523,7 @@ router.get("/discover", protect, async (req, res) => {
     const userId = req.user.userId;
     console.log("User ID from JWT token:", userId);
     console.log("Tracking activity for user:", userId, "on route:", req.path);
-    
+
     const user = await User.findById(userId).lean();
 
     if (!user) {
@@ -597,7 +597,10 @@ router.get("/discover", protect, async (req, res) => {
     const filter = { isActive: true };
     if (uiSection) filter.uiSection = uiSection;
     if (ageGroup) filter.ageGroup = ageGroup;
-    if (gender) filter.gender = gender;
+    // Gender filter: match specific gender OR "all" (which applies to all genders)
+    if (gender) {
+      filter.gender = { $in: [gender, "all"] };
+    }
     // Note: countries field was removed, so we skip country filter from Game model
 
     console.log("=== FILTER ANALYSIS ===");
@@ -613,12 +616,16 @@ router.get("/discover", protect, async (req, res) => {
     });
     console.log("⚠️ MISMATCH CHECK:");
     if (gender && gender !== userProfile.gender) {
-      console.log(`  ⚠️ Gender mismatch: Query="${gender}" vs User="${userProfile.gender}"`);
+      console.log(
+        `  ⚠️ Gender mismatch: Query="${gender}" vs User="${userProfile.gender}"`
+      );
     }
     if (ageGroup) {
       const [minAge, maxAge] = ageGroup.split("-").map(Number);
       if (userProfile.age < minAge || userProfile.age > maxAge) {
-        console.log(`  ⚠️ Age mismatch: Query="${ageGroup}" vs User age="${userProfile.age}"`);
+        console.log(
+          `  ⚠️ Age mismatch: Query="${ageGroup}" vs User age="${userProfile.age}"`
+        );
       }
     }
     console.log("Database Filter:", JSON.stringify(filter, null, 2));
@@ -638,20 +645,26 @@ router.get("/discover", protect, async (req, res) => {
     console.log("=== DATABASE GAME COUNTS ===");
     const totalActiveGames = await Game.countDocuments({ isActive: true });
     console.log(`Total active games: ${totalActiveGames}`);
-    
+
     if (uiSection) {
-      const uiSectionCount = await Game.countDocuments({ isActive: true, uiSection });
+      const uiSectionCount = await Game.countDocuments({
+        isActive: true,
+        uiSection,
+      });
       console.log(`Games with uiSection="${uiSection}": ${uiSectionCount}`);
     }
     if (ageGroup) {
-      const ageGroupCount = await Game.countDocuments({ isActive: true, ageGroup });
+      const ageGroupCount = await Game.countDocuments({
+        isActive: true,
+        ageGroup,
+      });
       console.log(`Games with ageGroup="${ageGroup}": ${ageGroupCount}`);
     }
     if (gender) {
       const genderCount = await Game.countDocuments({ isActive: true, gender });
       console.log(`Games with gender="${gender}": ${genderCount}`);
     }
-    
+
     // Check games matching user profile instead
     const userProfileFilter = { isActive: true };
     if (uiSection) userProfileFilter.uiSection = uiSection;
@@ -662,25 +675,38 @@ router.get("/discover", protect, async (req, res) => {
     // Try to match ageGroup based on user's age
     if (userProfile.age) {
       let matchedAgeGroup = null;
-      if (userProfile.age >= 13 && userProfile.age <= 17) matchedAgeGroup = "13-17";
-      else if (userProfile.age >= 18 && userProfile.age <= 24) matchedAgeGroup = "18-24";
-      else if (userProfile.age >= 25 && userProfile.age <= 34) matchedAgeGroup = "25-34";
-      else if (userProfile.age >= 35 && userProfile.age <= 44) matchedAgeGroup = "35-44";
-      else if (userProfile.age >= 45 && userProfile.age <= 54) matchedAgeGroup = "45-54";
-      else if (userProfile.age >= 55 && userProfile.age <= 64) matchedAgeGroup = "55-64";
+      if (userProfile.age >= 13 && userProfile.age <= 17)
+        matchedAgeGroup = "13-17";
+      else if (userProfile.age >= 18 && userProfile.age <= 24)
+        matchedAgeGroup = "18-24";
+      else if (userProfile.age >= 25 && userProfile.age <= 34)
+        matchedAgeGroup = "25-34";
+      else if (userProfile.age >= 35 && userProfile.age <= 44)
+        matchedAgeGroup = "35-44";
+      else if (userProfile.age >= 45 && userProfile.age <= 54)
+        matchedAgeGroup = "45-54";
+      else if (userProfile.age >= 55 && userProfile.age <= 64)
+        matchedAgeGroup = "55-64";
       else if (userProfile.age >= 65) matchedAgeGroup = "65+";
-      
+
       if (matchedAgeGroup) {
         userProfileFilter.ageGroup = matchedAgeGroup;
-        console.log(`Matched ageGroup="${matchedAgeGroup}" for user age=${userProfile.age}`);
+        console.log(
+          `Matched ageGroup="${matchedAgeGroup}" for user age=${userProfile.age}`
+        );
       }
     }
-    
+
     const userProfileGamesCount = await Game.countDocuments(userProfileFilter);
     console.log(`Games matching user profile filter: ${userProfileGamesCount}`);
     if (userProfileGamesCount > 0 && allGames.length === 0) {
-      console.log("⚠️ WARNING: Games exist for user profile but not for query params!");
-      console.log("User Profile Filter:", JSON.stringify(userProfileFilter, null, 2));
+      console.log(
+        "⚠️ WARNING: Games exist for user profile but not for query params!"
+      );
+      console.log(
+        "User Profile Filter:",
+        JSON.stringify(userProfileFilter, null, 2)
+      );
     }
     console.log("=== END FILTER ANALYSIS ===");
 
@@ -709,26 +735,44 @@ router.get("/discover", protect, async (req, res) => {
     } else {
       // If no games found, show what games exist with similar filters
       console.log("=== DEBUGGING: No games found, checking alternatives ===");
-      const gamesWithoutGender = await Game.find({ isActive: true, uiSection: uiSection || undefined, ageGroup: ageGroup || undefined }).limit(5).lean();
+      const gamesWithoutGender = await Game.find({
+        isActive: true,
+        uiSection: uiSection || undefined,
+        ageGroup: ageGroup || undefined,
+      })
+        .limit(5)
+        .lean();
       if (gamesWithoutGender.length > 0) {
-        console.log(`Found ${gamesWithoutGender.length} games without gender filter:`, gamesWithoutGender.map(g => ({
-          gameId: g.gameId,
-          title: g.title,
-          gender: g.gender,
-          ageGroup: g.ageGroup,
-          uiSection: g.uiSection,
-        })));
+        console.log(
+          `Found ${gamesWithoutGender.length} games without gender filter:`,
+          gamesWithoutGender.map((g) => ({
+            gameId: g.gameId,
+            title: g.title,
+            gender: g.gender,
+            ageGroup: g.ageGroup,
+            uiSection: g.uiSection,
+          }))
+        );
       }
-      
-      const gamesWithUserGender = await Game.find({ isActive: true, gender: userProfile.gender, uiSection: uiSection || undefined }).limit(5).lean();
+
+      const gamesWithUserGender = await Game.find({
+        isActive: true,
+        gender: userProfile.gender,
+        uiSection: uiSection || undefined,
+      })
+        .limit(5)
+        .lean();
       if (gamesWithUserGender.length > 0) {
-        console.log(`Found ${gamesWithUserGender.length} games with user's gender (${userProfile.gender}):`, gamesWithUserGender.map(g => ({
-          gameId: g.gameId,
-          title: g.title,
-          gender: g.gender,
-          ageGroup: g.ageGroup,
-          uiSection: g.uiSection,
-        })));
+        console.log(
+          `Found ${gamesWithUserGender.length} games with user's gender (${userProfile.gender}):`,
+          gamesWithUserGender.map((g) => ({
+            gameId: g.gameId,
+            title: g.title,
+            gender: g.gender,
+            ageGroup: g.ageGroup,
+            uiSection: g.uiSection,
+          }))
+        );
       }
     }
 
@@ -767,10 +811,13 @@ router.get("/discover", protect, async (req, res) => {
       .slice(0, maxGamesWithBonus)
       .map((g) => String(g.gameId));
 
-    // Get all task progression rules
-    const progressionRules = await TaskProgressionRule.find({ isActive: true })
-      .populate("gameId", "title gameId")
-      .lean();
+    // Get user-based task progression rule (applies to user, not specific game)
+    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
+      userProfile
+    );
+
+    // Get user's XP tier
+    const userXpTier = getUserXpTier(user);
 
     // Get user's task progression data (Map becomes object with lean())
     const userTaskProgression = user.taskProgression || {};
@@ -792,12 +839,6 @@ router.get("/discover", protect, async (req, res) => {
           return false;
         });
 
-        // Check if game has task progression rule
-        const progressionRule = progressionRules.find((pr) => {
-          const prGameId = pr.gameId?._id || pr.gameId;
-          return String(prGameId) === gameIdString;
-        });
-
         // Get user's progression data for this game (taskProgression is a Map in schema, becomes object with lean)
         const gameProgression = userTaskProgression[gameIdString] || {};
         const completedTasks = gameProgression.completedTasks || 0;
@@ -807,20 +848,20 @@ router.get("/discover", protect, async (req, res) => {
         // Calculate progression status
         let progressionStatus = null;
         if (progressionRule) {
-          const canUnlock = progressionRule.minimumEventThreshold
-            ? completedTasks >= progressionRule.minimumEventThreshold
-            : true;
+          // Check if first batch is completed (threshold reached)
+          const firstBatchCompleted =
+            completedTasks >= progressionRule.firstBatchSize;
+          const canUnlockNextBatches = firstBatchCompleted && rewardTransferred;
 
           progressionStatus = {
             hasProgressionRule: true,
-            minimumEventThreshold: progressionRule.minimumEventThreshold,
+            firstBatchSize: progressionRule.firstBatchSize,
+            nextBatchSize: progressionRule.nextBatchSize,
+            maxBatches: progressionRule.maxBatches,
             completedTasks: completedTasks,
-            thresholdReached: thresholdReached,
+            thresholdReached: thresholdReached, // First batch completed
             rewardTransferred: rewardTransferred,
-            canUnlockNextTasks: canUnlock && rewardTransferred,
-            postThresholdTasksCount:
-              progressionRule.postThresholdTasks?.filter((pt) => pt.isEnabled)
-                .length || 0,
+            canUnlockNextTasks: canUnlockNextBatches,
           };
         }
 
@@ -844,7 +885,11 @@ router.get("/discover", protect, async (req, res) => {
               g.metadata?.images?.banner || g.gameDetails?.large_image || "",
           },
           details: g.gameDetails || {},
+          besitosRawData: g.besitosRawData || null,
+          xpRewardConfig: g.xpRewardConfig || { baseXP: 0, multiplier: 1.0 },
           _id: g._id,
+          // User's XP tier
+          userXpTier: userXpTier,
           // Bonus task eligibility - check if this game is in user's downloaded games
           bonusTasks: (() => {
             const userGameMatch = sortedUserGames.findIndex((ug) => {
@@ -893,6 +938,8 @@ router.get("/discover", protect, async (req, res) => {
         pages: Math.ceil(total / pageSize),
       },
       uiSections,
+      // User's XP tier (also included in each game object)
+      userXpTier: userXpTier,
       // Display rule info
       displayRule: matchingRule
         ? {
@@ -1196,8 +1243,31 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
     const completedTaskIds =
       user?.tasks?.filter((t) => t.completed).map((t) => t.taskId) || [];
 
-    // Get progression rule
-    const progressionRule = await TaskProgressionRule.findByGame(gameId);
+    // Build user profile for progression rule matching
+    const gamesDownloaded =
+      user.games?.filter((g) => {
+        return (
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
+        );
+      }).length || 0;
+
+    let membershipTier = "free";
+    if (user.vip?.tier) {
+      membershipTier = user.vip.tier;
+    } else if (user.vip?.level && user.vip.level !== "free") {
+      membershipTier = user.vip.level;
+    }
+
+    const userProfile = {
+      xp: user.xp?.current || 0,
+      gamesPlayed: gamesDownloaded,
+      membershipTier: membershipTier,
+    };
+
+    // Get user-based progression rule (applies to user, not specific game)
+    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
+      userProfile
+    );
 
     // Get user's progression data for this game
     const gameIdString = gameId.toString();
@@ -1275,115 +1345,15 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
         isUnlocked = true;
         unlockReason = "Completed";
       } else if (progressionRule) {
-        // Check if this is a post-threshold task
-        const postThresholdTask = progressionRule.postThresholdTasks.find(
-          (pt) => pt.taskId.toString() === taskIdString && pt.isEnabled
+        // Use the new batch-based canUnlockTask method
+        const taskOrder = index + 1; // 1-based task order
+        const unlockCheck = progressionRule.canUnlockTask(
+          completedTasksCount,
+          taskOrder,
+          rewardTransferred
         );
-
-        if (postThresholdTask) {
-          // Post-threshold task - check all conditions:
-          // 1. Threshold reached
-          // 2. Reward transferred
-          // 3. XP Tier match
-          // 4. Membership Tier match
-          const unlockCheck = progressionRule.canUnlockTask(
-            user,
-            taskIdString,
-            completedTasksCount,
-            rewardTransferred
-          );
-          isUnlocked = unlockCheck.canUnlock;
-          unlockReason = unlockCheck.reason || "All conditions met";
-        } else {
-          // Regular sequential task - check if all previous tasks are completed
-          // First task (index 0) is always unlocked
-          if (index === 0) {
-            isUnlocked = true;
-            unlockReason = "First task";
-          } else {
-            // Check if all previous tasks are completed (sequential requirement)
-            let allPreviousCompleted = true;
-            for (let i = 0; i < index; i++) {
-              const prevTaskId = tasks[i]._id.toString();
-              if (!completedTaskIds.includes(prevTaskId)) {
-                allPreviousCompleted = false;
-                break;
-              }
-            }
-
-            if (!allPreviousCompleted) {
-              isUnlocked = false;
-              unlockReason = "Complete all previous tasks first";
-            } else {
-              // For tasks after threshold, check if threshold is reached and reward is transferred
-              // Tasks 1 to threshold: just need sequential completion
-              // Tasks after threshold: need threshold + transfer + tier requirements (if configured)
-              const taskNumber = index + 1; // 1-based index
-
-              if (taskNumber <= progressionRule.minimumEventThreshold) {
-                // Tasks within threshold - just sequential unlock
-                isUnlocked = true;
-                unlockReason = "Unlocked";
-              } else {
-                // Tasks after threshold - need threshold reached AND reward transferred
-                if (
-                  completedTasksCount < progressionRule.minimumEventThreshold
-                ) {
-                  isUnlocked = false;
-                  unlockReason = `Complete ${progressionRule.minimumEventThreshold} tasks first (current: ${completedTasksCount})`;
-                } else if (!rewardTransferred) {
-                  isUnlocked = false;
-                  unlockReason = "Transfer rewards from My Coin Box first";
-                } else {
-                  // Check if this task has specific tier requirements in postThresholdTasks
-                  const postThresholdTask =
-                    progressionRule.postThresholdTasks.find(
-                      (pt) =>
-                        pt.taskId.toString() === taskIdString && pt.isEnabled
-                    );
-
-                  if (postThresholdTask) {
-                    // This task has specific tier requirements - check them
-                    // Check XP Tier requirement
-                    if (postThresholdTask.requiredXpTier) {
-                      const userXpTier = getUserXpTier(user);
-                      const requiredTier =
-                        postThresholdTask.requiredXpTier.toLowerCase();
-                      if (!meetsXpTierRequirement(user, requiredTier)) {
-                        isUnlocked = false;
-                        unlockReason = `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`;
-                      }
-                    }
-
-                    // Check Membership Tier requirement (only if XP tier check passed)
-                    if (
-                      isUnlocked &&
-                      postThresholdTask.requiredMembershipTier
-                    ) {
-                      const userMembershipTier = getUserMembershipTier(user);
-                      const requiredTier =
-                        postThresholdTask.requiredMembershipTier.toLowerCase();
-                      if (!meetsMembershipTierRequirement(user, requiredTier)) {
-                        isUnlocked = false;
-                        const currentTierDisplay = userMembershipTier || "none";
-                        unlockReason = `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`;
-                      }
-                    }
-
-                    if (isUnlocked) {
-                      unlockReason = "All conditions met";
-                    }
-                  } else {
-                    // Task after threshold but not in postThresholdTasks - still requires threshold + transfer
-                    // No tier requirements for this task
-                    isUnlocked = true;
-                    unlockReason = "Unlocked";
-                  }
-                }
-              }
-            }
-          }
-        }
+        isUnlocked = unlockCheck.canUnlock;
+        unlockReason = unlockCheck.reason || "Unlocked";
       } else {
         // No progression rule - simple sequential unlock
         if (index === 0) {
@@ -1825,8 +1795,31 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       });
     }
 
-    // Get progression rule for this game
-    const progressionRule = await TaskProgressionRule.findByGame(gameId);
+    // Build user profile for progression rule matching
+    const gamesDownloaded =
+      user.games?.filter((g) => {
+        return (
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
+        );
+      }).length || 0;
+
+    let membershipTier = "free";
+    if (user.vip?.tier) {
+      membershipTier = user.vip.tier;
+    } else if (user.vip?.level && user.vip.level !== "free") {
+      membershipTier = user.vip.level;
+    }
+
+    const userProfile = {
+      xp: user.xp?.current || 0,
+      gamesPlayed: gamesDownloaded,
+      membershipTier: membershipTier,
+    };
+
+    // Get user-based progression rule (applies to user, not specific game)
+    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
+      userProfile
+    );
 
     // Check if task is unlocked before allowing completion
     if (progressionRule) {
@@ -1887,60 +1880,20 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
             }
           }
 
-          // For tasks after threshold, check threshold and transfer
-          const taskNumber = taskIndex + 1;
-          if (taskNumber > progressionRule.minimumEventThreshold) {
-            if (completedTasksCount < progressionRule.minimumEventThreshold) {
-              return res.status(403).json({
-                success: false,
-                message: `Complete ${progressionRule.minimumEventThreshold} tasks first (current: ${completedTasksCount})`,
-                unlockReason: `Complete ${progressionRule.minimumEventThreshold} tasks first (current: ${completedTasksCount})`,
-              });
-            }
+          // Use the new batch-based canUnlockTask method
+          const taskOrder = taskIndex + 1; // 1-based task order
+          const unlockCheck = progressionRule.canUnlockTask(
+            completedTasksCount,
+            taskOrder,
+            rewardTransferred
+          );
 
-            if (!rewardTransferred) {
-              return res.status(403).json({
-                success: false,
-                message: "Transfer rewards from My Coin Box first",
-                unlockReason: "Transfer rewards from My Coin Box first",
-              });
-            }
-
-            // Check if this task has specific tier requirements in postThresholdTasks
-            const postThresholdTask = progressionRule.postThresholdTasks.find(
-              (pt) => pt.taskId.toString() === taskId.toString() && pt.isEnabled
-            );
-
-            if (postThresholdTask) {
-              // Check XP Tier requirement
-              if (postThresholdTask.requiredXpTier) {
-                const userXpTier = getUserXpTier(user);
-                const requiredTier =
-                  postThresholdTask.requiredXpTier.toLowerCase();
-                if (!meetsXpTierRequirement(user, requiredTier)) {
-                  return res.status(403).json({
-                    success: false,
-                    message: `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`,
-                    unlockReason: `Requires at least ${requiredTier} XP tier (current: ${userXpTier})`,
-                  });
-                }
-              }
-
-              // Check Membership Tier requirement
-              if (postThresholdTask.requiredMembershipTier) {
-                const userMembershipTier = getUserMembershipTier(user);
-                const requiredTier =
-                  postThresholdTask.requiredMembershipTier.toLowerCase();
-                if (!meetsMembershipTierRequirement(user, requiredTier)) {
-                  const currentTierDisplay = userMembershipTier || "none";
-                  return res.status(403).json({
-                    success: false,
-                    message: `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`,
-                    unlockReason: `Requires at least ${requiredTier} membership tier (current: ${currentTierDisplay})`,
-                  });
-                }
-              }
-            }
+          if (!unlockCheck.canUnlock) {
+            return res.status(403).json({
+              success: false,
+              message: unlockCheck.reason || "Task is locked",
+              unlockReason: unlockCheck.reason || "Task is locked",
+            });
           }
         }
       }
@@ -2150,8 +2103,8 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       // Increment completed tasks count
       progression.completedTasks = (progression.completedTasks || 0) + 1;
 
-      // Check if threshold is reached
-      if (progression.completedTasks >= progressionRule.minimumEventThreshold) {
+      // Check if first batch (threshold) is reached
+      if (progression.completedTasks >= progressionRule.firstBatchSize) {
         progression.thresholdReached = true;
         thresholdReached = true;
       }
@@ -2323,7 +2276,9 @@ router.get("/:gameId/coin-box", protect, async (req, res) => {
     }
 
     // Get user data
-    const user = await User.findById(userId).select("taskProgression wallet");
+    const user = await User.findById(userId).select(
+      "taskProgression wallet games xp vip"
+    );
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -2331,8 +2286,29 @@ router.get("/:gameId/coin-box", protect, async (req, res) => {
       });
     }
 
-    // Get progression rule
-    const rule = await TaskProgressionRule.findByGame(gameId);
+    // Build user profile for progression rule matching
+    const gamesDownloaded =
+      user.games?.filter((g) => {
+        return (
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
+        );
+      }).length || 0;
+
+    let membershipTier = "free";
+    if (user.vip?.tier) {
+      membershipTier = user.vip.tier;
+    } else if (user.vip?.level && user.vip.level !== "free") {
+      membershipTier = user.vip.level;
+    }
+
+    const userProfile = {
+      xp: user.xp?.current || 0,
+      gamesPlayed: gamesDownloaded,
+      membershipTier: membershipTier,
+    };
+
+    // Get user-based progression rule (applies to user, not specific game)
+    const rule = await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     if (!rule) {
       return res.json({
@@ -2415,7 +2391,9 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
     }
 
     // Get user data
-    const user = await User.findById(userId).select("taskProgression wallet");
+    const user = await User.findById(userId).select(
+      "taskProgression wallet games xp vip"
+    );
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -2423,13 +2401,34 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
       });
     }
 
-    // Get progression rule
-    const rule = await TaskProgressionRule.findByGame(gameId);
+    // Build user profile for progression rule matching
+    const gamesDownloaded =
+      user.games?.filter((g) => {
+        return (
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
+        );
+      }).length || 0;
+
+    let membershipTier = "free";
+    if (user.vip?.tier) {
+      membershipTier = user.vip.tier;
+    } else if (user.vip?.level && user.vip.level !== "free") {
+      membershipTier = user.vip.level;
+    }
+
+    const userProfile = {
+      xp: user.xp?.current || 0,
+      gamesPlayed: gamesDownloaded,
+      membershipTier: membershipTier,
+    };
+
+    // Get user-based progression rule (applies to user, not specific game)
+    const rule = await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     if (!rule) {
       return res.status(404).json({
         success: false,
-        message: "No progression rule configured for this game",
+        message: "No progression rule configured for this user profile",
       });
     }
 
@@ -2447,18 +2446,17 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
       coinBoxTransferredAt: null,
     };
 
-    // Check if threshold is reached
+    // Check if threshold (first batch) is reached
     if (!progression.thresholdReached) {
       return res.status(400).json({
         success: false,
         message: `Threshold not reached. Complete ${
-          rule.minimumEventThreshold
+          rule.firstBatchSize
         } tasks first (current: ${progression.completedTasks || 0})`,
         progress: {
           completed: progression.completedTasks || 0,
-          required: rule.minimumEventThreshold,
-          remaining:
-            rule.minimumEventThreshold - (progression.completedTasks || 0),
+          required: rule.firstBatchSize,
+          remaining: rule.firstBatchSize - (progression.completedTasks || 0),
         },
       });
     }

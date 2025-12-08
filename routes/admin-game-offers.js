@@ -2254,7 +2254,6 @@ router.get("/display-rules/:id", adminAuth, async (req, res) => {
     const { id } = req.params;
 
     const rule = await GameDisplayRule.findById(id)
-      .populate("xpTier", "tierName xpMin xpMax tierColor bgColor borderColor")
       .populate("createdBy", "firstName lastName email")
       .populate("updatedBy", "firstName lastName email");
 
@@ -2419,7 +2418,7 @@ router.post(
       await rule.save();
 
       // Populate references for response
-      await rule.populate("xpTier", "tierName xpMin xpMax");
+      // No need to populate xpTier - it's now a string
       await rule.populate("createdBy", "firstName lastName email");
 
       res.status(201).json({
@@ -2663,9 +2662,7 @@ router.put(
       const rule = await GameDisplayRule.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
-      })
-        .populate("xpTier", "tierName xpMin xpMax")
-        .populate("updatedBy", "firstName lastName email");
+      }).populate("updatedBy", "firstName lastName email");
 
       res.json({
         success: true,
@@ -2741,14 +2738,9 @@ router.get("/progression-rules", adminAuth, async (req, res) => {
 
     const [rules, total] = await Promise.all([
       TaskProgressionRule.find(query)
-        .populate("gameId", "title gameId")
         .populate("createdBy", "firstName lastName email")
         .populate("updatedBy", "firstName lastName email")
-        .populate(
-          "postThresholdTasks.taskId",
-          "name description completionRule rewardType rewardValue order"
-        )
-        .sort({ createdAt: -1 })
+        .sort({ priority: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -2757,34 +2749,16 @@ router.get("/progression-rules", adminAuth, async (req, res) => {
 
     // Format response
     const formattedRules = rules.map((rule) => {
-      // Safely handle postThresholdTasks - it might be undefined or null
-      const postThresholdTasks = Array.isArray(rule.postThresholdTasks)
-        ? rule.postThresholdTasks
-        : [];
-
-      const formattedTasks = postThresholdTasks
-        .filter((pt) => pt && pt.isEnabled !== false) // Filter enabled tasks, handle null/undefined
-        .sort((a, b) => (a.order || 0) - (b.order || 0))
-        .map((pt) => ({
-          taskId: pt.taskId?._id || pt.taskId || null,
-          order: pt.order || 0,
-          name: pt.taskId?.name || null,
-          description: pt.taskId?.description || null,
-          completionRule: pt.taskId?.completionRule || null,
-          rewardType: pt.taskId?.rewardType || null,
-          rewardValue: pt.taskId?.rewardValue || null,
-          requiredXpTier: pt.requiredXpTier || null,
-          requiredMembershipTier: pt.requiredMembershipTier || null,
-          isEnabled: pt.isEnabled !== false,
-        }));
-
       return {
         _id: rule._id,
-        gameId: rule.gameId?._id || rule.gameId || null,
-        gameTitle: rule.gameId?.title || null,
-        gameGameId: rule.gameId?.gameId || null,
-        minimumEventThreshold: rule.minimumEventThreshold || 5,
-        postThresholdTasks: formattedTasks,
+        ruleName: rule.ruleName || null,
+        userMilestones: rule.userMilestones || [],
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize || 5,
+        nextBatchSize: rule.nextBatchSize || 5,
+        maxBatches: rule.maxBatches || null,
         isActive: rule.isActive !== false,
         createdBy: rule.createdBy || null,
         updatedBy: rule.updatedBy || null,
@@ -2813,32 +2787,28 @@ router.get("/progression-rules", adminAuth, async (req, res) => {
   }
 });
 
-// Get task progression rule for a specific game
-router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
+// Get task progression rule by ID
+router.get("/progression-rules/:ruleId", adminAuth, async (req, res) => {
   try {
-    const { gameId } = req.params;
+    const { ruleId } = req.params;
 
-    const rule = await TaskProgressionRule.findByGame(gameId)
-      .populate("gameId", "title gameId")
-      .populate(
-        "postThresholdTasks.taskId",
-        "name description completionRule rewardType rewardValue order"
-      )
-      .lean();
+    const rule = await TaskProgressionRule.findById(ruleId).lean();
 
     if (!rule) {
-      return res.json({
-        success: true,
-        data: null,
-        message: "No progression rule configured for this game",
+      return res.status(404).json({
+        success: false,
+        message: "Progression rule not found",
       });
     }
 
     // Format response
     const formattedData = {
-      gameId: rule.gameId._id || rule.gameId,
-      gameTitle: rule.gameId.title || null,
-      gameGameId: rule.gameId.gameId || null,
+      _id: rule._id,
+      ruleName: rule.ruleName || null,
+      userMilestones: rule.userMilestones || [],
+      xpTier: rule.xpTier || null,
+      membershipTier: rule.membershipTier || null,
+      priority: rule.priority || 0,
       minimumEventThreshold: rule.minimumEventThreshold,
       postThresholdTasks: rule.postThresholdTasks
         .filter((pt) => pt.isEnabled)
@@ -2865,7 +2835,7 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
       data: formattedData,
     });
   } catch (error) {
-    console.error("Error getting progression rule for game:", error);
+    console.error("Error getting progression rule:", error);
     res.status(500).json({
       success: false,
       message: "Failed to get progression rule",
@@ -2874,48 +2844,59 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
   }
 });
 
-// Create or update task progression rule for a game
+// Create or update user-based task progression rule
 router.post(
-  "/progression-rules/game/:gameId",
+  "/progression-rules",
   adminAuth,
   [
-    body("minimumEventThreshold")
+    body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("User milestones must be a non-empty array"),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
+    body("xpTier")
+      .optional()
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("xp_tier") && !value) {
+          throw new Error(
+            "XP tier is required when xp_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("membershipTier")
+      .optional()
+      .isIn(["bronze", "gold", "platinum", "free", null])
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("membership_tier") && !value) {
+          throw new Error(
+            "Membership tier is required when membership_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("priority")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Priority must be a non-negative integer"),
+    body("firstBatchSize")
       .isInt({ min: 1 })
-      .withMessage("Minimum event threshold must be at least 1"),
-    body("postThresholdTasks")
-      .optional()
-      .isArray()
-      .withMessage("Post threshold tasks must be an array"),
-    body("postThresholdTasks.*.taskId")
-      .optional()
+      .withMessage("First batch size must be at least 1"),
+    body("nextBatchSize")
+      .isInt({ min: 1 })
+      .withMessage("Next batch size must be at least 1"),
+    body("maxBatches")
+      .optional({ nullable: true })
       .custom((value) => {
-        // Allow null, undefined, or empty string (will be handled by goal matching)
-        if (!value || value === "" || value === null || value === undefined) {
-          return true;
+        if (value === null || value === undefined || value === "") {
+          return true; // Allow null/undefined/empty
         }
-        // Allow MongoDB ObjectId format
-        if (mongoose.Types.ObjectId.isValid(value)) {
-          return true;
-        }
-        // Allow goal ID format (string with underscore, e.g., "ncnMFTerNjba_9676")
-        if (typeof value === "string" && value.length > 0) {
-          return true;
-        }
-        return false;
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
       })
-      .withMessage("Invalid task ID. Must be a MongoDB ObjectId or goal ID"),
-    body("postThresholdTasks.*.order")
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage("Order must be at least 1"),
-    body("postThresholdTasks.*.requiredXpTier")
-      .optional()
-      .isIn(["junior", "mid", "senior", null])
-      .withMessage("Invalid XP tier"),
-    body("postThresholdTasks.*.requiredMembershipTier")
-      .optional()
-      .isIn(["bronze", "gold", "platinum", null])
-      .withMessage("Invalid membership tier"),
+      .withMessage("Max batches must be at least 1 or null"),
   ],
   async (req, res) => {
     try {
@@ -2928,273 +2909,42 @@ router.post(
         });
       }
 
-      const { gameId } = req.params;
-      const { minimumEventThreshold, postThresholdTasks = [] } = req.body;
+      const {
+        ruleName,
+        userMilestones,
+        xpTier,
+        membershipTier,
+        priority = 0,
+        firstBatchSize,
+        nextBatchSize,
+        maxBatches = null,
+      } = req.body;
 
-      // Verify game exists
-      const game = await Game.findById(gameId);
-      if (!game) {
-        return res.status(404).json({
-          success: false,
-          message: "Game not found",
-        });
-      }
-
-      // Validate post threshold tasks if provided
-      if (postThresholdTasks.length > 0) {
-        // Get game data for goal matching
-        const game = await Game.findById(gameId);
-        if (!game) {
-          return res.status(404).json({
-            success: false,
-            message: "Game not found",
-          });
-        }
-
-        // Separate tasks by ID type: MongoDB ObjectIds vs Goal IDs
-        const tasksWithMongoIds = [];
-        const tasksWithGoalIds = [];
-        const tasksWithoutIds = [];
-
-        for (const pt of postThresholdTasks) {
-          if (!pt.taskId || pt.taskId === "" || pt.taskId === null) {
-            tasksWithoutIds.push(pt);
-          } else if (mongoose.Types.ObjectId.isValid(pt.taskId)) {
-            // Valid MongoDB ObjectId
-            tasksWithMongoIds.push(pt);
-          } else {
-            // Goal ID (string like "ncnMFTerNjba_9676")
-            tasksWithGoalIds.push(pt);
-          }
-        }
-
-        // Validate tasks with MongoDB ObjectIds
-        if (tasksWithMongoIds.length > 0) {
-          // Check for duplicate task IDs
-          const taskIds = tasksWithMongoIds
-            .map((pt) => pt.taskId.toString())
-            .filter((id) => id);
-          const uniqueTaskIds = [...new Set(taskIds)];
-          if (taskIds.length !== uniqueTaskIds.length) {
-            return res.status(400).json({
-              success: false,
-              message: "Duplicate task IDs are not allowed",
-              error: "DUPLICATE_TASK_IDS",
-            });
-          }
-
-          // Validate that all task IDs exist and belong to this game
-          const existingTasks = await GameTask.find({
-            _id: { $in: taskIds },
-            gameId: gameId,
-            isActive: true,
-          });
-
-          if (existingTasks.length !== taskIds.length) {
-            return res.status(400).json({
-              success: false,
-              message:
-                "One or more task IDs are invalid, inactive, or do not belong to this game",
-              error: "INVALID_TASK_IDS",
-            });
-          }
-        }
-
-        // Handle tasks with goal IDs - find or create GameTask documents
-        if (tasksWithGoalIds.length > 0) {
-          if (!game.besitosRawData || !game.besitosRawData.goals) {
-            return res.status(400).json({
-              success: false,
-              message:
-                "Cannot create tasks from goal IDs: Game does not have besitosRawData.goals",
-              error: "MISSING_GOALS",
-            });
-          }
-
-          const goals = game.besitosRawData.goals || [];
-
-          for (const pt of tasksWithGoalIds) {
-            const goalId = pt.taskId; // This is the goal ID (e.g., "ncnMFTerNjba_9676")
-
-            // Find the goal in besitosRawData
-            const goal = goals.find((g) => g.goal_id === goalId);
-
-            if (!goal) {
-              return res.status(400).json({
-                success: false,
-                message: `Goal ID "${goalId}" not found in game's besitosRawData.goals`,
-                error: "INVALID_GOAL_ID",
-              });
-            }
-
-            // Try to find existing GameTask by goal_id or goal text
-            let matchingTask = await GameTask.findOne({
-              gameId: gameId,
-              isActive: true,
-              $or: [
-                { "metadata.goalId": goalId },
-                { name: goal.text },
-                { description: { $regex: goal.text || "", $options: "i" } },
-              ],
-            });
-
-            // If task doesn't exist, create it from goal
-            if (!matchingTask) {
-              // Determine task order based on goal position
-              const goalIndex = goals.findIndex((g) => g.goal_id === goalId);
-              const taskOrder = goalIndex >= 0 ? goalIndex + 1 : pt.order || 1;
-
-              // Create new GameTask from goal
-              matchingTask = new GameTask({
-                gameId: gameId,
-                name: goal.text || `Task ${taskOrder}`,
-                description: goal.description || goal.text || "",
-                completionRule: goal.completion_rule || "complete",
-                rewardType: "xp", // Default to XP, can be configured later
-                rewardValue: goal.reward_value || 0,
-                order: taskOrder,
-                isActive: true,
-                metadata: {
-                  goalId: goalId,
-                  source: "besitos",
-                },
-                createdBy: req.user.userId,
-              });
-
-              await matchingTask.save();
-            }
-
-            // Replace goal ID with MongoDB ObjectId
-            pt.taskId = matchingTask._id;
-          }
-        }
-
-        // Handle tasks without IDs - try to find or create them from goals
-        if (tasksWithoutIds.length > 0) {
-          if (!game.besitosRawData || !game.besitosRawData.goals) {
-            return res.status(400).json({
-              success: false,
-              message:
-                "Cannot create tasks from goals: Game does not have besitosRawData.goals",
-              error: "MISSING_GOALS",
-            });
-          }
-
-          // Try to find matching tasks by goal information
-          for (const pt of tasksWithoutIds) {
-            if (pt.goalId || pt.goalText) {
-              // Try to find existing task by matching goal text or position
-              const matchingTask = await GameTask.findOne({
-                gameId: gameId,
-                isActive: true,
-                $or: [
-                  { name: pt.goalText },
-                  { description: { $regex: pt.goalText, $options: "i" } },
-                  { order: pt.order },
-                ],
-              });
-
-              if (matchingTask) {
-                pt.taskId = matchingTask._id;
-              } else {
-                // Task doesn't exist yet - this is okay, it will be created later
-                console.log(
-                  `Task not found for goal: ${
-                    pt.goalText || pt.goalId
-                  }. Will be created later.`
-                );
-              }
-            }
-          }
-        }
-
-        // Validate order values are unique and sequential
-        const orders = postThresholdTasks
-          .map((pt) => pt.order)
-          .sort((a, b) => a - b);
-        const expectedOrders = Array.from(
-          { length: orders.length },
-          (_, i) => i + 1
-        );
-        const hasSequentialOrders = orders.every(
-          (order, index) => order === expectedOrders[index]
-        );
-
-        if (!hasSequentialOrders) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Post threshold tasks must have sequential order starting from 1",
-            error: "INVALID_TASK_ORDER",
-          });
-        }
-
-        // Validate requiredXpTier values if provided
-        const validXpTiers = ["junior", "mid", "senior"];
-        for (const pt of postThresholdTasks) {
-          if (
-            pt.requiredXpTier &&
-            !validXpTiers.includes(pt.requiredXpTier.toLowerCase())
-          ) {
-            return res.status(400).json({
-              success: false,
-              message: `Invalid XP tier: ${pt.requiredXpTier}. Must be one of: junior, mid, senior`,
-              error: "INVALID_XP_TIER",
-            });
-          }
-        }
-
-        // Validate requiredMembershipTier values if provided
-        const validMembershipTiers = ["bronze", "gold", "platinum"];
-        for (const pt of postThresholdTasks) {
-          if (
-            pt.requiredMembershipTier &&
-            !validMembershipTiers.includes(
-              pt.requiredMembershipTier.toLowerCase()
-            )
-          ) {
-            return res.status(400).json({
-              success: false,
-              message: `Invalid membership tier: ${pt.requiredMembershipTier}. Must be one of: bronze, gold, platinum`,
-              error: "INVALID_MEMBERSHIP_TIER",
-            });
-          }
-        }
-      }
-
-      // Find or create rule
-      let rule = await TaskProgressionRule.findByGame(gameId);
+      // Find or create rule by ruleName
+      let rule = await TaskProgressionRule.findOne({ ruleName: ruleName });
 
       if (rule) {
         // Update existing rule
-        rule.minimumEventThreshold = minimumEventThreshold;
-        // Only include tasks with IDs (tasks without IDs will be added later when tasks are created)
-        rule.postThresholdTasks = postThresholdTasks
-          .filter((pt) => pt.taskId) // Only include tasks with valid IDs
-          .map((pt) => ({
-            taskId: pt.taskId,
-            order: pt.order,
-            requiredXpTier: pt.requiredXpTier || null,
-            requiredMembershipTier: pt.requiredMembershipTier || null,
-            isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
-          }));
+        rule.userMilestones = userMilestones;
+        rule.xpTier = xpTier || null;
+        rule.membershipTier = membershipTier || null;
+        rule.priority = priority;
+        rule.firstBatchSize = firstBatchSize;
+        rule.nextBatchSize = nextBatchSize;
+        rule.maxBatches = maxBatches;
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
       } else {
         // Create new rule
-        // Only include tasks with IDs (tasks without IDs will be added later when tasks are created)
         rule = new TaskProgressionRule({
-          gameId: gameId,
-          minimumEventThreshold: minimumEventThreshold,
-          postThresholdTasks: postThresholdTasks
-            .filter((pt) => pt.taskId) // Only include tasks with valid IDs
-            .map((pt) => ({
-              taskId: pt.taskId,
-              order: pt.order,
-              requiredXpTier: pt.requiredXpTier || null,
-              requiredMembershipTier: pt.requiredMembershipTier || null,
-              isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true,
-            })),
+          ruleName: ruleName,
+          userMilestones: userMilestones,
+          xpTier: xpTier || null,
+          membershipTier: membershipTier || null,
+          priority: priority,
+          firstBatchSize: firstBatchSize,
+          nextBatchSize: nextBatchSize,
+          maxBatches: maxBatches,
           createdBy: req.user.userId,
         });
       }
@@ -3210,34 +2960,19 @@ router.post(
 
       await rule.save();
 
-      // Populate before returning
-      await rule.populate("gameId", "title gameId");
-      await rule.populate(
-        "postThresholdTasks.taskId",
-        "name description completionRule rewardType rewardValue order"
-      );
+      // No need to populate xpTier - it's now a string
 
       // Format response
       const formattedData = {
-        gameId: rule.gameId._id || rule.gameId,
-        gameTitle: rule.gameId.title || null,
-        gameGameId: rule.gameId.gameId || null,
-        minimumEventThreshold: rule.minimumEventThreshold,
-        postThresholdTasks: rule.postThresholdTasks
-          .filter((pt) => pt.isEnabled)
-          .sort((a, b) => a.order - b.order)
-          .map((pt) => ({
-            taskId: pt.taskId._id || pt.taskId,
-            order: pt.order,
-            name: pt.taskId.name || null,
-            description: pt.taskId.description || null,
-            completionRule: pt.taskId.completionRule || null,
-            rewardType: pt.taskId.rewardType || null,
-            rewardValue: pt.taskId.rewardValue || null,
-            requiredXpTier: pt.requiredXpTier,
-            requiredMembershipTier: pt.requiredMembershipTier,
-            isEnabled: pt.isEnabled,
-          })),
+        _id: rule._id,
+        ruleName: rule.ruleName,
+        userMilestones: rule.userMilestones,
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize,
+        nextBatchSize: rule.nextBatchSize,
+        maxBatches: rule.maxBatches,
         isActive: rule.isActive,
       };
 
@@ -3260,53 +2995,49 @@ router.post(
 );
 
 // Delete task progression rule for a game
-router.delete(
-  "/progression-rules/game/:gameId",
-  adminAuth,
-  async (req, res) => {
-    try {
-      const { gameId } = req.params;
-      const { confirm } = req.query;
+router.delete("/progression-rules/:ruleId", adminAuth, async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    const { confirm } = req.query;
 
-      if (confirm !== "true") {
-        return res.status(400).json({
-          success: false,
-          message: "Please confirm deletion by adding ?confirm=true to the URL",
-        });
-      }
-
-      const rule = await TaskProgressionRule.findByGame(gameId);
-
-      if (!rule) {
-        return res.status(404).json({
-          success: false,
-          message: "Progression rule not found for this game",
-        });
-      }
-
-      rule.isActive = false;
-      rule.updatedBy = req.user.userId;
-      rule.updatedAt = new Date();
-      await rule.save();
-
-      res.json({
-        success: true,
-        message: "Progression rule deleted successfully",
-        data: {
-          id: rule._id,
-          gameId: rule.gameId,
-        },
-      });
-    } catch (error) {
-      console.error("Error deleting progression rule:", error);
-      res.status(500).json({
+    if (confirm !== "true") {
+      return res.status(400).json({
         success: false,
-        message: "Failed to delete progression rule",
-        error: error.message,
+        message: "Please confirm deletion by adding ?confirm=true to the URL",
       });
     }
+
+    const rule = await TaskProgressionRule.findById(ruleId);
+
+    if (!rule) {
+      return res.status(404).json({
+        success: false,
+        message: "Progression rule not found",
+      });
+    }
+
+    rule.isActive = false;
+    rule.updatedBy = req.user.userId;
+    rule.updatedAt = new Date();
+    await rule.save();
+
+    res.json({
+      success: true,
+      message: "Progression rule deleted successfully",
+      data: {
+        id: rule._id,
+        ruleName: rule.ruleName,
+      },
+    });
+  } catch (error) {
+    console.error("Error deleting progression rule:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete progression rule",
+      error: error.message,
+    });
   }
-);
+});
 
 // ==================== WELCOME BONUS TIMER RULES ====================
 

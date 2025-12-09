@@ -11,6 +11,11 @@ const {
   getWeekBoundsUtc,
   initWeekDays,
 } = require("../utils/dailyRewardHelpers");
+const {
+  calculateUserWeekNumber,
+  getWeekMultiplier,
+  applyMultiplier,
+} = require("../utils/dailyRewardHelpersV2");
 const { trackAchievements } = require("../utils/achievements");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
@@ -318,6 +323,12 @@ router.get("/week", protect, async (req, res) => {
       // Load admin configuration to include reward values
       const cfg = await loadConfig();
 
+      // Calculate week number and multiplier
+      const today = new Date();
+      const weekNumber = await calculateUserWeekNumber(req.user.userId, today, DailyRewardProgress);
+      const weekMultiplier = getWeekMultiplier(cfg, weekNumber);
+      const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+
       // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
       const enrichedDays = progress.days.map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
@@ -329,16 +340,35 @@ router.get("/week", protect, async (req, res) => {
             rewardXp: 0,
           };
         }
-        // Use coinValue/xpValue from V2 config (they sync with coins/xp)
+        
+        // Get base reward values
+        const rewardType = dayConfig.rewardType || 'Both';
+        let baseCoins = 0;
+        let baseXP = 0;
+        
+        if (rewardType === 'Coins' || rewardType === 'Both') {
+          baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+        }
+        if (rewardType === 'XP' || rewardType === 'Both') {
+          baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+        }
+        
+        // Apply weekly multiplier if enabled and week > 1
+        let finalCoins = baseCoins;
+        let finalXP = baseXP;
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+          finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+          finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+        }
+        
         return {
           ...day.toObject(),
-          // Include reward values from admin config V2
-          rewardCoins: dayConfig.coinValue ?? dayConfig.coins ?? 0,
-          rewardXp: dayConfig.xpValue ?? dayConfig.xp ?? 0,
+          // Include reward values from admin config V2 (with weekly multiplier applied)
+          rewardCoins: finalCoins,
+          rewardXp: finalXP,
         };
       });
 
-      const today = new Date();
       const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1;
       // Calculate end of day in local timezone (not UTC) for accurate countdown
       const endOfDay = new Date(
@@ -362,6 +392,14 @@ router.get("/week", protect, async (req, res) => {
           bigRewardEligible: progress.bigRewardEligible,
           bigRewardGranted: progress.bigRewardGranted,
           countdown: Math.max(0, endOfDay - today),
+          weekNumber,
+          weeklyMultiplier: {
+            enabled: cfg.weeklyMultiplier?.enabled || false,
+            currentMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
+            status: cfg.weeklyMultiplier?.enabled 
+              ? `Weekly Multiplier: Gradual (Active) - Week ${weekNumber} (${weekMultiplier}x)`
+              : 'Weekly Multiplier: Disabled'
+          },
           // Include big reward configuration from admin V2
           bigReward: {
             enabled: cfg.bigReward?.enabled ?? true,
@@ -398,19 +436,52 @@ router.get("/week", protect, async (req, res) => {
       // Load admin configuration to include reward values
       const cfg = await loadConfig();
 
+      // Calculate week number and multiplier
+      const today = new Date();
+      const weekNumber = await calculateUserWeekNumber(req.user.userId, today, DailyRewardProgress);
+      const weekMultiplier = getWeekMultiplier(cfg, weekNumber);
+      const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+
       // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
       const enrichedDays = currentProgress.days.map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
         // Use admin config values only - if not found, config is invalid
+        if (!dayConfig || !dayConfig.active) {
+          return {
+            ...day.toObject(),
+            rewardCoins: 0,
+            rewardXp: 0,
+          };
+        }
+        
+        // Get base reward values
+        const rewardType = dayConfig.rewardType || 'Both';
+        let baseCoins = 0;
+        let baseXP = 0;
+        
+        if (rewardType === 'Coins' || rewardType === 'Both') {
+          baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+        }
+        if (rewardType === 'XP' || rewardType === 'Both') {
+          baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+        }
+        
+        // Apply weekly multiplier if enabled and week > 1
+        let finalCoins = baseCoins;
+        let finalXP = baseXP;
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+          finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+          finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+        }
+        
         return {
           ...day.toObject(),
-          // Include reward values from admin config
-          rewardCoins: dayConfig ? dayConfig.coins : 0,
-          rewardXp: dayConfig ? dayConfig.xp : 0,
+          // Include reward values from admin config (with weekly multiplier applied)
+          rewardCoins: finalCoins,
+          rewardXp: finalXP,
         };
       });
 
-      const today = new Date();
       const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1;
       // Calculate end of day in local timezone (not UTC) for accurate countdown
       const endOfDay = new Date(
@@ -434,6 +505,14 @@ router.get("/week", protect, async (req, res) => {
           bigRewardEligible: currentProgress.bigRewardEligible,
           bigRewardGranted: currentProgress.bigRewardGranted,
           countdown: Math.max(0, endOfDay - today),
+          weekNumber,
+          weeklyMultiplier: {
+            enabled: cfg.weeklyMultiplier?.enabled || false,
+            currentMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
+            status: cfg.weeklyMultiplier?.enabled 
+              ? `Weekly Multiplier: Gradual (Active) - Week ${weekNumber} (${weekMultiplier}x)`
+              : 'Weekly Multiplier: Disabled'
+          },
           // Include big reward configuration from admin V2
           bigReward: {
             enabled: cfg.bigReward?.enabled ?? true,
@@ -449,6 +528,12 @@ router.get("/week", protect, async (req, res) => {
     // Load admin configuration to include reward values
     const cfg = await loadConfig();
 
+    // Calculate week number and multiplier
+    const today = new Date();
+    const weekNumber = await calculateUserWeekNumber(req.user.userId, today, DailyRewardProgress);
+    const weekMultiplier = getWeekMultiplier(cfg, weekNumber);
+    const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+
     // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
     const enrichedDays = progress.days.map((day) => {
       const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
@@ -460,16 +545,35 @@ router.get("/week", protect, async (req, res) => {
           rewardXp: 0,
         };
       }
-      // Use coinValue/xpValue from V2 config (they sync with coins/xp)
+      
+      // Get base reward values
+      const rewardType = dayConfig.rewardType || 'Both';
+      let baseCoins = 0;
+      let baseXP = 0;
+      
+      if (rewardType === 'Coins' || rewardType === 'Both') {
+        baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+      }
+      if (rewardType === 'XP' || rewardType === 'Both') {
+        baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+      }
+      
+      // Apply weekly multiplier if enabled and week > 1
+      let finalCoins = baseCoins;
+      let finalXP = baseXP;
+      if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+        finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+        finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+      }
+      
       return {
         ...day.toObject(),
-        // Include reward values from admin config V2
-        rewardCoins: dayConfig.coinValue ?? dayConfig.coins ?? 0,
-        rewardXp: dayConfig.xpValue ?? dayConfig.xp ?? 0,
+        // Include reward values from admin config V2 (with weekly multiplier applied)
+        rewardCoins: finalCoins,
+        rewardXp: finalXP,
       };
     });
 
-    const today = new Date();
     const todayDayNumber = ((today.getUTCDay() + 6) % 7) + 1; // 1..7 Mon..Sun
     // Calculate end of day in local timezone (not UTC) for accurate countdown
     const endOfDay = new Date(
@@ -493,6 +597,14 @@ router.get("/week", protect, async (req, res) => {
         bigRewardEligible: progress.bigRewardEligible,
         bigRewardGranted: progress.bigRewardGranted,
         countdown: Math.max(0, endOfDay - today),
+        weekNumber,
+        weeklyMultiplier: {
+          enabled: cfg.weeklyMultiplier?.enabled || false,
+          currentMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
+          status: cfg.weeklyMultiplier?.enabled 
+            ? `Weekly Multiplier: Gradual (Active) - Week ${weekNumber} (${weekMultiplier}x)`
+            : 'Weekly Multiplier: Disabled'
+        },
         // Include big reward configuration from admin V2
         bigReward: {
           enabled: cfg.bigReward?.enabled ?? true,
@@ -527,39 +639,85 @@ router.post("/claim", protect, async (req, res) => {
         .json({ success: false, error: "Reward not claimable" });
     }
 
+    // Calculate week number and multiplier
+    const weekNumber = await calculateUserWeekNumber(userId, now, DailyRewardProgress);
+    const weekMultiplier = getWeekMultiplier(cfg, weekNumber);
+    const roundingRule = cfg.weeklyMultiplier?.roundingRule || 'Round Nearest';
+
     // Determine reward from admin config
-    const base = cfg.days.find((d) => d.dayNumber === day.dayNumber) || {
-      coins: 10,
-      xp: 5,
-    };
+    const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
+    if (!dayConfig) {
+      return res.status(400).json({ success: false, error: 'Day configuration not found' });
+    }
+
+    if (dayConfig.active === false) {
+      return res.status(400).json({ success: false, error: 'This day\'s reward is not active' });
+    }
+
+    const rewardType = dayConfig.rewardType || 'Both';
+    let baseCoins = 0;
+    let baseXP = 0;
+
+    if (rewardType === 'Coins' || rewardType === 'Both') {
+      baseCoins = dayConfig.coinValue !== undefined ? dayConfig.coinValue : dayConfig.coins || 0;
+    }
+    if (rewardType === 'XP' || rewardType === 'Both') {
+      baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+    }
+
+    // Apply weekly multiplier if enabled and week > 1
+    let finalCoins = baseCoins;
+    let finalXP = baseXP;
+    if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+      finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+      finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+    }
 
     // Check perfect streak for big reward on Day 7 (V2 config)
     let bigReward = null;
-    if (day.dayNumber === 7 && cfg.bigReward?.enabled) {
-      const allClaimed = progress.days
-        .slice(0, 6)
-        .every((d) => d.status === "claimed");
-      if (allClaimed) {
-        bigReward = {
-          coins: cfg.bigReward.coinValue ?? cfg.bigReward.coins ?? 0,
-          xp: cfg.bigReward.xpValue ?? cfg.bigReward.xp ?? 0,
-          awardBadge: cfg.bigReward.awardBadge ?? false,
-          badgeName: cfg.bigReward.badgeName,
-        };
-        progress.bigRewardEligible = true;
-        progress.bigRewardGranted = true;
-      } else if (cfg.bigReward?.downgradeOnMiss) {
-        // If downgradeOnMiss is enabled and streak is broken, use fallback reward
-        bigReward = {
-          coins: cfg.fallbackReward?.coins ?? 0,
-          xp: cfg.fallbackReward?.xp ?? 0,
-          awardBadge: false,
-        };
+    let bigRewardCoins = 0;
+    let bigRewardXP = 0;
+
+    if (day.dayNumber === 7 && cfg.bigReward?.enabled !== false) {
+      const downgradeOnMiss = cfg.bigReward.downgradeOnMiss !== false;
+      
+      if (downgradeOnMiss) {
+        const allClaimed = progress.days.slice(0, 6).every(d => d.status === 'claimed');
+        if (allClaimed && weekNumber === 1) {
+          bigReward = cfg.bigReward;
+          progress.bigRewardEligible = true;
+          progress.bigRewardGranted = true;
+        }
+      } else {
+        if (weekNumber === 1) {
+          bigReward = cfg.bigReward;
+          progress.bigRewardEligible = true;
+          progress.bigRewardGranted = true;
+        }
+      }
+
+      if (bigReward) {
+        const bigRewardType = bigReward.rewardType || 'Both';
+        
+        if (bigRewardType === 'Coins' || bigRewardType === 'Both') {
+          bigRewardCoins = bigReward.coinValue !== undefined ? bigReward.coinValue : bigReward.coins || 0;
+        }
+        if (bigRewardType === 'XP' || bigRewardType === 'Both') {
+          bigRewardXP = bigReward.xpValue !== undefined ? bigReward.xpValue : bigReward.xp || 0;
+        }
+
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+          bigRewardCoins = applyMultiplier(bigRewardCoins, weekMultiplier, roundingRule);
+          bigRewardXP = applyMultiplier(bigRewardXP, weekMultiplier, roundingRule);
+        }
+      } else if (weekNumber === 1) {
+        bigRewardCoins = cfg.fallbackReward?.coins || 0;
+        bigRewardXP = cfg.fallbackReward?.xp || 0;
       }
     }
 
-    const coins = base.coins + (bigReward ? bigReward.coins : 0);
-    const xp = base.xp + (bigReward ? bigReward.xp : 0);
+    const coins = finalCoins + bigRewardCoins;
+    const xp = finalXP + bigRewardXP;
 
     // CRITICAL: Credit rewards FIRST before marking as claimed
     // This ensures atomicity - if crediting fails, status remains claimable
@@ -574,11 +732,11 @@ router.post("/claim", protect, async (req, res) => {
     user.wallet.balance = oldBalance + coins;
     user.wallet.lastUpdated = now;
 
-    const { finalXP, multiplier: tierMultiplier } =
+    const { finalXP: finalXPWithTier, multiplier: tierMultiplier } =
       await applyTierMultiplierToXP(user, xp || 0);
 
-    user.xp.current = oldXP + finalXP;
-    user.xp.total = (user.xp.total || 0) + finalXP;
+    user.xp.current = oldXP + finalXPWithTier;
+    user.xp.total = (user.xp.total || 0) + finalXPWithTier;
     // Award badge if big reward is granted and badge is enabled (V2 config)
     if (bigReward && bigReward.awardBadge && cfg.bigReward?.badgeName) {
       if (!user.badges) user.badges = [];
@@ -626,10 +784,12 @@ router.post("/claim", protect, async (req, res) => {
         coins: coins,
         xp: xp, // Base XP value before tier multiplier
         baseXp: xp, // Base XP value before tier multiplier
-        finalXp: finalXP, // Final XP value after tier multiplier
+        finalXp: finalXPWithTier, // Final XP value after tier multiplier
         tierMultiplier,
+        weekNumber,
+        weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
         rewardType:
-          coins > 0 && finalXP > 0 ? "Both" : coins > 0 ? "Coins" : "XP",
+          coins > 0 && finalXPWithTier > 0 ? "Both" : coins > 0 ? "Coins" : "XP",
       },
     });
 
@@ -685,6 +845,7 @@ router.post("/claim", protect, async (req, res) => {
           bigReward: !!bigReward,
           category: "daily_reward",
           dailyRewardsClaimed: dailyRewardsClaimed,
+          weekNumber: weekNumber
         });
       } catch (error) {
         console.error("Error tracking daily reward achievements:", error);
@@ -696,10 +857,12 @@ router.post("/claim", protect, async (req, res) => {
       data: {
         day: day.dayNumber,
         coins,
-        xp: finalXP, // Final XP value after tier multiplier (e.g., 44 = 22 base × 2.0 multiplier)
-        baseXp: xp, // Base XP value before multiplier (e.g., 22)
-        tierMultiplier: tierMultiplier, // Multiplier that was applied (e.g., 2.0)
+        xp: finalXPWithTier, // Final XP value after tier multiplier (e.g., 44 = 22 base × 2.0 multiplier)
+        baseXp: xp, // Base XP value before tier multiplier (e.g., 22)
+        tierMultiplier: tierMultiplier, // Tier multiplier that was applied (e.g., 2.0)
         bigReward: !!bigReward,
+        weekNumber,
+        weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
         newBalance: user.wallet.balance,
         newXP: user.xp.current,
       },

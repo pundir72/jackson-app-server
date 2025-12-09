@@ -20,6 +20,7 @@ const { trackAchievements } = require("../utils/achievements");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const { getTierKeyFromXPV2 } = require("../utils/xpTierMultiplierV2");
 const XPMultiplier = require("../models/XPMultiplier");
+const XPTier = require("../models/XPTier");
 
 // Load or create weekly progress
 async function loadProgress(userId, dateUtc = new Date()) {
@@ -224,6 +225,100 @@ async function loadConfig() {
   };
 }
 
+// Helper function to parse accessBenefits multiplier (e.g., "1.5x" -> 1.5)
+function parseAccessBenefitsMultiplier(accessBenefits) {
+  if (!accessBenefits || typeof accessBenefits !== "string") {
+    return 1.0;
+  }
+  const match = accessBenefits.match(/(\d+\.?\d*)x/i);
+  if (match && match[1]) {
+    return parseFloat(match[1]) || 1.0;
+  }
+  return 1.0;
+}
+
+// Helper function to get user's accessBenefits multiplier from XPTier
+async function getAccessBenefitsMultiplier(userXp) {
+  try {
+    console.log("=== TIER SELECTION DEBUG ===");
+    console.log("User XP:", userXp);
+
+    // Get all active tiers for debugging
+    const allTiers = await XPTier.find({ status: true })
+      .sort({ xpMin: 1 })
+      .lean();
+    console.log(
+      "All active tiers:",
+      allTiers.map((t) => ({
+        tierName: t.tierName,
+        xpMin: t.xpMin,
+        xpMax: t.xpMax,
+        accessBenefits: t.accessBenefits,
+      }))
+    );
+
+    // Find matching tier (now async)
+    const tier = await XPTier.findByXpValue(userXp);
+
+    if (tier) {
+      // Check if XP falls within tier range or exceeds it
+      const withinRange = userXp >= tier.xpMin && userXp <= tier.xpMax;
+      const exceedsMax = userXp > tier.xpMax;
+
+      console.log("Matched tier:", {
+        tierName: tier.tierName,
+        xpMin: tier.xpMin,
+        xpMax: tier.xpMax,
+        accessBenefits: tier.accessBenefits,
+        _id: tier._id,
+        userXp: userXp,
+        withinRange: withinRange,
+        exceedsMax: exceedsMax,
+      });
+
+      if (exceedsMax) {
+        console.log(
+          "ℹ️ INFO: User XP exceeds tier max, using highest tier as fallback"
+        );
+      }
+
+      // Check if multiple tiers could match
+      const matchingTiers = allTiers.filter(
+        (t) => userXp >= t.xpMin && userXp <= t.xpMax
+      );
+      if (matchingTiers.length > 1) {
+        console.warn(
+          "⚠️ WARNING: Multiple tiers match this XP value!",
+          matchingTiers.map((t) => ({
+            tierName: t.tierName,
+            xpMin: t.xpMin,
+            xpMax: t.xpMax,
+          }))
+        );
+      }
+
+      if (tier.accessBenefits) {
+        const multiplier = parseAccessBenefitsMultiplier(tier.accessBenefits);
+        console.log(
+          "Parsed multiplier:",
+          multiplier,
+          "from accessBenefits:",
+          tier.accessBenefits
+        );
+        console.log("=== END TIER SELECTION DEBUG ===");
+        return multiplier;
+      }
+    } else {
+      console.log("❌ No tier found for XP:", userXp);
+      console.log("=== END TIER SELECTION DEBUG ===");
+    }
+  } catch (error) {
+    console.error("Error getting accessBenefits multiplier:", error);
+    console.log("=== END TIER SELECTION DEBUG ===");
+  }
+  return 1.0;
+}
+
 // GET /api/daily-rewards/week?date=YYYY-MM-DD
 router.get("/week", protect, async (req, res) => {
   try {
@@ -336,24 +431,12 @@ router.get("/week", protect, async (req, res) => {
       const roundingRule =
         cfg.weeklyMultiplier?.roundingRule || "Round Nearest";
 
-      // Get user's XP tier multiplier for coins (user already loaded above)
-      let xpTierMultiplier = 1.0;
+      // Get user's accessBenefits multiplier from XPTier
+      let accessBenefitsMultiplier = 1.0;
       if (user && user.xp && user.xp.current !== undefined) {
-        try {
-          const tierKey = await getTierKeyFromXPV2(
-            userForMultiplier.xp.current
-          );
-          const multiplierDoc = await XPMultiplier.findOne({
-            tier: tierKey,
-            isActive: true,
-          }).lean();
-          xpTierMultiplier = multiplierDoc?.multiplier || 1.0;
-        } catch (error) {
-          console.error(
-            "Error getting XP tier multiplier for daily rewards:",
-            error
-          );
-        }
+        accessBenefitsMultiplier = await getAccessBenefitsMultiplier(
+          user.xp.current
+        );
       }
 
       // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
@@ -394,14 +477,18 @@ router.get("/week", protect, async (req, res) => {
           finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
         }
 
-        // Apply XP tier multiplier to XP only (after weekly multiplier)
-        if (xpTierMultiplier > 1.0) {
-          finalXP = applyMultiplier(finalXP, xpTierMultiplier, roundingRule);
+        // Apply accessBenefits multiplier to XP only (after weekly multiplier)
+        if (accessBenefitsMultiplier > 1.0) {
+          finalXP = applyMultiplier(
+            finalXP,
+            accessBenefitsMultiplier,
+            roundingRule
+          );
         }
 
         return {
           ...day.toObject(),
-          // Include reward values from admin config V2 (with weekly multiplier and XP tier multiplier applied)
+          // Include reward values from admin config V2 (with weekly multiplier applied, accessBenefits multiplier applied to XP only)
           rewardCoins: finalCoins,
           rewardXp: finalXP,
         };
@@ -485,6 +572,21 @@ router.get("/week", protect, async (req, res) => {
       const roundingRule =
         cfg.weeklyMultiplier?.roundingRule || "Round Nearest";
 
+      // Get user's accessBenefits multiplier from XPTier
+      const userForAccessBenefits = await User.findById(req.user.userId).select(
+        "xp"
+      );
+      let accessBenefitsMultiplier = 1.0;
+      if (
+        userForAccessBenefits &&
+        userForAccessBenefits.xp &&
+        userForAccessBenefits.xp.current !== undefined
+      ) {
+        accessBenefitsMultiplier = await getAccessBenefitsMultiplier(
+          userForAccessBenefits.xp.current
+        );
+      }
+
       // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
       const enrichedDays = currentProgress.days.map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
@@ -523,9 +625,18 @@ router.get("/week", protect, async (req, res) => {
           finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
         }
 
+        // Apply accessBenefits multiplier to XP only (after weekly multiplier)
+        if (accessBenefitsMultiplier > 1.0) {
+          finalXP = applyMultiplier(
+            finalXP,
+            accessBenefitsMultiplier,
+            roundingRule
+          );
+        }
+
         return {
           ...day.toObject(),
-          // Include reward values from admin config (with weekly multiplier applied)
+          // Include reward values from admin config (with weekly multiplier applied, accessBenefits multiplier applied to XP only)
           rewardCoins: finalCoins,
           rewardXp: finalXP,
         };
@@ -587,27 +698,19 @@ router.get("/week", protect, async (req, res) => {
     const weekMultiplier = getWeekMultiplier(cfg, weekNumber);
     const roundingRule = cfg.weeklyMultiplier?.roundingRule || "Round Nearest";
 
-    // Get user's XP tier multiplier for coins
-    let xpTierMultiplier = 1.0;
-    const userForMultiplier = await User.findById(req.user.userId).select("xp");
+    // Get user's accessBenefits multiplier from XPTier
+    const userForAccessBenefits = await User.findById(req.user.userId).select(
+      "xp"
+    );
+    let accessBenefitsMultiplier = 1.0;
     if (
-      userForMultiplier &&
-      userForMultiplier.xp &&
-      userForMultiplier.xp.current !== undefined
+      userForAccessBenefits &&
+      userForAccessBenefits.xp &&
+      userForAccessBenefits.xp.current !== undefined
     ) {
-      try {
-        const tierKey = await getTierKeyFromXPV2(userForMultiplier.xp.current);
-        const multiplierDoc = await XPMultiplier.findOne({
-          tier: tierKey,
-          isActive: true,
-        }).lean();
-        xpTierMultiplier = multiplierDoc?.multiplier || 1.0;
-      } catch (error) {
-        console.error(
-          "Error getting XP tier multiplier for daily rewards:",
-          error
-        );
-      }
+      accessBenefitsMultiplier = await getAccessBenefitsMultiplier(
+        userForAccessBenefits.xp.current
+      );
     }
 
     // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
@@ -648,14 +751,18 @@ router.get("/week", protect, async (req, res) => {
         finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
       }
 
-      // Apply XP tier multiplier to XP only (after weekly multiplier)
-      if (xpTierMultiplier > 1.0) {
-        finalXP = applyMultiplier(finalXP, xpTierMultiplier, roundingRule);
+      // Apply accessBenefits multiplier to XP only (after weekly multiplier)
+      if (accessBenefitsMultiplier > 1.0) {
+        finalXP = applyMultiplier(
+          finalXP,
+          accessBenefitsMultiplier,
+          roundingRule
+        );
       }
 
       return {
         ...day.toObject(),
-        // Include reward values from admin config V2 (with weekly multiplier and XP tier multiplier applied)
+        // Include reward values from admin config V2 (with weekly multiplier applied, accessBenefits multiplier applied to XP only)
         rewardCoins: finalCoins,
         rewardXp: finalXP,
       };

@@ -1,16 +1,17 @@
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const express = require("express");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 const router = express.Router();
-const XPDecaySetting = require('../models/XPDecaySetting');
-const XPTier = require('../models/XPTier');
-const BonusLogic = require('../models/BonusLogic');
+const XPDecaySetting = require("../models/XPDecaySetting");
+const XPTier = require("../models/XPTier");
+const BonusLogic = require("../models/BonusLogic");
+const XPMultiplier = require("../models/XPMultiplier");
 
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = 'uploads/badges/';
+    const uploadPath = "uploads/badges/";
     // Create directory if it doesn't exist
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
@@ -19,17 +20,28 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'badge-' + uniqueSuffix + path.extname(file.originalname));
-  }
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, "badge-" + uniqueSuffix + path.extname(file.originalname));
+  },
 });
 
 const fileFilter = (req, file, cb) => {
   // Accept PNG, SVG, JPG, JPEG, and WebP files
-  if (file.mimetype === 'image/png' || file.mimetype === 'image/svg+xml' || file.mimetype === 'image/jpg' || file.mimetype === 'image/jpeg' || file.mimetype === 'image/webp') {
+  if (
+    file.mimetype === "image/png" ||
+    file.mimetype === "image/svg+xml" ||
+    file.mimetype === "image/jpg" ||
+    file.mimetype === "image/jpeg" ||
+    file.mimetype === "image/webp"
+  ) {
     cb(null, true);
   } else {
-    cb(new Error('Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges'), false);
+    cb(
+      new Error(
+        "Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges"
+      ),
+      false
+    );
   }
 };
 
@@ -37,12 +49,69 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
 });
 
+/**
+ * Helper function to sync accessBenefits from XPTier to XPMultiplier collection
+ * @param {string} accessBenefits - Access benefits string (e.g., "2x", "1.5x")
+ * @param {string} tierName - Tier name (e.g., "Junior", "Middle", "Senior")
+ */
+async function syncAccessBenefitsToMultiplier(accessBenefits, tierName) {
+  if (!accessBenefits || !tierName) {
+    return;
+  }
+
+  try {
+    // Parse multiplier from accessBenefits string (e.g., "2x" -> 2.0, "1.5x" -> 1.5)
+    const multiplierMatch = accessBenefits.match(/(\d+\.?\d*)x/i);
+    if (!multiplierMatch) {
+      return;
+    }
+
+    const multiplierValue = parseFloat(multiplierMatch[1]);
+
+    // Map tier name to XPMultiplier tier enum
+    const tierMap = {
+      Junior: "JUNIOR",
+      Middle: "MID",
+      Senior: "SENIOR",
+    };
+
+    const multiplierTier = tierMap[tierName];
+
+    if (!multiplierTier || multiplierValue <= 0) {
+      return;
+    }
+
+    // Update or create XPMultiplier document
+    await XPMultiplier.findOneAndUpdate(
+      { tier: multiplierTier },
+      {
+        tier: multiplierTier,
+        multiplier: multiplierValue,
+        isActive: true,
+        updatedAt: new Date(),
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    console.log(
+      `Synced accessBenefits "${accessBenefits}" to XPMultiplier: ${multiplierTier} = ${multiplierValue}x`
+    );
+  } catch (error) {
+    console.error("Error syncing accessBenefits to XPMultiplier:", error);
+    // Don't throw error, just log it
+  }
+}
+
 // Admin authentication middleware
-const { adminAuth } = require('../middleware/adminAuth');
+const { adminAuth } = require("../middleware/adminAuth");
 
 // Apply admin auth to all routes
 router.use(adminAuth);
@@ -52,13 +121,13 @@ router.use(adminAuth);
 ======================================== */
 
 // Get all XP decay settings
-router.get('/xp-decay', async (req, res) => {
+router.get("/xp-decay", async (req, res) => {
   try {
     const { status, tierName, decayRuleType } = req.query;
-    
+
     let query = {};
-    if (status !== undefined) query.status = status === 'true';
-    if (tierName) query.tierName = new RegExp(tierName, 'i');
+    if (status !== undefined) query.status = status === "true";
+    if (tierName) query.tierName = new RegExp(tierName, "i");
     if (decayRuleType) query.decayRuleType = decayRuleType;
 
     const settings = await XPDecaySetting.find(query)
@@ -68,44 +137,44 @@ router.get('/xp-decay', async (req, res) => {
     res.json({
       success: true,
       data: settings,
-      total: settings.length
+      total: settings.length,
     });
   } catch (error) {
-    console.error('Error fetching XP decay settings:', error);
+    console.error("Error fetching XP decay settings:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP decay settings'
+      error: "Failed to fetch XP decay settings",
     });
   }
 });
 
 // Get single XP decay setting
-router.get('/xp-decay/:id', async (req, res) => {
+router.get("/xp-decay/:id", async (req, res) => {
   try {
     const setting = await XPDecaySetting.findById(req.params.id);
-    
+
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP decay setting not found'
+        error: "XP decay setting not found",
       });
     }
 
     res.json({
       success: true,
-      data: setting
+      data: setting,
     });
   } catch (error) {
-    console.error('Error fetching XP decay setting:', error);
+    console.error("Error fetching XP decay setting:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP decay setting'
+      error: "Failed to fetch XP decay setting",
     });
   }
 });
 
 // Create new XP decay setting
-router.post('/xp-decay', async (req, res) => {
+router.post("/xp-decay", async (req, res) => {
   try {
     const {
       tierName,
@@ -115,7 +184,7 @@ router.post('/xp-decay', async (req, res) => {
       minimumXpLimit,
       xpDeductionAmount,
       status = true,
-      notificationToggle = true
+      notificationToggle = true,
     } = req.body;
 
     // Parse XP range from various formats
@@ -135,7 +204,7 @@ router.post('/xp-decay', async (req, res) => {
       if (!rangeMatch) {
         rangeMatch = xpRange.match(/(\d+)\s+(\d+)/); // "0 999" (space between numbers)
       }
-      
+
       if (rangeMatch) {
         xpMin = parseInt(rangeMatch[1]);
         xpMax = parseInt(rangeMatch[2]);
@@ -146,43 +215,47 @@ router.post('/xp-decay', async (req, res) => {
     if (!tierName) {
       return res.status(400).json({
         success: false,
-        error: 'Tier name is required'
+        error: "Tier name is required",
       });
     }
 
     if (!xpRange) {
       return res.status(400).json({
         success: false,
-        error: 'XP range is required'
+        error: "XP range is required",
       });
     }
 
-    if (xpMin === undefined || xpMax === undefined || xpMin === null || xpMax === null) {
+    if (
+      xpMin === undefined ||
+      xpMax === undefined ||
+      xpMin === null ||
+      xpMax === null
+    ) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid XP range format. Supported formats: "0 - 999 XP", "0 - 999", "0 to 999", or "0 999"'
+        error:
+          'Invalid XP range format. Supported formats: "0 - 999 XP", "0 - 999", "0 to 999", or "0 999"',
       });
     }
 
     if (xpMin >= xpMax) {
       return res.status(400).json({
         success: false,
-        error: 'XP min must be less than XP max'
+        error: "XP min must be less than XP max",
       });
     }
 
     // Check for overlapping XP ranges
     const overlappingSetting = await XPDecaySetting.findOne({
-      $or: [
-        { xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }
-      ],
-      status: true
+      $or: [{ xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }],
+      status: true,
     });
 
     if (overlappingSetting) {
       return res.status(400).json({
         success: false,
-        error: `XP range overlaps with existing setting: ${overlappingSetting.tierName}`
+        error: `XP range overlaps with existing setting: ${overlappingSetting.tierName}`,
       });
     }
 
@@ -193,9 +266,9 @@ router.post('/xp-decay', async (req, res) => {
       if (match) {
         const value = parseInt(match[1]);
         const unit = match[2].toLowerCase();
-        if (unit.includes('week')) {
+        if (unit.includes("week")) {
           inactivityDurationDays = value * 7;
-        } else if (unit.includes('month')) {
+        } else if (unit.includes("month")) {
           inactivityDurationDays = value * 30;
         } else {
           inactivityDurationDays = value;
@@ -208,17 +281,19 @@ router.post('/xp-decay', async (req, res) => {
       xpRange: `${xpMin} - ${xpMax} XP`,
       xpMin,
       xpMax,
-      decayRuleType: decayRuleType || 'Fixed',
+      decayRuleType: decayRuleType || "Fixed",
       inactivityDuration,
       inactivityDurationDays,
       minimumXpLimit: minimumXpLimit || 0,
-      xpDeductionAmount: xpDeductionAmount !== undefined ? xpDeductionAmount : undefined,
-      decayPercentage: '25%', // Default
+      xpDeductionAmount:
+        xpDeductionAmount !== undefined ? xpDeductionAmount : undefined,
+      decayPercentage: "25%", // Default
       decayPercentageValue: 25, // Default
       sendNotification: notificationToggle,
-      notificationMessage: 'Your XP will decay due to inactivity. Stay active to maintain your tier!',
+      notificationMessage:
+        "Your XP will decay due to inactivity. Stay active to maintain your tier!",
       status,
-      order: 0
+      order: 0,
     });
 
     await newSetting.save();
@@ -226,19 +301,19 @@ router.post('/xp-decay', async (req, res) => {
     res.status(201).json({
       success: true,
       data: newSetting,
-      message: 'XP decay setting created successfully'
+      message: "XP decay setting created successfully",
     });
   } catch (error) {
-    console.error('Error creating XP decay setting:', error);
+    console.error("Error creating XP decay setting:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to create XP decay setting'
+      error: "Failed to create XP decay setting",
     });
   }
 });
 
 // Update XP decay setting
-router.put('/xp-decay/:id', async (req, res) => {
+router.put("/xp-decay/:id", async (req, res) => {
   try {
     const {
       tierName,
@@ -254,15 +329,15 @@ router.put('/xp-decay/:id', async (req, res) => {
       sendNotification,
       notificationMessage,
       status,
-      order
+      order,
     } = req.body;
 
     const setting = await XPDecaySetting.findById(req.params.id);
-    
+
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP decay setting not found'
+        error: "XP decay setting not found",
       });
     }
 
@@ -271,23 +346,21 @@ router.put('/xp-decay/:id', async (req, res) => {
       if (xpMin >= xpMax) {
         return res.status(400).json({
           success: false,
-          error: 'XP min must be less than XP max'
+          error: "XP min must be less than XP max",
         });
       }
 
       // Check for overlapping XP ranges (excluding current setting)
       const overlappingSetting = await XPDecaySetting.findOne({
         _id: { $ne: req.params.id },
-        $or: [
-          { xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }
-        ],
-        status: true
+        $or: [{ xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }],
+        status: true,
       });
 
       if (overlappingSetting) {
         return res.status(400).json({
           success: false,
-          error: `XP range overlaps with existing setting: ${overlappingSetting.tierName}`
+          error: `XP range overlaps with existing setting: ${overlappingSetting.tierName}`,
         });
       }
     }
@@ -297,14 +370,21 @@ router.put('/xp-decay/:id', async (req, res) => {
     if (xpMin !== undefined) setting.xpMin = xpMin;
     if (xpMax !== undefined) setting.xpMax = xpMax;
     if (decayRuleType !== undefined) setting.decayRuleType = decayRuleType;
-    if (inactivityDuration !== undefined) setting.inactivityDuration = inactivityDuration;
-    if (inactivityDurationDays !== undefined) setting.inactivityDurationDays = inactivityDurationDays;
+    if (inactivityDuration !== undefined)
+      setting.inactivityDuration = inactivityDuration;
+    if (inactivityDurationDays !== undefined)
+      setting.inactivityDurationDays = inactivityDurationDays;
     if (minimumXpLimit !== undefined) setting.minimumXpLimit = minimumXpLimit;
-    if (xpDeductionAmount !== undefined) setting.xpDeductionAmount = xpDeductionAmount;
-    if (decayPercentage !== undefined) setting.decayPercentage = decayPercentage;
-    if (decayPercentageValue !== undefined) setting.decayPercentageValue = decayPercentageValue;
-    if (sendNotification !== undefined) setting.sendNotification = sendNotification;
-    if (notificationMessage !== undefined) setting.notificationMessage = notificationMessage;
+    if (xpDeductionAmount !== undefined)
+      setting.xpDeductionAmount = xpDeductionAmount;
+    if (decayPercentage !== undefined)
+      setting.decayPercentage = decayPercentage;
+    if (decayPercentageValue !== undefined)
+      setting.decayPercentageValue = decayPercentageValue;
+    if (sendNotification !== undefined)
+      setting.sendNotification = sendNotification;
+    if (notificationMessage !== undefined)
+      setting.notificationMessage = notificationMessage;
     if (status !== undefined) setting.status = status;
     if (order !== undefined) setting.order = order;
 
@@ -318,26 +398,26 @@ router.put('/xp-decay/:id', async (req, res) => {
     res.json({
       success: true,
       data: setting,
-      message: 'XP decay setting updated successfully'
+      message: "XP decay setting updated successfully",
     });
   } catch (error) {
-    console.error('Error updating XP decay setting:', error);
+    console.error("Error updating XP decay setting:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update XP decay setting'
+      error: "Failed to update XP decay setting",
     });
   }
 });
 
 // Bulk delete XP decay settings
-router.delete('/xp-decay/bulk-delete', async (req, res) => {
+router.delete("/xp-decay/bulk-delete", async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -346,28 +426,28 @@ router.delete('/xp-decay/bulk-delete', async (req, res) => {
     res.json({
       success: true,
       data: {
-        deletedCount: result.deletedCount
+        deletedCount: result.deletedCount,
       },
-      message: `${result.deletedCount} XP decay settings deleted successfully`
+      message: `${result.deletedCount} XP decay settings deleted successfully`,
     });
   } catch (error) {
-    console.error('Error bulk deleting XP decay settings:', error);
+    console.error("Error bulk deleting XP decay settings:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk delete XP decay settings'
+      error: "Failed to bulk delete XP decay settings",
     });
   }
 });
 
 // Delete XP decay setting
-router.delete('/xp-decay/:id', async (req, res) => {
+router.delete("/xp-decay/:id", async (req, res) => {
   try {
     const setting = await XPDecaySetting.findById(req.params.id);
-    
+
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP decay setting not found'
+        error: "XP decay setting not found",
       });
     }
 
@@ -375,28 +455,28 @@ router.delete('/xp-decay/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'XP decay setting deleted successfully'
+      message: "XP decay setting deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting XP decay setting:', error);
+    console.error("Error deleting XP decay setting:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to delete XP decay setting'
+      error: "Failed to delete XP decay setting",
     });
   }
 });
 
 // Toggle XP decay setting status
-router.patch('/xp-decay/:id/status', async (req, res) => {
+router.patch("/xp-decay/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    
+
     const setting = await XPDecaySetting.findById(req.params.id);
-    
+
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP decay setting not found'
+        error: "XP decay setting not found",
       });
     }
 
@@ -406,57 +486,64 @@ router.patch('/xp-decay/:id/status', async (req, res) => {
     res.json({
       success: true,
       data: setting,
-      message: `XP decay setting ${setting.status ? 'activated' : 'deactivated'} successfully`
+      message: `XP decay setting ${
+        setting.status ? "activated" : "deactivated"
+      } successfully`,
     });
   } catch (error) {
-    console.error('Error toggling XP decay setting status:', error);
+    console.error("Error toggling XP decay setting status:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle XP decay setting status'
+      error: "Failed to toggle XP decay setting status",
     });
   }
 });
 
 // Toggle notification setting
-router.patch('/xp-decay/:id/notification', async (req, res) => {
+router.patch("/xp-decay/:id/notification", async (req, res) => {
   try {
     const { sendNotification } = req.body;
-    
+
     const setting = await XPDecaySetting.findById(req.params.id);
-    
+
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP decay setting not found'
+        error: "XP decay setting not found",
       });
     }
 
-    setting.sendNotification = sendNotification !== undefined ? sendNotification : !setting.sendNotification;
+    setting.sendNotification =
+      sendNotification !== undefined
+        ? sendNotification
+        : !setting.sendNotification;
     await setting.save();
 
     res.json({
       success: true,
       data: setting,
-      message: `Notification setting ${setting.sendNotification ? 'enabled' : 'disabled'} successfully`
+      message: `Notification setting ${
+        setting.sendNotification ? "enabled" : "disabled"
+      } successfully`,
     });
   } catch (error) {
-    console.error('Error toggling notification setting:', error);
+    console.error("Error toggling notification setting:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle notification setting'
+      error: "Failed to toggle notification setting",
     });
   }
 });
 
 // Bulk update XP decay settings status
-router.patch('/xp-decay/bulk-status', async (req, res) => {
+router.patch("/xp-decay/bulk-status", async (req, res) => {
   try {
     const { ids, status } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -469,28 +556,28 @@ router.patch('/xp-decay/bulk-status', async (req, res) => {
       success: true,
       data: {
         modifiedCount: result.modifiedCount,
-        matchedCount: result.matchedCount
+        matchedCount: result.matchedCount,
       },
-      message: `${result.modifiedCount} XP decay settings updated successfully`
+      message: `${result.modifiedCount} XP decay settings updated successfully`,
     });
   } catch (error) {
-    console.error('Error bulk updating XP decay settings:', error);
+    console.error("Error bulk updating XP decay settings:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk update XP decay settings'
+      error: "Failed to bulk update XP decay settings",
     });
   }
 });
 
 // Bulk delete XP decay settings
-router.delete('/xp-decay/bulk-delete', async (req, res) => {
+router.delete("/xp-decay/bulk-delete", async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -499,15 +586,15 @@ router.delete('/xp-decay/bulk-delete', async (req, res) => {
     res.json({
       success: true,
       data: {
-        deletedCount: result.deletedCount
+        deletedCount: result.deletedCount,
       },
-      message: `${result.deletedCount} XP decay settings deleted successfully`
+      message: `${result.deletedCount} XP decay settings deleted successfully`,
     });
   } catch (error) {
-    console.error('Error bulk deleting XP decay settings:', error);
+    console.error("Error bulk deleting XP decay settings:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk delete XP decay settings'
+      error: "Failed to bulk delete XP decay settings",
     });
   }
 });
@@ -517,60 +604,58 @@ router.delete('/xp-decay/bulk-delete', async (req, res) => {
 ======================================== */
 
 // Get all XP tiers
-router.get('/xp-tiers', async (req, res) => {
+router.get("/xp-tiers", async (req, res) => {
   try {
     const { status, tierName, xpRange } = req.query;
-    
-    let query = {};
-    if (status !== undefined) query.status = status === 'true';
-    if (tierName) query.tierName = new RegExp(tierName, 'i');
-    if (xpRange) query.xpRange = new RegExp(xpRange, 'i');
 
-    const tiers = await XPTier.find(query)
-      .sort({ order: 1, xpMin: 1 })
-      .lean();
+    let query = {};
+    if (status !== undefined) query.status = status === "true";
+    if (tierName) query.tierName = new RegExp(tierName, "i");
+    if (xpRange) query.xpRange = new RegExp(xpRange, "i");
+
+    const tiers = await XPTier.find(query).sort({ order: 1, xpMin: 1 }).lean();
 
     res.json({
       success: true,
       data: tiers,
-      total: tiers.length
+      total: tiers.length,
     });
   } catch (error) {
-    console.error('Error fetching XP tiers:', error);
+    console.error("Error fetching XP tiers:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP tiers'
+      error: "Failed to fetch XP tiers",
     });
   }
 });
 
 // Get single XP tier
-router.get('/xp-tiers/:id', async (req, res) => {
+router.get("/xp-tiers/:id", async (req, res) => {
   try {
     const tier = await XPTier.findById(req.params.id);
-    
+
     if (!tier) {
       return res.status(404).json({
         success: false,
-        error: 'XP tier not found'
+        error: "XP tier not found",
       });
     }
 
     res.json({
       success: true,
-      data: tier
+      data: tier,
     });
   } catch (error) {
-    console.error('Error fetching XP tier:', error);
+    console.error("Error fetching XP tier:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP tier'
+      error: "Failed to fetch XP tier",
     });
   }
 });
 
 // Create new XP tier
-router.post('/xp-tiers', upload.single('badgeFile'), async (req, res) => {
+router.post("/xp-tiers", upload.single("badgeFile"), async (req, res) => {
   try {
     const {
       tierName,
@@ -579,7 +664,7 @@ router.post('/xp-tiers', upload.single('badgeFile'), async (req, res) => {
       badge,
       accessBenefits,
       iconSrc,
-      status = true
+      status = true,
     } = req.body;
 
     // Handle file upload
@@ -593,29 +678,27 @@ router.post('/xp-tiers', upload.single('badgeFile'), async (req, res) => {
     if (!tierName || xpMin === undefined || xpMax === undefined) {
       return res.status(400).json({
         success: false,
-        error: 'Tier name, XP min, and XP max are required'
+        error: "Tier name, XP min, and XP max are required",
       });
     }
 
     if (xpMin >= xpMax) {
       return res.status(400).json({
         success: false,
-        error: 'XP min must be less than XP max'
+        error: "XP min must be less than XP max",
       });
     }
 
     // Check for overlapping XP ranges
     const overlappingTier = await XPTier.findOne({
-      $or: [
-        { xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }
-      ],
-      status: true
+      $or: [{ xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }],
+      status: true,
     });
 
     if (overlappingTier) {
       return res.status(400).json({
         success: false,
-        error: `XP range overlaps with existing tier: ${overlappingTier.tierName}`
+        error: `XP range overlaps with existing tier: ${overlappingTier.tierName}`,
       });
     }
 
@@ -624,73 +707,74 @@ router.post('/xp-tiers', upload.single('badgeFile'), async (req, res) => {
     if (existingTier) {
       return res.status(400).json({
         success: false,
-        error: 'Tier name already exists'
+        error: "Tier name already exists",
       });
     }
 
     const newTier = new XPTier({
       tierName,
-      tierColor: '#4CAF50', // Default color
-      bgColor: '#f8f9fa', // Default background
-      borderColor: '#dee2e6', // Default border
-      iconSrc: iconSrc || 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png', // Use frontend provided or default
+      tierColor: "#4CAF50", // Default color
+      bgColor: "#f8f9fa", // Default background
+      borderColor: "#dee2e6", // Default border
+      iconSrc:
+        iconSrc ||
+        "https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png", // Use frontend provided or default
       xpMin,
       xpMax,
       xpRange: `${xpMin} - ${xpMax} XP`,
-      badge: badge || '🥉',
+      badge: badge || "🥉",
       badgeFile: badgeFileUrl,
-      accessBenefits: accessBenefits || 'Entry-level access',
+      accessBenefits: accessBenefits || "Entry-level access",
       benefits: [], // Default empty array
       multipliers: { coins: 1.0, xp: 1.0, spins: 1.0 }, // Default multipliers
-      requirements: { minLevel: 1, vipRequired: 'free', maxPerDay: null }, // Default requirements
+      requirements: { minLevel: 1, vipRequired: "free", maxPerDay: null }, // Default requirements
       status,
-      order: 0 // Default order
+      order: 0, // Default order
     });
 
     await newTier.save();
 
+    // Sync accessBenefits to XPMultiplier collection
+    await syncAccessBenefitsToMultiplier(accessBenefits, tierName);
+
     res.status(201).json({
       success: true,
       data: newTier,
-      message: 'XP tier created successfully'
+      message: "XP tier created successfully",
     });
   } catch (error) {
-    console.error('Error creating XP tier:', error);
-    
+    console.error("Error creating XP tier:", error);
+
     // Handle multer errors specifically
-    if (error.code === 'LIMIT_FILE_SIZE') {
+    if (error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         success: false,
-        error: 'File size too large. Maximum 5MB allowed.'
+        error: "File size too large. Maximum 5MB allowed.",
       });
     }
-    
-    if (error.message === 'Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges') {
+
+    if (
+      error.message ===
+      "Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges"
+    ) {
       return res.status(400).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
-    
+
     res.status(500).json({
       success: false,
-      error: 'Failed to create XP tier'
+      error: "Failed to create XP tier",
     });
   }
 });
 
 // Update XP tier
-router.put('/xp-tiers/:id', upload.single('badgeFile'), async (req, res) => {
+router.put("/xp-tiers/:id", upload.single("badgeFile"), async (req, res) => {
   try {
-    const {
-      tierName,
-      xpMin,
-      xpMax,
-      badge,
-      accessBenefits,
-      iconSrc,
-      status
-    } = req.body;
+    const { tierName, xpMin, xpMax, badge, accessBenefits, iconSrc, status } =
+      req.body;
 
     // Handle file upload
     let badgeFileUrl = null;
@@ -700,11 +784,11 @@ router.put('/xp-tiers/:id', upload.single('badgeFile'), async (req, res) => {
     }
 
     const tier = await XPTier.findById(req.params.id);
-    
+
     if (!tier) {
       return res.status(404).json({
         success: false,
-        error: 'XP tier not found'
+        error: "XP tier not found",
       });
     }
 
@@ -713,34 +797,35 @@ router.put('/xp-tiers/:id', upload.single('badgeFile'), async (req, res) => {
       if (xpMin >= xpMax) {
         return res.status(400).json({
           success: false,
-          error: 'XP min must be less than XP max'
+          error: "XP min must be less than XP max",
         });
       }
 
       // Check for overlapping XP ranges (excluding current tier)
       const overlappingTier = await XPTier.findOne({
         _id: { $ne: req.params.id },
-        $or: [
-          { xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }
-        ],
-        status: true
+        $or: [{ xpMin: { $lte: xpMax }, xpMax: { $gte: xpMin } }],
+        status: true,
       });
 
       if (overlappingTier) {
         return res.status(400).json({
           success: false,
-          error: `XP range overlaps with existing tier: ${overlappingTier.tierName}`
+          error: `XP range overlaps with existing tier: ${overlappingTier.tierName}`,
         });
       }
     }
 
     // Check for duplicate tier name (excluding current tier)
     if (tierName && tierName !== tier.tierName) {
-      const existingTier = await XPTier.findOne({ tierName, _id: { $ne: req.params.id } });
+      const existingTier = await XPTier.findOne({
+        tierName,
+        _id: { $ne: req.params.id },
+      });
       if (existingTier) {
         return res.status(400).json({
           success: false,
-          error: 'Tier name already exists'
+          error: "Tier name already exists",
         });
       }
     }
@@ -754,7 +839,7 @@ router.put('/xp-tiers/:id', upload.single('badgeFile'), async (req, res) => {
     if (accessBenefits !== undefined) tier.accessBenefits = accessBenefits;
     if (iconSrc !== undefined) tier.iconSrc = iconSrc;
     if (status !== undefined) tier.status = status;
-    
+
     // Auto-update xpRange when xpMin or xpMax changes
     if (xpMin !== undefined || xpMax !== undefined) {
       tier.xpRange = `${tier.xpMin} - ${tier.xpMax} XP`;
@@ -762,45 +847,55 @@ router.put('/xp-tiers/:id', upload.single('badgeFile'), async (req, res) => {
 
     await tier.save();
 
+    // Sync accessBenefits to XPMultiplier collection if accessBenefits was updated
+    if (accessBenefits !== undefined) {
+      // Use updated tierName if provided, otherwise use existing tierName
+      const finalTierName = tierName || tier.tierName;
+      await syncAccessBenefitsToMultiplier(accessBenefits, finalTierName);
+    }
+
     res.json({
       success: true,
       data: tier,
-      message: 'XP tier updated successfully'
+      message: "XP tier updated successfully",
     });
   } catch (error) {
-    console.error('Error updating XP tier:', error);
-    
+    console.error("Error updating XP tier:", error);
+
     // Handle multer errors specifically
-    if (error.code === 'LIMIT_FILE_SIZE') {
+    if (error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         success: false,
-        error: 'File size too large. Maximum 5MB allowed.'
+        error: "File size too large. Maximum 5MB allowed.",
       });
     }
-    
-    if (error.message === 'Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges') {
+
+    if (
+      error.message ===
+      "Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges"
+    ) {
       return res.status(400).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
-    
+
     res.status(500).json({
       success: false,
-      error: 'Failed to update XP tier'
+      error: "Failed to update XP tier",
     });
   }
 });
 
 // Bulk delete XP tiers
-router.delete('/xp-tiers/bulk-delete', async (req, res) => {
+router.delete("/xp-tiers/bulk-delete", async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -809,28 +904,28 @@ router.delete('/xp-tiers/bulk-delete', async (req, res) => {
     res.json({
       success: true,
       data: {
-        deletedCount: result.deletedCount
+        deletedCount: result.deletedCount,
       },
-      message: `${result.deletedCount} XP tiers deleted successfully`
+      message: `${result.deletedCount} XP tiers deleted successfully`,
     });
   } catch (error) {
-    console.error('Error bulk deleting XP tiers:', error);
+    console.error("Error bulk deleting XP tiers:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk delete XP tiers'
+      error: "Failed to bulk delete XP tiers",
     });
   }
 });
 
 // Delete XP tier
-router.delete('/xp-tiers/:id', async (req, res) => {
+router.delete("/xp-tiers/:id", async (req, res) => {
   try {
     const tier = await XPTier.findById(req.params.id);
-    
+
     if (!tier) {
       return res.status(404).json({
         success: false,
-        error: 'XP tier not found'
+        error: "XP tier not found",
       });
     }
 
@@ -838,28 +933,28 @@ router.delete('/xp-tiers/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'XP tier deleted successfully'
+      message: "XP tier deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting XP tier:', error);
+    console.error("Error deleting XP tier:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to delete XP tier'
+      error: "Failed to delete XP tier",
     });
   }
 });
 
 // Toggle XP tier status
-router.patch('/xp-tiers/:id/status', async (req, res) => {
+router.patch("/xp-tiers/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    
+
     const tier = await XPTier.findById(req.params.id);
-    
+
     if (!tier) {
       return res.status(404).json({
         success: false,
-        error: 'XP tier not found'
+        error: "XP tier not found",
       });
     }
 
@@ -869,26 +964,28 @@ router.patch('/xp-tiers/:id/status', async (req, res) => {
     res.json({
       success: true,
       data: tier,
-      message: `XP tier ${tier.status ? 'activated' : 'deactivated'} successfully`
+      message: `XP tier ${
+        tier.status ? "activated" : "deactivated"
+      } successfully`,
     });
   } catch (error) {
-    console.error('Error toggling XP tier status:', error);
+    console.error("Error toggling XP tier status:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle XP tier status'
+      error: "Failed to toggle XP tier status",
     });
   }
 });
 
 // Bulk update XP tiers status
-router.patch('/xp-tiers/bulk-status', async (req, res) => {
+router.patch("/xp-tiers/bulk-status", async (req, res) => {
   try {
     const { ids, status } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -901,15 +998,15 @@ router.patch('/xp-tiers/bulk-status', async (req, res) => {
       success: true,
       data: {
         modifiedCount: result.modifiedCount,
-        matchedCount: result.matchedCount
+        matchedCount: result.matchedCount,
       },
-      message: `${result.modifiedCount} XP tiers updated successfully`
+      message: `${result.modifiedCount} XP tiers updated successfully`,
     });
   } catch (error) {
-    console.error('Error bulk updating XP tiers:', error);
+    console.error("Error bulk updating XP tiers:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk update XP tiers'
+      error: "Failed to bulk update XP tiers",
     });
   }
 });
@@ -919,15 +1016,15 @@ router.patch('/xp-tiers/bulk-status', async (req, res) => {
 ======================================== */
 
 // Get all bonus logic rules
-router.get('/bonus-logic', async (req, res) => {
+router.get("/bonus-logic", async (req, res) => {
   try {
     const { status, bonusType, active, category } = req.query;
-    
+
     let query = {};
-    if (status !== undefined) query.status = status === 'true';
-    if (active !== undefined) query.active = active === 'true';
+    if (status !== undefined) query.status = status === "true";
+    if (active !== undefined) query.active = active === "true";
     if (bonusType) query.bonusType = bonusType;
-    if (category) query['metadata.category'] = category;
+    if (category) query["metadata.category"] = category;
 
     const bonusRules = await BonusLogic.find(query)
       .sort({ priority: -1, order: 1 })
@@ -936,74 +1033,81 @@ router.get('/bonus-logic', async (req, res) => {
     res.json({
       success: true,
       data: bonusRules,
-      total: bonusRules.length
+      total: bonusRules.length,
     });
   } catch (error) {
-    console.error('Error fetching bonus logic rules:', error);
+    console.error("Error fetching bonus logic rules:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch bonus logic rules'
+      error: "Failed to fetch bonus logic rules",
     });
   }
 });
 
 // Get single bonus logic rule
-router.get('/bonus-logic/:id', async (req, res) => {
+router.get("/bonus-logic/:id", async (req, res) => {
   try {
     const rule = await BonusLogic.findById(req.params.id);
-    
+
     if (!rule) {
       return res.status(404).json({
         success: false,
-        error: 'Bonus logic rule not found'
+        error: "Bonus logic rule not found",
       });
     }
 
     res.json({
       success: true,
-      data: rule
+      data: rule,
     });
   } catch (error) {
-    console.error('Error fetching bonus logic rule:', error);
+    console.error("Error fetching bonus logic rule:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch bonus logic rule'
+      error: "Failed to fetch bonus logic rule",
     });
   }
 });
 
 // Create new bonus logic rule
-router.post('/bonus-logic', async (req, res) => {
+router.post("/bonus-logic", async (req, res) => {
   try {
     const {
       bonusType,
       triggerCondition,
       rewardValue,
-      active = true
+      active = true,
     } = req.body;
 
     // Validation
     if (!bonusType || !triggerCondition || !rewardValue) {
       return res.status(400).json({
         success: false,
-        error: 'Bonus type, trigger condition, and reward value are required'
+        error: "Bonus type, trigger condition, and reward value are required",
       });
     }
 
     // Parse reward value to extract details
-    let rewardDetails = { coins: 0, xp: 0, spins: 0, giftCards: 0, multiplier: 1.0, duration: 0 };
+    let rewardDetails = {
+      coins: 0,
+      xp: 0,
+      spins: 0,
+      giftCards: 0,
+      multiplier: 1.0,
+      duration: 0,
+    };
     if (rewardValue) {
       const match = rewardValue.match(/(\d+)\s+(XP|Coins?|Points?|₹|\$)/i);
       if (match) {
         const value = parseInt(match[1]);
         const type = match[2].toLowerCase();
-        if (type.includes('xp')) {
+        if (type.includes("xp")) {
           rewardDetails.xp = value;
-        } else if (type.includes('coin')) {
+        } else if (type.includes("coin")) {
           rewardDetails.coins = value;
-        } else if (type.includes('point')) {
+        } else if (type.includes("point")) {
           rewardDetails.coins = value; // Points = Coins
-        } else if (type.includes('₹') || type.includes('$')) {
+        } else if (type.includes("₹") || type.includes("$")) {
           rewardDetails.giftCards = value;
         }
       }
@@ -1015,13 +1119,29 @@ router.post('/bonus-logic', async (req, res) => {
       triggerDetails: {}, // Default empty object
       rewardValue,
       rewardDetails,
-      conditions: { minLevel: 1, vipRequired: 'free', maxPerUser: null, maxPerDay: null, cooldownPeriod: 0 },
-      notification: { enabled: true, title: 'New Bonus Available!', message: 'Check out our latest bonus and earn more rewards!', sendBefore: 24 },
+      conditions: {
+        minLevel: 1,
+        vipRequired: "free",
+        maxPerUser: null,
+        maxPerDay: null,
+        cooldownPeriod: 0,
+      },
+      notification: {
+        enabled: true,
+        title: "New Bonus Available!",
+        message: "Check out our latest bonus and earn more rewards!",
+        sendBefore: 24,
+      },
       active,
       status: true, // Default to true
       priority: 0, // Default priority
       order: 0, // Default order
-      metadata: { description: '', category: 'engagement', tags: [], createdBy: 'admin' }
+      metadata: {
+        description: "",
+        category: "engagement",
+        tags: [],
+        createdBy: "admin",
+      },
     });
 
     await newRule.save();
@@ -1029,19 +1149,19 @@ router.post('/bonus-logic', async (req, res) => {
     res.status(201).json({
       success: true,
       data: newRule,
-      message: 'Bonus logic rule created successfully'
+      message: "Bonus logic rule created successfully",
     });
   } catch (error) {
-    console.error('Error creating bonus logic rule:', error);
+    console.error("Error creating bonus logic rule:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to create bonus logic rule'
+      error: "Failed to create bonus logic rule",
     });
   }
 });
 
 // Update bonus logic rule
-router.put('/bonus-logic/:id', async (req, res) => {
+router.put("/bonus-logic/:id", async (req, res) => {
   try {
     const {
       bonusType,
@@ -1055,15 +1175,15 @@ router.put('/bonus-logic/:id', async (req, res) => {
       status,
       priority,
       order,
-      metadata
+      metadata,
     } = req.body;
 
     const rule = await BonusLogic.findById(req.params.id);
-    
+
     if (!rule) {
       return res.status(404).json({
         success: false,
-        error: 'Bonus logic rule not found'
+        error: "Bonus logic rule not found",
       });
     }
 
@@ -1073,20 +1193,21 @@ router.put('/bonus-logic/:id', async (req, res) => {
         _id: { $ne: req.params.id },
         bonusType,
         active: true,
-        status: true
+        status: true,
       });
 
       if (existingRule) {
         return res.status(400).json({
           success: false,
-          error: `Only one active bonus of type "${bonusType}" is allowed. Please deactivate the existing one first.`
+          error: `Only one active bonus of type "${bonusType}" is allowed. Please deactivate the existing one first.`,
         });
       }
     }
 
     // Update fields
     if (bonusType !== undefined) rule.bonusType = bonusType;
-    if (triggerCondition !== undefined) rule.triggerCondition = triggerCondition;
+    if (triggerCondition !== undefined)
+      rule.triggerCondition = triggerCondition;
     if (triggerDetails !== undefined) rule.triggerDetails = triggerDetails;
     if (rewardValue !== undefined) rule.rewardValue = rewardValue;
     if (rewardDetails !== undefined) rule.rewardDetails = rewardDetails;
@@ -1103,26 +1224,26 @@ router.put('/bonus-logic/:id', async (req, res) => {
     res.json({
       success: true,
       data: rule,
-      message: 'Bonus logic rule updated successfully'
+      message: "Bonus logic rule updated successfully",
     });
   } catch (error) {
-    console.error('Error updating bonus logic rule:', error);
+    console.error("Error updating bonus logic rule:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update bonus logic rule'
+      error: "Failed to update bonus logic rule",
     });
   }
 });
 
 // Bulk delete bonus logic rules
-router.delete('/bonus-logic/bulk-delete', async (req, res) => {
+router.delete("/bonus-logic/bulk-delete", async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -1131,28 +1252,28 @@ router.delete('/bonus-logic/bulk-delete', async (req, res) => {
     res.json({
       success: true,
       data: {
-        deletedCount: result.deletedCount
+        deletedCount: result.deletedCount,
       },
-      message: `${result.deletedCount} bonus logic rules deleted successfully`
+      message: `${result.deletedCount} bonus logic rules deleted successfully`,
     });
   } catch (error) {
-    console.error('Error bulk deleting bonus logic rules:', error);
+    console.error("Error bulk deleting bonus logic rules:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk delete bonus logic rules'
+      error: "Failed to bulk delete bonus logic rules",
     });
   }
 });
 
 // Delete bonus logic rule
-router.delete('/bonus-logic/:id', async (req, res) => {
+router.delete("/bonus-logic/:id", async (req, res) => {
   try {
     const rule = await BonusLogic.findById(req.params.id);
-    
+
     if (!rule) {
       return res.status(404).json({
         success: false,
-        error: 'Bonus logic rule not found'
+        error: "Bonus logic rule not found",
       });
     }
 
@@ -1160,28 +1281,28 @@ router.delete('/bonus-logic/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Bonus logic rule deleted successfully'
+      message: "Bonus logic rule deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting bonus logic rule:', error);
+    console.error("Error deleting bonus logic rule:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to delete bonus logic rule'
+      error: "Failed to delete bonus logic rule",
     });
   }
 });
 
 // Toggle bonus logic rule status
-router.patch('/bonus-logic/:id/status', async (req, res) => {
+router.patch("/bonus-logic/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    
+
     const rule = await BonusLogic.findById(req.params.id);
-    
+
     if (!rule) {
       return res.status(404).json({
         success: false,
-        error: 'Bonus logic rule not found'
+        error: "Bonus logic rule not found",
       });
     }
 
@@ -1191,28 +1312,30 @@ router.patch('/bonus-logic/:id/status', async (req, res) => {
     res.json({
       success: true,
       data: rule,
-      message: `Bonus logic rule ${rule.status ? 'activated' : 'deactivated'} successfully`
+      message: `Bonus logic rule ${
+        rule.status ? "activated" : "deactivated"
+      } successfully`,
     });
   } catch (error) {
-    console.error('Error toggling bonus logic rule status:', error);
+    console.error("Error toggling bonus logic rule status:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle bonus logic rule status'
+      error: "Failed to toggle bonus logic rule status",
     });
   }
 });
 
 // Toggle bonus logic rule active status
-router.patch('/bonus-logic/:id/active', async (req, res) => {
+router.patch("/bonus-logic/:id/active", async (req, res) => {
   try {
     const { active } = req.body;
-    
+
     const rule = await BonusLogic.findById(req.params.id);
-    
+
     if (!rule) {
       return res.status(404).json({
         success: false,
-        error: 'Bonus logic rule not found'
+        error: "Bonus logic rule not found",
       });
     }
 
@@ -1222,13 +1345,13 @@ router.patch('/bonus-logic/:id/active', async (req, res) => {
         _id: { $ne: req.params.id },
         bonusType: rule.bonusType,
         active: true,
-        status: true
+        status: true,
       });
 
       if (existingRule) {
         return res.status(400).json({
           success: false,
-          error: `Only one active bonus of type "${rule.bonusType}" is allowed. Please deactivate the existing one first.`
+          error: `Only one active bonus of type "${rule.bonusType}" is allowed. Please deactivate the existing one first.`,
         });
       }
     }
@@ -1239,26 +1362,28 @@ router.patch('/bonus-logic/:id/active', async (req, res) => {
     res.json({
       success: true,
       data: rule,
-      message: `Bonus logic rule ${rule.active ? 'activated' : 'deactivated'} successfully`
+      message: `Bonus logic rule ${
+        rule.active ? "activated" : "deactivated"
+      } successfully`,
     });
   } catch (error) {
-    console.error('Error toggling bonus logic rule active status:', error);
+    console.error("Error toggling bonus logic rule active status:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle bonus logic rule active status'
+      error: "Failed to toggle bonus logic rule active status",
     });
   }
 });
 
 // Bulk update bonus logic rules status
-router.patch('/bonus-logic/bulk-status', async (req, res) => {
+router.patch("/bonus-logic/bulk-status", async (req, res) => {
   try {
     const { ids, status } = req.body;
-    
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'IDs array is required'
+        error: "IDs array is required",
       });
     }
 
@@ -1271,21 +1396,17 @@ router.patch('/bonus-logic/bulk-status', async (req, res) => {
       success: true,
       data: {
         modifiedCount: result.modifiedCount,
-        matchedCount: result.matchedCount
+        matchedCount: result.matchedCount,
       },
-      message: `${result.modifiedCount} bonus logic rules updated successfully`
+      message: `${result.modifiedCount} bonus logic rules updated successfully`,
     });
   } catch (error) {
-    console.error('Error bulk updating bonus logic rules:', error);
+    console.error("Error bulk updating bonus logic rules:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to bulk update bonus logic rules'
+      error: "Failed to bulk update bonus logic rules",
     });
   }
 });
 
 module.exports = router;
-
-
-
-

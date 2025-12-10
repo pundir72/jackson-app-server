@@ -596,10 +596,30 @@ router.get("/discover", protect, async (req, res) => {
     // Build base filter
     const filter = { isActive: true };
     if (uiSection) filter.uiSection = uiSection;
-    if (ageGroup) filter.ageGroup = ageGroup;
-    // Gender filter: match specific gender OR "all" (which applies to all genders)
-    if (gender) {
-      filter.gender = { $in: [gender, "all"] };
+
+    // Check if user has Google ID (can login with Google - may not have age/gender)
+    const isGoogleUser = !!user.social?.googleId;
+
+    // If user logged in with Google, fetch all age groups and all genders
+    // Otherwise, apply ageGroup and gender filters as normal
+    if (!isGoogleUser) {
+      if (ageGroup) filter.ageGroup = ageGroup;
+      // Gender filter: match specific gender OR "all" (which applies to all genders)
+      if (gender) {
+        filter.gender = { $in: [gender, "all"] };
+      }
+    } else {
+      // For Google users, don't filter by ageGroup or gender to show all games
+      console.log("=== GOOGLE USER DETECTED ===");
+      console.log("Google user detected - fetching all age groups and genders");
+      console.log(
+        "Filter before Google user logic:",
+        JSON.stringify(
+          { isActive: true, uiSection: uiSection || "NOT SET" },
+          null,
+          2
+        )
+      );
     }
     // Note: countries field was removed, so we skip country filter from Game model
 
@@ -613,6 +633,11 @@ router.get("/discover", protect, async (req, res) => {
       gender: userProfile.gender,
       age: userProfile.age,
       country: userProfile.country,
+    });
+    console.log("User Login Method:", {
+      provider: user.social?.provider || "local",
+      hasGoogleId: !!user.social?.googleId,
+      isGoogleUser: isGoogleUser,
     });
     console.log("⚠️ MISMATCH CHECK:");
     if (gender && gender !== userProfile.gender) {
@@ -665,6 +690,87 @@ router.get("/discover", protect, async (req, res) => {
       console.log(`Games with gender="${gender}": ${genderCount}`);
     }
 
+    // Additional debugging for Google users
+    if (isGoogleUser) {
+      console.log("=== GOOGLE USER DEBUGGING ===");
+
+      // Check games with null/undefined ageGroup
+      const gamesWithNullAge = await Game.countDocuments({
+        isActive: true,
+        uiSection: uiSection || undefined,
+        $or: [
+          { ageGroup: null },
+          { ageGroup: { $exists: false } },
+          { ageGroup: "" },
+        ],
+      });
+      console.log(
+        `Games with NULL/empty ageGroup (uiSection="${
+          uiSection || "any"
+        }"): ${gamesWithNullAge}`
+      );
+
+      // Check games with "all" gender
+      const gamesWithAllGender = await Game.countDocuments({
+        isActive: true,
+        uiSection: uiSection || undefined,
+        gender: "all",
+      });
+      console.log(
+        `Games with gender="all" (uiSection="${
+          uiSection || "any"
+        }"): ${gamesWithAllGender}`
+      );
+
+      // Check games matching the exact filter that will be used
+      const filterForGoogle = { isActive: true };
+      if (uiSection) filterForGoogle.uiSection = uiSection;
+      const gamesMatchingFilter = await Game.find(filterForGoogle).lean();
+      console.log(
+        `Games matching Google user filter (isActive: true${
+          uiSection ? `, uiSection: "${uiSection}"` : ""
+        }): ${gamesMatchingFilter.length}`
+      );
+
+      if (gamesMatchingFilter.length > 0) {
+        console.log(
+          "All games matching filter:",
+          gamesMatchingFilter.map((g) => ({
+            _id: g._id,
+            title: g.title,
+            gameId: g.gameId,
+            isActive: g.isActive,
+            uiSection: g.uiSection,
+            ageGroup: g.ageGroup,
+            gender: g.gender,
+          }))
+        );
+      }
+
+      // Check all active games with this uiSection (if provided)
+      if (uiSection) {
+        const allUiSectionGames = await Game.find({
+          isActive: true,
+          uiSection: uiSection,
+        }).lean();
+        console.log(
+          `All active games with uiSection="${uiSection}": ${allUiSectionGames.length}`
+        );
+        if (allUiSectionGames.length > 0) {
+          console.log(
+            "Games breakdown:",
+            allUiSectionGames.map((g) => ({
+              title: g.title,
+              ageGroup: g.ageGroup || "NULL",
+              gender: g.gender || "NULL",
+            }))
+          );
+        }
+      }
+
+      console.log("=== END GOOGLE USER DEBUGGING ===");
+    }
+
     // Check games matching user profile instead
     const userProfileFilter = { isActive: true };
     if (uiSection) userProfileFilter.uiSection = uiSection;
@@ -715,8 +821,33 @@ router.get("/discover", protect, async (req, res) => {
 
     // Get all matching games first (before pagination)
     console.log("Querying games from database with filter...");
+    console.log("Final filter being used:", JSON.stringify(filter, null, 2));
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
     console.log(`✅ Found ${allGames.length} games matching filter`);
+
+    if (isGoogleUser) {
+      console.log("=== GOOGLE USER: GAMES FOUND ===");
+      console.log(`Total games found for Google user: ${allGames.length}`);
+      if (allGames.length > 0) {
+        console.log(
+          "All games details:",
+          allGames.map((g) => ({
+            _id: g._id,
+            gameId: g.gameId,
+            title: g.title,
+            isActive: g.isActive,
+            uiSection: g.uiSection,
+            gender: g.gender || "NULL",
+            ageGroup: g.ageGroup || "NULL",
+          }))
+        );
+      } else {
+        console.log("⚠️ WARNING: No games found for Google user!");
+        console.log("Filter used:", JSON.stringify(filter, null, 2));
+      }
+      console.log("=== END GOOGLE USER: GAMES FOUND ===");
+    }
+
     if (allGames.length > 0) {
       console.log(
         "Sample games:",
@@ -776,12 +907,26 @@ router.get("/discover", protect, async (req, res) => {
       }
     }
 
-    // Apply display rule limit if rule matches
-    if (maxGamesFromRule && allGames.length > maxGamesFromRule) {
+    // Apply display rule limit if rule matches AND uiSection is "Swipe"
+    // Display rules only apply to Swipe section games for all users
+    if (
+      maxGamesFromRule &&
+      uiSection &&
+      uiSection.toLowerCase() === "swipe" &&
+      allGames.length > maxGamesFromRule
+    ) {
       console.log(
-        `Applying display rule limit: ${allGames.length} -> ${maxGamesFromRule}`
+        `Applying display rule limit (Swipe section only): ${allGames.length} -> ${maxGamesFromRule}`
       );
       allGames = allGames.slice(0, maxGamesFromRule);
+    } else if (
+      maxGamesFromRule &&
+      uiSection &&
+      uiSection.toLowerCase() !== "swipe"
+    ) {
+      console.log(
+        `Display rule limit NOT applied: uiSection is "${uiSection}" (only applies to Swipe section)`
+      );
     }
 
     // Apply pagination
@@ -793,6 +938,23 @@ router.get("/discover", protect, async (req, res) => {
     console.log(
       `Pagination: page ${pageNum}, size ${pageSize}, total ${total}, showing ${paginatedGames.length} games`
     );
+
+    if (isGoogleUser) {
+      console.log("=== GOOGLE USER: PAGINATION DEBUG ===");
+      console.log(`Before pagination: ${allGames.length} games`);
+      console.log(`After pagination: ${paginatedGames.length} games`);
+      console.log(`Page: ${pageNum}, Page Size: ${pageSize}`);
+      console.log(
+        `Games being returned:`,
+        paginatedGames.map((g) => ({
+          title: g.title,
+          gameId: g.gameId,
+          ageGroup: g.ageGroup || "NULL",
+          gender: g.gender || "NULL",
+        }))
+      );
+      console.log("=== END GOOGLE USER: PAGINATION DEBUG ===");
+    }
 
     // Get user's first N games for bonus task eligibility
     const userGames = user.games || [];

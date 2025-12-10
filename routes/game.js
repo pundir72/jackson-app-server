@@ -604,9 +604,29 @@ router.get("/discover", protect, async (req, res) => {
     // Otherwise, apply ageGroup and gender filters as normal
     if (!isGoogleUser) {
       if (ageGroup) filter.ageGroup = ageGroup;
-      // Gender filter: match specific gender OR "all" (which applies to all genders)
+      // Gender filter: match specific gender OR "Any"/"all" (which applies to all genders)
+      // Normalize gender values: handle case-insensitive matching and "Any"/"all" equivalence
       if (gender) {
-        filter.gender = { $in: [gender, "all"] };
+        const normalizedGender = gender.toLowerCase();
+        // Map common variations: "all" -> "Any", lowercase -> capitalized
+        const genderVariations = [
+          normalizedGender, // original lowercase
+          normalizedGender.charAt(0).toUpperCase() + normalizedGender.slice(1), // Capitalized
+          normalizedGender.toUpperCase(), // UPPERCASE
+        ];
+
+        // Add "Any" or "all" for games that apply to all genders
+        if (normalizedGender === "all" || normalizedGender === "any") {
+          genderVariations.push("Any", "all", "ANY");
+        } else {
+          // For specific genders, also include "Any" and "all" to match games for all genders
+          genderVariations.push("Any", "all", "ANY");
+        }
+
+        // Use case-insensitive regex matching
+        filter.gender = {
+          $in: genderVariations.filter((v, i, arr) => arr.indexOf(v) === i), // Remove duplicates
+        };
       }
     } else {
       // For Google users, don't filter by ageGroup or gender to show all games
@@ -1724,6 +1744,8 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
     // TODO: Replace with actual internal events tracking
     const userInternalEvents = userGame.playCount || 0;
     const minimumEventThreshold = gameBonusConfig.minimumEventThreshold;
+    const completionDeadlineHours =
+      gameBonusConfig.completionDeadlineHours || 24;
 
     // Get game download/install time
     const gameDownloadTime =
@@ -1731,6 +1753,25 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
       userGame.firstPlayed ||
       userGame.date ||
       new Date();
+
+    // Get Task 1 unlock time (this will be the start time for the shared deadline)
+    const firstTask = gameBonusConfig.bonusTasks
+      .filter((bt) => bt.isEnabled)
+      .sort((a, b) => a.order - b.order)[0];
+    const firstTaskId = firstTask
+      ? (firstTask.taskId._id || firstTask.taskId).toString()
+      : null;
+    const firstTaskUnlockTime = firstTaskId
+      ? bonusTaskUnlocks[firstTaskId] || null
+      : null;
+
+    // Calculate shared deadline: All tasks share the same deadline starting from Task 1 unlock time
+    // If Task 1 hasn't unlocked yet, we'll set it when Task 1 unlocks
+    let sharedDeadlineStartTime = firstTaskUnlockTime;
+    if (!sharedDeadlineStartTime && firstTaskId) {
+      // Task 1 will unlock now, so set the start time
+      sharedDeadlineStartTime = new Date();
+    }
 
     // Format bonus tasks with unlock status
     const formattedBonusTasks = gameBonusConfig.bonusTasks
@@ -1755,6 +1796,10 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
             isUnlocked = true;
             unlockTime = new Date();
             unlockReason = "Unlocks immediately";
+            // Update shared deadline start time
+            if (!sharedDeadlineStartTime) {
+              sharedDeadlineStartTime = unlockTime;
+            }
           } else {
             isUnlocked = true;
             unlockReason = "Unlocked";
@@ -1789,11 +1834,13 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
           }
         }
 
-        // Calculate completion deadline (24 hours from unlock time)
-        // For Task 3 specifically, this is the fixed 24-hour timer mentioned in requirements
-        // For Task 1 and 2, also apply 24-hour deadline for consistency
-        const completionDeadline = unlockTime
-          ? new Date(unlockTime.getTime() + 24 * 60 * 60 * 1000)
+        // Calculate shared completion deadline: All tasks share the same deadline
+        // Deadline starts from when Task 1 unlocks (sharedDeadlineStartTime)
+        const completionDeadline = sharedDeadlineStartTime
+          ? new Date(
+              sharedDeadlineStartTime.getTime() +
+                completionDeadlineHours * 60 * 60 * 1000
+            )
           : null;
         const now = new Date();
         const isExpired = completionDeadline ? now > completionDeadline : false;
@@ -1818,7 +1865,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
           isExpired: isExpired,
           unlockReason: unlockReason,
           unlockTime: unlockTime,
-          completionDeadlineHours: 24,
+          completionDeadlineHours: completionDeadlineHours,
           completionDeadline: completionDeadline,
           timeRemaining: timeRemaining,
           minimumEventThreshold: minimumEventThreshold,
@@ -1865,7 +1912,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
         hasBonusTasks: true,
         gameId: gameId,
         minimumEventThreshold: minimumEventThreshold,
-        completionDeadlineHours: 24,
+        completionDeadlineHours: completionDeadlineHours,
         taskLogic: "sequential",
         bonusTasks: formattedBonusTasks,
         userProgress: {

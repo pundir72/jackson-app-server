@@ -103,6 +103,13 @@ const gameDisplayRuleSchema = new mongoose.Schema(
         max: 50,
         default: null,
       },
+      // Engaged users limit
+      engagedUsersLimit: {
+        type: Number,
+        min: 1,
+        max: 50,
+        default: null,
+      },
     },
     segmentOverrides: [
       {
@@ -543,6 +550,23 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
     } else {
       console.log(
         `    ⏭️  New Users Limit: SKIPPED (gamesPlayed: ${gamesPlayed}, limit: ${this.gameCountLimits.newUsersLimit})`
+      );
+    }
+
+    // Check engaged users limit
+    if (
+      gamesPlayed > 0 &&
+      this.gameCountLimits.engagedUsersLimit !== null &&
+      this.gameCountLimits.engagedUsersLimit !== undefined
+    ) {
+      console.log(
+        `    ✅ Engaged Users Limit: ${this.gameCountLimits.engagedUsersLimit} (user is engaged)`
+      );
+      maxGames = this.gameCountLimits.engagedUsersLimit;
+      console.log(`    → maxGames updated to: ${maxGames}`);
+    } else {
+      console.log(
+        `    ⏭️  Engaged Users Limit: SKIPPED (gamesPlayed: ${gamesPlayed}, limit: ${this.gameCountLimits.engagedUsersLimit})`
       );
     }
 

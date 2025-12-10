@@ -2994,6 +2994,150 @@ router.post(
   }
 );
 
+// Update task progression rule by ID
+router.put(
+  "/progression-rules/:ruleId",
+  adminAuth,
+  [
+    body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("User milestones must be a non-empty array"),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
+    body("xpTier")
+      .optional()
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("xp_tier") && !value) {
+          throw new Error(
+            "XP tier is required when xp_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("membershipTier")
+      .optional()
+      .isIn(["bronze", "gold", "platinum", "free", null])
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("membership_tier") && !value) {
+          throw new Error(
+            "Membership tier is required when membership_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("priority")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Priority must be a non-negative integer"),
+    body("firstBatchSize")
+      .isInt({ min: 1 })
+      .withMessage("First batch size must be at least 1"),
+    body("nextBatchSize")
+      .isInt({ min: 1 })
+      .withMessage("Next batch size must be at least 1"),
+    body("maxBatches")
+      .optional({ nullable: true })
+      .custom((value) => {
+        if (value === null || value === undefined || value === "") {
+          return true; // Allow null/undefined/empty
+        }
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
+      })
+      .withMessage("Max batches must be at least 1 or null"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { ruleId } = req.params;
+      const {
+        ruleName,
+        userMilestones,
+        xpTier,
+        membershipTier,
+        priority = 0,
+        firstBatchSize,
+        nextBatchSize,
+        maxBatches = null,
+        isActive,
+      } = req.body;
+
+      // Find rule by ID
+      const rule = await TaskProgressionRule.findById(ruleId);
+
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "Progression rule not found",
+        });
+      }
+
+      // Update rule fields
+      rule.ruleName = ruleName;
+      rule.userMilestones = userMilestones;
+      rule.xpTier = xpTier || null;
+      rule.membershipTier = membershipTier || null;
+      rule.priority = priority;
+      rule.firstBatchSize = firstBatchSize;
+      rule.nextBatchSize = nextBatchSize;
+      rule.maxBatches = maxBatches;
+      if (isActive !== undefined) {
+        rule.isActive = isActive;
+      }
+      rule.updatedBy = req.user.userId;
+      rule.updatedAt = new Date();
+
+      // Validate configuration
+      if (!rule.isValidConfiguration()) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid configuration. Please check your batch configuration.",
+        });
+      }
+
+      await rule.save();
+
+      // Format response
+      const formattedData = {
+        _id: rule._id,
+        ruleName: rule.ruleName,
+        userMilestones: rule.userMilestones,
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize,
+        nextBatchSize: rule.nextBatchSize,
+        maxBatches: rule.maxBatches,
+        isActive: rule.isActive,
+      };
+
+      res.json({
+        success: true,
+        message: "Progression rule updated successfully",
+        data: formattedData,
+      });
+    } catch (error) {
+      console.error("Error updating progression rule:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update progression rule",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // Delete task progression rule for a game
 router.delete("/progression-rules/:ruleId", adminAuth, async (req, res) => {
   try {
@@ -3235,24 +3379,15 @@ router.post(
       .isInt({ min: 0 })
       .withMessage("Minimum event threshold must be a non-negative integer"),
     body("bonusTasks")
-      .isArray({ max: 3 })
-      .withMessage("Maximum 3 bonus tasks allowed"),
+      .isArray({ min: 1 })
+      .withMessage("At least one bonus task is required"),
     body("bonusTasks.*.taskId").isMongoId().withMessage("Invalid task ID"),
     body("bonusTasks.*.order")
-      .isInt({ min: 1, max: 3 })
-      .withMessage("Order must be between 1 and 3"),
+      .isInt({ min: 1 })
+      .withMessage("Order must be a positive integer"),
   ],
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Validation failed",
-          errors: errors.array(),
-        });
-      }
-
       const { gameId } = req.params;
       const { minimumEventThreshold, bonusTasks } = req.body;
 
@@ -3264,26 +3399,47 @@ router.post(
         });
       }
 
-      // Get maxBonusTasksPerGame from configuration
+      // Get maxBonusTasksPerGame from configuration FIRST (before validation)
       const activeRule = await WelcomeBonusTimer.findOne({
         isActive: true,
       }).lean();
       const maxTasksPerGame = activeRule?.maxBonusTasksPerGame || 3;
+
+      // Now validate against dynamic maxTasksPerGame
+      const errors = validationResult(req);
+      const customErrors = [];
+      
+      if (bonusTasks.length > maxTasksPerGame) {
+        customErrors.push({
+          msg: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
+          param: "bonusTasks",
+          location: "body",
+        });
+      }
+
+      // Validate order values don't exceed maxBonusTasksPerGame
+      const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order || 0));
+      if (maxOrder > maxTasksPerGame) {
+        customErrors.push({
+          msg: `Task order cannot exceed ${maxTasksPerGame}`,
+          param: "bonusTasks.*.order",
+          location: "body",
+        });
+      }
+
+      if (!errors.isEmpty() || customErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: [...errors.array(), ...customErrors],
+        });
+      }
 
       // Validate bonus tasks count
       if (bonusTasks.length > maxTasksPerGame) {
         return res.status(400).json({
           success: false,
           message: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
-        });
-      }
-
-      // Validate order values don't exceed maxBonusTasksPerGame
-      const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order));
-      if (maxOrder > maxTasksPerGame) {
-        return res.status(400).json({
-          success: false,
-          message: `Task order cannot exceed ${maxTasksPerGame}`,
         });
       }
 
@@ -3440,6 +3596,71 @@ router.post(
       res.status(500).json({
         success: false,
         message: "Failed to update game bonus tasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Get all game bonus tasks configurations
+router.get(
+  "/welcome-bonus-timer/game-bonus-tasks",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const rule = await WelcomeBonusTimer.findOne({ isActive: true })
+        .populate("gameBonusTasks.gameId", "title gameId")
+        .populate(
+          "gameBonusTasks.bonusTasks.taskId",
+          "name description completionRule rewardType rewardValue"
+        )
+        .lean();
+
+      if (!rule || !rule.gameBonusTasks || rule.gameBonusTasks.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            configurations: [],
+            total: 0,
+          },
+        });
+      }
+
+      // Format response
+      const configurations = rule.gameBonusTasks
+        .filter((config) => config.isEnabled)
+        .map((config) => ({
+          gameId: config.gameId?._id || config.gameId,
+          gameTitle: config.gameId?.title || null,
+          gameGameId: config.gameId?.gameId || null,
+          minimumEventThreshold: config.minimumEventThreshold,
+          bonusTasksCount: config.bonusTasks?.filter((bt) => bt.isEnabled).length || 0,
+          bonusTasks: config.bonusTasks
+            ?.filter((bt) => bt.isEnabled)
+            .sort((a, b) => a.order - b.order)
+            .map((bt) => ({
+              taskId: bt.taskId?._id || bt.taskId,
+              order: bt.order,
+              name: bt.taskId?.name || null,
+              description: bt.taskId?.description || null,
+              unlockCondition: bt.unlockCondition,
+            })) || [],
+          isEnabled: config.isEnabled,
+          updatedAt: config.updatedAt,
+        }));
+
+      res.json({
+        success: true,
+        data: {
+          configurations,
+          total: configurations.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching all game bonus tasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch game bonus tasks configurations",
         error: error.message,
       });
     }

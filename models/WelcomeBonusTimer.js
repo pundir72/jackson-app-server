@@ -83,6 +83,13 @@ const welcomeBonusTimerSchema = new mongoose.Schema({
       min: 0,
       default: 0
     },
+    completionDeadlineHours: {
+      type: Number,
+      required: true,
+      min: 1,
+      max: 168, // Maximum 1 week
+      default: 24
+    },
     bonusTasks: [{
       taskId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -265,20 +272,24 @@ welcomeBonusTimerSchema.methods.calculateCompletionDeadline = function(gameId, u
 
 welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
   // Validate that unlock time is less than completion deadline
-  if (this.unlockTimeHours * 24 >= this.completionDeadlineDays) {
+  // Convert unlockTimeHours to days for comparison
+  const unlockTimeDays = this.unlockTimeHours / 24;
+  if (unlockTimeDays >= this.completionDeadlineDays) {
     return false;
   }
   
   // Validate game overrides
   for (const gameOverride of this.gameOverrides) {
-    if (gameOverride.unlockTimeHours * 24 >= gameOverride.completionDeadlineDays) {
+    const overrideUnlockTimeDays = gameOverride.unlockTimeHours / 24;
+    if (overrideUnlockTimeDays >= gameOverride.completionDeadlineDays) {
       return false;
     }
   }
   
   // Validate XP tier overrides
   for (const xpTierOverride of this.xpTierOverrides) {
-    if (xpTierOverride.unlockTimeHours * 24 >= xpTierOverride.completionDeadlineDays) {
+    const xpTierUnlockTimeDays = xpTierOverride.unlockTimeHours / 24;
+    if (xpTierUnlockTimeDays >= xpTierOverride.completionDeadlineDays) {
       return false;
     }
   }
@@ -292,7 +303,8 @@ welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
     
     // Check for duplicate orders
     if (gameBonus.bonusTasks) {
-      const orders = gameBonus.bonusTasks.map(bt => bt.order).sort();
+      // Convert orders to numbers and sort
+      const orders = gameBonus.bonusTasks.map(bt => Number(bt.order)).sort((a, b) => a - b);
       const uniqueOrders = [...new Set(orders)];
       if (orders.length !== uniqueOrders.length) {
         return false;
@@ -300,7 +312,8 @@ welcomeBonusTimerSchema.methods.isValidConfiguration = function() {
       
       // Check for sequential order (1, 2, 3, ... up to maxTasks)
       const expectedOrders = Array.from({ length: orders.length }, (_, i) => i + 1);
-      if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+      if (orders.length !== expectedOrders.length || 
+          orders.some((order, index) => order !== expectedOrders[index])) {
         return false;
       }
       

@@ -3378,9 +3378,13 @@ router.post(
     body("minimumEventThreshold")
       .isInt({ min: 0 })
       .withMessage("Minimum event threshold must be a non-negative integer"),
+    body("completionDeadlineHours")
+      .optional()
+      .isInt({ min: 1, max: 168 })
+      .withMessage("Completion deadline hours must be between 1 and 168 (1 week)"),
     body("bonusTasks")
-      .isArray({ min: 1 })
-      .withMessage("At least one bonus task is required"),
+      .isArray()
+      .withMessage("Bonus tasks must be an array"),
     body("bonusTasks.*.taskId").isMongoId().withMessage("Invalid task ID"),
     body("bonusTasks.*.order")
       .isInt({ min: 1 })
@@ -3388,8 +3392,17 @@ router.post(
   ],
   async (req, res) => {
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
       const { gameId } = req.params;
-      const { minimumEventThreshold, bonusTasks } = req.body;
+      const { minimumEventThreshold, completionDeadlineHours, bonusTasks } = req.body;
 
       // Validate at least 1 task
       if (!bonusTasks || bonusTasks.length === 0) {
@@ -3399,48 +3412,29 @@ router.post(
         });
       }
 
-      // Get maxBonusTasksPerGame from configuration FIRST (before validation)
+      // Get maxBonusTasksPerGame from configuration for dynamic validation
       const activeRule = await WelcomeBonusTimer.findOne({
         isActive: true,
       }).lean();
       const maxTasksPerGame = activeRule?.maxBonusTasksPerGame || 3;
 
-      // Now validate against dynamic maxTasksPerGame
-      const errors = validationResult(req);
-      const customErrors = [];
-      
-      if (bonusTasks.length > maxTasksPerGame) {
-        customErrors.push({
-          msg: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
-          param: "bonusTasks",
-          location: "body",
-        });
-      }
-
-      // Validate order values don't exceed maxBonusTasksPerGame
-      const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order || 0));
-      if (maxOrder > maxTasksPerGame) {
-        customErrors.push({
-          msg: `Task order cannot exceed ${maxTasksPerGame}`,
-          param: "bonusTasks.*.order",
-          location: "body",
-        });
-      }
-
-      if (!errors.isEmpty() || customErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Validation failed",
-          errors: [...errors.array(), ...customErrors],
-        });
-      }
-
-      // Validate bonus tasks count
+      // Validate bonus tasks count using dynamic maxTasksPerGame
       if (bonusTasks.length > maxTasksPerGame) {
         return res.status(400).json({
           success: false,
           message: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
         });
+      }
+
+      // Validate order values don't exceed maxBonusTasksPerGame
+      if (bonusTasks.length > 0) {
+        const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order || 0));
+        if (maxOrder > maxTasksPerGame) {
+          return res.status(400).json({
+            success: false,
+            message: `Task order cannot exceed ${maxTasksPerGame}`,
+          });
+        }
       }
 
       // Validate that order values are unique and sequential
@@ -3523,6 +3517,8 @@ router.post(
         // Update existing configuration
         rule.gameBonusTasks[existingGameIndex].minimumEventThreshold =
           minimumEventThreshold;
+        rule.gameBonusTasks[existingGameIndex].completionDeadlineHours =
+          completionDeadlineHours || 24;
         rule.gameBonusTasks[existingGameIndex].bonusTasks = bonusTasksData;
         rule.gameBonusTasks[existingGameIndex].isEnabled = true;
         rule.gameBonusTasks[existingGameIndex].updatedAt = new Date();
@@ -3531,6 +3527,7 @@ router.post(
         rule.gameBonusTasks.push({
           gameId: gameId,
           minimumEventThreshold: minimumEventThreshold,
+          completionDeadlineHours: completionDeadlineHours || 24,
           bonusTasks: bonusTasksData,
           isEnabled: true,
         });
@@ -3541,10 +3538,22 @@ router.post(
 
       // Validate configuration
       if (!rule.isValidConfiguration()) {
+        // Log validation details for debugging
+        console.error("WelcomeBonusTimer validation failed:", {
+          unlockTimeHours: rule.unlockTimeHours,
+          completionDeadlineDays: rule.completionDeadlineDays,
+          maxBonusTasksPerGame: rule.maxBonusTasksPerGame,
+          gameBonusTasksCount: rule.gameBonusTasks.length,
+          gameBonusTasks: rule.gameBonusTasks.map(gbt => ({
+            gameId: gbt.gameId,
+            bonusTasksCount: gbt.bonusTasks?.length || 0,
+            orders: gbt.bonusTasks?.map(bt => bt.order) || []
+          }))
+        });
         return res.status(400).json({
           success: false,
           message:
-            "Invalid configuration. Please check your bonus tasks setup.",
+            "Invalid configuration. Please check your bonus tasks setup. Ensure unlock time is less than completion deadline, and bonus tasks have sequential orders starting from 1.",
         });
       }
 
@@ -3567,7 +3576,7 @@ router.post(
         gameTitle: gameBonusConfig.gameId.title || null,
         gameGameId: gameBonusConfig.gameId.gameId || null,
         minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
-        completionDeadlineHours: 24, // Fixed 24 hours
+        completionDeadlineHours: gameBonusConfig.completionDeadlineHours || 24,
         taskLogic: "sequential", // Always sequential
         bonusTasks: gameBonusConfig.bonusTasks
           .filter((bt) => bt.isEnabled)
@@ -3596,71 +3605,6 @@ router.post(
       res.status(500).json({
         success: false,
         message: "Failed to update game bonus tasks",
-        error: error.message,
-      });
-    }
-  }
-);
-
-// Get all game bonus tasks configurations
-router.get(
-  "/welcome-bonus-timer/game-bonus-tasks",
-  adminAuth,
-  async (req, res) => {
-    try {
-      const rule = await WelcomeBonusTimer.findOne({ isActive: true })
-        .populate("gameBonusTasks.gameId", "title gameId")
-        .populate(
-          "gameBonusTasks.bonusTasks.taskId",
-          "name description completionRule rewardType rewardValue"
-        )
-        .lean();
-
-      if (!rule || !rule.gameBonusTasks || rule.gameBonusTasks.length === 0) {
-        return res.json({
-          success: true,
-          data: {
-            configurations: [],
-            total: 0,
-          },
-        });
-      }
-
-      // Format response
-      const configurations = rule.gameBonusTasks
-        .filter((config) => config.isEnabled)
-        .map((config) => ({
-          gameId: config.gameId?._id || config.gameId,
-          gameTitle: config.gameId?.title || null,
-          gameGameId: config.gameId?.gameId || null,
-          minimumEventThreshold: config.minimumEventThreshold,
-          bonusTasksCount: config.bonusTasks?.filter((bt) => bt.isEnabled).length || 0,
-          bonusTasks: config.bonusTasks
-            ?.filter((bt) => bt.isEnabled)
-            .sort((a, b) => a.order - b.order)
-            .map((bt) => ({
-              taskId: bt.taskId?._id || bt.taskId,
-              order: bt.order,
-              name: bt.taskId?.name || null,
-              description: bt.taskId?.description || null,
-              unlockCondition: bt.unlockCondition,
-            })) || [],
-          isEnabled: config.isEnabled,
-          updatedAt: config.updatedAt,
-        }));
-
-      res.json({
-        success: true,
-        data: {
-          configurations,
-          total: configurations.length,
-        },
-      });
-    } catch (error) {
-      console.error("Error fetching all game bonus tasks:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch game bonus tasks configurations",
         error: error.message,
       });
     }
@@ -3711,6 +3655,75 @@ router.delete(
       res.status(500).json({
         success: false,
         message: "Failed to delete game bonus tasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Get all game bonus tasks configurations
+router.get(
+  "/welcome-bonus-timer/game-bonus-tasks",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const rule = await WelcomeBonusTimer.findOne({ isActive: true })
+        .populate("gameBonusTasks.gameId", "title gameId")
+        .populate(
+          "gameBonusTasks.bonusTasks.taskId",
+          "name description completionRule rewardType rewardValue"
+        )
+        .lean();
+
+      if (!rule) {
+        return res.json({
+          success: true,
+          data: {
+            configurations: [],
+          },
+        });
+      }
+
+      // Format all game bonus task configurations
+      const configurations = rule.gameBonusTasks
+        .filter((config) => config.isEnabled)
+        .map((config) => ({
+          gameId: config.gameId._id || config.gameId,
+          gameTitle: config.gameId?.title || null,
+          gameGameId: config.gameId?.gameId || null,
+          minimumEventThreshold: config.minimumEventThreshold,
+          completionDeadlineHours: config.completionDeadlineHours || 24,
+          taskLogic: "sequential", // Always sequential
+          bonusTasks: config.bonusTasks
+            .filter((bt) => bt.isEnabled)
+            .sort((a, b) => a.order - b.order)
+            .map((bt) => ({
+              taskId: bt.taskId._id || bt.taskId,
+              order: bt.order,
+              name: bt.taskId?.name || null,
+              description: bt.taskId?.description || null,
+              completionRule: bt.taskId?.completionRule || null,
+              rewardType: bt.taskId?.rewardType || null,
+              rewardValue: bt.taskId?.rewardValue || null,
+              unlockCondition: bt.unlockCondition,
+              isEnabled: bt.isEnabled,
+            })),
+          isEnabled: config.isEnabled,
+          createdAt: config.createdAt,
+          updatedAt: config.updatedAt,
+        }));
+
+      res.json({
+        success: true,
+        data: {
+          configurations,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting all game bonus tasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get game bonus tasks configurations",
         error: error.message,
       });
     }

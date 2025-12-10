@@ -848,22 +848,12 @@ router.post("/claim", protect, async (req, res) => {
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    // Get user's XP tier multiplier for coins and XP
-    let xpTierMultiplier = 1.0;
+    // Get user's accessBenefits multiplier from XPTier (for display/calculation)
+    let accessBenefitsMultiplier = 1.0;
     if (user && user.xp && user.xp.current !== undefined) {
-      try {
-        const tierKey = await getTierKeyFromXPV2(user.xp.current);
-        const multiplierDoc = await XPMultiplier.findOne({
-          tier: tierKey,
-          isActive: true,
-        }).lean();
-        xpTierMultiplier = multiplierDoc?.multiplier || 1.0;
-      } catch (error) {
-        console.error(
-          "Error getting XP tier multiplier for daily rewards claim:",
-          error
-        );
-      }
+      accessBenefitsMultiplier = await getAccessBenefitsMultiplier(
+        user.xp.current
+      );
     }
 
     // Determine reward from admin config
@@ -897,16 +887,15 @@ router.post("/claim", protect, async (req, res) => {
 
     // Apply weekly multiplier if enabled and week > 1
     let finalCoins = baseCoins;
-    let finalXP = baseXP;
+    let xpAfterWeekly = baseXP;
     if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
       finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
-      finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+      xpAfterWeekly = applyMultiplier(baseXP, weekMultiplier, roundingRule);
     }
 
-    // Apply XP tier multiplier to XP only (after weekly multiplier)
-    if (xpTierMultiplier > 1.0) {
-      finalXP = applyMultiplier(finalXP, xpTierMultiplier, roundingRule);
-    }
+    // Store base XP (after weekly multiplier, before accessBenefits multiplier)
+    // This will be used for metadata and passed to applyTierMultiplierToXP
+    const baseXPForTier = xpAfterWeekly;
 
     // Check perfect streak for big reward on Day 7 (V2 config)
     let bigReward = null;
@@ -962,14 +951,8 @@ router.post("/claim", protect, async (req, res) => {
           );
         }
 
-        // Apply XP tier multiplier to big reward XP only (after weekly multiplier)
-        if (xpTierMultiplier > 1.0) {
-          bigRewardXP = applyMultiplier(
-            bigRewardXP,
-            xpTierMultiplier,
-            roundingRule
-          );
-        }
+        // Big reward XP will be multiplied by applyTierMultiplierToXP later
+        // No need to apply accessBenefits multiplier here
       } else if (weekNumber === 1) {
         bigRewardCoins = cfg.fallbackReward?.coins || 0;
         bigRewardXP = cfg.fallbackReward?.xp || 0;
@@ -977,7 +960,8 @@ router.post("/claim", protect, async (req, res) => {
     }
 
     const coins = finalCoins + bigRewardCoins;
-    const xp = finalXP + bigRewardXP;
+    // XP before tier multiplier (after weekly multiplier)
+    const baseXPTotal = baseXPForTier + bigRewardXP;
 
     // CRITICAL: Credit rewards FIRST before marking as claimed
     // This ensures atomicity - if crediting fails, status remains claimable
@@ -988,8 +972,10 @@ router.post("/claim", protect, async (req, res) => {
     user.wallet.balance = oldBalance + coins;
     user.wallet.lastUpdated = now;
 
+    // Apply tier multiplier using applyTierMultiplierToXP (uses XPMultiplier)
+    // This applies the accessBenefits multiplier from the tier
     const { finalXP: finalXPWithTier, multiplier: tierMultiplier } =
-      await applyTierMultiplierToXP(user, xp || 0);
+      await applyTierMultiplierToXP(user, baseXPTotal || 0);
 
     user.xp.current = oldXP + finalXPWithTier;
     user.xp.total = (user.xp.total || 0) + finalXPWithTier;
@@ -1010,7 +996,7 @@ router.post("/claim", protect, async (req, res) => {
     let primaryAmount = 0;
     let primaryBalanceType = "coins";
 
-    if (coins > 0 && finalXP > 0) {
+    if (coins > 0 && finalXPWithTier > 0) {
       // Both rewards - use coins as primary
       primaryAmount = coins;
       primaryBalanceType = "coins";
@@ -1018,9 +1004,9 @@ router.post("/claim", protect, async (req, res) => {
       // Only coins
       primaryAmount = coins;
       primaryBalanceType = "coins";
-    } else if (finalXP > 0) {
+    } else if (finalXPWithTier > 0) {
       // Only XP
-      primaryAmount = finalXP;
+      primaryAmount = finalXPWithTier;
       primaryBalanceType = "xp";
     }
 
@@ -1036,14 +1022,18 @@ router.post("/claim", protect, async (req, res) => {
         rewardDay: day.dayNumber,
         bigReward: !!bigReward,
         // Include both coins and XP in metadata
-        // Use base XP value (before tier multiplier) in xp field
         coins: coins,
-        xp: xp, // Base XP value before tier multiplier
-        baseXp: xp, // Base XP value before tier multiplier
-        finalXp: finalXPWithTier, // Final XP value after tier multiplier
-        tierMultiplier,
-        weekNumber,
+        // Base XP value (after weekly multiplier, before tier/accessBenefits multiplier)
+        baseXp: baseXPTotal,
+        // Final XP value after tier/accessBenefits multiplier (this is what user actually receives)
+        finalXp: finalXPWithTier,
+        // Tier multiplier that was applied (from XPMultiplier, same as accessBenefits)
+        tierMultiplier: tierMultiplier,
+        // Weekly multiplier that was applied
+        weekNumber: weekNumber,
         weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
+        // Access benefits multiplier (same as tierMultiplier, for clarity)
+        accessBenefitsMultiplier: tierMultiplier,
         rewardType:
           coins > 0 && finalXPWithTier > 0
             ? "Both"
@@ -1068,7 +1058,7 @@ router.post("/claim", protect, async (req, res) => {
     day.status = "claimed";
     day.claimedAt = now;
     day.coins = coins;
-    day.xp = xp;
+    day.xp = baseXPTotal; // Store base XP (before tier multiplier) in progress
 
     // Unlock next day (or mark missed for past days)
     if (todayIdx + 1 < progress.days.length) {
@@ -1100,7 +1090,7 @@ router.post("/claim", protect, async (req, res) => {
 
         await trackAchievements(userId, "wallet", {
           coins: coins,
-          xp: xp,
+          xp: finalXPWithTier, // Use final XP (after multiplier) for achievements
           dayNumber: day.dayNumber,
           bigReward: !!bigReward,
           category: "daily_reward",
@@ -1117,9 +1107,10 @@ router.post("/claim", protect, async (req, res) => {
       data: {
         day: day.dayNumber,
         coins,
-        xp: finalXPWithTier, // Final XP value after tier multiplier (e.g., 44 = 22 base × 2.0 multiplier)
-        baseXp: xp, // Base XP value before tier multiplier (e.g., 22)
-        tierMultiplier: tierMultiplier, // Tier multiplier that was applied (e.g., 2.0)
+        xp: finalXPWithTier, // Final XP value after tier multiplier (e.g., 65 = 50 base × 1.3 multiplier)
+        baseXp: baseXPTotal, // Base XP value before tier multiplier (e.g., 50)
+        tierMultiplier: tierMultiplier, // Tier multiplier that was applied (e.g., 1.3)
+        accessBenefitsMultiplier: tierMultiplier, // Same as tierMultiplier (for clarity)
         bigReward: !!bigReward,
         weekNumber,
         weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,

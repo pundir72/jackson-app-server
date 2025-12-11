@@ -994,9 +994,32 @@ router.get("/discover", protect, async (req, res) => {
       .map((g) => String(g.gameId));
 
     // Get user-based task progression rule (applies to user, not specific game)
+    console.log("=== FETCHING TASK PROGRESSION RULE ===");
+    console.log("User Profile for Progression Rule:", {
+      xp: userProfile.xp,
+      gamesPlayed: userProfile.gamesPlayed,
+      membershipTier: userProfile.membershipTier,
+      age: userProfile.age,
+      gender: userProfile.gender,
+      country: userProfile.country,
+    });
+
     const progressionRule = await TaskProgressionRule.findBestMatchForUser(
       userProfile
     );
+
+    if (progressionRule) {
+      console.log("✅ Task Progression Rule Found:", {
+        ruleName: progressionRule.ruleName,
+        firstBatchSize: progressionRule.firstBatchSize,
+        nextBatchSize: progressionRule.nextBatchSize,
+        maxBatches: progressionRule.maxBatches,
+      });
+    } else {
+      console.log("⚠️ No Task Progression Rule found for user");
+      console.log("This means taskProgression will be null in response");
+    }
+    console.log("=== END FETCHING TASK PROGRESSION RULE ===");
 
     // Get user's XP tier
     const userXpTier = getUserXpTier(user);

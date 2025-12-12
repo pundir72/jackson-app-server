@@ -572,16 +572,49 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
 
     // Check XP tier limit
     if (this.gameCountLimits.xpTierLimits && xp !== undefined && xp !== null) {
-      // Determine XP tier based on XP value
-      // Junior: 0-500, Mid: 501-2000, Senior: 2001+
-      let xpTier = "junior";
-      if (xp >= 2001) {
-        xpTier = "senior";
-      } else if (xp >= 501) {
-        xpTier = "mid";
+      // Determine XP tier from admin configuration
+      const XPTier = require("./XPTier");
+      let xpTier = "junior"; // fallback
+
+      try {
+        const userXpTierDoc = await XPTier.findByXpValue(xp);
+        if (userXpTierDoc) {
+          // Map tier names to lowercase for matching
+          const tierNameMap = {
+            Junior: "junior",
+            Middle: "mid",
+            Senior: "senior",
+          };
+          xpTier =
+            tierNameMap[userXpTierDoc.tierName] ||
+            userXpTierDoc.tierName.toLowerCase();
+          console.log(
+            `    📈 User XP: ${xp} → XP Tier: ${xpTier} (from admin config: ${userXpTierDoc.tierName}, range: ${userXpTierDoc.xpMin}-${userXpTierDoc.xpMax})`
+          );
+        } else {
+          // Fallback to old hardcoded logic if admin config not found
+          if (xp >= 2001) {
+            xpTier = "senior";
+          } else if (xp >= 501) {
+            xpTier = "mid";
+          }
+          console.log(
+            `    📈 User XP: ${xp} → XP Tier: ${xpTier} (fallback - no admin config)`
+          );
+        }
+      } catch (error) {
+        console.error("Error fetching XP tier from admin config:", error);
+        // Fallback to old hardcoded logic
+        if (xp >= 2001) {
+          xpTier = "senior";
+        } else if (xp >= 501) {
+          xpTier = "mid";
+        }
+        console.log(
+          `    📈 User XP: ${xp} → XP Tier: ${xpTier} (fallback - error)`
+        );
       }
 
-      console.log(`    📈 User XP: ${xp} → XP Tier: ${xpTier}`);
       const tierLimit = this.gameCountLimits.xpTierLimits[xpTier];
       if (tierLimit !== null && tierLimit !== undefined) {
         console.log(`    ✅ XP Tier Limit (${xpTier}): ${tierLimit}`);

@@ -173,111 +173,167 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
   );
 
   // Score each rule based on how well it matches the user
-  const scoredRules = rules
-    .map((rule) => {
-      let score = 0;
-      let matches = true;
-      const matchDetails = [];
+  const scoredRulesPromises = rules.map(async (rule) => {
+    let score = 0;
+    let matches = true;
+    const matchDetails = [];
 
-      // Check each milestone requirement
-      for (const milestone of rule.userMilestones || []) {
-        switch (milestone) {
-          case "first_time_user":
-            if (gamesPlayed === 0) {
-              score += 10;
-              matchDetails.push("✅ first_time_user: PASSED");
-            } else {
-              matches = false;
-              matchDetails.push(
-                `❌ first_time_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
-              );
-            }
-            break;
+    // Check each milestone requirement
+    for (const milestone of rule.userMilestones || []) {
+      switch (milestone) {
+        case "first_time_user":
+          if (gamesPlayed === 0) {
+            score += 10;
+            matchDetails.push("✅ first_time_user: PASSED");
+          } else {
+            matches = false;
+            matchDetails.push(
+              `❌ first_time_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
+            );
+          }
+          break;
 
-          case "returning_user":
-            if (gamesPlayed > 0) {
-              score += 10;
-              matchDetails.push("✅ returning_user: PASSED");
-            } else {
-              matches = false;
-              matchDetails.push(
-                `❌ returning_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: > 0)`
-              );
-            }
-            break;
+        case "returning_user":
+          if (gamesPlayed > 0) {
+            score += 10;
+            matchDetails.push("✅ returning_user: PASSED");
+          } else {
+            matches = false;
+            matchDetails.push(
+              `❌ returning_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: > 0)`
+            );
+          }
+          break;
 
-          case "xp_tier":
-            if (rule.xpTier) {
-              // xpTier is stored as string: "junior", "mid", "senior"
-              // Map to XP ranges: junior (0-500), mid (501-2000), senior (2001+)
+        case "xp_tier":
+          if (rule.xpTier) {
+            // Get XP tier from admin configuration
+            const XPTier = require("./XPTier");
+            let userXpTier = null;
+            let tierRange = null;
+
+            try {
+              const userXpTierDoc = await XPTier.findByXpValue(xp);
+              if (userXpTierDoc) {
+                // Map tier names to lowercase for matching
+                const tierNameMap = {
+                  Junior: "junior",
+                  Middle: "mid",
+                  Senior: "senior",
+                };
+                userXpTier =
+                  tierNameMap[userXpTierDoc.tierName] ||
+                  userXpTierDoc.tierName.toLowerCase();
+                tierRange = {
+                  min: userXpTierDoc.xpMin,
+                  max: userXpTierDoc.xpMax || Infinity,
+                };
+              } else {
+                // Fallback to old hardcoded logic
+                const tierRanges = {
+                  junior: { min: 0, max: 500 },
+                  mid: { min: 501, max: 2000 },
+                  senior: { min: 2001, max: Infinity },
+                };
+                if (xp >= 2001) {
+                  userXpTier = "senior";
+                } else if (xp >= 501) {
+                  userXpTier = "mid";
+                } else {
+                  userXpTier = "junior";
+                }
+                tierRange = tierRanges[userXpTier];
+              }
+            } catch (error) {
+              console.error("Error fetching XP tier from admin config:", error);
+              // Fallback to old hardcoded logic
               const tierRanges = {
                 junior: { min: 0, max: 500 },
                 mid: { min: 501, max: 2000 },
                 senior: { min: 2001, max: Infinity },
               };
-              const tierRange = tierRanges[rule.xpTier.toLowerCase()];
-              if (tierRange) {
-                if (xp >= tierRange.min && xp <= tierRange.max) {
-                  score += 10;
-                  matchDetails.push(
-                    `✅ xp_tier (${rule.xpTier}): PASSED (xp: ${xp}, range: ${tierRange.min}-${tierRange.max})`
-                  );
-                } else {
-                  matches = false;
-                  matchDetails.push(
-                    `❌ xp_tier (${rule.xpTier}): FAILED (xp: ${xp}, range: ${tierRange.min}-${tierRange.max})`
-                  );
-                }
+              if (xp >= 2001) {
+                userXpTier = "senior";
+              } else if (xp >= 501) {
+                userXpTier = "mid";
               } else {
-                matches = false;
-                matchDetails.push(
-                  `❌ xp_tier: FAILED (invalid tier: ${rule.xpTier})`
-                );
+                userXpTier = "junior";
               }
+              tierRange = tierRanges[userXpTier];
             }
-            break;
 
-          case "membership_tier":
-            if (rule.membershipTier) {
-              const tierHierarchy = {
-                free: 0,
-                bronze: 1,
-                gold: 2,
-                platinum: 3,
-              };
-              const userTierLevel = tierHierarchy[membershipTier] || 0;
-              const requiredTierLevel = tierHierarchy[rule.membershipTier] || 0;
-              if (userTierLevel >= requiredTierLevel) {
+            // Check if user's tier matches rule's required tier
+            const requiredTier = rule.xpTier.toLowerCase();
+            if (userXpTier && tierRange) {
+              if (userXpTier === requiredTier) {
                 score += 10;
+                const maxDisplay =
+                  tierRange.max === Infinity ? "∞" : tierRange.max;
                 matchDetails.push(
-                  `✅ membership_tier (${rule.membershipTier}): PASSED (user: ${membershipTier}, level: ${userTierLevel} >= ${requiredTierLevel})`
+                  `✅ xp_tier (${rule.xpTier}): PASSED (xp: ${xp}, range: ${tierRange.min}-${maxDisplay})`
                 );
               } else {
                 matches = false;
                 matchDetails.push(
-                  `❌ membership_tier (${rule.membershipTier}): FAILED (user: ${membershipTier}, level: ${userTierLevel} < ${requiredTierLevel})`
+                  `❌ xp_tier (${rule.xpTier}): FAILED (xp: ${xp}, user tier: ${userXpTier}, required: ${requiredTier})`
                 );
               }
+            } else {
+              matches = false;
+              matchDetails.push(
+                `❌ xp_tier: FAILED (could not determine user tier)`
+              );
             }
-            break;
-        }
+          }
+          break;
+
+        case "membership_tier":
+          if (rule.membershipTier) {
+            const tierHierarchy = {
+              free: 0,
+              bronze: 1,
+              gold: 2,
+              platinum: 3,
+            };
+            const userTierLevel = tierHierarchy[membershipTier] || 0;
+            const requiredTierLevel = tierHierarchy[rule.membershipTier] || 0;
+            if (userTierLevel >= requiredTierLevel) {
+              score += 10;
+              matchDetails.push(
+                `✅ membership_tier (${rule.membershipTier}): PASSED (user: ${membershipTier}, level: ${userTierLevel} >= ${requiredTierLevel})`
+              );
+            } else {
+              matches = false;
+              matchDetails.push(
+                `❌ membership_tier (${rule.membershipTier}): FAILED (user: ${membershipTier}, level: ${userTierLevel} < ${requiredTierLevel})`
+              );
+            }
+          }
+          break;
       }
+    }
 
-      // If rule doesn't match, exclude it
-      if (!matches) {
-        console.log(`Rule "${rule.ruleName}" does NOT match:`, matchDetails);
-        return null;
-      }
+    // If rule doesn't match, exclude it
+    if (!matches) {
+      console.log(`Rule "${rule.ruleName}" does NOT match:`, matchDetails);
+      return null;
+    }
 
-      // Add priority to score
-      score += rule.priority || 0;
-      console.log(
-        `Rule "${rule.ruleName}" MATCHES (score: ${score}):`,
-        matchDetails
-      );
+    // Add priority to score
+    score += rule.priority || 0;
+    console.log(
+      `Rule "${rule.ruleName}" MATCHES (score: ${score}):`,
+      matchDetails
+    );
 
-      return { rule, score };
-    })
+    return { rule, score };
+  });
+
+  // Wait for all async operations to complete
+  const scoredRulesResults = await Promise.all(scoredRulesPromises);
+
+  // Filter out null results and sort by score
+  const scoredRules = scoredRulesResults
     .filter((item) => item !== null)
     .sort((a, b) => b.score - a.score); // Sort by score descending
 

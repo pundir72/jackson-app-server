@@ -8,6 +8,7 @@ const Transaction = require("../models/Transaction");
 const GameTask = require("../models/GameTask");
 const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
+const XPTier = require("../models/XPTier");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const {
   getUserXpTier,
@@ -1016,65 +1017,132 @@ router.get("/discover", protect, async (req, res) => {
       );
     }
 
-    // Get user's XP tier and membership tier for filtering
-    const userXpTier = getUserXpTier(user);
+    // Get user's XP tier from admin configuration (XPTier model)
+    console.log("=== FETCHING USER XP TIER FROM ADMIN CONFIG ===");
+    const userXp = user.xp?.current || 0;
+    console.log("User XP:", userXp);
+
+    // Fetch XP tier from admin configuration
+    let userXpTierDoc = null;
+    let userXpTier = "junior"; // fallback
+
+    try {
+      userXpTierDoc = await XPTier.findByXpValue(userXp);
+      if (userXpTierDoc) {
+        // Map tier names to lowercase for matching
+        const tierNameMap = {
+          "Junior": "junior",
+          "Middle": "mid", 
+          "Senior": "senior"
+        };
+        userXpTier = tierNameMap[userXpTierDoc.tierName] || userXpTierDoc.tierName.toLowerCase();
+        console.log("✅ User XP Tier from Admin Config:", {
+          tierName: userXpTierDoc.tierName,
+          tierKey: userXpTier,
+          xpMin: userXpTierDoc.xpMin,
+          xpMax: userXpTierDoc.xpMax,
+          xpRange: userXpTierDoc.xpRange
+        });
+      } else {
+        console.log("⚠️ No XP tier found in admin config, using fallback");
+        // Fallback to old method
+        userXpTier = getUserXpTier(user);
+      }
+    } catch (error) {
+      console.error("Error fetching XP tier from admin config:", error);
+      // Fallback to old method
+      userXpTier = getUserXpTier(user);
+      console.log("Using fallback XP tier:", userXpTier);
+    }
+
+    // Get user's membership tier
     const userMembershipTier = getUserMembershipTier(user) || "free";
+    console.log("User Membership Tier:", userMembershipTier);
+    console.log("=== END FETCHING USER TIERS ===");
 
     // Filter games by XP tier and VIP tier requirements (before pagination)
-    console.log("=== APPLYING XP TIER AND VIP TIER VALIDATION ===");
+    console.log("=== APPLYING XP TIER AND MEMBERSHIP TIER VALIDATION ===");
     console.log("User XP Tier:", userXpTier);
     console.log("User Membership Tier:", userMembershipTier);
 
     const filteredGames = allGames.filter((g) => {
+      let passesXpTier = true;
+      let passesMembershipTier = true;
+
       // Check XP tier requirement
       if (g.xpTiers && Array.isArray(g.xpTiers) && g.xpTiers.length > 0) {
         // Game has XP tier requirements - check if user's tier matches
-        const userTierCapitalized =
-          userXpTier.charAt(0).toUpperCase() + userXpTier.slice(1);
-        const tierMatches = g.xpTiers.some(
-          (tier) =>
-            tier.toLowerCase() === userXpTier || tier === userTierCapitalized
-        );
+        // Normalize tier names for comparison
+        const normalizeTierName = (tier) => {
+          const tierMap = {
+            "Junior": "junior",
+            "Middle": "mid",
+            "Senior": "senior",
+            "junior": "junior",
+            "mid": "mid", 
+            "senior": "senior"
+          };
+          return tierMap[tier] || tier.toLowerCase();
+        };
 
-        if (!tierMatches) {
+        const userTierNormalized = normalizeTierName(userXpTier);
+        const gameTiersNormalized = g.xpTiers.map(tier => normalizeTierName(tier));
+        
+        passesXpTier = gameTiersNormalized.includes(userTierNormalized);
+
+        if (!passesXpTier) {
           console.log(
-            `Game ${g.gameId} (${
-              g.title
-            }) filtered out: XP tier mismatch (required: ${g.xpTiers.join(
-              ", "
-            )}, user: ${userXpTier})`
+            `❌ Game ${g.gameId} (${g.title}) filtered out: XP tier mismatch (required: ${g.xpTiers.join(", ")}, user: ${userXpTier})`
           );
-          return false;
+        } else {
+          console.log(
+            `✅ Game ${g.gameId} (${g.title}) passes XP tier check (user: ${userXpTier}, game allows: ${g.xpTiers.join(", ")})`
+          );
         }
+      } else {
+        // Game has no XP tier restrictions - available to all tiers
+        console.log(
+          `✅ Game ${g.gameId} (${g.title}) has no XP tier restrictions - available to all`
+        );
       }
 
       // Check VIP/membership tier requirement
       if (g.tierRestrictions) {
-        const minTier = g.tierRestrictions.minTier || "free";
-        const maxTier = g.tierRestrictions.maxTier || "platinum";
+        const minTier = (g.tierRestrictions.minTier || "free").toLowerCase();
+        const maxTier = (g.tierRestrictions.maxTier || "platinum").toLowerCase();
+        const userTierLower = userMembershipTier.toLowerCase();
 
         // Tier hierarchy: free < bronze < gold < platinum
         const tierOrder = ["free", "bronze", "gold", "platinum"];
-        const userTierIndex = tierOrder.indexOf(userMembershipTier);
+        const userTierIndex = tierOrder.indexOf(userTierLower);
         const minTierIndex = tierOrder.indexOf(minTier);
         const maxTierIndex = tierOrder.indexOf(maxTier);
 
         // User must have tier >= minTier and <= maxTier
         if (userTierIndex < minTierIndex || userTierIndex > maxTierIndex) {
+          passesMembershipTier = false;
           console.log(
-            `Game ${g.gameId} (${g.title}) filtered out: VIP tier mismatch (required: ${minTier}-${maxTier}, user: ${userMembershipTier})`
+            `❌ Game ${g.gameId} (${g.title}) filtered out: Membership tier mismatch (required: ${minTier}-${maxTier}, user: ${userMembershipTier})`
           );
-          return false;
+        } else {
+          console.log(
+            `✅ Game ${g.gameId} (${g.title}) passes membership tier check (user: ${userMembershipTier}, game allows: ${minTier}-${maxTier})`
+          );
         }
+      } else {
+        // Game has no membership tier restrictions - available to all tiers
+        console.log(
+          `✅ Game ${g.gameId} (${g.title}) has no membership tier restrictions - available to all`
+        );
       }
 
-      return true;
+      return passesXpTier && passesMembershipTier;
     });
 
     console.log(
-      `Games after XP/VIP tier filtering: ${filteredGames.length} (from ${allGames.length})`
+      `Games after XP/Membership tier filtering: ${filteredGames.length} (from ${allGames.length})`
     );
-    console.log("=== END XP TIER AND VIP TIER VALIDATION ===");
+    console.log("=== END XP TIER AND MEMBERSHIP TIER VALIDATION ===");
 
     // Update allGames with filtered results
     allGames = filteredGames;

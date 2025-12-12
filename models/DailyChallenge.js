@@ -399,12 +399,17 @@ dailyChallengeSchema.methods.canUserAccess = function (userProfile) {
   }
 
   // Check age requirements
-  // Only enforce if both user has age data AND challenge has age restrictions
-  if (userProfile.age && typeof userProfile.age === 'number' && audience.ageRange) {
-    const userAge = userProfile.age;
+  // Skip age restrictions if user has Google ID (social login)
+  if (audience.ageRange && !userProfile.hasGoogleId) {
     const minAge = audience.ageRange.min || 13; // Default min age
     const maxAge = audience.ageRange.max || 100; // Default max age
     
+    // If challenge has age restrictions, user MUST have age data
+    if (!userProfile.age || typeof userProfile.age !== 'number') {
+      return false; // Deny access if user doesn't have age data
+    }
+    
+    const userAge = userProfile.age;
     // Check if user's age is within the allowed range (inclusive)
     if (userAge < minAge || userAge > maxAge) {
       return false;
@@ -425,7 +430,13 @@ dailyChallengeSchema.methods.canUserAccess = function (userProfile) {
   }
 
   // Check gender requirements
-  if (genders.length > 0 && userProfile.gender) {
+  // Skip gender restrictions if user has Google ID (social login)
+  if (genders.length > 0 && !userProfile.hasGoogleId) {
+    // If challenge has gender restrictions, user MUST have gender data
+    if (!userProfile.gender) {
+      return false; // Deny access if user doesn't have gender data
+    }
+    
     const normalizedGender = String(userProfile.gender).toLowerCase();
     if (!genders.includes(normalizedGender)) {
       return false;

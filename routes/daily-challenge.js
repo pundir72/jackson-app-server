@@ -17,13 +17,38 @@ const SpinWheelLog = require("../models/SpinWheelLog");
 const BonusDay = require("../models/BonusDay");
 const besitosService = require("../services/besitos.service");
 const { trackActivity } = require("../middleware/activityTracker");
-const {
-  applyTierMultiplierToXPV2,
-  getTierKeyFromXPV2,
-} = require("../utils/xpTierMultiplierV2");
 const streakRouter = require("./streak");
 const getStreakConfig = streakRouter.getStreakConfig;
 const getMilestoneReward = streakRouter.getMilestoneReward;
+const XPTier = require("../models/XPTier");
+
+// Helper function to parse accessBenefits multiplier (e.g., "1.5x" -> 1.5)
+function parseAccessBenefitsMultiplier(accessBenefits) {
+  if (!accessBenefits || typeof accessBenefits !== "string") {
+    return 1.0;
+  }
+  const match = accessBenefits.match(/(\d+\.?\d*)x/i);
+  if (match && match[1]) {
+    return parseFloat(match[1]) || 1.0;
+  }
+  return 1.0;
+}
+
+// Helper function to get user's accessBenefits multiplier from XPTier (same as daily rewards)
+async function getAccessBenefitsMultiplier(userXp) {
+  try {
+    // Find matching tier
+    const tier = await XPTier.findByXpValue(userXp);
+
+    if (tier && tier.accessBenefits) {
+      const multiplier = parseAccessBenefitsMultiplier(tier.accessBenefits);
+      return multiplier;
+    }
+  } catch (error) {
+    console.error("Error getting accessBenefits multiplier:", error);
+  }
+  return 1.0;
+}
 
 // ==================== CALENDAR VIEW ====================
 
@@ -502,7 +527,7 @@ router.get("/today", protect, async (req, res) => {
     );
 
     const user = await User.findById(userId).select(
-      "xp age dateOfBirth location vip onboarding"
+      "xp age dateOfBirth location vip onboarding social"
     );
 
     console.log("Querying for challenge:", {
@@ -647,11 +672,22 @@ router.get("/today", protect, async (req, res) => {
     });
 
     // Check if user can access this challenge
+    // Skip age/gender restrictions if user has Google ID
+    const hasGoogleId = !!user.social?.googleId;
+
+    console.log("🔍 [GET /today] Google ID check:", {
+      userId,
+      hasGoogleId,
+      googleId: user.social?.googleId || null,
+      willSkipAgeGenderRestrictions: hasGoogleId,
+    });
+
     const canAccess = challenge.canUserAccess({
       xp: user.xp?.current || 0,
       age: userAge, // Use calculated age
       country: user.location?.current?.country,
       gender: user.onboarding?.gender,
+      hasGoogleId: hasGoogleId, // Pass flag to skip restrictions
     });
 
     console.log("DEBUG - User canAccess result:", canAccess);
@@ -660,89 +696,11 @@ router.get("/today", protect, async (req, res) => {
       console.log(
         "DEBUG - Challenge filtered out due to targetAudience restrictions"
       );
-
-      // Determine specific reason for access denial
-      const audience = challenge.targetAudience || {};
-      const reasons = [];
-
-      // Check XP
-      if (
-        typeof audience.minXP === "number" &&
-        audience.minXP > 0 &&
-        (user.xp?.current || 0) < audience.minXP
-      ) {
-        reasons.push(`XP requirement not met (minimum: ${audience.minXP})`);
-      }
-      if (
-        typeof audience.maxXP === "number" &&
-        audience.maxXP > 0 &&
-        (user.xp?.current || 0) > audience.maxXP
-      ) {
-        reasons.push(`XP requirement not met (maximum: ${audience.maxXP})`);
-      }
-
-      // Check age
-      if (userAge && typeof userAge === "number" && audience.ageRange) {
-        const minAge = audience.ageRange.min || 13;
-        const maxAge = audience.ageRange.max || 100;
-        if (userAge < minAge || userAge > maxAge) {
-          reasons.push(
-            `Age requirement not met (required: ${minAge}-${maxAge} years)`
-          );
-        }
-      }
-
-      // Check country
-      if (
-        Array.isArray(audience.countries) &&
-        audience.countries.length > 0 &&
-        user.location?.current?.country
-      ) {
-        if (!audience.countries.includes(user.location.current.country)) {
-          reasons.push(
-            `Country restriction (available in: ${audience.countries.join(
-              ", "
-            )})`
-          );
-        }
-      }
-
-      // Check gender
-      const genders = Array.isArray(audience.gender) ? audience.gender : [];
-      if (genders.length > 0 && user.onboarding?.gender) {
-        const normalizedGender = String(user.onboarding.gender).toLowerCase();
-        if (!genders.includes(normalizedGender)) {
-          reasons.push(
-            `Gender restriction (available for: ${genders.join(", ")})`
-          );
-        }
-      }
-
-      const errorMessage =
-        reasons.length > 0
-          ? `This challenge is not available for you. ${reasons.join("; ")}.`
-          : "This challenge is not available for you due to target audience restrictions.";
-
       return res.json({
         success: true,
         data: {
           hasChallenge: false,
-          message: errorMessage,
-          reason:
-            reasons.length > 0 ? reasons : ["Target audience restrictions"],
-          targetAudience: {
-            gender: audience.gender || [],
-            ageRange: audience.ageRange || null,
-            countries: audience.countries || [],
-            minXP: audience.minXP || null,
-            maxXP: audience.maxXP || null,
-          },
-          userProfile: {
-            gender: user.onboarding?.gender || null,
-            age: userAge,
-            country: user.location?.current?.country || null,
-            xp: user.xp?.current || 0,
-          },
+          message: "This challenge is not available for you",
         },
       });
     }
@@ -919,6 +877,34 @@ router.get("/today", protect, async (req, res) => {
       return "Start Challenge";
     };
 
+    // Calculate tier-multiplied XP for display (using same logic as daily rewards)
+    const baseXP = challenge.xpReward || 0;
+    let finalXP = baseXP;
+    let tierMultiplier = 1.0;
+    let userTier = null;
+
+    if (baseXP > 0) {
+      const currentXp = user.xp?.current || 0;
+
+      // Use same logic as daily rewards - get multiplier from XPTier.accessBenefits
+      tierMultiplier = await getAccessBenefitsMultiplier(currentXp);
+      finalXP = Math.round(baseXP * tierMultiplier);
+
+      // Get tier name for display
+      const tier = await XPTier.findByXpValue(currentXp);
+      userTier = tier ? tier.tierName : null;
+
+      console.log("🔍 [GET /today] Tier multiplier calculation:", {
+        userId,
+        challengeId: challenge._id,
+        baseXP,
+        finalXP,
+        tierMultiplier,
+        userTier,
+        currentXp,
+      });
+    }
+
     // Build user-friendly response
     const responseData = {
       hasChallenge: true,
@@ -1000,22 +986,34 @@ router.get("/today", protect, async (req, res) => {
       },
       rewards: {
         coins: challenge.coinReward || 0,
-        xp: challenge.xpReward || 0,
+        baseXP: baseXP, // Base XP before tier multiplier
+        xp: finalXP, // Final XP after tier multiplier (what user will actually receive)
         totalCoins: challenge.coinReward || 0,
-        totalXP: challenge.xpReward || 0,
+        totalXP: finalXP, // Show final XP with tier multiplier
+        tierMultiplier: tierMultiplier, // Show the multiplier being applied
+        userTier: userTier, // Show user's current tier
         // User-friendly reward labels
         coinsLabel:
           challenge.coinReward > 0
             ? `${challenge.coinReward} Coins`
             : "No Coins",
-        xpLabel: challenge.xpReward > 0 ? `${challenge.xpReward} XP` : "No XP",
+        xpLabel:
+          finalXP > 0
+            ? tierMultiplier > 1.0
+              ? `${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
+              : `${finalXP} XP`
+            : "No XP",
         rewardsLabel:
-          challenge.coinReward > 0 && challenge.xpReward > 0
-            ? `${challenge.coinReward} coins, ${challenge.xpReward} XP`
+          challenge.coinReward > 0 && finalXP > 0
+            ? tierMultiplier > 1.0
+              ? `${challenge.coinReward} coins, ${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
+              : `${challenge.coinReward} coins, ${finalXP} XP`
             : challenge.coinReward > 0
             ? `${challenge.coinReward} coins`
-            : challenge.xpReward > 0
-            ? `${challenge.xpReward} XP`
+            : finalXP > 0
+            ? tierMultiplier > 1.0
+              ? `${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
+              : `${finalXP} XP`
             : "No rewards",
       },
       countdown: {
@@ -1796,153 +1794,102 @@ router.post("/complete", protect, async (req, res) => {
         if (!gameId) {
           validationError = "Game not selected or assigned for this challenge";
         } else {
-          // ========== 10-MINUTE VERIFICATION LOGIC ==========
-          // Check if at least 10 minutes have passed since challenge was started
-          const challengeStartTime = progress.startedAt || progress.viewedAt;
-          if (!challengeStartTime) {
+          // Get game ID string for comparison
+          const gameIdString = gameId.toString ? gameId.toString() : gameId;
+
+          // Check if game was actually played today by checking user's game history
+          const userWithGames = await User.findById(userId).select("games");
+          const gamePlayed = userWithGames?.games?.find((g) => {
+            const userGameId = g.gameId?.toString
+              ? g.gameId.toString()
+              : g.gameId;
+            return userGameId === gameIdString;
+          });
+
+          // STRICT VALIDATION: Game must be played, not just downloaded
+          if (!gamePlayed || !gamePlayed.lastPlayed) {
             validationError =
-              "Challenge must be started before completion. Please start the challenge first.";
+              "Please play the game first to complete this challenge";
           } else {
-            const timeSinceStart =
-              (now - new Date(challengeStartTime)) / (1000 * 60); // Convert to minutes
-            const requiredWaitMinutes = 10;
+            // Check if game was played today
+            const lastPlayedDate = new Date(gamePlayed.lastPlayed);
+            const todayStart = new Date(normalizedStart);
+            const isPlayedToday = lastPlayedDate >= todayStart;
 
-            if (timeSinceStart < requiredWaitMinutes) {
-              const remainingMinutes = Math.ceil(
-                requiredWaitMinutes - timeSinceStart
-              );
-              validationError = `Please wait ${remainingMinutes} more minute(s) before completing this challenge. You must wait at least ${requiredWaitMinutes} minutes after starting.`;
-            } else {
-              // ========== VERIFY GAME ID AND USER ID ==========
-              // Get game ID string for comparison
-              const gameIdString = gameId.toString ? gameId.toString() : gameId;
+            if (!isPlayedToday) {
+              validationError =
+                "Please play the game today to complete this challenge";
+            } else if (challenge.requirements?.timeLimit) {
+              // TIME REQUIREMENT: Must play for the required time
+              // Check if minimum play time was met - REQUIRED for completion
+              const requiredMinutes = challenge.requirements.timeLimit;
 
-              // Verify user ID matches
-              if (String(progress.userId) !== String(userId)) {
-                validationError =
-                  "User ID mismatch. Cannot complete challenge.";
-              } else {
-                // Check if game was actually played today by checking user's game history
-                const userWithGames = await User.findById(userId).select(
-                  "games"
-                );
+              // Get play time from progress metadata (updated by app when user plays)
+              const playTimeMinutes =
+                progress.progress?.metadata?.playTimeMinutes || 0;
 
-                if (!userWithGames) {
-                  validationError =
-                    "User not found. Cannot verify game installation.";
-                } else {
-                  // Verify user has the game installed/started
-                  const gamePlayed = userWithGames?.games?.find((g) => {
-                    const userGameId = g.gameId?.toString
-                      ? g.gameId.toString()
-                      : g.gameId;
-                    return userGameId === gameIdString;
-                  });
+              // Also check game's totalDuration if available (in seconds, convert to minutes)
+              // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
+              const gameTotalDurationMinutes = gamePlayed.totalDuration
+                ? Math.floor((gamePlayed.totalDuration || 0) / 60)
+                : 0;
 
-                  // STRICT VERIFICATION: User must have the game in their games array
-                  if (!gamePlayed) {
-                    validationError = `Game verification failed. Please ensure you have installed and started the game (Game ID: ${gameIdString}) before completing this challenge.`;
-                  } else {
-                    // Game and user verification passed - continue with existing validation
-                    // STRICT VALIDATION: Game must be played, not just downloaded
-                    if (!gamePlayed.lastPlayed) {
-                      validationError =
-                        "Please play the game first to complete this challenge";
-                    } else {
-                      // Check if game was played today
-                      const lastPlayedDate = new Date(gamePlayed.lastPlayed);
-                      const todayStart = new Date(normalizedStart);
-                      const isPlayedToday = lastPlayedDate >= todayStart;
+              // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
+              let todayPlayTimeMinutes = 0;
+              if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
+                const firstPlayed = new Date(gamePlayed.firstPlayed);
+                const lastPlayed = new Date(gamePlayed.lastPlayed);
+                const todayStart = new Date(normalizedStart);
 
-                      if (!isPlayedToday) {
-                        validationError =
-                          "Please play the game today to complete this challenge";
-                      } else if (challenge.requirements?.timeLimit) {
-                        // TIME REQUIREMENT: Must play for the required time
-                        // Check if minimum play time was met - REQUIRED for completion
-                        const requiredMinutes =
-                          challenge.requirements.timeLimit;
-
-                        // Get play time from progress metadata (updated by app when user plays)
-                        const playTimeMinutes =
-                          progress.progress?.metadata?.playTimeMinutes || 0;
-
-                        // Also check game's totalDuration if available (in seconds, convert to minutes)
-                        // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
-                        const gameTotalDurationMinutes =
-                          gamePlayed.totalDuration
-                            ? Math.floor((gamePlayed.totalDuration || 0) / 60)
-                            : 0;
-
-                        // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
-                        let todayPlayTimeMinutes = 0;
-                        if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
-                          const firstPlayed = new Date(gamePlayed.firstPlayed);
-                          const lastPlayed = new Date(gamePlayed.lastPlayed);
-                          const todayStart = new Date(normalizedStart);
-
-                          // Only calculate if both timestamps are today
-                          if (
-                            firstPlayed >= todayStart &&
-                            lastPlayed >= todayStart
-                          ) {
-                            const timeDiffMinutes =
-                              (lastPlayed - firstPlayed) / (1000 * 60);
-                            // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
-                            todayPlayTimeMinutes = Math.min(
-                              timeDiffMinutes,
-                              480
-                            );
-                          }
-                        }
-
-                        // Use the maximum of all sources, but STRICTLY require play time tracking
-                        const actualPlayTime = Math.max(
-                          playTimeMinutes,
-                          gameTotalDurationMinutes,
-                          todayPlayTimeMinutes
-                        );
-
-                        // STRICT VALIDATION: Require actual play time tracking
-                        // Reject if no play time is tracked at all
-                        if (
-                          playTimeMinutes === 0 &&
-                          gameTotalDurationMinutes === 0 &&
-                          todayPlayTimeMinutes === 0
-                        ) {
-                          validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
-                        } else if (actualPlayTime < requiredMinutes) {
-                          validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
-                            actualPlayTime
-                          )} minutes`;
-                        } else {
-                          actionValidated = true;
-                        }
-                      } else {
-                        // No time requirement - but still require game to be actually played
-                        // Check if game has been played (not just downloaded) by verifying playCount or progress
-                        const hasActualPlay =
-                          gamePlayed.playCount > 0 ||
-                          (gamePlayed.progress !== undefined &&
-                            gamePlayed.progress > 0) ||
-                          (gamePlayed.level !== undefined &&
-                            gamePlayed.level > 1) ||
-                          (gamePlayed.firstPlayed &&
-                            gamePlayed.lastPlayed &&
-                            new Date(gamePlayed.lastPlayed).getTime() >
-                              new Date(gamePlayed.firstPlayed).getTime() +
-                                60000); // At least 1 minute difference
-
-                        if (!hasActualPlay) {
-                          validationError =
-                            "Please actually play the game (not just download) to complete this challenge";
-                        } else {
-                          actionValidated = true;
-                        }
-                      }
-                    }
-                  }
+                // Only calculate if both timestamps are today
+                if (firstPlayed >= todayStart && lastPlayed >= todayStart) {
+                  const timeDiffMinutes =
+                    (lastPlayed - firstPlayed) / (1000 * 60);
+                  // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
+                  todayPlayTimeMinutes = Math.min(timeDiffMinutes, 480);
                 }
+              }
+
+              // Use the maximum of all sources, but STRICTLY require play time tracking
+              const actualPlayTime = Math.max(
+                playTimeMinutes,
+                gameTotalDurationMinutes,
+                todayPlayTimeMinutes
+              );
+
+              // STRICT VALIDATION: Require actual play time tracking
+              // Reject if no play time is tracked at all
+              if (
+                playTimeMinutes === 0 &&
+                gameTotalDurationMinutes === 0 &&
+                todayPlayTimeMinutes === 0
+              ) {
+                validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
+              } else if (actualPlayTime < requiredMinutes) {
+                validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
+                  actualPlayTime
+                )} minutes`;
+              } else {
+                actionValidated = true;
+              }
+            } else {
+              // No time requirement - but still require game to be actually played
+              // Check if game has been played (not just downloaded) by verifying playCount or progress
+              const hasActualPlay =
+                gamePlayed.playCount > 0 ||
+                (gamePlayed.progress !== undefined &&
+                  gamePlayed.progress > 0) ||
+                (gamePlayed.level !== undefined && gamePlayed.level > 1) ||
+                (gamePlayed.firstPlayed &&
+                  gamePlayed.lastPlayed &&
+                  new Date(gamePlayed.lastPlayed).getTime() >
+                    new Date(gamePlayed.firstPlayed).getTime() + 60000); // At least 1 minute difference
+
+              if (!hasActualPlay) {
+                validationError =
+                  "Please actually play the game (not just download) to complete this challenge";
+              } else {
+                actionValidated = true;
               }
             }
           }
@@ -2055,9 +2002,24 @@ router.post("/complete", protect, async (req, res) => {
       (claimType === "watch_ad" && adWasWatched) ||
       (claimType === "manual" && false); // Manual claims require separate claim endpoint
 
-    // Calculate final XP and tier multiplier (needed for transaction metadata regardless of claim type)
-    const { finalXP, multiplier: tierMultiplier } =
-      await applyTierMultiplierToXPV2(user, baseXP);
+    // Use same logic as daily rewards - get multiplier from XPTier.accessBenefits
+    const currentXp = user.xp?.current || 0;
+    const tierMultiplier = await getAccessBenefitsMultiplier(currentXp);
+    const finalXP = Math.round(baseXP * tierMultiplier);
+
+    // Get tier name for display
+    const tier = await XPTier.findByXpValue(currentXp);
+    const userTier = tier ? tier.tierName : null;
+
+    console.log("✅ [POST /complete] Tier multiplier applied:", {
+      userId,
+      challengeId: challenge._id,
+      baseXP,
+      finalXP,
+      tierMultiplier,
+      userTier,
+      currentXp,
+    });
 
     // Update user wallet and XP only if claim type allows immediate credit
     if (shouldCreditImmediately) {
@@ -2100,9 +2062,12 @@ router.post("/complete", protect, async (req, res) => {
             if (reward.type === "coins") {
               user.wallet.balance = (user.wallet.balance || 0) + reward.value;
             } else if (reward.type === "xp") {
-              const { finalXP: milestoneXP } = await applyTierMultiplierToXPV2(
-                user,
-                reward.value
+              // Use same logic as daily rewards for milestone XP
+              const milestoneTierMultiplier = await getAccessBenefitsMultiplier(
+                user.xp?.current || 0
+              );
+              const milestoneXP = Math.round(
+                reward.value * milestoneTierMultiplier
               );
               user.xp.current = (user.xp.current || 0) + milestoneXP;
               user.xp.total = (user.xp.total || 0) + milestoneXP;
@@ -2324,9 +2289,7 @@ router.post("/complete", protect, async (req, res) => {
 
     const milestoneReached = configuredMilestones.find((m) => m === newStreak);
 
-    // Get tier info for response (using V2)
-    const userTier =
-      tierMultiplier > 1.0 ? await getTierKeyFromXPV2(user.xp.current) : null;
+    // userTier is already calculated above using XPTier (same as daily rewards)
 
     // Timer should be stopped after completion
     const challengeEndTime = challenge.scheduling.endTime || normalizedEnd;

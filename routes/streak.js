@@ -6,6 +6,7 @@ const Transaction = require('../models/Transaction');
 const StreakBonusConfig = require('../models/StreakBonusConfig');
 const BonusDay = require('../models/BonusDay');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
+const XPTier = require('../models/XPTier');
 
 // Cache for streak config (refresh every 5 minutes)
 let streakConfigCache = null;
@@ -91,10 +92,38 @@ function clearStreakConfigCache() {
   streakConfigCacheTime = null;
 }
 
+// Helper function to parse accessBenefits multiplier (e.g., "1.5x" -> 1.5)
+function parseAccessBenefitsMultiplier(accessBenefits) {
+  if (!accessBenefits || typeof accessBenefits !== "string") {
+    return 1.0;
+  }
+  const match = accessBenefits.match(/(\d+\.?\d*)x/i);
+  if (match && match[1]) {
+    return parseFloat(match[1]) || 1.0;
+  }
+  return 1.0;
+}
+
+// Helper function to get user's accessBenefits multiplier from XPTier (same as daily challenges)
+async function getAccessBenefitsMultiplier(userXp) {
+  try {
+    // Find matching tier
+    const tier = await XPTier.findByXpValue(userXp);
+
+    if (tier && tier.accessBenefits) {
+      const multiplier = parseAccessBenefitsMultiplier(tier.accessBenefits);
+      return multiplier;
+    }
+  } catch (error) {
+    console.error("Error getting accessBenefits multiplier:", error);
+  }
+  return 1.0;
+}
+
 // Get bonus days (user-facing endpoint)
 router.get('/bonus-days', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('streak country userSegment');
+    const user = await User.findById(req.user.userId).select('streak country userSegment xp');
     
     if (!user) {
       return res.status(404).json({
@@ -104,6 +133,12 @@ router.get('/bonus-days', protect, async (req, res) => {
     }
 
     const currentStreak = user.streak?.current || 0;
+    const currentXp = user.xp?.current || 0;
+    
+    // Calculate tier multiplier and user tier (same logic as daily challenges)
+    const tierMultiplier = await getAccessBenefitsMultiplier(currentXp);
+    const tier = await XPTier.findByXpValue(currentXp);
+    const userTier = tier ? tier.tierName : null;
     
     // Build user profile for eligibility check
     const userProfile = {
@@ -112,73 +147,88 @@ router.get('/bonus-days', protect, async (req, res) => {
       userSegment: user.userSegment || 'all' // Default to 'all' if not set
     };
 
-    // Get all active bonus days
+    // Get all active bonus days (show all, not just eligible ones)
     const allBonusDays = await BonusDay.findActive();
     
-    // Filter bonus days based on user eligibility
-    const eligibleBonusDays = allBonusDays
-      .filter(bonusDay => bonusDay.isEligibleForUser(userProfile))
-      .map(bonusDay => {
+    // Map all bonus days with status and tier-multiplied rewards
+    // Note: We show ALL bonus days so users can see upcoming rewards
+    const bonusDaysWithStatus = allBonusDays.map(bonusDay => {
         // Check if user has reached this bonus day
         const isReached = currentStreak >= bonusDay.conditions.minStreak;
         const isUpcoming = currentStreak < bonusDay.conditions.minStreak;
         const daysRemaining = Math.max(0, bonusDay.conditions.minStreak - currentStreak);
+        
+        // Check if user is eligible for this bonus day (for claiming purposes)
+        const isEligible = bonusDay.isEligibleForUser(userProfile);
+
+        // Calculate tier-multiplied values for XP rewards
+        const primaryIsXP = bonusDay.primaryReward.type === 'xp';
+        const alternateIsXP = bonusDay.alternateReward?.type === 'xp';
+        
+        const primaryBaseValue = bonusDay.primaryReward.value;
+        const primaryFinalValue = primaryIsXP 
+          ? Math.round(primaryBaseValue * tierMultiplier)
+          : primaryBaseValue;
+        const primaryTierMultiplier = primaryIsXP ? tierMultiplier : 1.0;
+        
+        const alternateBaseValue = bonusDay.alternateReward?.value || 0;
+        const alternateFinalValue = alternateIsXP
+          ? Math.round(alternateBaseValue * tierMultiplier)
+          : alternateBaseValue;
+        const alternateTierMultiplier = alternateIsXP ? tierMultiplier : 1.0;
+
+        // Calculate total coins and XP for this bonus day (for easy display)
+        let totalCoins = 0;
+        let totalXP = 0;
+        let totalBaseXP = 0;
+        
+        if (bonusDay.primaryReward.type === 'coins') {
+          totalCoins += primaryFinalValue;
+        } else if (bonusDay.primaryReward.type === 'xp') {
+          totalXP += primaryFinalValue;
+          totalBaseXP += primaryBaseValue;
+        }
+        
+        if (bonusDay.alternateReward) {
+          if (bonusDay.alternateReward.type === 'coins') {
+            totalCoins += alternateFinalValue;
+          } else if (bonusDay.alternateReward.type === 'xp') {
+            totalXP += alternateFinalValue;
+            totalBaseXP += alternateBaseValue;
+          }
+        }
+
+        // Determine primary reward type for display
+        const rewardType = bonusDay.primaryReward.type;
 
         return {
-          id: bonusDay._id,
           dayNumber: bonusDay.dayNumber,
-          title: bonusDay.title,
-          description: bonusDay.description,
-          primaryReward: {
-            type: bonusDay.primaryReward.type,
-            value: bonusDay.primaryReward.value,
-            metadata: bonusDay.primaryReward.metadata || {}
-          },
-          alternateReward: bonusDay.alternateReward ? {
-            type: bonusDay.alternateReward.type,
-            value: bonusDay.alternateReward.value,
-            metadata: bonusDay.alternateReward.metadata || {}
-          } : null,
-          resetRule: {
-            onMiss: bonusDay.resetRule.onMiss,
-            gracePeriod: bonusDay.resetRule.gracePeriod,
-            fallbackAction: bonusDay.resetRule.fallbackAction
-          },
-          status: {
-            isReached: isReached,
-            isUpcoming: isUpcoming,
-            isEligible: true,
-            daysRemaining: daysRemaining,
-            currentStreak: currentStreak,
-            requiredStreak: bonusDay.conditions.minStreak
-          },
-          notification: bonusDay.notification.enabled ? {
-            title: bonusDay.notification.title || bonusDay.title,
-            message: bonusDay.notification.message || bonusDay.description,
-            imageUrl: bonusDay.notification.imageUrl,
-            actionText: bonusDay.notification.actionText,
-            scheduledTime: bonusDay.notification.scheduledTime
-          } : null,
-          banner: bonusDay.banner.enabled ? {
-            title: bonusDay.banner.title || bonusDay.title,
-            subtitle: bonusDay.banner.subtitle || bonusDay.description,
-            imageUrl: bonusDay.banner.imageUrl,
-            backgroundColor: bonusDay.banner.backgroundColor,
-            textColor: bonusDay.banner.textColor,
-            position: bonusDay.banner.position
-          } : null
+          coins: totalCoins, // Total coins from all rewards (0 if no coins)
+          xp: totalXP, // Total XP after tier multiplier (0 if no XP)
+          isReached: isReached, // Whether user has reached this milestone
+          rewardType: rewardType // Primary reward type (coins, xp, giftcard, etc.)
         };
       })
       .sort((a, b) => a.dayNumber - b.dayNumber); // Sort by day number
 
+    // Calculate statistics
+    const reachedBonusDays = bonusDaysWithStatus.filter(bd => bd.isReached);
+    const upcomingBonusDays = bonusDaysWithStatus.filter(bd => !bd.isReached);
+    
+    // Count eligible bonus days (for reference - users can see all but only claim eligible ones)
+    const eligibleBonusDays = allBonusDays.filter(bd => bd.isEligibleForUser(userProfile));
+
     res.json({
       success: true,
       data: {
-        bonusDays: eligibleBonusDays,
+        bonusDays: bonusDaysWithStatus, // Return all bonus days
         currentStreak: currentStreak,
-        totalBonusDays: eligibleBonusDays.length,
-        reachedBonusDays: eligibleBonusDays.filter(bd => bd.status.isReached).length,
-        upcomingBonusDays: eligibleBonusDays.filter(bd => bd.status.isUpcoming).length
+        totalBonusDays: bonusDaysWithStatus.length,
+        reachedBonusDays: reachedBonusDays.length,
+        upcomingBonusDays: upcomingBonusDays.length,
+        eligibleBonusDays: eligibleBonusDays.length, // Count of actually eligible ones
+        userTier: userTier, // User's current tier
+        tierMultiplier: tierMultiplier // Current tier multiplier
       }
     });
   } catch (error) {

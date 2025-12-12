@@ -506,6 +506,8 @@ router.get("/discover", protect, async (req, res) => {
       uiSection,
       ageGroup,
       gender,
+      tier, // XP tier filter (Junior, Mid, Senior)
+      membership, // Membership tier filter (free, bronze, gold, platinum)
       page = 1,
       limit = 20,
       country,
@@ -515,6 +517,8 @@ router.get("/discover", protect, async (req, res) => {
       uiSection: uiSection || "NOT PROVIDED",
       ageGroup: ageGroup || "NOT PROVIDED",
       gender: gender || "NOT PROVIDED",
+      tier: tier || "NOT PROVIDED",
+      membership: membership || "NOT PROVIDED",
       page: page,
       limit: limit,
       country: country || "NOT PROVIDED",
@@ -641,6 +645,67 @@ router.get("/discover", protect, async (req, res) => {
         )
       );
     }
+
+    // XP Tier filter (Junior, Mid, Senior)
+    if (tier) {
+      const normalizedTier =
+        tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
+      // Filter games that have this tier in their xpTiers array
+      // Also include games with no xpTiers specified (available to all tiers)
+      filter.$or = filter.$or || [];
+      filter.$or.push(
+        {
+          xpTiers: {
+            $in: [normalizedTier, tier, tier.toLowerCase(), tier.toUpperCase()],
+          },
+        },
+        { xpTiers: { $exists: false } },
+        { xpTiers: { $size: 0 } }
+      );
+    }
+
+    // Membership tier filter (free, bronze, gold, platinum)
+    // Filter games where the membership tier is within the allowed range
+    if (membership) {
+      const normalizedMembership = membership.toLowerCase();
+      const tierOrder = ["free", "bronze", "gold", "platinum"];
+      const membershipIndex = tierOrder.indexOf(normalizedMembership);
+
+      if (membershipIndex !== -1) {
+        // Include games with no tier restrictions OR where membership tier is allowed
+        // Games with tierRestrictions.minTier <= membership <= tierRestrictions.maxTier
+        const membershipFilter = {
+          $or: [
+            // Games with no tier restrictions (available to all)
+            { tierRestrictions: { $exists: false } },
+            { "tierRestrictions.minTier": { $exists: false } },
+            { "tierRestrictions.maxTier": { $exists: false } },
+            // Games where minTier allows this membership level or lower
+            // This is a simplified filter - full validation happens in post-query filtering
+            {
+              $or: tierOrder.slice(0, membershipIndex + 1).map((tier) => ({
+                "tierRestrictions.minTier": tier,
+              })),
+            },
+          ],
+        };
+
+        if (filter.$and) {
+          filter.$and.push(membershipFilter);
+        } else {
+          filter.$and = [membershipFilter];
+        }
+
+        console.log("Membership filter applied:", normalizedMembership);
+      } else {
+        console.log(
+          "Invalid membership tier:",
+          normalizedMembership,
+          "- skipping filter"
+        );
+      }
+    }
+
     // Note: countries field was removed, so we skip country filter from Game model
 
     console.log("=== FILTER ANALYSIS ===");
@@ -648,6 +713,8 @@ router.get("/discover", protect, async (req, res) => {
       uiSection: uiSection || "NOT PROVIDED",
       ageGroup: ageGroup || "NOT PROVIDED",
       gender: gender || "NOT PROVIDED",
+      tier: tier || "NOT PROVIDED",
+      membership: membership || "NOT PROVIDED",
     });
     console.log("User Profile (Actual):", {
       gender: userProfile.gender,
@@ -949,6 +1016,69 @@ router.get("/discover", protect, async (req, res) => {
       );
     }
 
+    // Get user's XP tier and membership tier for filtering
+    const userXpTier = getUserXpTier(user);
+    const userMembershipTier = getUserMembershipTier(user) || "free";
+
+    // Filter games by XP tier and VIP tier requirements (before pagination)
+    console.log("=== APPLYING XP TIER AND VIP TIER VALIDATION ===");
+    console.log("User XP Tier:", userXpTier);
+    console.log("User Membership Tier:", userMembershipTier);
+
+    const filteredGames = allGames.filter((g) => {
+      // Check XP tier requirement
+      if (g.xpTiers && Array.isArray(g.xpTiers) && g.xpTiers.length > 0) {
+        // Game has XP tier requirements - check if user's tier matches
+        const userTierCapitalized =
+          userXpTier.charAt(0).toUpperCase() + userXpTier.slice(1);
+        const tierMatches = g.xpTiers.some(
+          (tier) =>
+            tier.toLowerCase() === userXpTier || tier === userTierCapitalized
+        );
+
+        if (!tierMatches) {
+          console.log(
+            `Game ${g.gameId} (${
+              g.title
+            }) filtered out: XP tier mismatch (required: ${g.xpTiers.join(
+              ", "
+            )}, user: ${userXpTier})`
+          );
+          return false;
+        }
+      }
+
+      // Check VIP/membership tier requirement
+      if (g.tierRestrictions) {
+        const minTier = g.tierRestrictions.minTier || "free";
+        const maxTier = g.tierRestrictions.maxTier || "platinum";
+
+        // Tier hierarchy: free < bronze < gold < platinum
+        const tierOrder = ["free", "bronze", "gold", "platinum"];
+        const userTierIndex = tierOrder.indexOf(userMembershipTier);
+        const minTierIndex = tierOrder.indexOf(minTier);
+        const maxTierIndex = tierOrder.indexOf(maxTier);
+
+        // User must have tier >= minTier and <= maxTier
+        if (userTierIndex < minTierIndex || userTierIndex > maxTierIndex) {
+          console.log(
+            `Game ${g.gameId} (${g.title}) filtered out: VIP tier mismatch (required: ${minTier}-${maxTier}, user: ${userMembershipTier})`
+          );
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    console.log(
+      `Games after XP/VIP tier filtering: ${filteredGames.length} (from ${allGames.length})`
+    );
+    console.log("=== END XP TIER AND VIP TIER VALIDATION ===");
+
+    // Update allGames with filtered results
+    allGames = filteredGames;
+
     // Apply pagination
     const total = allGames.length;
     const paginatedGames = allGames.slice(
@@ -1020,9 +1150,6 @@ router.get("/discover", protect, async (req, res) => {
       console.log("This means taskProgression will be null in response");
     }
     console.log("=== END FETCHING TASK PROGRESSION RULE ===");
-
-    // Get user's XP tier
-    const userXpTier = getUserXpTier(user);
 
     // Get user's task progression data (Map becomes object with lean())
     const userTaskProgression = user.taskProgression || {};

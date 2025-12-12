@@ -6,6 +6,7 @@
 
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
 const DailyChallenge = require("../models/DailyChallenge");
 const UserChallengeProgress = require("../models/UserChallengeProgress");
@@ -14,6 +15,8 @@ const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
 const BesitosConversion = require("../models/BesitosConversion");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const SpinWheelReward = require("../models/SpinWheelReward");
+const SpinWheelConfig = require("../models/SpinWheelConfig");
 const BonusDay = require("../models/BonusDay");
 const besitosService = require("../services/besitos.service");
 const { trackActivity } = require("../middleware/activityTracker");
@@ -1656,29 +1659,344 @@ router.post("/start", protect, async (req, res) => {
       gameToPlay = await Game.findById(progress.selectedGame.gameId);
     }
 
-    res.json({
+    // Only return game info for game type challenges
+    const responseData = {
       success: true,
       message: "Challenge started",
       data: {
         challengeId: challenge._id,
         status: progress.status,
-        game: gameToPlay
-          ? {
-              id: gameToPlay._id,
-              title: gameToPlay.title,
-              deepLink: gameToPlay.metadata?.deepLink,
-              packageName: gameToPlay.metadata?.packageName,
-            }
-          : null,
         sdkTask:
           challenge.sdkTask?.provider !== "none" ? challenge.sdkTask : null,
       },
-    });
+    };
+
+    // Only include game info for game type challenges
+    if (challenge.type === "game" && gameToPlay) {
+      responseData.data.game = {
+        id: gameToPlay._id,
+        title: gameToPlay.title,
+        deepLink: gameToPlay.metadata?.deepLink,
+        packageName: gameToPlay.metadata?.packageName,
+      };
+    }
+
+    res.json(responseData);
   } catch (error) {
     console.error("Error starting challenge:", error);
     res.status(500).json({
       success: false,
       error: "Failed to start challenge",
+    });
+  }
+});
+
+// ==================== SPIN FOR DAILY CHALLENGE ====================
+
+/**
+ * @route   POST /api/daily-challenge/spin
+ * @desc    Spin the wheel for a daily challenge (bypasses spin wheel eligibility checks)
+ * @access  Private
+ */
+router.post("/spin", protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const now = new Date();
+
+    // Normalize today's date to UTC start-of-day
+    const today = new Date();
+    const normalizedStart = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      )
+    );
+    const normalizedEnd = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        23,
+        59,
+        59,
+        999
+      )
+    );
+
+    // Get today's challenge - must be spin type
+    const challenge = await DailyChallenge.findOne({
+      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
+      isVisible: true,
+      status: { $in: ["scheduled", "live"] },
+      type: "spin",
+      "scheduling.startTime": { $lte: now },
+      "scheduling.endTime": { $gte: now },
+    });
+
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: "No spin challenge available for today",
+      });
+    }
+
+    // Get user's progress
+    const progress = await UserChallengeProgress.getUserChallengeForDate(
+      userId,
+      normalizedStart
+    );
+
+    if (!progress) {
+      return res.status(400).json({
+        success: false,
+        error: "Challenge not started. Please start the challenge first.",
+      });
+    }
+
+    if (progress.status === "completed") {
+      return res.status(400).json({
+        success: false,
+        error: "Challenge already completed",
+      });
+    }
+
+    // Check if already spun today for this challenge
+    const existingSpin = await SpinWheelLog.findOne({
+      user: userId,
+      createdAt: { $gte: normalizedStart, $lte: normalizedEnd },
+    });
+
+    if (existingSpin) {
+      return res.json({
+        success: true,
+        message: "You have already spun today for this challenge",
+        data: {
+          spinId: existingSpin._id,
+          reward: {
+            id: existingSpin.reward,
+            name: existingSpin.rewardName,
+            type: existingSpin.rewardType,
+            amount: existingSpin.rewardAmount,
+          },
+          createdAt: existingSpin.createdAt,
+        },
+      });
+    }
+
+    // Get user and spin wheel config
+    const user = await User.findById(userId).select("wallet xp vip");
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Get spin wheel config (for reward selection, but bypass eligibility)
+    let config;
+    try {
+      config = await SpinWheelConfig.findOne({ isActive: true }).lean();
+      if (!config) {
+        // Use default config
+        config = {
+          spinMode: "free",
+          vipMultipliers: {
+            bronze: 1.2,
+            gold: 1.5,
+            platinum: 2.0,
+          },
+        };
+      }
+    } catch (error) {
+      console.error("Error getting spin wheel config:", error);
+      config = {
+        spinMode: "free",
+        vipMultipliers: {},
+      };
+    }
+
+    const userTier = user.vip?.level || "Bronze";
+
+    // Get all active rewards (bypass tier eligibility for daily challenge)
+    const allRewards = await SpinWheelReward.find({ isActive: true }).lean();
+
+    if (allRewards.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No rewards available",
+      });
+    }
+
+    // Select reward by probability (same logic as regular spin)
+    const totalProbability = allRewards.reduce(
+      (sum, r) => sum + (r.probability || 0),
+      0
+    );
+
+    let selectedReward;
+    if (totalProbability <= 0) {
+      // Fallback: equal probability for all rewards
+      const randomIndex = Math.floor(Math.random() * allRewards.length);
+      selectedReward = allRewards[randomIndex];
+    } else {
+      // Weighted random selection
+      const random = Math.random() * totalProbability;
+      let cumulative = 0;
+
+      for (const reward of allRewards) {
+        const prob = reward.probability || 0;
+        cumulative += prob;
+        if (random < cumulative) {
+          selectedReward = reward;
+          break;
+        }
+      }
+
+      // Safety fallback
+      if (!selectedReward) {
+        selectedReward = allRewards[allRewards.length - 1];
+      }
+    }
+
+    // Apply VIP multiplier if applicable
+    const vipMultiplier =
+      config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
+
+    let finalAmount;
+    if (selectedReward.type === "coins" || selectedReward.type === "xp") {
+      finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
+    } else {
+      finalAmount = selectedReward.amount;
+    }
+
+    // Create spin log
+    const spinId = `SPIN-DC-${Date.now()}-${Math.floor(
+      Math.random() * 100000
+    )}`;
+    const spinLog = new SpinWheelLog({
+      user: userId,
+      spinId: spinId,
+      reward: selectedReward._id,
+      rewardName: selectedReward.name,
+      rewardType: selectedReward.type,
+      rewardAmount: finalAmount,
+      vipMultiplier:
+        selectedReward.type === "coins" || selectedReward.type === "xp"
+          ? vipMultiplier
+          : 1.0,
+      spinMode: config.spinMode || "free",
+      userTier: userTier,
+      isWin: true,
+    });
+
+    // For free spins, automatically credit the reward
+    let coinsEarned = 0;
+    let xpEarned = 0;
+    let transaction = null;
+
+    if (
+      config.spinMode === "free" ||
+      !config.spinMode ||
+      config.spinMode !== "ad_based"
+    ) {
+      if (selectedReward.type === "coins" || selectedReward.type === "coin") {
+        coinsEarned = finalAmount;
+        user.wallet.balance += coinsEarned;
+        user.wallet.lastUpdated = new Date();
+
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "coins",
+          amount: coinsEarned,
+          description: `Daily Challenge Spin - ${selectedReward.name} (${coinsEarned} coins)`,
+          status: "completed",
+          referenceId: spinLog.spinId,
+        });
+        await transaction.save();
+        spinLog.transactionId = transaction._id;
+      } else if (selectedReward.type === "xp" || selectedReward.type === "XP") {
+        xpEarned = finalAmount;
+        user.xp.current += xpEarned;
+        user.xp.total += xpEarned;
+
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "xp",
+          amount: xpEarned,
+          description: `Daily Challenge Spin - ${selectedReward.name} (${xpEarned} XP)`,
+          status: "completed",
+          referenceId: spinLog.spinId,
+        });
+        await transaction.save();
+        spinLog.transactionId = transaction._id;
+      }
+    }
+
+    // Update user spin count
+    user.spinCount = (user.spinCount || 0) + 1;
+    user.lastSpinAt = new Date();
+    await user.save();
+
+    // Save spin log
+    await spinLog.save();
+
+    console.log("✅ [POST /daily-challenge/spin] Spin completed:", {
+      userId,
+      challengeId: challenge._id,
+      spinLogId: spinLog._id,
+      rewardType: selectedReward.type,
+      rewardAmount: finalAmount,
+    });
+
+    // Update reward stats
+    await SpinWheelReward.findByIdAndUpdate(selectedReward._id, {
+      $inc: { "stats.totalWins": 1 },
+      $set: { "stats.lastWon": new Date() },
+    });
+
+    res.json({
+      success: true,
+      message: "Spin completed for daily challenge",
+      data: {
+        spinId: spinLog._id,
+        challengeId: challenge._id,
+        reward: {
+          id: selectedReward._id,
+          name: selectedReward.name,
+          type: selectedReward.type,
+          amount: finalAmount,
+          baseAmount: selectedReward.amount,
+          icon: selectedReward.icon,
+          color: selectedReward.color,
+          metadata: selectedReward.metadata,
+        },
+        vipMultiplier,
+        userTier,
+        status: config.spinMode === "ad_based" ? "pending" : "completed",
+        message:
+          config.spinMode === "ad_based"
+            ? "Watch video ad to claim your reward!"
+            : "Reward credited successfully!",
+        ...(config.spinMode !== "ad_based" && {
+          coinsEarned,
+          xpEarned,
+          newBalance: user.wallet.balance,
+          newXP: user.xp.current,
+        }),
+      },
+    });
+  } catch (error) {
+    console.error("Error spinning for daily challenge:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to spin for daily challenge",
     });
   }
 });
@@ -1770,17 +2088,124 @@ router.post("/complete", protect, async (req, res) => {
     switch (challenge.type) {
       case "spin":
         // Verify user actually spun the wheel today
-        const todayStart = new Date(normalizedStart);
+        // Use normalizedStart and normalizedEnd to ensure UTC date matching
+        const userIdObjectId = mongoose.Types.ObjectId.isValid(userId)
+          ? new mongoose.Types.ObjectId(userId)
+          : userId;
+
+        console.log("🔍 [POST /complete] Spin validation check:", {
+          userId,
+          userIdObjectId: userIdObjectId.toString(),
+          challengeId: challenge._id,
+          challengeType: challenge.type,
+          normalizedStart: normalizedStart.toISOString(),
+          normalizedEnd: normalizedEnd.toISOString(),
+        });
+
+        // Try query with both string and ObjectId userId to handle any format issues
         const spinLog = await SpinWheelLog.findOne({
-          user: userId,
-          createdAt: { $gte: todayStart },
+          $or: [{ user: userId }, { user: userIdObjectId }],
+          createdAt: {
+            $gte: normalizedStart,
+            $lte: normalizedEnd,
+          },
         }).sort({ createdAt: -1 });
 
+        console.log("🔍 [POST /complete] Spin log query result:", {
+          userId,
+          spinLogFound: !!spinLog,
+          spinLogId: spinLog?._id,
+          spinLogCreatedAt: spinLog?.createdAt?.toISOString(),
+          spinLogUser: spinLog?.user?.toString(),
+          query: {
+            user: userId,
+            createdAt: {
+              $gte: normalizedStart.toISOString(),
+              $lte: normalizedEnd.toISOString(),
+            },
+          },
+        });
+
+        // Check for ANY spins for this user (to diagnose if it's a user ID issue)
+        const anySpinsCount = await SpinWheelLog.countDocuments({
+          $or: [{ user: userId }, { user: userIdObjectId }],
+        });
+
+        // Also check with just string userId (in case ObjectId conversion is the issue)
+        const stringOnlyCount = await SpinWheelLog.countDocuments({
+          user: userId,
+        });
+
+        // Also check with ObjectId only
+        const objectIdOnlyCount = await SpinWheelLog.countDocuments({
+          user: userIdObjectId,
+        });
+
+        // Also check all recent spins for debugging
+        const allRecentSpins = await SpinWheelLog.find({
+          $or: [{ user: userId }, { user: userIdObjectId }],
+        })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select("createdAt user")
+          .lean();
+
+        // Also try a raw query to see all spins in the database (for debugging)
+        const allSpinsSample = await SpinWheelLog.find({})
+          .sort({ createdAt: -1 })
+          .limit(3)
+          .select("user createdAt")
+          .lean();
+
+        console.log("🔍 [POST /complete] Recent spins for user:", {
+          userId,
+          totalRecentSpins: allRecentSpins.length,
+          anySpinsCount,
+          stringOnlyCount,
+          objectIdOnlyCount,
+          recentSpins: allRecentSpins.map((spin) => ({
+            id: spin._id,
+            createdAt: spin.createdAt?.toISOString(),
+            user: spin.user?.toString(),
+            userType: typeof spin.user,
+            isToday:
+              spin.createdAt >= normalizedStart &&
+              spin.createdAt <= normalizedEnd,
+          })),
+          allSpinsSample: allSpinsSample.map((spin) => ({
+            user: spin.user?.toString(),
+            createdAt: spin.createdAt?.toISOString(),
+            matchesUserId:
+              spin.user?.toString() === userId ||
+              spin.user?.toString() === userIdObjectId.toString(),
+          })),
+        });
+
         if (!spinLog) {
-          validationError =
-            "Please spin the wheel first to complete this challenge";
+          // Provide more helpful error message with clear instructions
+          if (anySpinsCount === 0) {
+            validationError =
+              "Please spin the wheel first to complete this challenge. Call POST /api/daily-challenge/spin before completing.";
+          } else {
+            validationError =
+              "Please spin the wheel today to complete this challenge. You have spun before, but not today. Call POST /api/daily-challenge/spin first.";
+          }
+          console.log("❌ [POST /complete] Spin validation failed:", {
+            userId,
+            error: validationError,
+            anySpinsCount,
+            normalizedStart: normalizedStart.toISOString(),
+            normalizedEnd: normalizedEnd.toISOString(),
+            requiredAction:
+              "Call POST /api/daily-challenge/spin before completing",
+          });
         } else {
           actionValidated = true;
+          console.log("✅ [POST /complete] Spin validation passed:", {
+            userId,
+            spinLogId: spinLog._id,
+            spinLogCreatedAt: spinLog.createdAt?.toISOString(),
+          });
         }
         break;
 
@@ -1963,14 +2388,37 @@ router.post("/complete", protect, async (req, res) => {
 
     // Reject completion if action was not validated
     if (!actionValidated) {
-      return res.status(400).json({
+      // Build helpful response based on challenge type
+      const errorResponse = {
         success: false,
         error:
           validationError ||
           "Please complete the required action before marking challenge as complete",
         requiresAction: true,
         challengeType: challenge.type,
-      });
+      };
+
+      // Add specific guidance for spin challenges
+      if (challenge.type === "spin") {
+        errorResponse.requiredAction = {
+          endpoint: "POST /api/daily-challenge/spin",
+          description: "Spin the wheel before completing this challenge",
+          message:
+            "You must spin the wheel first. Call POST /api/daily-challenge/spin, then retry this endpoint.",
+        };
+      }
+
+      // Add specific guidance for game challenges
+      if (challenge.type === "game") {
+        errorResponse.requiredAction = {
+          endpoint: "Play the selected game",
+          description: "Play the game for the required time before completing",
+          message:
+            "You must play the selected game first. The game must be played for the required duration.",
+        };
+      }
+
+      return res.status(400).json(errorResponse);
     }
 
     // Calculate rewards (with potential VIP bonuses)

@@ -36,7 +36,7 @@ const surveyOfferSchema = new mongoose.Schema(
         default: "shapes",
       },
       icon_url: {
-      type: String,
+        type: String,
         default: "",
       },
     },
@@ -292,7 +292,12 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check age targeting
-  if (this.targetAudience.age && this.targetAudience.age.length > 0) {
+  // Skip age restrictions if user has Google ID (social login) - same logic as Daily Challenges and Game Listing
+  if (
+    this.targetAudience.age &&
+    this.targetAudience.age.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     const userAgeGroup = this.getAgeGroup(userProfile.age);
     if (!this.targetAudience.age.includes(userAgeGroup)) {
       return false;
@@ -300,7 +305,12 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check gender targeting
-  if (this.targetAudience.gender && this.targetAudience.gender.length > 0) {
+  // Skip gender restrictions if user has Google ID (social login) - same logic as Daily Challenges
+  if (
+    this.targetAudience.gender &&
+    this.targetAudience.gender.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     if (!this.targetAudience.gender.includes(userProfile.gender)) {
       return false;
     }

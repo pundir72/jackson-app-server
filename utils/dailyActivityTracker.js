@@ -504,8 +504,12 @@ async function checkAndAwardMilestoneRewards(user, activity) {
 
     // Check if current streak matches any milestone
     if (STREAK_MILESTONES.includes(currentStreak)) {
-      // Check if this milestone has already been awarded
-      if (!activity.awardedMilestones.includes(currentStreak)) {
+      // Reload user's latest state to prevent race conditions (double-check before awarding)
+      const latestUser = await User.findById(user._id).select('dailyActivity');
+      const latestAwardedMilestones = latestUser?.dailyActivity?.awardedMilestones || [];
+      
+      // Check if this milestone has already been awarded (use latest state to prevent duplicates)
+      if (!latestAwardedMilestones.includes(currentStreak) && !activity.awardedMilestones.includes(currentStreak)) {
         const rewardConfig = STREAK_REWARDS[currentStreak];
 
         if (rewardConfig && rewardConfig.rewards && rewardConfig.rewards.length > 0) {
@@ -514,8 +518,11 @@ async function checkAndAwardMilestoneRewards(user, activity) {
           if (!user.xp) user.xp = { current: 0, total: 0 };
 
           const rewardsEarned = [];
+          let coinsReward = 0;
+          let xpReward = 0;
+          let finalXP = 0;
 
-          // Directly credit all rewards immediately based on admin config
+          // Directly credit all rewards immediately based on admin config and collect values
           for (const reward of rewardConfig.rewards) {
             // Skip rewards with value 0
             if (reward.value === 0 || reward.value === null || reward.value === undefined) {
@@ -524,40 +531,65 @@ async function checkAndAwardMilestoneRewards(user, activity) {
 
             if (reward.type === 'coins') {
               // Directly transfer coins to user wallet
+              coinsReward = reward.value;
               user.wallet.balance = (user.wallet.balance || 0) + reward.value;
               user.wallet.lastUpdated = new Date();
             } else if (reward.type === 'xp') {
               // Directly transfer XP to user (with tier multiplier applied)
-              const { finalXP } = await applyTierMultiplierToXP(user, reward.value || 0);
+              const xpResult = await applyTierMultiplierToXP(user, reward.value || 0);
+              finalXP = xpResult.finalXP;
+              xpReward = reward.value; // Store original value
               user.xp.current = (user.xp.current || 0) + finalXP;
               user.xp.total = (user.xp.total || 0) + finalXP;
             }
 
-            // Create transaction record for each reward
-            // All rewards are marked as 'completed' since they're directly transferred
+            rewardsEarned.push({ 
+              type: reward.type, 
+              value: reward.type === 'xp' ? finalXP : reward.value 
+            });
+          }
+
+          // Create a single transaction entry showing both coin and XP values
+          const hasCoins = coinsReward > 0;
+          const hasXP = xpReward > 0;
+          const totalRewards = (hasCoins ? 1 : 0) + (hasXP ? 1 : 0);
+
+          if (totalRewards > 0) {
+            // Build description showing both values
+            const rewardParts = [];
+            if (hasCoins) rewardParts.push(`${coinsReward} Coins`);
+            if (hasXP) rewardParts.push(`${finalXP} XP`);
+            const description = `Login Streak Milestone Reward - Day ${currentStreak} - ${rewardParts.join(' + ')}`;
+
+            // Use coins as primary balanceType if both exist, otherwise use the one that exists
+            const primaryBalanceType = hasCoins ? 'coins' : 'xp';
+            const primaryAmount = hasCoins ? coinsReward : finalXP;
+
             const transaction = new Transaction({
               user: user._id,
               type: "credit",
-              balanceType: reward.type === 'coins' ? 'coins' : 'xp',
-              amount: reward.value,
-              description: `Login Streak Milestone Reward - Day ${currentStreak} - ${reward.type === 'coins' ? 'Coins' : 'XP'}`,
+              balanceType: primaryBalanceType,
+              amount: primaryAmount,
+              description: description,
               status: "completed", // Always completed since rewards are directly transferred
-              referenceId: `LOGIN-STREAK-${currentStreak}-${reward.type}-${Date.now()}`,
+              referenceId: `LOGIN-STREAK-${currentStreak}-${Date.now()}`,
               metadata: {
                 source: "login_streak_milestone",
                 milestoneDay: currentStreak,
-                rewardType: reward.type,
-                rewardValue: reward.value,
-                claimMode: rewardConfig.claimMode, // Store claimMode for reference
+                claimMode: rewardConfig.claimMode,
                 directlyTransferred: true,
+                rewards: {
+                  coins: hasCoins ? coinsReward : null,
+                  xp: hasXP ? { original: xpReward, final: finalXP } : null
+                }
               },
             });
 
             await transaction.save();
-            rewardsEarned.push({ type: reward.type, value: reward.value });
           }
 
           // Mark milestone as awarded
+          // Note: activity is a reference to user.dailyActivity, so this update will be saved when user.save() is called
           activity.awardedMilestones.push(currentStreak);
 
           const rewardsSummary = rewardsEarned.map(r => `${r.value} ${r.type}`).join(', ');

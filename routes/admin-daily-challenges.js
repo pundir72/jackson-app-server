@@ -19,6 +19,107 @@ const besitosController = require("../controllers/besitos.controller");
 // Admin authentication middleware
 const { adminAuth } = require("../middleware/adminAuth");
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Check if two challenges have overlapping segments
+ * Returns true if segments overlap (same countries, age range, gender, or XP range)
+ * Returns false if segments are different (no overlap)
+ */
+function doSegmentsOverlap(challenge1, challenge2) {
+  const audience1 = challenge1.targetAudience || {};
+  const audience2 = challenge2.targetAudience || {};
+
+  // Helper: Check if two arrays have any common elements
+  const arraysOverlap = (arr1, arr2) => {
+    if (!arr1 || arr1.length === 0) return true; // Empty means all (overlaps with everything)
+    if (!arr2 || arr2.length === 0) return true; // Empty means all (overlaps with everything)
+    return arr1.some(item => arr2.includes(item));
+  };
+
+  // Helper: Check if two ranges overlap
+  const rangesOverlap = (min1, max1, min2, max2) => {
+    // If no range specified (null/undefined), it means all (overlaps with everything)
+    if (min1 === null || min1 === undefined) return true;
+    if (min2 === null || min2 === undefined) return true;
+    
+    // Normalize max values (null means no upper limit, treat as Infinity)
+    const max1Val = max1 === null || max1 === undefined ? Infinity : max1;
+    const max2Val = max2 === null || max2 === undefined ? Infinity : max2;
+    
+    // Ranges overlap if: min1 <= max2 AND min2 <= max1
+    return min1 <= max2Val && min2 <= max1Val;
+  };
+
+  // Check countries overlap
+  const countries1 = audience1.countries || [];
+  const countries2 = audience2.countries || [];
+  if (!arraysOverlap(countries1, countries2)) {
+    return false; // Different countries, no overlap
+  }
+
+  // Check age range overlap
+  const ageRange1 = audience1.ageRange || {};
+  const ageRange2 = audience2.ageRange || {};
+  const ageMin1 = ageRange1.min;
+  const ageMax1 = ageRange1.max;
+  const ageMin2 = ageRange2.min;
+  const ageMax2 = ageRange2.max;
+  
+  // If neither has age range specified, they both target all ages (overlap)
+  // If one has no age range, it targets all ages (overlaps with any range)
+  // If both have age ranges, check if they overlap
+  const hasAgeRange1 = ageMin1 !== undefined || ageMax1 !== undefined;
+  const hasAgeRange2 = ageMin2 !== undefined || ageMax2 !== undefined;
+  
+  if (hasAgeRange1 && hasAgeRange2) {
+    // Both have age ranges - check if they overlap
+    const min1 = ageMin1 || 13; // Default min age
+    const max1 = ageMax1 || 100; // Default max age
+    const min2 = ageMin2 || 13;
+    const max2 = ageMax2 || 100;
+    
+    if (!rangesOverlap(min1, max1, min2, max2)) {
+      return false; // Different age ranges, no overlap
+    }
+  }
+  // If only one has age range or neither has age range, they overlap (empty means all ages)
+
+  // Check gender overlap
+  const genders1 = audience1.gender || [];
+  const genders2 = audience2.gender || [];
+  if (!arraysOverlap(genders1, genders2)) {
+    return false; // Different genders, no overlap
+  }
+
+  // Check XP range overlap
+  const minXP1 = audience1.minXP;
+  const maxXP1 = audience1.maxXP;
+  const minXP2 = audience2.minXP;
+  const maxXP2 = audience2.maxXP;
+  
+  // Check if challenges have XP restrictions
+  // minXP of 0 or undefined means no lower limit, maxXP of null/undefined means no upper limit
+  const hasXPRange1 = (minXP1 !== undefined && minXP1 > 0) || (maxXP1 !== undefined && maxXP1 !== null);
+  const hasXPRange2 = (minXP2 !== undefined && minXP2 > 0) || (maxXP2 !== undefined && maxXP2 !== null);
+  
+  // If both have XP ranges, check if they overlap
+  if (hasXPRange1 && hasXPRange2) {
+    const xpMin1 = minXP1 || 0;
+    const xpMax1 = maxXP1 === null || maxXP1 === undefined ? Infinity : maxXP1;
+    const xpMin2 = minXP2 || 0;
+    const xpMax2 = maxXP2 === null || maxXP2 === undefined ? Infinity : maxXP2;
+    
+    if (!rangesOverlap(xpMin1, xpMax1, xpMin2, xpMax2)) {
+      return false; // Different XP ranges, no overlap
+    }
+  }
+  // If only one has XP range or neither has XP range, they overlap (empty means all XP)
+
+  // All segments overlap (or are empty, which means all users)
+  return true;
+}
+
 // ==================== DAILY CHALLENGES MANAGEMENT ====================
 
 // Get daily challenges (List View)
@@ -720,19 +821,22 @@ router.post(
         }
       }
 
-      // Check for any existing challenge on the same date (UTC day range)
-      // Only one daily challenge is allowed per calendar date
-      const existingChallenge = await DailyChallenge.findOne({
+      // Check for existing challenges on the same date with overlapping segments
+      // Multiple challenges are allowed for the same date if they target different segments
+      const existingChallenges = await DailyChallenge.find({
         challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
         status: { $in: ["scheduled", "live"] },
       });
 
-      if (existingChallenge) {
-        return res.status(409).json({
-          success: false,
-          message: "A daily challenge already exists for the selected date",
-          data: { existingChallengeId: existingChallenge._id },
-        });
+      // Check if any existing challenge has overlapping segments with the new challenge
+      for (const existingChallenge of existingChallenges) {
+        if (doSegmentsOverlap(challengeData, existingChallenge)) {
+          return res.status(409).json({
+            success: false,
+            message: "A daily challenge with overlapping segments already exists for the selected date. Multiple challenges are allowed only if they target different user segments (countries, age range, gender, or XP range).",
+            data: { existingChallengeId: existingChallenge._id },
+          });
+        }
       }
 
       const challenge = new DailyChallenge(challengeData);
@@ -921,20 +1025,39 @@ router.put(
         }
       }
 
-      // If the date is being changed, ensure no other challenge exists on that date
+      // If the date is being changed, check for overlapping segments with other challenges on that date
       if (normalizedStart && normalizedEnd) {
-        const conflictingChallenge = await DailyChallenge.findOne({
+        // Get the current challenge to merge with updateData
+        const currentChallenge = await DailyChallenge.findById(req.params.id);
+        if (!currentChallenge) {
+          return res.status(404).json({
+            success: false,
+            message: "Daily challenge not found",
+          });
+        }
+
+        // Create merged challenge data (what the challenge will be after update)
+        const mergedChallengeData = {
+          ...currentChallenge.toObject(),
+          ...updateData,
+          targetAudience: updateData.targetAudience || currentChallenge.targetAudience,
+        };
+
+        const conflictingChallenges = await DailyChallenge.find({
           _id: { $ne: req.params.id },
           challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
           status: { $in: ["scheduled", "live"] },
         });
 
-        if (conflictingChallenge) {
-          return res.status(409).json({
-            success: false,
-            message: "A daily challenge already exists for the selected date",
-            data: { existingChallengeId: conflictingChallenge._id },
-          });
+        // Check if any existing challenge has overlapping segments with the updated challenge
+        for (const conflictingChallenge of conflictingChallenges) {
+          if (doSegmentsOverlap(mergedChallengeData, conflictingChallenge)) {
+            return res.status(409).json({
+              success: false,
+              message: "A daily challenge with overlapping segments already exists for the selected date. Multiple challenges are allowed only if they target different user segments (countries, age range, gender, or XP range).",
+              data: { existingChallengeId: conflictingChallenge._id },
+            });
+          }
         }
       }
 

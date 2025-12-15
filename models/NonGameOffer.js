@@ -266,13 +266,13 @@ nonGameOfferSchema.methods.parseAgeGroup = function (ageGroup) {
   if (!ageGroup || typeof ageGroup !== "string") {
     return null;
   }
-  
+
   // Handle "65+" format
   if (ageGroup.endsWith("+")) {
     const min = parseInt(ageGroup.replace("+", ""));
     return { min, max: null };
   }
-  
+
   // Handle "18-24" format
   if (ageGroup.includes("-")) {
     const [minStr, maxStr] = ageGroup.split("-");
@@ -282,7 +282,7 @@ nonGameOfferSchema.methods.parseAgeGroup = function (ageGroup) {
       return { min, max };
     }
   }
-  
+
   return null;
 };
 
@@ -317,11 +317,16 @@ nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check age targeting - NEW: Check if user's age falls within any configured age group range
-  if (this.targetAudience.age && this.targetAudience.age.length > 0) {
+  // Skip age restrictions if user has Google ID (social login) - same logic as Daily Challenges and Game Listing
+  if (
+    this.targetAudience.age &&
+    this.targetAudience.age.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     if (userProfile.age) {
       // Check if user's age falls within any of the configured age groups
       let ageMatches = false;
-      
+
       for (const ageGroup of this.targetAudience.age) {
         const ageRange = this.parseAgeGroup(ageGroup);
         if (ageRange) {
@@ -342,7 +347,7 @@ nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
           }
         }
       }
-      
+
       if (!ageMatches) {
         console.log(`🟡 [isEligibleForUser] Age not in any configured range:`, {
           userAge: userProfile.age,
@@ -367,7 +372,12 @@ nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check gender targeting (case-insensitive comparison)
-  if (this.targetAudience.gender && this.targetAudience.gender.length > 0) {
+  // Skip gender restrictions if user has Google ID (social login) - same logic as Daily Challenges
+  if (
+    this.targetAudience.gender &&
+    this.targetAudience.gender.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     const userGender = userProfile.gender
       ? String(userProfile.gender).toLowerCase()
       : null;

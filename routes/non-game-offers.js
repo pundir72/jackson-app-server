@@ -1040,6 +1040,7 @@ router.get("/", protect, async (req, res) => {
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
       deviceType: "mobile",
+      hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 
     console.log("🔵 [MAIN ROUTE] User Profile:", {
@@ -1369,6 +1370,7 @@ router.get("/surveys", protect, async (req, res) => {
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
       deviceType: "mobile",
+      hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 
     let surveys = [];
@@ -1867,6 +1869,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
       deviceType: "mobile",
+      hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 
     let magicReceipts = [];
@@ -2293,6 +2296,7 @@ router.get("/shopping", protect, async (req, res) => {
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
       deviceType: "mobile",
+      hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 
     let shoppingOffers = [];

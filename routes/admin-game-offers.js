@@ -3151,7 +3151,7 @@ router.delete("/progression-rules/:ruleId", adminAuth, async (req, res) => {
       });
     }
 
-    const rule = await TaskProgressionRule.findById(ruleId);
+    const rule = await TaskProgressionRule.findByIdAndDelete(ruleId);
 
     if (!rule) {
       return res.status(404).json({
@@ -3159,11 +3159,6 @@ router.delete("/progression-rules/:ruleId", adminAuth, async (req, res) => {
         message: "Progression rule not found",
       });
     }
-
-    rule.isActive = false;
-    rule.updatedBy = req.user.userId;
-    rule.updatedAt = new Date();
-    await rule.save();
 
     res.json({
       success: true,

@@ -389,49 +389,112 @@ router.post('/complete-task', protect, async (req, res) => {
     let rewardEarned = null;
     
     if (milestoneReward && milestoneReward.rewards && milestoneReward.rewards.length > 0) {
-      const rewardsEarned = [];
+      // Load user's dailyActivity to check for duplicate milestone awards
+      const userWithActivity = await User.findById(req.user.userId).select('dailyActivity');
       
-      // Award all rewards for this milestone
-      for (const reward of milestoneReward.rewards) {
-        if (reward.type === 'coins') {
-          user.wallet.balance = (user.wallet.balance || 0) + reward.value;
-        } else if (reward.type === 'xp') {
-          const { finalXP } = await applyTierMultiplierToXP(user, reward.value);
-          user.xp.current = (user.xp.current || 0) + finalXP;
-          user.xp.total = (user.xp.total || 0) + finalXP;
-        }
-        
-        // Create transaction record for each reward
-        const transaction = new Transaction({
-          user: req.user.userId,
-          type: 'credit',
-          balanceType: reward.type === 'coins' ? 'coins' : 'xp',
-          amount: reward.value,
-          description: `Streak Milestone Reward - Day ${newStreak} - ${reward.type === 'coins' ? 'Coins' : 'XP'}`,
-          status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
-          referenceId: `STREAK-${newStreak}-${reward.type}-${Date.now()}`,
-          metadata: {
-            milestoneDay: newStreak,
-            rewardType: reward.type,
-            rewardValue: reward.value,
-            claimMode: milestoneReward.claimMode
-          }
-        });
-        
-        await transaction.save();
-        
-        rewardsEarned.push({
-          type: reward.type,
-          value: reward.value
-        });
+      // Initialize dailyActivity if it doesn't exist
+      if (!userWithActivity.dailyActivity) {
+        userWithActivity.dailyActivity = {
+          currentStreak: 0,
+          lastActiveDate: null,
+          totalActiveDays: 0,
+          activeDates: [],
+          longestStreak: 0,
+          streakHistory: [],
+          lastStreakReset: null,
+          resetReason: null,
+          awardedMilestones: [],
+        };
       }
       
-      rewardEarned = {
-        day: newStreak,
-        rewards: rewardsEarned,
-        claimMode: milestoneReward.claimMode,
-        requiresAd: milestoneReward.claimMode === 'watch_ad'
-      };
+      // Initialize awardedMilestones if it doesn't exist
+      if (!userWithActivity.dailyActivity.awardedMilestones) {
+        userWithActivity.dailyActivity.awardedMilestones = [];
+      }
+      
+      // Check if this milestone has already been awarded (prevent duplicates)
+      const awardedMilestones = userWithActivity.dailyActivity.awardedMilestones || [];
+      
+      if (!awardedMilestones.includes(newStreak)) {
+        // Milestone not yet awarded - proceed with awarding
+        const rewardsEarned = [];
+        let coinsReward = 0;
+        let xpReward = 0;
+        let finalXP = 0;
+        
+        // Award all rewards for this milestone and collect values
+        for (const reward of milestoneReward.rewards) {
+          if (reward.type === 'coins') {
+            coinsReward = reward.value;
+            user.wallet.balance = (user.wallet.balance || 0) + reward.value;
+          } else if (reward.type === 'xp') {
+            const xpResult = await applyTierMultiplierToXP(user, reward.value);
+            finalXP = xpResult.finalXP;
+            xpReward = reward.value; // Store original value
+            user.xp.current = (user.xp.current || 0) + finalXP;
+            user.xp.total = (user.xp.total || 0) + finalXP;
+          }
+          
+          rewardsEarned.push({
+            type: reward.type,
+            value: reward.type === 'xp' ? finalXP : reward.value
+          });
+        }
+        
+        // Create a single transaction entry showing both coin and XP values
+        const hasCoins = coinsReward > 0;
+        const hasXP = xpReward > 0;
+        const totalRewards = (hasCoins ? 1 : 0) + (hasXP ? 1 : 0);
+        
+        if (totalRewards > 0) {
+          // Build description showing both values
+          const rewardParts = [];
+          if (hasCoins) rewardParts.push(`${coinsReward} Coins`);
+          if (hasXP) rewardParts.push(`${finalXP} XP`);
+          const description = `Streak Milestone Reward - Day ${newStreak} - ${rewardParts.join(' + ')}`;
+          
+          // Use coins as primary balanceType if both exist, otherwise use the one that exists
+          const primaryBalanceType = hasCoins ? 'coins' : 'xp';
+          const primaryAmount = hasCoins ? coinsReward : finalXP;
+          
+          const transaction = new Transaction({
+            user: req.user.userId,
+            type: 'credit',
+            balanceType: primaryBalanceType,
+            amount: primaryAmount,
+            description: description,
+            status: milestoneReward.claimMode === 'auto' ? 'completed' : 'pending',
+            referenceId: `STREAK-${newStreak}-${Date.now()}`,
+            metadata: {
+              milestoneDay: newStreak,
+              claimMode: milestoneReward.claimMode,
+              rewards: {
+                coins: hasCoins ? coinsReward : null,
+                xp: hasXP ? { original: xpReward, final: finalXP } : null
+              }
+            }
+          });
+          
+          await transaction.save();
+        }
+        
+        // Mark milestone as awarded to prevent duplicates
+        userWithActivity.dailyActivity.awardedMilestones.push(newStreak);
+        await userWithActivity.save();
+        
+        rewardEarned = {
+          day: newStreak,
+          rewards: rewardsEarned,
+          claimMode: milestoneReward.claimMode,
+          requiresAd: milestoneReward.claimMode === 'watch_ad'
+        };
+        
+        console.log(`✅ Task Completion Streak Milestone Reward Awarded: Day ${newStreak} - Prevented duplicate`);
+      } else {
+        // Milestone already awarded - skip to prevent duplicate transactions
+        console.log(`⚠️ Task Completion Streak Milestone Day ${newStreak} already awarded - skipping duplicate`);
+        rewardEarned = null; // Don't return reward info if already awarded
+      }
     }
 
     await user.save();
@@ -462,7 +525,7 @@ router.get('/history', protect, async (req, res) => {
   try {
     const STREAK_CONFIG = await getStreakConfig();
     const { page = 1, limit = 30 } = req.query;
-    const user = await User.findById(req.user.userId).select('streak');
+    const user = await User.findById(req.user.userId).select('streak xp');
     
     if (!user) {
       return res.status(404).json({
@@ -493,21 +556,55 @@ router.get('/history', protect, async (req, res) => {
       });
     }
 
+    // Process milestones with XP multiplier applied (same as daily challenge/reward)
+    const milestonesWithMultipliers = await Promise.all(
+      STREAK_CONFIG.milestones.map(async (day) => {
+        const rewardConfig = STREAK_CONFIG.rewards[day];
+        if (!rewardConfig || !rewardConfig.rewards) {
+          return {
+            day,
+            rewards: [],
+            claimMode: 'auto',
+            isReached: (streak.current || 0) >= day
+          };
+        }
+
+        // Apply XP multiplier to each reward (same logic as daily challenge/reward)
+        const processedRewards = await Promise.all(
+          rewardConfig.rewards.map(async (reward) => {
+            if (reward.type === 'xp' && reward.value > 0) {
+              // Apply tier-based XP multiplier based on admin config
+              const { finalXP } = await applyTierMultiplierToXP(user, reward.value);
+              return {
+                type: reward.type,
+                value: finalXP // Return final XP after multiplier
+              };
+            } else {
+              // Coins or other types - no multiplier needed
+              return {
+                type: reward.type,
+                value: reward.value
+              };
+            }
+          })
+        );
+
+        return {
+          day,
+          rewards: processedRewards,
+          claimMode: rewardConfig.claimMode || 'auto',
+          isReached: (streak.current || 0) >= day
+        };
+      })
+    );
+
     res.json({
       success: true,
       data: {
         history,
         currentStreak: streak.current || 0,
         totalDays: completedTasks.length,
-        milestones: STREAK_CONFIG.milestones.map(day => {
-          const rewardConfig = STREAK_CONFIG.rewards[day];
-          return {
-            day,
-            rewards: rewardConfig?.rewards || [],
-            claimMode: rewardConfig?.claimMode || 'auto',
-            isReached: (streak.current || 0) >= day
-          };
-        })
+        milestones: milestonesWithMultipliers
       }
     });
   } catch (error) {

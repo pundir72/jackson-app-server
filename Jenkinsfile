@@ -16,7 +16,7 @@ pipeline {
                     extensions: [[$class: 'WipeWorkspace']],
                     userRemoteConfigs: [[
                         url: 'https://github.com/pundir72/jackson-app-server.git',
-                        credentialsId: 'git-private-credentials'
+                        credentialsId: 'jackson-github'
                     ]]
                 ])
             }

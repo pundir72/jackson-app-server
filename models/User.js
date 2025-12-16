@@ -1105,6 +1105,57 @@ const userSchema = new mongoose.Schema({
             type: Number,
             default: 0
         }
+    },
+    // Admin notifications
+    notifications: [{
+        message: {
+            type: String,
+            required: true
+        },
+        type: {
+            type: String,
+            enum: ['info', 'warning', 'success', 'error'],
+            default: 'info'
+        },
+        sentAt: {
+            type: Date,
+            default: Date.now
+        },
+        read: {
+            type: Boolean,
+            default: false
+        },
+        dismissed: {
+            type: Boolean,
+            default: false
+        }
+    }],
+
+    // Task Progression Tracking (per game)
+    // Maps gameId (string) to progression data
+    taskProgression: {
+        type: Map,
+        of: {
+            completedTasks: {
+                type: Number,
+                default: 0
+            },
+            thresholdReached: {
+                type: Boolean,
+                default: false
+            },
+            rewardTransferred: {
+                type: Boolean,
+                default: false
+            },
+            coinBoxBalance: {
+                type: Number,
+                default: 0
+            },
+            coinBoxTransferredAt: {
+                type: Date
+            }
+        }
     }
 }, {
     timestamps: true,
@@ -1141,11 +1192,11 @@ userSchema.pre('save', async function (next) {
 
 // Method to compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
-    console.log('comparePassword method called');
-    console.log('candidatePassword:', candidatePassword);
-    console.log('this.password:', this.password);
+    // console.log('comparePassword method called');
+    // console.log('candidatePassword:', candidatePassword);
+    // console.log('this.password:', this.password);
     const result = await bcrypt.compare(candidatePassword, this.password);
-    console.log('bcrypt.compare result:', result);
+    // console.log('bcrypt.compare result:', result);
     return result;
 };
 

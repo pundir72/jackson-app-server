@@ -1,495 +1,450 @@
 /**
- * Adjust Routes
- * Frontend-facing routes for Adjust S2S integration
- * Frontend developers will call these endpoints
+ * Adjust S2S API Routes
+ * Provides REST API endpoints for frontend to track events via Adjust
  * @module routes/adjust
  */
 
 const express = require('express');
 const router = express.Router();
-const { body, validationResult } = require('express-validator');
 const protect = require('../middleware/auth');
 const adjustService = require('../services/adjust.service');
-const AdjustAttribution = require('../models/AdjustAttribution');
 const User = require('../models/User');
 
 /**
- * @route   POST /api/adjust/track-event
- * @desc    Track an event to Adjust (called by frontend)
- * @body    {string} eventType - Event type (e.g., 'game_complete', 'purchase', 'level_up') - preferred
- * @body    {string} eventToken - Adjust event token (optional, only if eventType not configured)
- * @body    {string} idfa - iOS IDFA (required for iOS)
- * @body    {string} gpsAdid - Android GPS ADID (required for Android)
- * @body    {string} idfv - iOS IDFV (backup identifier)
- * @body    {string} androidId - Android ID (backup identifier)
+ * @route   POST /api/adjust/event
+ * @desc    Track a custom event to Adjust
+ * @access  Private (requires authentication)
+ * @body    {string} eventToken - Adjust event token (REQUIRED - get from admin or Adjust Dashboard)
  * @body    {number} revenue - Revenue amount (optional)
  * @body    {string} currency - Currency code (optional, default: USD)
- * @body    {Object} callbackParams - Callback parameters (optional)
- * @body    {Object} partnerParams - Partner parameters (optional)
- * @body    {string} environment - Environment: sandbox or production (optional)
- * @access  Protected (User must be authenticated)
+ * @body    {object} callbackParams - Callback parameters (optional)
+ * @body    {object} deviceIds - Device identifiers (optional)
+ * @note    Event tokens are created in Adjust Dashboard by admins. 
+ *          Use GET /api/adjust/events to see available standard events.
+ *          For custom events, contact admin to get event tokens.
  */
-router.post('/track-event', protect, [
-    body('eventType').optional().isString(),
-    body('eventToken').optional().isString(),
-    body('idfa').optional().isString(),
-    body('gpsAdid').optional().isString(),
-    body('idfv').optional().isString(),
-    body('androidId').optional().isString(),
-    body('revenue').optional().isNumeric().withMessage('revenue must be a number'),
-    body('currency').optional().isString().isLength({ min: 3, max: 3 }).withMessage('currency must be 3 characters'),
-    body('environment').optional().isIn(['sandbox', 'production']).withMessage('environment must be sandbox or production')
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                errors: errors.array()
-            });
-        }
+router.post('/event', protect, async (req, res) => {
+  try {
+    const { eventToken, revenue, currency = 'USD', callbackParams = {}, deviceIds = {} } = req.body;
 
-        const {
-            eventType,
-            eventToken,
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            fireAdid,
-            windowsAdid,
-            amazonAdid,
-            revenue,
-            currency,
-            callbackParams,
-            partnerParams,
-            environment,
-            osName  // Allow frontend to specify OS name explicitly
-        } = req.body;
-
-        // Validate: either eventType or eventToken must be provided
-        if (!eventType && !eventToken) {
-            return res.status(400).json({
-                success: false,
-                message: 'Either eventType or eventToken is required'
-            });
-        }
-
-        // Get user from token
-        const user = await User.findById(req.user.userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        // Add user ID to callback params
-        const enhancedCallbackParams = {
-            ...callbackParams,
-            user_id: user._id.toString(),
-            user_email: user.email || ''
-        };
-
-        // Track event to Adjust
-        const result = await adjustService.trackEvent({
-            eventType,  // Preferred: backend will map to event token
-            eventToken,  // Fallback: if eventType not configured
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            fireAdid,
-            windowsAdid,
-            amazonAdid,
-            revenue,
-            currency,
-            callbackParams: enhancedCallbackParams,
-            partnerParams,
-            environment,
-            osName  // Pass OS name if provided
-        });
-
-        if (result.success) {
-            res.json({
-                success: true,
-                message: 'Event tracked successfully',
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.message,
-                error: result.error
-            });
-        }
-
-    } catch (error) {
-        console.error('Adjust track-event error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to track event',
-            error: error.message
-        });
+    if (!eventToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'eventToken is required. Event tokens are created in Adjust Dashboard by admins. Use GET /api/adjust/events to see available standard events, or contact admin for custom event tokens.'
+      });
     }
+
+    // Get user to extract device info if not provided
+    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    
+    // Build device identifiers (use provided or from user profile)
+    const finalDeviceIds = {
+      ...(deviceIds.idfa || user?.deviceInfo?.idfa ? { idfa: deviceIds.idfa || user.deviceInfo.idfa } : {}),
+      ...(deviceIds.gps_adid || user?.deviceInfo?.gpsAdid ? { gps_adid: deviceIds.gps_adid || user.deviceInfo.gpsAdid } : {}),
+      ...(deviceIds.fire_adid || user?.deviceInfo?.fireAdid ? { fire_adid: deviceIds.fire_adid || user.deviceInfo.fireAdid } : {}),
+      ...(deviceIds.oaid || user?.deviceInfo?.oaid ? { oaid: deviceIds.oaid || user.deviceInfo.oaid } : {}),
+      ...(deviceIds.web_uuid || user?.deviceInfo?.webUuid ? { web_uuid: deviceIds.web_uuid || user.deviceInfo.webUuid } : {}),
+      ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
+      ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
+    };
+
+    // Build event data
+    const eventData = {
+      event_token: eventToken,
+      ...(revenue !== undefined && revenue !== null ? { revenue: Number(revenue) } : {}),
+      currency: currency,
+      ...finalDeviceIds
+    };
+
+    // Add callback params if provided
+    if (Object.keys(callbackParams).length > 0) {
+      eventData.callback_params = typeof callbackParams === 'string' 
+        ? callbackParams 
+        : JSON.stringify({
+          userId: req.user.userId,
+          ...callbackParams
+        });
+    } else {
+      // Always include userId in callback params
+      eventData.callback_params = JSON.stringify({
+        userId: req.user.userId
+      });
+    }
+
+    // Send event to Adjust
+    const result = await adjustService.sendEvent(eventData);
+
+    res.json({
+      success: true,
+      message: 'Event tracked successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error tracking Adjust event:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to track event',
+      details: error.data || null
+    });
+  }
 });
 
 /**
- * @route   POST /api/adjust/track-ad-revenue
- * @desc    Track ad revenue to Adjust (called by frontend)
- * @body    {string} source - Revenue source (required)
+ * @route   POST /api/adjust/purchase
+ * @desc    Track a purchase event to Adjust
+ * @access  Private (requires authentication)
+ * @body    {string} eventToken - Adjust event token for purchases (optional, uses default if not provided)
  * @body    {number} revenue - Revenue amount (required)
  * @body    {string} currency - Currency code (optional, default: USD)
- * @body    {string} publisher - Publisher name (optional)
- * @body    {string} mediationNetwork - Mediation network (optional)
- * @body    {string} adUnit - Ad unit identifier (optional)
- * @body    {string} adType - Ad type (optional)
- * @body    {string} idfa - iOS IDFA (required for iOS)
- * @body    {string} gpsAdid - Android GPS ADID (required for Android)
- * @body    {Object} callbackParams - Callback parameters (optional)
- * @access  Protected (User must be authenticated)
+ * @body    {string} productId - Product ID (optional)
+ * @body    {string} purchaseType - Purchase type (optional)
+ * @body    {object} deviceIds - Device identifiers (optional)
  */
-router.post('/track-ad-revenue', protect, [
-    body('source').notEmpty().withMessage('source is required'),
-    body('revenue').isNumeric().withMessage('revenue is required and must be a number'),
-    body('currency').optional().isString().isLength({ min: 3, max: 3 }),
-    body('idfa').optional().isString(),
-    body('gpsAdid').optional().isString()
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                errors: errors.array()
-            });
-        }
+router.post('/purchase', protect, async (req, res) => {
+  try {
+    const { 
+      eventToken, 
+      revenue, 
+      currency = 'USD', 
+      productId, 
+      purchaseType,
+      deviceIds = {} 
+    } = req.body;
 
-        const {
-            source,
-            revenue,
-            currency,
-            publisher,
-            mediationNetwork,
-            adUnit,
-            adType,
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            callbackParams
-        } = req.body;
-
-        // Get user from token
-        const user = await User.findById(req.user.userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        // Add user ID to callback params
-        const enhancedCallbackParams = {
-            ...callbackParams,
-            user_id: user._id.toString()
-        };
-
-        // Track ad revenue to Adjust
-        const result = await adjustService.trackAdRevenue({
-            source,
-            revenue,
-            currency,
-            publisher,
-            mediationNetwork,
-            adUnit,
-            adType,
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            callbackParams: enhancedCallbackParams
-        });
-
-        if (result.success) {
-            res.json({
-                success: true,
-                message: 'Ad revenue tracked successfully',
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.message,
-                error: result.error
-            });
-        }
-
-    } catch (error) {
-        console.error('Adjust track-ad-revenue error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to track ad revenue',
-            error: error.message
-        });
+    if (revenue === undefined || revenue === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'revenue is required'
+      });
     }
+
+    // Get user to extract device info if not provided
+    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    
+    // Build device identifiers
+    const finalDeviceIds = {
+      ...(deviceIds.idfa || user?.deviceInfo?.idfa ? { idfa: deviceIds.idfa || user.deviceInfo.idfa } : {}),
+      ...(deviceIds.gps_adid || user?.deviceInfo?.gpsAdid ? { gps_adid: deviceIds.gps_adid || user.deviceInfo.gpsAdid } : {}),
+      ...(deviceIds.fire_adid || user?.deviceInfo?.fireAdid ? { fire_adid: deviceIds.fire_adid || user.deviceInfo.fireAdid } : {}),
+      ...(deviceIds.oaid || user?.deviceInfo?.oaid ? { oaid: deviceIds.oaid || user.deviceInfo.oaid } : {}),
+      ...(deviceIds.web_uuid || user?.deviceInfo?.webUuid ? { web_uuid: deviceIds.web_uuid || user.deviceInfo.webUuid } : {}),
+      ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
+      ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
+    };
+
+    // Use provided event token or default from env
+    const finalEventToken = eventToken || process.env.ADJUST_PURCHASE_EVENT_TOKEN;
+
+    if (!finalEventToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'eventToken is required. Either provide it in the request or set ADJUST_PURCHASE_EVENT_TOKEN in environment variables.'
+      });
+    }
+
+    // Track purchase
+    const result = await adjustService.trackPurchase({
+      userId: req.user.userId,
+      eventToken: finalEventToken,
+      revenue: Number(revenue),
+      currency: currency,
+      deviceIds: finalDeviceIds,
+      callbackParams: {
+        productId: productId || null,
+        purchaseType: purchaseType || null
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Purchase tracked successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error tracking Adjust purchase:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to track purchase',
+      details: error.data || null
+    });
+  }
 });
 
 /**
- * @route   POST /api/adjust/track-session
- * @desc    Track a session to Adjust (called by frontend)
- * @body    {string} idfa - iOS IDFA (required for iOS)
- * @body    {string} gpsAdid - Android GPS ADID (required for Android)
- * @body    {string} idfv - iOS IDFV (backup)
- * @body    {string} androidId - Android ID (backup)
- * @body    {Object} callbackParams - Callback parameters (optional)
- * @access  Protected (User must be authenticated)
+ * @route   POST /api/adjust/game-complete
+ * @desc    Track a game completion event to Adjust
+ * @access  Private (requires authentication)
+ * @body    {string} eventToken - Adjust event token for game completions (optional)
+ * @body    {string} gameId - Game ID (optional)
+ * @body    {number} reward - Reward amount (optional)
+ * @body    {object} deviceIds - Device identifiers (optional)
  */
-router.post('/track-session', protect, [
-    body('idfa').optional().isString(),
-    body('gpsAdid').optional().isString(),
-    body('idfv').optional().isString(),
-    body('androidId').optional().isString()
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                errors: errors.array()
-            });
-        }
+router.post('/game-complete', protect, async (req, res) => {
+  try {
+    const { eventToken, gameId, reward, deviceIds = {} } = req.body;
 
-        const {
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            fireAdid,
-            windowsAdid,
-            amazonAdid,
-            callbackParams
-        } = req.body;
+    // Get user to extract device info if not provided
+    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    
+    // Build device identifiers
+    const finalDeviceIds = {
+      ...(deviceIds.idfa || user?.deviceInfo?.idfa ? { idfa: deviceIds.idfa || user.deviceInfo.idfa } : {}),
+      ...(deviceIds.gps_adid || user?.deviceInfo?.gpsAdid ? { gps_adid: deviceIds.gps_adid || user.deviceInfo.gpsAdid } : {}),
+      ...(deviceIds.fire_adid || user?.deviceInfo?.fireAdid ? { fire_adid: deviceIds.fire_adid || user.deviceInfo.fireAdid } : {}),
+      ...(deviceIds.oaid || user?.deviceInfo?.oaid ? { oaid: deviceIds.oaid || user.deviceInfo.oaid } : {}),
+      ...(deviceIds.web_uuid || user?.deviceInfo?.webUuid ? { web_uuid: deviceIds.web_uuid || user.deviceInfo.webUuid } : {}),
+      ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
+      ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
+    };
 
-        // Get user from token
-        const user = await User.findById(req.user.userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
+    // Use provided event token or default from env
+    const finalEventToken = eventToken || process.env.ADJUST_GAME_COMPLETE_EVENT_TOKEN;
 
-        // Add user ID to callback params
-        const enhancedCallbackParams = {
-            ...callbackParams,
-            user_id: user._id.toString()
-        };
-
-        // Track session to Adjust
-        const result = await adjustService.trackSession({
-            idfa,
-            gpsAdid,
-            idfv,
-            androidId,
-            fireAdid,
-            windowsAdid,
-            amazonAdid,
-            callbackParams: enhancedCallbackParams
-        });
-
-        if (result.success) {
-            res.json({
-                success: true,
-                message: 'Session tracked successfully',
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.message,
-                error: result.error
-            });
-        }
-
-    } catch (error) {
-        console.error('Adjust track-session error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to track session',
-            error: error.message
-        });
+    if (!finalEventToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'eventToken is required. Either provide it in the request or set ADJUST_GAME_COMPLETE_EVENT_TOKEN in environment variables.'
+      });
     }
+
+    // Track game completion
+    const result = await adjustService.trackGameCompletion({
+      userId: req.user.userId,
+      eventToken: finalEventToken,
+      deviceIds: finalDeviceIds,
+      callbackParams: {
+        gameId: gameId || null,
+        reward: reward || null
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Game completion tracked successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error tracking Adjust game completion:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to track game completion',
+      details: error.data || null
+    });
+  }
 });
 
 /**
- * @route   POST /api/adjust/save-attribution
- * @desc    Save attribution data from Adjust (called by frontend after receiving attribution callback)
- * @body    {Object} attributionData - Attribution data from Adjust
- * @access  Protected (User must be authenticated)
+ * @route   POST /api/adjust/ad-revenue
+ * @desc    Track ad revenue to Adjust
+ * @access  Private (requires authentication)
+ * @body    {number} revenue - Revenue amount (required)
+ * @body    {string} currency - Currency code (required)
+ * @body    {string} adRevenueNetwork - Ad network name (required)
+ * @body    {string} adRevenuePlacement - Ad placement ID (optional)
+ * @body    {string} adRevenueUnit - Ad unit type (optional)
+ * @body    {object} deviceIds - Device identifiers (optional)
  */
-router.post('/save-attribution', protect, async (req, res) => {
-    try {
-        const attributionData = req.body;
-        const userId = req.user.userId;
+router.post('/ad-revenue', protect, async (req, res) => {
+  try {
+    const { 
+      revenue, 
+      currency, 
+      adRevenueNetwork, 
+      adRevenuePlacement, 
+      adRevenueUnit,
+      deviceIds = {} 
+    } = req.body;
 
-        // Check if attribution already exists for this user
-        const existingAttribution = await AdjustAttribution.findOne({
-            userId: userId,
-            isActive: true
-        });
-
-        if (existingAttribution) {
-            // Update existing attribution
-            Object.assign(existingAttribution, {
-                ...attributionData,
-                userId: userId,
-                isActive: true
-            });
-            await existingAttribution.save();
-
-            res.json({
-                success: true,
-                message: 'Attribution updated successfully',
-                data: existingAttribution
-            });
-        } else {
-            // Create new attribution
-            const newAttribution = new AdjustAttribution({
-                ...attributionData,
-                userId: userId,
-                isActive: true
-            });
-            await newAttribution.save();
-
-            res.json({
-                success: true,
-                message: 'Attribution saved successfully',
-                data: newAttribution
-            });
-        }
-
-    } catch (error) {
-        console.error('Adjust save-attribution error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to save attribution',
-            error: error.message
-        });
+    if (revenue === undefined || revenue === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'revenue is required'
+      });
     }
+    if (!currency) {
+      return res.status(400).json({
+        success: false,
+        error: 'currency is required'
+      });
+    }
+    if (!adRevenueNetwork) {
+      return res.status(400).json({
+        success: false,
+        error: 'adRevenueNetwork is required'
+      });
+    }
+
+    // Get user to extract device info if not provided
+    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    
+    // Build device identifiers
+    const finalDeviceIds = {
+      ...(deviceIds.idfa || user?.deviceInfo?.idfa ? { idfa: deviceIds.idfa || user.deviceInfo.idfa } : {}),
+      ...(deviceIds.gps_adid || user?.deviceInfo?.gpsAdid ? { gps_adid: deviceIds.gps_adid || user.deviceInfo.gpsAdid } : {}),
+      ...(deviceIds.fire_adid || user?.deviceInfo?.fireAdid ? { fire_adid: deviceIds.fire_adid || user.deviceInfo.fireAdid } : {}),
+      ...(deviceIds.oaid || user?.deviceInfo?.oaid ? { oaid: deviceIds.oaid || user.deviceInfo.oaid } : {}),
+      ...(deviceIds.web_uuid || user?.deviceInfo?.webUuid ? { web_uuid: deviceIds.web_uuid || user.deviceInfo.webUuid } : {}),
+      ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
+      ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
+    };
+
+    // Track ad revenue
+    const result = await adjustService.sendAdRevenue({
+      revenue: Number(revenue),
+      currency: currency,
+      ad_revenue_network: adRevenueNetwork,
+      ad_revenue_placement: adRevenuePlacement || null,
+      ad_revenue_unit: adRevenueUnit || null,
+      ...finalDeviceIds
+    });
+
+    res.json({
+      success: true,
+      message: 'Ad revenue tracked successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error tracking Adjust ad revenue:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to track ad revenue',
+      details: error.data || null
+    });
+  }
 });
 
 /**
- * @route   GET /api/adjust/attribution
- * @desc    Get user's attribution data
- * @access  Protected (User must be authenticated)
+ * @route   POST /api/adjust/session
+ * @desc    Track a session to Adjust
+ * @access  Private (requires authentication)
+ * @body    {object} deviceIds - Device identifiers (optional)
  */
-router.get('/attribution', protect, async (req, res) => {
-    try {
-        const userId = req.user.userId;
+router.post('/session', protect, async (req, res) => {
+  try {
+    const { deviceIds = {} } = req.body;
 
-        const attribution = await AdjustAttribution.getUserAttribution(userId);
+    // Get user to extract device info if not provided
+    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    
+    // Build device identifiers
+    const finalDeviceIds = {
+      ...(deviceIds.idfa || user?.deviceInfo?.idfa ? { idfa: deviceIds.idfa || user.deviceInfo.idfa } : {}),
+      ...(deviceIds.gps_adid || user?.deviceInfo?.gpsAdid ? { gps_adid: deviceIds.gps_adid || user.deviceInfo.gpsAdid } : {}),
+      ...(deviceIds.fire_adid || user?.deviceInfo?.fireAdid ? { fire_adid: deviceIds.fire_adid || user.deviceInfo.fireAdid } : {}),
+      ...(deviceIds.oaid || user?.deviceInfo?.oaid ? { oaid: deviceIds.oaid || user.deviceInfo.oaid } : {}),
+      ...(deviceIds.web_uuid || user?.deviceInfo?.webUuid ? { web_uuid: deviceIds.web_uuid || user.deviceInfo.webUuid } : {}),
+      ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
+      ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
+    };
 
-        if (!attribution) {
-            return res.json({
-                success: true,
-                message: 'No attribution data found',
-                data: null
-            });
-        }
+    // Track session
+    const result = await adjustService.sendSession({
+      created_at: new Date().toISOString(),
+      ...finalDeviceIds
+    });
 
-        res.json({
-            success: true,
-            data: attribution
-        });
-
-    } catch (error) {
-        console.error('Adjust get-attribution error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to get attribution',
-            error: error.message
-        });
-    }
+    res.json({
+      success: true,
+      message: 'Session tracked successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error tracking Adjust session:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to track session',
+      details: error.data || null
+    });
+  }
 });
 
 /**
- * @route   POST /api/adjust/test-direct
- * @desc    Test endpoint - sends exact request to Adjust (for debugging)
- * @body    {string} eventToken - Adjust event token
- * @body    {string} appToken - Adjust app token
- * @body    {string} gpsAdid - Android GPS ADID
- * @body    {string} idfa - iOS IDFA
- * @access  Protected (User must be authenticated)
+ * @route   GET /api/adjust/health
+ * @desc    Check Adjust S2S service health/configuration
+ * @access  Private (requires authentication)
  */
-router.post('/test-direct', protect, async (req, res) => {
-    try {
-        const { eventToken, appToken, gpsAdid, idfa } = req.body;
+router.get('/health', protect, async (req, res) => {
+  try {
+    const health = await adjustService.healthCheck();
+    res.json({
+      success: true,
+      data: health
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Health check failed',
+      message: error.message
+    });
+  }
+});
 
-        if (!eventToken || !appToken) {
-            return res.status(400).json({
-                success: false,
-                message: 'eventToken and appToken are required'
-            });
-        }
+/**
+ * @route   GET /api/adjust/events
+ * @desc    Get list of available Adjust event tokens
+ * @access  Private (requires authentication)
+ * @desc    Returns standard event tokens configured in environment and instructions for custom events
+ */
+router.get('/events', protect, async (req, res) => {
+  try {
+    const events = [];
 
-        if (!gpsAdid && !idfa) {
-            return res.status(400).json({
-                success: false,
-                message: 'At least one device identifier (gpsAdid or idfa) is required'
-            });
-        }
-
-        // Build exact request like curl
-        const params = new URLSearchParams();
-        params.append('s2s', '1');
-        params.append('app_token', appToken);
-        params.append('event_token', eventToken);
-        
-        if (gpsAdid) {
-            params.append('gps_adid', gpsAdid);
-            params.append('os_name', 'android');
-        }
-        if (idfa) {
-            params.append('idfa', idfa);
-            params.append('os_name', 'ios');
-        }
-
-        const url = `https://s2s.adjust.com/event?${params.toString()}`;
-        
-        console.log('Direct Adjust Request URL:', url);
-
-        const axios = require('axios');
-        const response = await axios.post(url, null, {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-        });
-
-        console.log('Direct Adjust Response:', {
-            status: response.status,
-            data: response.data
-        });
-
-        res.json({
-            success: true,
-            message: 'Direct request sent',
-            requestUrl: url,
-            response: {
-                status: response.status,
-                data: response.data
-            }
-        });
-
-    } catch (error) {
-        console.error('Direct Adjust test error:', error.response?.data || error.message);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to send direct request',
-            error: error.response?.data || error.message,
-            requestUrl: error.config?.url
-        });
+    // Standard events (from environment variables)
+    if (process.env.ADJUST_PURCHASE_EVENT_TOKEN) {
+      events.push({
+        name: 'Purchase',
+        eventToken: process.env.ADJUST_PURCHASE_EVENT_TOKEN,
+        category: 'purchase',
+        endpoint: '/api/adjust/purchase',
+        description: 'Track purchase events. Can be called without eventToken.',
+        requiresEventToken: false
+      });
     }
+
+    if (process.env.ADJUST_GAME_COMPLETE_EVENT_TOKEN) {
+      events.push({
+        name: 'Game Complete',
+        eventToken: process.env.ADJUST_GAME_COMPLETE_EVENT_TOKEN,
+        category: 'game',
+        endpoint: '/api/adjust/game-complete',
+        description: 'Track game completion events. Can be called without eventToken.',
+        requiresEventToken: false
+      });
+    }
+
+    if (process.env.ADJUST_AD_REVENUE_EVENT_TOKEN) {
+      events.push({
+        name: 'Ad Revenue',
+        eventToken: process.env.ADJUST_AD_REVENUE_EVENT_TOKEN,
+        category: 'ad',
+        endpoint: '/api/adjust/ad-revenue',
+        description: 'Track ad revenue. Can be called without eventToken.',
+        requiresEventToken: false
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        events: events,
+        message: events.length > 0 
+          ? 'Standard events configured. For custom events, contact admin to get event tokens from Adjust Dashboard.'
+          : 'No standard events configured. Contact admin to set up event tokens.',
+        instructions: {
+          standardEvents: 'Standard events (Purchase, Game Complete, Ad Revenue) can be called without providing eventToken. The backend uses default tokens from environment variables.',
+          customEvents: 'For custom events, you need to provide eventToken in the request. Event tokens are created in Adjust Dashboard by admins and should be shared with the development team.',
+          howToGetTokens: 'To get event tokens: 1) Contact admin, 2) Admin creates events in Adjust Dashboard, 3) Admin shares event tokens with team, 4) Use tokens in /api/adjust/event endpoint'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting Adjust events:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get events',
+      message: error.message
+    });
+  }
 });
 
 module.exports = router;

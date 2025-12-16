@@ -6,6 +6,7 @@ const Transaction = require("../models/Transaction");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Default spin wheel configuration (fallback if no admin config exists)
 const DEFAULT_SPIN_CONFIG = {
@@ -79,11 +80,36 @@ router.get("/config", protect, async (req, res) => {
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
-    // Check date restrictions
+    // Check date restrictions - ensure dates are properly compared
     const now = new Date();
-    const isWithinDateRange =
-      (!config.startDate || now >= config.startDate) &&
-      (!config.endDate || now <= config.endDate);
+    let isWithinDateRange = true;
+
+    if (config.startDate) {
+      const startDate = new Date(config.startDate);
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
+        isWithinDateRange = false;
+      }
+    }
+
+    if (config.endDate) {
+      const endDate = new Date(config.endDate);
+      // Compare full datetime (including time) - if current time is after end time, block access
+      if (now > endDate) {
+        isWithinDateRange = false;
+      }
+    }
 
     res.json({
       success: true,
@@ -142,11 +168,36 @@ router.get("/status", protect, async (req, res) => {
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
-    // Check date restrictions
+    // Check date restrictions - ensure dates are properly compared
     const now = new Date();
-    const isWithinDateRange =
-      (!config.startDate || now >= config.startDate) &&
-      (!config.endDate || now <= config.endDate);
+    let isWithinDateRange = true;
+
+    if (config.startDate) {
+      const startDate = new Date(config.startDate);
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
+        isWithinDateRange = false;
+      }
+    }
+
+    if (config.endDate) {
+      const endDate = new Date(config.endDate);
+      // Compare full datetime (including time) - if current time is after end time, block access
+      if (now > endDate) {
+        isWithinDateRange = false;
+      }
+    }
 
     if (!isEligible || !isWithinDateRange) {
       return res.json({
@@ -160,6 +211,8 @@ router.get("/status", protect, async (req, res) => {
           lastSpinTime: null,
           reason: !isEligible
             ? "Not eligible for this spin wheel"
+            : !isWithinDateRange
+            ? "Spin wheel is not currently active. Please check the campaign dates."
             : "Spin wheel is not active",
         },
       });
@@ -181,20 +234,44 @@ router.get("/status", protect, async (req, res) => {
       : config.maxSpinsPerDay || 3;
     const remainingSpins = Math.max(0, dailyLimit - todaySpins);
 
+    // Check cooldown period
+    const lastSpinTime = await getLastSpinTime(req.user.userId);
+    const cooldownMinutes = config.cooldownMinutes || 360;
+    let canSpinByCooldown = true;
+    let cooldownRemaining = 0;
+
+    if (lastSpinTime) {
+      const timeSinceLastSpin = (now - lastSpinTime) / (1000 * 60); // minutes
+      if (timeSinceLastSpin < cooldownMinutes) {
+        canSpinByCooldown = false;
+        cooldownRemaining = Math.ceil(cooldownMinutes - timeSinceLastSpin);
+      }
+    }
+
     // Get VIP multiplier from config
     const vipMultiplier =
       config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
 
+    const canSpin = remainingSpins > 0 && canSpinByCooldown;
+
     res.json({
       success: true,
       data: {
-        canSpin: remainingSpins > 0,
+        canSpin,
         remainingSpins,
         dailyLimit,
         vipMultiplier: vipMultiplier * (vipBenefits.xpMultiplier || 1.0),
         isVIP: vipBenefits.isActive,
-        lastSpinTime: await getLastSpinTime(req.user.userId),
-        cooldownMinutes: config.cooldownMinutes || 360,
+        lastSpinTime,
+        cooldownMinutes,
+        cooldownRemaining,
+        reason: !canSpin
+          ? !canSpinByCooldown
+            ? `Cooldown active. Please wait ${cooldownRemaining} more minutes.`
+            : remainingSpins === 0
+            ? "Daily spin limit reached"
+            : "Cannot spin"
+          : null,
       },
     });
   } catch (error) {
@@ -230,15 +307,42 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
+    // Check date restrictions - ensure dates are properly compared
     const now = new Date();
-    const isWithinDateRange =
-      (!config.startDate || now >= config.startDate) &&
-      (!config.endDate || now <= config.endDate);
+    let isWithinDateRange = true;
+
+    if (config.startDate) {
+      const startDate = new Date(config.startDate);
+      // Compare dates only (ignore time) to avoid timezone issues
+      const startDateOnly = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate()
+      );
+      const nowDateOnly = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      // If current date is before start date, block access
+      if (nowDateOnly < startDateOnly) {
+        isWithinDateRange = false;
+      }
+    }
+
+    if (config.endDate) {
+      const endDate = new Date(config.endDate);
+      // Compare full datetime (including time) - if current time is after end time, block access
+      if (now > endDate) {
+        isWithinDateRange = false;
+      }
+    }
 
     if (!isWithinDateRange) {
       return res.status(403).json({
         success: false,
-        error: "Spin wheel is not active",
+        error:
+          "Spin wheel is not currently active. Please check the campaign dates.",
       });
     }
 
@@ -294,15 +398,15 @@ router.post("/spin", protect, async (req, res) => {
       // Generate random number in the range [0, totalProbability)
       // Using a more precise random number to avoid clustering
       const random = Math.random() * totalProbability;
-      
+
       // Build cumulative distribution and select reward
       let cumulative = 0;
       selectedReward = null;
-      
+
       for (const reward of eligibleRewards) {
         const prob = reward.probability || 0;
         cumulative += prob;
-        
+
         // Select the first reward where random falls within its cumulative range
         // Using < ensures proper distribution (random is in [0, totalProbability))
         if (random < cumulative) {
@@ -310,16 +414,25 @@ router.post("/spin", protect, async (req, res) => {
           break;
         }
       }
-      
+
       // Safety fallback (should never reach here if algorithm is correct)
       if (!selectedReward) {
         selectedReward = eligibleRewards[eligibleRewards.length - 1];
       }
     }
 
+    // VIP multiplier applies to both coins and XP rewards
     const vipMultiplier =
       config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
-    const finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
+
+    // Apply multiplier to coins and XP, keep other reward types at configured amount
+    let finalAmount;
+    if (selectedReward.type === "coins" || selectedReward.type === "xp") {
+      finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
+    } else {
+      // For coupon, bonus_task, premium_feature - use exact configured amount
+      finalAmount = selectedReward.amount;
+    }
 
     const spinId = `SPIN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const spinLog = new SpinWheelLog({
@@ -327,16 +440,81 @@ router.post("/spin", protect, async (req, res) => {
       spinId: spinId,
       reward: selectedReward._id,
       rewardName: selectedReward.name,
-      rewardType: selectedReward.type,
+      rewardType: selectedReward.type, // Ensure type is correctly stored
       rewardAmount: finalAmount,
-      vipMultiplier: vipMultiplier,
+      vipMultiplier:
+        selectedReward.type === "coins" || selectedReward.type === "xp"
+          ? vipMultiplier
+          : 1.0, // Log multiplier for coins and XP
       spinMode: config.spinMode || "free",
       userTier: userTier,
       isWin: true,
     });
 
+    // For free spins, automatically credit the reward immediately
+    // For ad-based spins, require user to call /redeem after watching ad
+    let coinsEarned = 0;
+    let xpEarned = 0;
+    let transaction = null;
+
+    if (
+      config.spinMode === "free" ||
+      !config.spinMode ||
+      config.spinMode !== "ad_based"
+    ) {
+      // Auto-credit for free spins
+      const rewardType = selectedReward.type;
+
+      if (rewardType === "coins" || rewardType === "coin") {
+        coinsEarned = finalAmount;
+        user.wallet.balance += coinsEarned;
+        user.wallet.lastUpdated = new Date();
+        // NO bonus XP for coin rewards - only give coins
+        xpEarned = 0;
+
+        // Create transaction record
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "coins",
+          amount: coinsEarned,
+          description: `Spin reward - ${selectedReward.name} (${coinsEarned} coins)`,
+          status: "completed",
+          referenceId: spinLog.spinId || spinLog._id.toString(),
+        });
+        await transaction.save();
+
+        spinLog.transactionId = transaction._id;
+      } else if (rewardType === "xp" || rewardType === "XP") {
+        xpEarned = finalAmount;
+        user.xp.current += xpEarned;
+        user.xp.total += xpEarned;
+
+        // Create transaction record for XP
+        transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: "xp",
+          amount: xpEarned,
+          description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
+          status: "completed",
+          referenceId: spinLog.spinId || spinLog._id.toString(),
+        });
+        await transaction.save();
+
+        spinLog.transactionId = transaction._id;
+      }
+    }
+
+    // Update user spin count, last spin time, and wallet/XP (if updated)
+    user.spinCount = (user.spinCount || 0) + 1;
+    user.lastSpinAt = new Date();
+    await user.save();
+
+    // Save spin log
     await spinLog.save();
 
+    // Update reward stats
     await SpinWheelReward.findByIdAndUpdate(selectedReward._id, {
       $inc: { "stats.totalWins": 1 },
       $set: { "stats.lastWon": new Date() },
@@ -359,11 +537,18 @@ router.post("/spin", protect, async (req, res) => {
         vipMultiplier,
         isVIP: vipBenefits.isActive,
         userTier,
-        status: "pending",
+        status: config.spinMode === "ad_based" ? "pending" : "completed",
         message:
           config.spinMode === "ad_based"
             ? "Watch video ad to claim your reward!"
-            : "Reward will be credited shortly!",
+            : "Reward credited successfully!",
+        // Include credited amounts for free spins
+        ...(config.spinMode !== "ad_based" && {
+          coinsEarned,
+          xpEarned,
+          newBalance: user.wallet.balance,
+          newXP: user.xp.current,
+        }),
       },
     });
   } catch (error) {
@@ -441,9 +626,9 @@ router.post("/redeem", protect, async (req, res) => {
       user.wallet.balance += transaction.amount;
       user.wallet.lastUpdated = new Date();
 
-      const xpEarned = Math.floor(transaction.amount * 0.5);
-      user.xp.current += xpEarned;
-      user.xp.total += xpEarned;
+      // NO bonus XP for coin rewards
+      const xpEarned = 0;
+      // Do NOT update XP for coin rewards
 
       transaction.status = "completed";
       transaction.description = `Spin reward - ${transaction.amount} coins`;
@@ -454,7 +639,7 @@ router.post("/redeem", protect, async (req, res) => {
         success: true,
         data: {
           reward: transaction.amount,
-          xpEarned,
+          xpEarned: 0,
           newBalance: user.wallet.balance,
           newXP: user.xp.current,
           message: "Reward claimed successfully!",
@@ -474,7 +659,7 @@ router.post("/redeem", protect, async (req, res) => {
         success: true,
         data: {
           reward: existingTransaction.amount,
-          xpEarned: Math.floor(existingTransaction.amount * 0.5),
+          xpEarned: 0, // NO bonus XP for coin rewards
           newBalance: user.wallet.balance,
           newXP: user.xp.current,
           message: "Reward already claimed!",
@@ -497,34 +682,61 @@ router.post("/redeem", protect, async (req, res) => {
       });
     }
 
-    const rewardType = spinLog.rewardType || (spinLog.reward && spinLog.reward.type) || "coins";
+    const rewardType =
+      spinLog.rewardType || (spinLog.reward && spinLog.reward.type) || "coins";
     let coinsEarned = 0;
     let xpEarned = 0;
     let couponCode = null;
 
-    // Handle different reward types
-    if (rewardType === "coins") {
-      coinsEarned = spinLog.rewardAmount;
+    // Handle different reward types - ensure exact type matching
+    // VIP multiplier should ONLY apply to coins, not XP
+    if (rewardType === "coins" || rewardType === "coin") {
+      // Only give coins for coin rewards - NO bonus XP
+      coinsEarned = spinLog.rewardAmount; // This already has VIP multiplier applied if it was a coin reward
       user.wallet.balance += coinsEarned;
       user.wallet.lastUpdated = new Date();
-      // Also give bonus XP (50% of coins)
-      xpEarned = Math.floor(coinsEarned * 0.5);
+      // NO bonus XP for coin rewards
+      xpEarned = 0;
+    } else if (rewardType === "xp" || rewardType === "XP") {
+      // Only give XP for XP rewards - use exact configured amount (no multiplier)
+      xpEarned = spinLog.rewardAmount; // This is the exact configured amount, no multiplier applied
       user.xp.current += xpEarned;
       user.xp.total += xpEarned;
-    } else if (rewardType === "xp") {
-      xpEarned = spinLog.rewardAmount;
-      user.xp.current += xpEarned;
-      user.xp.total += xpEarned;
+      // Do NOT give coins for XP rewards
+
+      // Create transaction record for XP
+      transaction = new Transaction({
+        user: userId,
+        type: "credit",
+        balanceType: "xp",
+        amount: xpEarned,
+        description: `Spin reward - ${spinLog.rewardName} (${xpEarned} XP)`,
+        status: "completed",
+        referenceId: spinLog.spinId || spinLog._id.toString(),
+      });
+      await transaction.save();
+
+      if (!spinLog.transactionId) {
+        spinLog.transactionId = transaction._id;
+        await spinLog.save();
+      }
     } else if (rewardType === "coupon") {
       // Handle coupon reward - store in metadata or user's coupon list
       const reward = await SpinWheelReward.findById(spinLog.reward);
       couponCode = reward?.metadata?.couponCode || `COUPON-${Date.now()}`;
       // You may want to store this in a separate Coupon model or user metadata
       // For now, we'll just return it in the response
+    } else if (
+      rewardType === "bonus_task" ||
+      rewardType === "premium_feature"
+    ) {
+      // Handle other reward types - no coins or XP, just metadata
+      const reward = await SpinWheelReward.findById(spinLog.reward);
+      // Store in user metadata or handle separately
     }
 
-    // Create transaction only for coins
-    if (rewardType === "coins") {
+    // Create transaction for coins (XP transactions are created above)
+    if (rewardType === "coins" || rewardType === "coin") {
       if (transaction) {
         transaction.status = "completed";
         transaction.amount = spinLog.rewardAmount;
@@ -560,9 +772,10 @@ router.post("/redeem", protect, async (req, res) => {
         couponCode: couponCode,
         newBalance: user.wallet.balance,
         newXP: user.xp.current,
-        message: rewardType === "coupon" 
-          ? `Coupon reward claimed! Code: ${couponCode}`
-          : "Reward claimed successfully!",
+        message:
+          rewardType === "coupon"
+            ? `Coupon reward claimed! Code: ${couponCode}`
+            : "Reward claimed successfully!",
         transactionId: transaction?._id,
         spinLogId: spinLog._id,
       },

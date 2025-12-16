@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Game = require('./Game');
 
 const transactionSchema = new mongoose.Schema({
     user: {
@@ -21,6 +22,16 @@ const transactionSchema = new mongoose.Schema({
         type: String,
         enum: ['coins', 'xp', 'cash'],
         default: 'coins'
+    },
+    game: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Game',
+        index: true
+    },
+    gameId: {
+        type: String,
+        trim: true,
+        index: true
     },
     description: {
         type: String,
@@ -115,12 +126,31 @@ transactionSchema.index({ user: 1, createdAt: -1 });
 transactionSchema.index({ type: 1, status: 1 });
 transactionSchema.index({ 'approval.status': 1 });
 transactionSchema.index({ createdAt: -1 });
+transactionSchema.index({ gameId: 1 });
 
 transactionSchema.pre('save', function(next) {
     if (!this.referenceId) {
         this.referenceId = `TX-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     }
     next();
+});
+
+transactionSchema.pre('save', async function(next) {
+    try {
+        if (!this.gameId && this.metadata && this.metadata.gameId) {
+            this.gameId = this.metadata.gameId;
+        }
+
+        if (!this.game && this.gameId) {
+            const gameDoc = await Game.findOne({ gameId: this.gameId }).select('_id');
+            if (gameDoc) {
+                this.game = gameDoc._id;
+            }
+        }
+        next();
+    } catch (err) {
+        next(err);
+    }
 });
 
 // Methods

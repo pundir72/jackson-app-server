@@ -179,12 +179,10 @@ router.post(
       const amountNum = Number(amount);
       const probabilityNum = Number(probability);
       if (Number.isNaN(amountNum) || Number.isNaN(probabilityNum)) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "Amount and probability must be numbers",
-          });
+        return res.status(400).json({
+          success: false,
+          error: "Amount and probability must be numbers",
+        });
       }
 
       // Normalize tiers from either eligibleTiers or eligibleTiers[]
@@ -338,11 +336,18 @@ router.put(
       .optional()
       .custom((value) => {
         const validTypes = [
-          "coins", "Coins",
-          "xp", "XP",
-          "coupon", "Coupon", "Coupons",
-          "bonus_task", "Bonus Task",
-          "premium_feature", "Premium", "premium"
+          "coins",
+          "Coins",
+          "xp",
+          "XP",
+          "coupon",
+          "Coupon",
+          "Coupons",
+          "bonus_task",
+          "Bonus Task",
+          "premium_feature",
+          "Premium",
+          "premium",
         ];
         return validTypes.includes(value);
       })
@@ -702,11 +707,7 @@ router.get("/config", adminAuth, async (req, res) => {
         data: {
           // Frontend naming
           spinMode: defaultConfig.spinMode,
-          cooldownPeriod:
-            Math.floor(defaultConfig.cooldownMinutes / 60) * 60 ===
-            defaultConfig.cooldownMinutes
-              ? defaultConfig.cooldownMinutes / 60
-              : defaultConfig.cooldownMinutes, // hours if already hours
+          cooldownPeriod: Math.floor(defaultConfig.cooldownMinutes / 60), // Convert minutes to hours for frontend
           maxSpinsPerDay: defaultConfig.maxSpinsPerDay,
           eligibleTiers: ["All Tiers"],
           startDate: defaultConfig.startDate,
@@ -725,7 +726,7 @@ router.get("/config", adminAuth, async (req, res) => {
       success: true,
       data: {
         spinMode: config.spinMode === "ad_based" ? "ad-based" : config.spinMode,
-        cooldownPeriod: config.cooldownMinutes, // already in minutes; frontend labels hours but uses number; keeping minutes is fine for now
+        cooldownPeriod: Math.floor(config.cooldownMinutes / 60), // Convert minutes to hours for frontend
         maxSpinsPerDay: config.maxSpinsPerDay,
         eligibleTiers: isAllTiers ? ["All Tiers"] : config.eligibleTiers,
         startDate: config.startDate,
@@ -767,13 +768,11 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Validation failed",
-            errors: errors.array(),
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
       }
 
       // Frontend → Backend field mapping
@@ -782,11 +781,25 @@ router.post(
       const spinMode =
         spinModeInput === "ad-based" ? "ad_based" : spinModeInput; // map frontend to backend enum
 
-      // Frontend sends cooldownPeriod (hours). Store as minutes for finer control if needed
+      // Frontend sends cooldownPeriod (hours). Convert to minutes for storage
       const cooldownPeriod = Number(req.body.cooldownPeriod);
-      const cooldownMinutes = Number.isFinite(cooldownPeriod)
-        ? cooldownPeriod
-        : Number(req.body.cooldownMinutes || 360);
+      // If cooldownPeriod is provided and is less than 24, assume it's in hours and convert to minutes
+      // Otherwise, assume it's already in minutes (for backward compatibility)
+      let cooldownMinutes;
+      if (
+        Number.isFinite(cooldownPeriod) &&
+        cooldownPeriod > 0 &&
+        cooldownPeriod <= 24
+      ) {
+        // Frontend sends hours (1-24), convert to minutes
+        cooldownMinutes = Math.floor(cooldownPeriod * 60);
+      } else if (Number.isFinite(cooldownPeriod) && cooldownPeriod > 24) {
+        // Already in minutes (backward compatibility)
+        cooldownMinutes = cooldownPeriod;
+      } else {
+        // Fallback to default or use cooldownMinutes if provided
+        cooldownMinutes = Number(req.body.cooldownMinutes || 360);
+      }
 
       const maxSpinsPerDay = Number(req.body.maxSpinsPerDay || 3);
 

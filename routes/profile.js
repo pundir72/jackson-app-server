@@ -52,7 +52,13 @@ router.get("/", protect, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json(profileData);
+    // Ensure faceVerified is included in response
+    const response = {
+      ...profileData,
+      faceVerified: profileData.biometric?.faceVerified || false
+    };
+
+    res.json(response);
   } catch (error) {
     console.error("Profile fetch error:", error);
     res.status(500).json({
@@ -75,6 +81,7 @@ router.put("/", protect, async (req, res) => {
       email,
       socialTag,
       username,
+      notifications,
     } = req.body;
 
     const user = await User.findById(req.user.userId);
@@ -89,6 +96,9 @@ router.put("/", protect, async (req, res) => {
     if (bio) user.profile.bio = bio;
     if (theme && ["light", "dark"].includes(theme)) {
       user.profile.theme = theme;
+    }
+    if (notifications !== undefined) {
+      user.profile.notifications = Boolean(notifications);
     }
     if (socialTag !== undefined) user.socialTag = socialTag;
     // Update username with validation & uniqueness
@@ -431,6 +441,99 @@ router.get("/leadership", protect, async (req, res) => {
   }
 });
 
+// Get unread notifications
+router.get("/notifications", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select("notifications");
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Get only unread and not dismissed notifications
+    const unreadNotifications = (user.notifications || []).filter(
+      (notif) => !notif.read && !notif.dismissed
+    );
+
+    // Sort by sentAt descending (newest first)
+    unreadNotifications.sort((a, b) => {
+      const dateA = new Date(a.sentAt || 0);
+      const dateB = new Date(b.sentAt || 0);
+      return dateB - dateA;
+    });
+
+    res.json({
+      success: true,
+      data: unreadNotifications,
+    });
+  } catch (error) {
+    console.error("Error getting notifications:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get notifications",
+      message: error.message,
+    });
+  }
+});
+
+// Dismiss notification (mark as dismissed permanently)
+router.post(
+  "/notifications/:notificationId/dismiss",
+  protect,
+  async (req, res) => {
+    try {
+      const { notificationId } = req.params;
+      const user = await User.findById(req.user.userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: "User not found",
+        });
+      }
+
+      // Find and update the notification
+      if (!user.notifications || user.notifications.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification not found",
+        });
+      }
+
+      const notification = user.notifications.id(notificationId);
+      if (!notification) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification not found",
+        });
+      }
+
+      // Mark as dismissed (permanently hide)
+      notification.dismissed = true;
+      notification.read = true;
+      await user.save();
+
+      res.json({
+        success: true,
+        message: "Notification dismissed successfully",
+        data: {
+          notificationId: notification._id,
+          dismissed: true,
+        },
+      });
+    } catch (error) {
+      console.error("Error dismissing notification:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to dismiss notification",
+        message: error.message,
+      });
+    }
+  }
+);
+
 // Get user dashboard (optimized) - Complete mobile app dashboard
 router.get("/dashboard", protect, async (req, res) => {
   try {
@@ -450,7 +553,16 @@ router.get("/dashboard", protect, async (req, res) => {
 
     const currentXP = profileData.xp?.current || 0;
     const totalXP = profileData.xp?.total || 0;
-    const tier = getTierFromXP(currentXP);
+    // Use V2 tier calculation from database configuration
+    const { getTierFromXPV2 } = require('../utils/xpTierMultiplierV2');
+    const tierV2 = await getTierFromXPV2(currentXP);
+    // Map V2 tier names to lowercase for backward compatibility
+    const tierMap = {
+      'Junior': 'junior',
+      'Middle': 'mid',
+      'Senior': 'senior'
+    };
+    const tier = tierV2 ? (tierMap[tierV2] || tierV2.toLowerCase()) : 'junior';
 
     res.json({
       success: true,
@@ -472,6 +584,7 @@ router.get("/dashboard", protect, async (req, res) => {
           vipLevel: profileData.vip?.level || "free",
           vipActive: profileData.vip?.isActive || false,
           vipExpires: profileData.vip?.expires || null,
+          faceVerified: profileData.biometric?.faceVerified || false, // Add face verification status
         },
         // Wallet & XP details
         wallet: {
@@ -491,6 +604,7 @@ router.get("/dashboard", protect, async (req, res) => {
         // Progress stats
         progress: {
           gamesPlayed: stats.gamesPlayed,
+          gamesDownloaded: stats.gamesDownloaded || 0, // Add downloaded games count
           surveysCompleted: stats.surveysCompleted,
           racesCompleted: stats.racesCompleted,
           currentStreak: stats.streak,

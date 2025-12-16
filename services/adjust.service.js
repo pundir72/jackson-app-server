@@ -1,638 +1,349 @@
 /**
- * Adjust S2S Service
- * Handles server-to-server API calls to Adjust
- * @module services/adjust.service
+ * Adjust S2S API Service
+ * Handles server-to-server API calls to Adjust for event tracking
+ * Documentation: https://dev.adjust.com/en/api/s2s-api
+ * @module services/adjust
  */
 
 const axios = require('axios');
-const { URLSearchParams } = require('url');
+const config = require('../config/config');
 
 class AdjustService {
-    constructor() {
-        // Adjust S2S API endpoints
-        this.baseUrl = 'https://s2s.adjust.com';
-        this.eventEndpoint = `${this.baseUrl}/event`;
-        this.adRevenueEndpoint = `${this.baseUrl}/ad_revenue`;
-        this.sessionEndpoint = `${this.baseUrl}/session`;
-        
-        // These should be set via environment variables
-        this.appToken = process.env.ADJUST_APP_TOKEN || '';
-        this.apiToken = process.env.ADJUST_API_TOKEN || '';
-        this.s2sToken = process.env.ADJUST_S2S_TOKEN || '';
-        
-        // Event token mapping - map event types to Adjust event tokens
-        // Format: ADJUST_EVENT_TOKEN_game_complete=abc123,ADJUST_EVENT_TOKEN_purchase=xyz789
-        this.eventTokenMap = this.loadEventTokenMap();
-    }
+  constructor() {
+    this.baseURL = 'https://s2s.adjust.com';
+    this.apiToken = config.ADJUST_API_TOKEN;
+    this.appToken = config.ADJUST_APP_TOKEN;
 
-    /**
-     * Load event token mapping from environment variables
-     * Format: ADJUST_EVENT_TOKEN_<event_type>=<token>
-     * Example: ADJUST_EVENT_TOKEN_game_complete=abc123
-     */
-    loadEventTokenMap() {
-        const map = {};
-        const prefix = 'ADJUST_EVENT_TOKEN_';
-        
-        Object.keys(process.env).forEach(key => {
-            if (key.startsWith(prefix)) {
-                const eventType = key.replace(prefix, '').toLowerCase();
-                map[eventType] = process.env[key];
-            }
-        });
-        
-        // Also support direct JSON config
-        if (process.env.ADJUST_EVENT_TOKENS) {
-            try {
-                const tokens = JSON.parse(process.env.ADJUST_EVENT_TOKENS);
-                Object.assign(map, tokens);
-            } catch (e) {
-                console.warn('Failed to parse ADJUST_EVENT_TOKENS JSON:', e.message);
-            }
+    // Create axios instance with default config
+    const headers = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    };
+    
+    // Add Authorization header only if API token is available
+    if (this.apiToken) {
+      headers['Authorization'] = `Bearer ${this.apiToken}`;
+    }
+    
+    this.client = axios.create({
+      baseURL: this.baseURL,
+      headers: headers,
+      timeout: 30000 // 30 seconds timeout
+    });
+
+    // Add response interceptor for error handling
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response) {
+          const errorData = {
+            status: error.response.status,
+            message: error.response.data?.error || error.message,
+            data: error.response.data
+          };
+          throw errorData;
+        } else if (error.request) {
+          throw {
+            status: 503,
+            message: 'Adjust API is not responding',
+            data: null
+          };
+        } else {
+          throw {
+            status: 500,
+            message: error.message,
+            data: null
+          };
         }
-        
-        return map;
+      }
+    );
+  }
+
+  /**
+   * Validate service configuration
+   * @returns {boolean}
+   */
+  isConfigured() {
+    return !!(this.apiToken && this.appToken);
+  }
+
+  /**
+   * Send event to Adjust S2S API
+   * Endpoint: POST https://s2s.adjust.com/event
+   * @param {Object} eventData - Event data
+   * @param {string} eventData.app_token - App token (required)
+   * @param {string} eventData.event_token - Event token (required)
+   * @param {string} eventData.idfa - iOS IDFA (preferred identifier)
+   * @param {string} eventData.gps_adid - Google Play Services advertising ID (preferred identifier)
+   * @param {string} eventData.fire_adid - Amazon Fire advertising ID (preferred identifier)
+   * @param {string} eventData.oaid - Open Advertising ID (Huawei, preferred identifier)
+   * @param {string} eventData.web_uuid - Web ID from Adjust Web SDK (preferred identifier)
+   * @param {string} eventData.idfv - iOS IDFV (backup identifier)
+   * @param {string} eventData.android_id - Android ID (backup identifier)
+   * @param {number} eventData.revenue - Revenue amount (optional)
+   * @param {string} eventData.currency - Currency code (optional, default: USD)
+   * @param {string} eventData.callback_params - Callback parameters (optional, JSON string)
+   * @param {string} eventData.partner_params - Partner parameters (optional, JSON string)
+   * @param {string} eventData.created_at - Event timestamp (optional, ISO 8601 format)
+   * @param {string} eventData.s2s - Must be "1" to indicate S2S request
+   * @returns {Promise<Object>} Response data
+   */
+  async sendEvent(eventData) {
+    if (!this.isConfigured()) {
+      throw {
+        status: 500,
+        message: 'Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.',
+        data: null
+      };
     }
 
-    /**
-     * Get event token for an event type
-     * @param {string} eventType - Event type (e.g., 'game_complete', 'purchase')
-     * @returns {string|null} - Event token or null if not found
-     */
-    getEventToken(eventType) {
-        if (!eventType) return null;
-        return this.eventTokenMap[eventType.toLowerCase()] || null;
+    // Validate required fields
+    if (!eventData.event_token) {
+      throw {
+        status: 400,
+        message: 'event_token is required for Adjust events',
+        data: null
+      };
     }
 
-    /**
-     * Build authentication header
-     */
-    getAuthHeader() {
-        if (this.s2sToken) {
-            return `Bearer ${this.s2sToken}`;
+    try {
+      // Ensure required fields
+      const payload = {
+        app_token: eventData.app_token || this.appToken,
+        event_token: eventData.event_token,
+        s2s: '1', // Required to indicate S2S request
+        ...eventData
+      };
+
+      // Remove undefined values
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined) {
+          delete payload[key];
         }
-        if (this.apiToken) {
-            return `Bearer ${this.apiToken}`;
-        }
-        return null;
+      });
+
+      const response = await this.client.post('/event', payload);
+      
+      return {
+        success: true,
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Adjust sendEvent error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send ad revenue data to Adjust S2S API
+   * Endpoint: POST https://s2s.adjust.com/ad_revenue
+   * @param {Object} revenueData - Ad revenue data
+   * @param {string} revenueData.app_token - App token (required)
+   * @param {string} revenueData.idfa - iOS IDFA
+   * @param {string} revenueData.gps_adid - Google Play Services advertising ID
+   * @param {string} revenueData.fire_adid - Amazon Fire advertising ID
+   * @param {string} revenueData.oaid - Open Advertising ID (Huawei)
+   * @param {string} revenueData.web_uuid - Web ID from Adjust Web SDK
+   * @param {string} revenueData.idfv - iOS IDFV (backup)
+   * @param {string} revenueData.android_id - Android ID (backup)
+   * @param {number} revenueData.revenue - Revenue amount (required)
+   * @param {string} revenueData.currency - Currency code (required)
+   * @param {string} revenueData.ad_revenue_network - Ad network name (required)
+   * @param {string} revenueData.ad_revenue_placement - Ad placement ID (optional)
+   * @param {string} revenueData.ad_revenue_unit - Ad unit type (optional)
+   * @param {string} revenueData.created_at - Event timestamp (optional, ISO 8601 format)
+   * @returns {Promise<Object>} Response data
+   */
+  async sendAdRevenue(revenueData) {
+    if (!this.isConfigured()) {
+      throw {
+        status: 500,
+        message: 'Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.',
+        data: null
+      };
     }
 
-    /**
-     * Send event to Adjust
-     * @param {Object} eventData - Event data
-     * @param {string} eventData.eventType - Event type (e.g., 'game_complete', 'purchase') - preferred
-     * @param {string} eventData.eventToken - Adjust event token (optional, if eventType not provided)
-     * @param {string} eventData.idfa - iOS IDFA (required for iOS)
-     * @param {string} eventData.gpsAdid - Android GPS ADID (required for Android)
-     * @param {string} eventData.idfv - iOS IDFV (backup)
-     * @param {string} eventData.androidId - Android ID (backup)
-     * @param {number} eventData.revenue - Revenue amount (optional)
-     * @param {string} eventData.currency - Currency code (optional, default: USD)
-     * @param {Object} eventData.callbackParams - Callback parameters (optional)
-     * @param {Object} eventData.partnerParams - Partner parameters (optional)
-     * @param {string} eventData.environment - Environment: sandbox or production (default: production)
-     * @returns {Promise<Object>} Response from Adjust
-     */
-    async trackEvent(eventData) {
-        try {
-            const {
-                eventType,
-                eventToken,
-                idfa,
-                gpsAdid,
-                idfv,
-                androidId,
-                fireAdid,
-                windowsAdid,
-                amazonAdid,
-                revenue,
-                currency = 'USD',
-                callbackParams = {},
-                partnerParams = {},
-                environment = 'production',
-                createdAt,
-                osName,  // Allow explicit OS name
-                appToken = this.appToken
-            } = eventData;
-
-            // Get event token from eventType or use provided eventToken
-            let finalEventToken = eventToken;
-            if (eventType && !finalEventToken) {
-                finalEventToken = this.getEventToken(eventType);
-                if (!finalEventToken) {
-                    // If eventType provided but not configured, allow fallback to direct eventToken
-                    // This allows testing without configuration
-                    console.warn(`Event token not found for event type: ${eventType}. Using eventType as eventToken. Configure ADJUST_EVENT_TOKEN_${eventType} in environment variables for production.`);
-                    // For now, allow eventType to be used directly as token (for testing)
-                    finalEventToken = eventType;
-                }
-            }
-
-            // Validate required fields
-            if (!finalEventToken) {
-                throw new Error('Either eventType or eventToken is required');
-            }
-
-            if (!appToken) {
-                throw new Error('appToken is required');
-            }
-
-            // At least one device identifier is required
-            if (!idfa && !gpsAdid && !idfv && !androidId && !fireAdid && !windowsAdid && !amazonAdid) {
-                throw new Error('At least one device identifier is required (idfa, gpsAdid, idfv, androidId, etc.)');
-            }
-
-            // Determine OS name from device identifiers or use provided value
-            let detectedOsName = osName;
-            if (!detectedOsName) {
-                if (idfa || idfv) {
-                    detectedOsName = 'ios';
-                } else if (gpsAdid || androidId) {
-                    detectedOsName = 'android';
-                } else if (fireAdid || amazonAdid) {
-                    detectedOsName = 'amazon';
-                } else if (windowsAdid) {
-                    detectedOsName = 'windows';
-                } else {
-                    detectedOsName = 'unknown';
-                }
-            }
-
-            // Build request payload
-            // Adjust S2S API REQUIRES: s2s=1, app_token, os_name, and at least one device identifier
-            const payload = {
-                s2s: '1',  // REQUIRED: Indicates this is an S2S request
-                app_token: appToken,
-                event_token: finalEventToken,
-                os_name: detectedOsName,  // REQUIRED: Operating system name
-                environment: environment
-            };
-
-            // Add device identifiers
-            if (idfa) payload.idfa = idfa;
-            if (gpsAdid) payload.gps_adid = gpsAdid;
-            if (idfv) payload.idfv = idfv;
-            if (androidId) payload.android_id = androidId;
-            if (fireAdid) payload.fire_adid = fireAdid;
-            if (windowsAdid) payload.windows_adid = windowsAdid;
-            if (amazonAdid) payload.amazon_adid = amazonAdid;
-
-            // Add revenue if provided
-            if (revenue !== undefined && revenue !== null) {
-                payload.revenue = revenue;
-                payload.currency = currency;
-            }
-
-            // Add timestamp if provided
-            if (createdAt) {
-                payload.created_at = new Date(createdAt).toISOString();
-            }
-
-            // Add callback parameters
-            if (Object.keys(callbackParams).length > 0) {
-                Object.keys(callbackParams).forEach(key => {
-                    payload[`callback_params.${key}`] = callbackParams[key];
-                });
-            }
-
-            // Add partner parameters
-            if (Object.keys(partnerParams).length > 0) {
-                Object.keys(partnerParams).forEach(key => {
-                    payload[`partner_params.${key}`] = partnerParams[key];
-                });
-            }
-
-            // Make request to Adjust
-            // Adjust S2S API expects form-encoded data
-            const formData = new URLSearchParams();
-            
-            Object.keys(payload).forEach(key => {
-                if (payload[key] !== undefined && payload[key] !== null) {
-                    formData.append(key, payload[key].toString());
-                }
-            });
-
-            const headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            };
-
-            const authHeader = this.getAuthHeader();
-            if (authHeader) {
-                headers['Authorization'] = authHeader;
-            }
-
-            // Debug logging
-            console.log('Adjust S2S Request:', {
-                url: this.eventEndpoint,
-                payload: Object.fromEntries(formData),
-                hasAuth: !!authHeader
-            });
-
-            const response = await axios.post(this.eventEndpoint, formData.toString(), {
-                headers: headers
-            });
-
-            // Debug logging
-            console.log('Adjust S2S Response:', {
-                status: response.status,
-                data: response.data
-            });
-
-            // Adjust returns 200 even for errors - check response body
-            // Adjust can return errors in different formats
-            const responseData = response.data;
-            let errorMessage = null;
-            
-            // Check for error in various formats
-            if (typeof responseData === 'string') {
-                // Sometimes Adjust returns plain text error
-                if (responseData.toLowerCase().includes('error') || 
-                    responseData.toLowerCase().includes('invalid') ||
-                    responseData.toLowerCase().includes('s2s is not enabled')) {
-                    errorMessage = responseData;
-                }
-            } else if (responseData && typeof responseData === 'object') {
-                // Check for error field
-                if (responseData.error) {
-                    errorMessage = typeof responseData.error === 'string' 
-                        ? responseData.error 
-                        : JSON.stringify(responseData.error);
-                }
-                // Check for message field
-                if (!errorMessage && responseData.message) {
-                    errorMessage = responseData.message;
-                }
-            }
-            
-            if (errorMessage) {
-                console.error('Adjust API returned error:', errorMessage);
-                
-                // Provide helpful error messages
-                let helpfulMessage = 'Failed to track event';
-                if (errorMessage.includes('s2s is not enabled')) {
-                    helpfulMessage = 'S2S API is not enabled for this app in Adjust dashboard. Please enable S2S in Adjust Settings → App Settings → S2S API.';
-                } else if (errorMessage.includes('Invalid event token')) {
-                    helpfulMessage = 'Invalid event token. Please verify the event token exists in Adjust dashboard and matches your app token.';
-                } else if (errorMessage.includes('invalid source')) {
-                    helpfulMessage = 'Invalid ad revenue source. Valid sources: admob, applovin, applovin_exchange, chartboost, facebook, fyber, google, ironsource, line, maio, mintegral, mopub, nend, startapp, tiktok, unity, vungle, yandex.';
-                }
-                
-                return {
-                    success: false,
-                    error: errorMessage,
-                    message: helpfulMessage,
-                    data: responseData
-                };
-            }
-
-            return {
-                success: true,
-                data: response.data,
-                message: 'Event tracked successfully'
-            };
-
-        } catch (error) {
-            console.error('Adjust trackEvent error:', error.response?.data || error.message);
-            
-            // Check if error response has error message in body
-            if (error.response && error.response.data && error.response.data.error) {
-                return {
-                    success: false,
-                    error: error.response.data.error,
-                    message: 'Failed to track event',
-                    data: error.response.data
-                };
-            }
-            
-            return {
-                success: false,
-                error: error.response?.data || error.message,
-                message: 'Failed to track event'
-            };
-        }
+    // Validate required fields
+    if (revenueData.revenue === undefined || revenueData.revenue === null) {
+      throw {
+        status: 400,
+        message: 'revenue is required for ad revenue tracking',
+        data: null
+      };
+    }
+    if (!revenueData.currency) {
+      throw {
+        status: 400,
+        message: 'currency is required for ad revenue tracking',
+        data: null
+      };
+    }
+    if (!revenueData.ad_revenue_network) {
+      throw {
+        status: 400,
+        message: 'ad_revenue_network is required for ad revenue tracking',
+        data: null
+      };
     }
 
-    /**
-     * Send ad revenue to Adjust
-     * @param {Object} revenueData - Ad revenue data
-     * @param {string} revenueData.source - Revenue source (e.g., 'admob', 'unity', 'applovin')
-     * @param {string} revenueData.publisher - Publisher name
-     * @param {string} revenueData.mediationNetwork - Mediation network
-     * @param {string} revenueData.adUnit - Ad unit identifier
-     * @param {string} revenueData.adType - Ad type (banner, interstitial, rewarded, etc.)
-     * @param {number} revenueData.revenue - Revenue amount
-     * @param {string} revenueData.currency - Currency code (default: USD)
-     * @param {string} revenueData.idfa - iOS IDFA
-     * @param {string} revenueData.gpsAdid - Android GPS ADID
-     * @param {Object} revenueData.callbackParams - Callback parameters
-     * @returns {Promise<Object>} Response from Adjust
-     */
-    async trackAdRevenue(revenueData) {
-        try {
-            const {
-                source,
-                publisher,
-                mediationNetwork,
-                adUnit,
-                adType,
-                revenue,
-                currency = 'USD',
-                idfa,
-                gpsAdid,
-                idfv,
-                androidId,
-                callbackParams = {},
-                environment = 'production',
-                createdAt,
-                appToken = this.appToken
-            } = revenueData;
+    try {
+      const payload = {
+        app_token: revenueData.app_token || this.appToken,
+        ...revenueData
+      };
 
-            // Validate required fields
-            if (!source) {
-                throw new Error('source is required');
-            }
-
-            if (!revenue) {
-                throw new Error('revenue is required');
-            }
-
-            if (!appToken) {
-                throw new Error('appToken is required');
-            }
-
-            // At least one device identifier is required
-            if (!idfa && !gpsAdid && !idfv && !androidId) {
-                throw new Error('At least one device identifier is required');
-            }
-
-            // Determine OS name from device identifiers
-            let detectedOsName = 'unknown';
-            if (idfa || idfv) {
-                detectedOsName = 'ios';
-            } else if (gpsAdid || androidId) {
-                detectedOsName = 'android';
-            }
-
-            // Build request payload
-            // Adjust S2S API REQUIRES: s2s=1, app_token, os_name, and at least one device identifier
-            const payload = {
-                s2s: '1',  // REQUIRED: Indicates this is an S2S request
-                app_token: appToken,
-                os_name: detectedOsName,  // REQUIRED: Operating system name
-                source: source,
-                revenue: revenue,
-                currency: currency,
-                environment: environment
-            };
-
-            // Add optional fields
-            if (publisher) payload.publisher = publisher;
-            if (mediationNetwork) payload.mediation_network = mediationNetwork;
-            if (adUnit) payload.ad_unit = adUnit;
-            if (adType) payload.ad_type = adType;
-
-            // Add device identifiers
-            if (idfa) payload.idfa = idfa;
-            if (gpsAdid) payload.gps_adid = gpsAdid;
-            if (idfv) payload.idfv = idfv;
-            if (androidId) payload.android_id = androidId;
-
-            // Add timestamp if provided
-            if (createdAt) {
-                payload.created_at = new Date(createdAt).toISOString();
-            }
-
-            // Add callback parameters
-            if (Object.keys(callbackParams).length > 0) {
-                Object.keys(callbackParams).forEach(key => {
-                    payload[`callback_params.${key}`] = callbackParams[key];
-                });
-            }
-
-            // Make request to Adjust
-            // Adjust S2S API expects form-encoded data
-            const formData = new URLSearchParams();
-            
-            Object.keys(payload).forEach(key => {
-                if (payload[key] !== undefined && payload[key] !== null) {
-                    formData.append(key, payload[key].toString());
-                }
-            });
-
-            const headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            };
-
-            const authHeader = this.getAuthHeader();
-            if (authHeader) {
-                headers['Authorization'] = authHeader;
-            }
-
-            const response = await axios.post(this.adRevenueEndpoint, formData.toString(), {
-                headers: headers
-            });
-
-            // Adjust returns 200 even for errors - check response body
-            const responseData = response.data;
-            let errorMessage = null;
-            
-            if (typeof responseData === 'string') {
-                if (responseData.toLowerCase().includes('error') || 
-                    responseData.toLowerCase().includes('invalid')) {
-                    errorMessage = responseData;
-                }
-            } else if (responseData && typeof responseData === 'object') {
-                if (responseData.error) {
-                    errorMessage = typeof responseData.error === 'string' 
-                        ? responseData.error 
-                        : JSON.stringify(responseData.error);
-                }
-            }
-            
-            if (errorMessage) {
-                console.error('Adjust API returned error:', errorMessage);
-                
-                let helpfulMessage = 'Failed to track ad revenue';
-                if (errorMessage.includes('invalid source')) {
-                    helpfulMessage = 'Invalid ad revenue source. Valid sources: admob, applovin, applovin_exchange, chartboost, facebook, fyber, google, ironsource, line, maio, mintegral, mopub, nend, startapp, tiktok, unity, vungle, yandex.';
-                } else if (errorMessage.includes('s2s is not enabled')) {
-                    helpfulMessage = 'S2S API is not enabled for this app in Adjust dashboard. Please enable S2S in Adjust Settings → App Settings → S2S API.';
-                }
-                
-                return {
-                    success: false,
-                    error: errorMessage,
-                    message: helpfulMessage,
-                    data: responseData
-                };
-            }
-
-            return {
-                success: true,
-                data: response.data,
-                message: 'Ad revenue tracked successfully'
-            };
-
-        } catch (error) {
-            console.error('Adjust trackAdRevenue error:', error.response?.data || error.message);
-            
-            // Check if error response has error message in body
-            if (error.response && error.response.data && error.response.data.error) {
-                return {
-                    success: false,
-                    error: error.response.data.error,
-                    message: 'Failed to track ad revenue',
-                    data: error.response.data
-                };
-            }
-            
-            return {
-                success: false,
-                error: error.response?.data || error.message,
-                message: 'Failed to track ad revenue'
-            };
+      // Remove undefined values
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined) {
+          delete payload[key];
         }
+      });
+
+      const response = await this.client.post('/ad_revenue', payload);
+      
+      return {
+        success: true,
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Adjust sendAdRevenue error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send session data to Adjust S2S API
+   * Endpoint: POST https://s2s.adjust.com/session
+   * @param {Object} sessionData - Session data
+   * @param {string} sessionData.app_token - App token (required)
+   * @param {string} sessionData.idfa - iOS IDFA
+   * @param {string} sessionData.gps_adid - Google Play Services advertising ID
+   * @param {string} sessionData.fire_adid - Amazon Fire advertising ID
+   * @param {string} sessionData.oaid - Open Advertising ID (Huawei)
+   * @param {string} sessionData.web_uuid - Web ID from Adjust Web SDK
+   * @param {string} sessionData.idfv - iOS IDFV (backup)
+   * @param {string} sessionData.android_id - Android ID (backup)
+   * @param {string} sessionData.created_at - Session timestamp (optional, ISO 8601 format)
+   * @returns {Promise<Object>} Response data
+   */
+  async sendSession(sessionData) {
+    if (!this.isConfigured()) {
+      throw {
+        status: 500,
+        message: 'Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.',
+        data: null
+      };
     }
 
-    /**
-     * Send session to Adjust
-     * @param {Object} sessionData - Session data
-     * @param {string} sessionData.idfa - iOS IDFA
-     * @param {string} sessionData.gpsAdid - Android GPS ADID
-     * @param {string} sessionData.idfv - iOS IDFV
-     * @param {string} sessionData.androidId - Android ID
-     * @param {Object} sessionData.callbackParams - Callback parameters
-     * @returns {Promise<Object>} Response from Adjust
-     */
-    async trackSession(sessionData) {
-        try {
-            const {
-                idfa,
-                gpsAdid,
-                idfv,
-                androidId,
-                fireAdid,
-                windowsAdid,
-                amazonAdid,
-                callbackParams = {},
-                environment = 'production',
-                createdAt,
-                appToken = this.appToken
-            } = sessionData;
+    try {
+      const payload = {
+        app_token: sessionData.app_token || this.appToken,
+        ...sessionData
+      };
 
-            // Validate required fields
-            if (!appToken) {
-                throw new Error('appToken is required');
-            }
-
-            // At least one device identifier is required
-            if (!idfa && !gpsAdid && !idfv && !androidId && !fireAdid && !windowsAdid && !amazonAdid) {
-                throw new Error('At least one device identifier is required');
-            }
-
-            // Determine OS name from device identifiers
-            let detectedOsName = 'unknown';
-            if (idfa || idfv) {
-                detectedOsName = 'ios';
-            } else if (gpsAdid || androidId) {
-                detectedOsName = 'android';
-            } else if (fireAdid || amazonAdid) {
-                detectedOsName = 'amazon';
-            } else if (windowsAdid) {
-                detectedOsName = 'windows';
-            }
-
-            // Build request payload
-            // Adjust S2S API REQUIRES: s2s=1, app_token, os_name, and at least one device identifier
-            const payload = {
-                s2s: '1',  // REQUIRED: Indicates this is an S2S request
-                app_token: appToken,
-                os_name: detectedOsName,  // REQUIRED: Operating system name
-                environment: environment
-            };
-
-            // Add device identifiers
-            if (idfa) payload.idfa = idfa;
-            if (gpsAdid) payload.gps_adid = gpsAdid;
-            if (idfv) payload.idfv = idfv;
-            if (androidId) payload.android_id = androidId;
-            if (fireAdid) payload.fire_adid = fireAdid;
-            if (windowsAdid) payload.windows_adid = windowsAdid;
-            if (amazonAdid) payload.amazon_adid = amazonAdid;
-
-            // Add timestamp if provided
-            if (createdAt) {
-                payload.created_at = new Date(createdAt).toISOString();
-            }
-
-            // Add callback parameters
-            if (Object.keys(callbackParams).length > 0) {
-                Object.keys(callbackParams).forEach(key => {
-                    payload[`callback_params.${key}`] = callbackParams[key];
-                });
-            }
-
-            // Make request to Adjust
-            // Adjust S2S API expects form-encoded data
-            const formData = new URLSearchParams();
-            
-            Object.keys(payload).forEach(key => {
-                if (payload[key] !== undefined && payload[key] !== null) {
-                    formData.append(key, payload[key].toString());
-                }
-            });
-
-            const headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            };
-
-            const authHeader = this.getAuthHeader();
-            if (authHeader) {
-                headers['Authorization'] = authHeader;
-            }
-
-            const response = await axios.post(this.sessionEndpoint, formData.toString(), {
-                headers: headers
-            });
-
-            // Adjust returns 200 even for errors - check response body
-            if (response.data && response.data.error) {
-                console.error('Adjust API returned error:', response.data.error);
-                return {
-                    success: false,
-                    error: response.data.error,
-                    message: 'Failed to track session',
-                    data: response.data
-                };
-            }
-
-            return {
-                success: true,
-                data: response.data,
-                message: 'Session tracked successfully'
-            };
-
-        } catch (error) {
-            console.error('Adjust trackSession error:', error.response?.data || error.message);
-            
-            // Check if error response has error message in body
-            if (error.response && error.response.data && error.response.data.error) {
-                return {
-                    success: false,
-                    error: error.response.data.error,
-                    message: 'Failed to track session',
-                    data: error.response.data
-                };
-            }
-            
-            return {
-                success: false,
-                error: error.response?.data || error.message,
-                message: 'Failed to track session'
-            };
+      // Remove undefined values
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined) {
+          delete payload[key];
         }
+      });
+
+      const response = await this.client.post('/session', payload);
+      
+      return {
+        success: true,
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Adjust sendSession error:', error);
+      throw error;
     }
+  }
+
+  /**
+   * Helper: Track in-app purchase event
+   * @param {Object} params - Purchase parameters
+   * @param {string} params.userId - User ID
+   * @param {string} params.eventToken - Adjust event token
+   * @param {number} params.revenue - Revenue amount
+   * @param {string} params.currency - Currency code
+   * @param {Object} params.deviceIds - Device identifiers
+   * @param {Object} params.callbackParams - Callback parameters
+   * @returns {Promise<Object>} Response
+   */
+  async trackPurchase(params) {
+    const {
+      userId,
+      eventToken,
+      revenue,
+      currency = 'USD',
+      deviceIds = {},
+      callbackParams = {}
+    } = params;
+
+    return this.sendEvent({
+      event_token: eventToken,
+      revenue: revenue,
+      currency: currency,
+      ...deviceIds,
+      callback_params: typeof callbackParams === 'string' 
+        ? callbackParams 
+        : JSON.stringify(callbackParams)
+    });
+  }
+
+  /**
+   * Helper: Track game completion event
+   * @param {Object} params - Game completion parameters
+   * @param {string} params.userId - User ID
+   * @param {string} params.eventToken - Adjust event token
+   * @param {Object} params.deviceIds - Device identifiers
+   * @param {Object} params.callbackParams - Callback parameters
+   * @returns {Promise<Object>} Response
+   */
+  async trackGameCompletion(params) {
+    const {
+      userId,
+      eventToken,
+      deviceIds = {},
+      callbackParams = {}
+    } = params;
+
+    return this.sendEvent({
+      event_token: eventToken,
+      ...deviceIds,
+      callback_params: typeof callbackParams === 'string' 
+        ? callbackParams 
+        : JSON.stringify(callbackParams)
+    });
+  }
+
+  /**
+   * Health check for Adjust API
+   * @returns {Promise<Object>} Health status
+   */
+  async healthCheck() {
+    const configured = this.isConfigured();
+    if (!configured) {
+      return {
+        status: 'misconfigured',
+        configured: false,
+        error: 'Missing Adjust config (API_TOKEN or APP_TOKEN)'
+      };
+    }
+
+    // Adjust doesn't have a health check endpoint, so we'll just verify config
+    return {
+      status: 'ok',
+      configured: true,
+      message: 'Adjust S2S API is configured'
+    };
+  }
 }
 
+// Export singleton instance
 module.exports = new AdjustService();
 

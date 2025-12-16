@@ -32,34 +32,34 @@ async function checkAndUpdateAdminRole(identifier) {
       process.exit(1);
     }
 
-    console.log('\n📋 Current User Info:');
-    console.log('=====================================');
-    console.log('ID:', user._id);
-    console.log('Email:', user.email);
-    console.log('Mobile:', user.mobile);
-    console.log('Role:', user.role);
-    console.log('Verified:', user.isVerified);
-    console.log('=====================================\n');
+    // console.log('\n📋 Current User Info:');
+    // console.log('=====================================');
+    // console.log('ID:', user._id);
+    // console.log('Email:', user.email);
+    // console.log('Mobile:', user.mobile);
+    // console.log('Role:', user.role);
+    // console.log('Verified:', user.isVerified);
+    // console.log('=====================================\n');
 
-    if (user.role === 'ADMIN') {
-      console.log('✅ User already has ADMIN role');
-    } else {
-      console.log('⚠️  User does NOT have ADMIN role');
-      console.log('Updating role to ADMIN...');
+    // if (user.role === 'ADMIN') {
+    //   console.log('✅ User already has ADMIN role');
+    // } else {
+    //   console.log('⚠️  User does NOT have ADMIN role');
+    //   console.log('Updating role to ADMIN...');
       
-      user.role = 'ADMIN';
-      await user.save();
+    //   user.role = 'ADMIN';
+    //   await user.save();
       
-      console.log('✅ User role updated to ADMIN');
-    }
+    //   console.log('✅ User role updated to ADMIN');
+    // }
 
     // Test token verification
-    console.log('\n🔑 Testing Token Verification:');
-    console.log('=====================================');
-    console.log('To test, use this token (if you have one):');
-    console.log('Or login again at: POST /api/auth/admin-login');
-    console.log('With email:', user.email);
-    console.log('=====================================\n');
+    // console.log('\n🔑 Testing Token Verification:');
+    // console.log('=====================================');
+    // console.log('To test, use this token (if you have one):');
+    // console.log('Or login again at: POST /api/auth/admin-login');
+    // console.log('With email:', user.email);
+    // console.log('=====================================\n');
 
     process.exit(0);
   } catch (error) {

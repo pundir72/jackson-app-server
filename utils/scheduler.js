@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { resetDailyProgress } = require('../middleware/dailyProgressReset');
 const UserChallengeProgress = require('../models/UserChallengeProgress');
 const bitlabsOfferCache = require('./bitlabsOfferCache');
+const { processDecayForAllUsers } = require('./xpDecayV2');
 const config = require('../config/config');
 
 /**
@@ -21,6 +22,9 @@ class Scheduler {
     
     // Expire old daily challenges
     this.scheduleExpireOldChallenges();
+    
+    // Process XP decay for inactive users
+    this.scheduleXPDecay();
     
     // Start Bitlabs offer cache refresh
     this.startBitlabsOfferRefresh();
@@ -107,6 +111,44 @@ class Scheduler {
       return result;
     } catch (error) {
       console.error('Error in manual daily challenge expiration:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule XP Decay processing
+   * Runs daily at 2 AM to process XP decay for inactive users
+   */
+  scheduleXPDecay() {
+    // Run at 2 AM every day (02:00)
+    const job = cron.schedule('0 2 * * *', async () => {
+      console.log('Running XP decay processing...');
+      try {
+        const result = await processDecayForAllUsers({ batchSize: 100 });
+        console.log(`XP decay processing completed: ${result.message}`);
+      } catch (error) {
+        console.error('Error processing XP decay:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+
+    this.jobs.push(job);
+    console.log('XP decay processing scheduled for 2 AM UTC');
+  }
+
+  /**
+   * Manually trigger XP decay processing (for testing)
+   */
+  async triggerXPDecay() {
+    console.log('Manually triggering XP decay processing...');
+    try {
+      const result = await processDecayForAllUsers({ batchSize: 100 });
+      console.log(`Manually processed XP decay: ${result.message}`);
+      return result;
+    } catch (error) {
+      console.error('Error in manual XP decay processing:', error);
       throw error;
     }
   }

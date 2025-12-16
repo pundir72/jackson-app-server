@@ -56,22 +56,22 @@ async function setupAdminUser() {
       console.log('✅ Created new admin user:', adminUser.email);
     }
 
-    console.log('');
-    console.log('🔑 Admin User Details:');
-    console.log('=====================================');
-    console.log('Email:', adminUser.email);
-    console.log('Mobile:', adminUser.mobile);
-    console.log('Password:', adminPassword);
-    console.log('Role:', adminUser.role);
-    console.log('Verified:', adminUser.isVerified);
-    console.log('=====================================');
-    console.log('');
-    console.log('🧪 Test admin login with:');
-    console.log('curl -X POST "http://localhost:4001/api/auth/admin-login" \\');
-    console.log('  -H "Content-Type: application/json" \\');
-    console.log('  -d \'{"email":"' + adminEmail + '","password":"' + adminPassword + '"}\'');
-    console.log('');
-    console.log('✅ Admin user setup complete!');
+    // console.log('');
+    // console.log('🔑 Admin User Details:');
+    // console.log('=====================================');
+    // console.log('Email:', adminUser.email);
+    // console.log('Mobile:', adminUser.mobile);
+    // console.log('Password:', adminPassword);
+    // console.log('Role:', adminUser.role);
+    // console.log('Verified:', adminUser.isVerified);
+    // console.log('=====================================');
+    // console.log('');
+    // console.log('🧪 Test admin login with:');
+    // console.log('curl -X POST "http://localhost:4001/api/auth/admin-login" \\');
+    // console.log('  -H "Content-Type: application/json" \\');
+    // console.log('  -d \'{"email":"' + adminEmail + '","password":"' + adminPassword + '"}\'');
+    // console.log('');
+    // console.log('✅ Admin user setup complete!');
 
   } catch (error) {
     console.error('❌ Error setting up admin user:', error.message);

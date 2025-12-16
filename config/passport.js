@@ -72,12 +72,12 @@ passport.use(new GoogleStrategy({
                 step: 1
             },
             wallet: {
-                balance: 100, // Welcome bonus
+                balance: 0, // Welcome bonus
                 currency: 'coins',
                 lastUpdated: new Date()
             },
             xp: {
-                current: 50,
+                current: 0,
                 tier: 1,
                 streak: 0
             },
@@ -91,7 +91,10 @@ passport.use(new GoogleStrategy({
                     prioritySupport: false,
                     specialOffers: false
                 }
-            }
+            },
+            loginCount: 1, // Initialize login count for new Google users
+            lastLoginAt: new Date(), // Set initial login time
+            lastActive: new Date() // Set initial active time
         });
 
         const savedUser = await newUser.save();
@@ -103,10 +106,30 @@ passport.use(new GoogleStrategy({
 }));
 
 // Facebook OAuth Strategy
+const facebookCallbackURL = (process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL || '').replace(/['"]/g, ''); // Remove quotes if present
+const facebookAppId = (process.env.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID || '').replace(/['"]/g, '');
+const facebookAppSecret = (process.env.FACEBOOK_APP_SECRET || config.FACEBOOK_APP_SECRET || '').replace(/['"]/g, '');
+
+console.log('[Passport Facebook Config]', {
+    hasAppId: !!facebookAppId,
+    hasAppSecret: !!facebookAppSecret,
+    callbackURL: facebookCallbackURL,
+    appIdPreview: facebookAppId ? facebookAppId.substring(0, 10) + '...' : 'MISSING',
+    callbackURLValid: facebookCallbackURL.startsWith('http')
+});
+
+if (!facebookAppId || !facebookAppSecret || !facebookCallbackURL) {
+    console.error('[Passport Facebook] Missing required configuration!', {
+        hasAppId: !!facebookAppId,
+        hasAppSecret: !!facebookAppSecret,
+        hasCallbackURL: !!facebookCallbackURL
+    });
+}
+
 passport.use(new FacebookStrategy({
-    clientID: process.env.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID,
-    clientSecret: process.env.FACEBOOK_APP_SECRET || config.FACEBOOK_APP_SECRET,
-    callbackURL: process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL,
+    clientID: facebookAppId,
+    clientSecret: facebookAppSecret,
+    callbackURL: facebookCallbackURL,
     profileFields: ['id', 'displayName', 'photos', 'email', 'first_name', 'last_name'],
     scope: ['email']
 }, async (accessToken, refreshToken, profile, done) => {
@@ -151,12 +174,12 @@ passport.use(new FacebookStrategy({
                 step: 1
             },
             wallet: {
-                balance: 100, // Welcome bonus
+                balance: 0, // Welcome bonus
                 currency: 'coins',
                 lastUpdated: new Date()
             },
             xp: {
-                current: 50,
+                current: 0,
                 tier: 1,
                 streak: 0
             },
@@ -170,7 +193,10 @@ passport.use(new FacebookStrategy({
                     prioritySupport: false,
                     specialOffers: false
                 }
-            }
+            },
+            loginCount: 1, // Initialize login count for new Facebook users
+            lastLoginAt: new Date(), // Set initial login time
+            lastActive: new Date() // Set initial active time
         });
 
         const savedUser = await newUser.save();

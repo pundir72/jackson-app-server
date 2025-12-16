@@ -22,18 +22,23 @@ const surveyOfferSchema = new mongoose.Schema(
       trim: true,
     },
     category: {
-      type: String,
-      enum: [
-        "finance",
-        "shopping",
-        "entertainment",
-        "technology",
-        "health",
-        "travel",
-        "education",
-        "other",
-      ],
-      default: "other",
+      // Store full category object from Bitlabs API
+      name: {
+        type: String,
+        default: "General",
+      },
+      name_internal: {
+        type: String,
+        default: "Other",
+      },
+      icon_name: {
+        type: String,
+        default: "shapes",
+      },
+      icon_url: {
+        type: String,
+        default: "",
+      },
     },
     offerType: {
       type: String,
@@ -213,13 +218,14 @@ surveyOfferSchema.pre("save", function (next) {
 // Indexes for efficient queries
 surveyOfferSchema.index({ sdkId: 1, externalId: 1 }, { unique: true });
 surveyOfferSchema.index({ status: 1 });
-surveyOfferSchema.index({ category: 1 });
+surveyOfferSchema.index({ "category.name": 1 }); // Index category name for filtering
+surveyOfferSchema.index({ "category.name_internal": 1 }); // Index category name_internal
 surveyOfferSchema.index({ coinReward: 1 });
 surveyOfferSchema.index({ createdAt: -1 });
 surveyOfferSchema.index({ "analytics.lastUpdated": -1 });
 
 // Compound indexes for filtering
-surveyOfferSchema.index({ status: 1, category: 1 });
+surveyOfferSchema.index({ status: 1, "category.name": 1 });
 surveyOfferSchema.index({ sdkId: 1, status: 1 });
 surveyOfferSchema.index({ expiryDate: 1, status: 1 });
 
@@ -241,8 +247,19 @@ surveyOfferSchema.statics.findBySDK = function (sdkId, status = null) {
     .sort({ createdAt: -1 });
 };
 
-surveyOfferSchema.statics.findByCategory = function (category) {
-  return this.find({ category, status: "live" })
+surveyOfferSchema.statics.findByCategory = function (categoryName) {
+  // Support both string (for backward compatibility) and object queries
+  const query = { status: "live" };
+  if (typeof categoryName === "string") {
+    // Query by category name or name_internal
+    query.$or = [
+      { "category.name": categoryName },
+      { "category.name_internal": categoryName },
+    ];
+  } else {
+    query.category = categoryName;
+  }
+  return this.find(query)
     .populate("sdkId", "name displayName")
     .sort({ "metadata.priority": -1, createdAt: -1 });
 };
@@ -275,7 +292,12 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check age targeting
-  if (this.targetAudience.age && this.targetAudience.age.length > 0) {
+  // Skip age restrictions if user has Google ID (social login) - same logic as Daily Challenges and Game Listing
+  if (
+    this.targetAudience.age &&
+    this.targetAudience.age.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     const userAgeGroup = this.getAgeGroup(userProfile.age);
     if (!this.targetAudience.age.includes(userAgeGroup)) {
       return false;
@@ -283,7 +305,12 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
   }
 
   // Check gender targeting
-  if (this.targetAudience.gender && this.targetAudience.gender.length > 0) {
+  // Skip gender restrictions if user has Google ID (social login) - same logic as Daily Challenges
+  if (
+    this.targetAudience.gender &&
+    this.targetAudience.gender.length > 0 &&
+    !userProfile.hasGoogleId
+  ) {
     if (!this.targetAudience.gender.includes(userProfile.gender)) {
       return false;
     }

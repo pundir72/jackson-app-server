@@ -88,7 +88,10 @@ function calculateAge(dateOfBirth) {
   const birthDate = new Date(dateOfBirth);
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
     age--;
   }
   return age;
@@ -96,29 +99,44 @@ function calculateAge(dateOfBirth) {
 
 // Helper function to format user response with additional fields
 function formatUserResponse(user) {
-  // Calculate age from dateOfBirth or use ageRange
+  // Calculate age with priority: dateOfBirth > profile.age > ageRange
   let age = null;
+
+  // Priority 1: Use dateOfBirth (most accurate)
   if (user.dateOfBirth) {
     age = calculateAge(user.dateOfBirth);
-  } else if (user.onboarding?.ageRange) {
-    // Extract numeric age from ageRange if available (e.g., "18-25" -> 21)
+    console.log(`Age calculated from dateOfBirth: ${age}`);
+  }
+  // Priority 2: Use profile.age if available (direct age field)
+  else if (user.profile?.age && typeof user.profile.age === "number") {
+    age = user.profile.age;
+    console.log(`Age from profile.age: ${age}`);
+  }
+  // Priority 3: Use ageRange format directly (return in same format: "25-34" or "65+")
+  else if (user.onboarding?.ageRange) {
     const ageRange = user.onboarding.ageRange;
-    if (ageRange.includes('-')) {
-      const [min, max] = ageRange.split('-').map(Number);
-      age = Math.floor((min + max) / 2); // Use midpoint as approximate age
-    }
+    // Return ageRange in the same format (e.g., "25-34" or "65+")
+    age = ageRange;
+    console.log(`Age from ageRange: ${ageRange} (returning in same format)`);
+  }
+
+  // If still no age, log warning
+  if (age === null) {
+    console.warn(`No age could be determined for user ${user._id}`);
   }
 
   // Get gender from onboarding
   const gender = user.onboarding?.gender || user.gender || null;
 
   // Format location from location.current
-  const location = user.location?.current ? {
-    country: user.location.current.country || null,
-    city: user.location.current.city || null,
-    latitude: user.location.current.latitude || null,
-    longitude: user.location.current.longitude || null
-  } : null;
+  const location = user.location?.current
+    ? {
+        country: user.location.current.country || null,
+        city: user.location.current.city || null,
+        latitude: user.location.current.latitude || null,
+        longitude: user.location.current.longitude || null,
+      }
+    : null;
 
   // Permission status (using disclosureAccepted as permission status)
   const permissionStatus = user.disclosureAccepted || false;
@@ -127,7 +145,7 @@ function formatUserResponse(user) {
     age,
     gender,
     location,
-    permissionStatus
+    permissionStatus,
   };
 }
 
@@ -518,7 +536,7 @@ router.post(
               },
             }
           );
-          console.log("Referral processed successfully:", referralResult);
+          // console.log("Referral processed successfully:", referralResult);
         } catch (referralError) {
           // Don't fail signup if referral processing fails, just log it
           console.error("Referral processing error:", referralError.message);
@@ -632,21 +650,26 @@ router.post(
       }
 
       const { emailOrMobile, password } = req.body;
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedEmailOrMobile = emailOrMobile.toLowerCase();
       // Try to find user by email first
-      let user = await User.findOne({ email: emailOrMobile, role: "USER" });
+      let user = await User.findOne({
+        email: normalizedEmailOrMobile,
+        role: "USER",
+      });
 
       // If not found by email, try by phone number
       if (!user) {
         user = await findUserByPhone(User, emailOrMobile);
       }
-      console.log(user);
+      // console.log(user);
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       // Verify password
       const isValidPassword = await user.comparePassword(password);
-      console.log("Password verification result:", isValidPassword);
+      // console.log("Password verification result:", isValidPassword);
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -706,6 +729,19 @@ router.post(
         expiresIn: "24h",
       });
 
+      // TODO: Firebase token generation - uncomment when Firebase credentials are available
+      // Generate Firebase custom token for V2 S2S endpoints (if Firebase is configured)
+      // let firebaseCustomToken = null;
+      // try {
+      //   const { generateFirebaseToken } = require("../utils/firebaseTokenGenerator");
+      //   firebaseCustomToken = await generateFirebaseToken(user._id.toString());
+      // } catch (error) {
+      //   // Firebase not configured or error - continue without it
+      //   // This is non-critical - V2 endpoints will work once Firebase is configured
+      //   console.warn("Firebase token generation failed (non-critical):", error.message);
+      // }
+      const firebaseCustomToken = null; // Temporarily disabled - waiting for Firebase credentials
+
       // Update login analytics and device info
       try {
         const updateData = {
@@ -749,7 +785,7 @@ router.post(
           },
         };
         await User.findByIdAndUpdate(user._id, updateData);
-        
+
         // Refresh user data after update to get latest location
         const updatedUser = await User.findById(user._id);
         if (updatedUser) {
@@ -764,6 +800,7 @@ router.post(
 
       res.status(200).json({
         token,
+        firebaseCustomToken, // For V2 S2S endpoints - client should exchange this for ID token
         biometricRequired: false,
         user: {
           _id: user._id,
@@ -800,26 +837,34 @@ router.post(
       }
 
       const { emailOrMobile, email, password } = req.body;
-      
+
       // Validate that at least one identifier is provided
-      const identifier = (emailOrMobile && emailOrMobile.trim()) || (email && email.trim());
-      
+      const identifier =
+        (emailOrMobile && emailOrMobile.trim()) || (email && email.trim());
+
       if (!identifier) {
-        return res.status(400).json({ 
-          errors: [{
-            type: "field",
-            value: "",
-            msg: "emailOrMobile or email is required",
-            path: "emailOrMobile",
-            location: "body"
-          }]
+        return res.status(400).json({
+          errors: [
+            {
+              type: "field",
+              value: "",
+              msg: "emailOrMobile or email is required",
+              path: "emailOrMobile",
+              location: "body",
+            },
+          ],
         });
       }
 
+      // Normalize email to lowercase for consistent matching (emails are stored lowercase)
+      const normalizedIdentifier = identifier.toLowerCase();
       // Try to find admin user by email first
-      let user = await User.findOne({ email: identifier, role: "ADMIN" });
+      let user = await User.findOne({
+        email: normalizedIdentifier,
+        role: "ADMIN",
+      });
 
-      // If not found by email, try by phone number
+      // If not found by email, try by phone number (use original identifier, not normalized)
       if (!user) {
         user = await findUserByPhone(User, identifier);
         // Make sure it's an admin user
@@ -827,7 +872,7 @@ router.post(
           user = null;
         }
       }
-      
+
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -889,11 +934,11 @@ router.post(
       }
 
       // Ensure user has ADMIN role (fix if missing)
-      if (user.role !== 'ADMIN') {
-        console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
-        user.role = 'ADMIN';
+      if (user.role !== "ADMIN") {
+        // console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
+        user.role = "ADMIN";
         await user.save();
-        console.log(`✅ Updated user ${user.email} to ADMIN role`);
+        // console.log(`✅ Updated user ${user.email} to ADMIN role`);
       }
 
       // Generate JWT token
@@ -948,8 +993,21 @@ router.post(
         console.error("Failed to update admin login analytics:", e.message);
       }
 
+      // TODO: Firebase token generation - uncomment when Firebase credentials are available
+      // Generate Firebase custom token for V2 S2S endpoints (if Firebase is configured)
+      // let firebaseCustomToken = null;
+      // try {
+      //   const { generateFirebaseToken } = require("../utils/firebaseTokenGenerator");
+      //   firebaseCustomToken = await generateFirebaseToken(user._id.toString());
+      // } catch (error) {
+      //   // Firebase not configured or error - continue without it
+      //   console.warn("Firebase token generation failed (non-critical):", error.message);
+      // }
+      const firebaseCustomToken = null; // Temporarily disabled - waiting for Firebase credentials
+
       res.status(200).json({
         token,
+        firebaseCustomToken, // For V2 S2S endpoints - client should exchange this for ID token (currently null)
         biometricRequired: false,
         user: {
           _id: user._id,
@@ -985,9 +1043,54 @@ router.get(
   }),
   async (req, res) => {
     try {
-      console.log("Google OAuth callback route hit");
+      // console.log("Google OAuth callback route hit");
 
       const user = req.user;
+
+      // Update login analytics and device info (same as normal login)
+      // This tracks total number of Google logins for this specific user (by Google email)
+      // Each time this user logs in with Google, loginCount increments by 1
+      try {
+        const updateData = {
+          $inc: { loginCount: 1 }, // Increment total login count for this user
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion:
+              req.headers["x-app-version"] || user.appVersion || "1.0.0",
+            "device.type":
+              req.headers["x-device-type"] || user.device?.type || "Unknown",
+            "device.model":
+              req.headers["x-device-model"] || user.device?.model || "Unknown",
+            "device.os":
+              req.headers["x-device-os"] || user.device?.os || "Unknown",
+            "device.lastUpdated": new Date(),
+            "location.current.ip":
+              req.ip ||
+              req.headers["x-forwarded-for"] ||
+              req.connection.remoteAddress,
+            "location.current.country":
+              req.headers["x-country"] ||
+              req.headers["cf-ipcountry"] ||
+              user.location?.current?.country ||
+              "",
+            "location.current.city":
+              req.headers["x-city"] || user.location?.current?.city || "",
+            "location.current.timestamp": new Date(),
+          },
+        };
+
+        const updatedUser = await User.findByIdAndUpdate(user._id, updateData, {
+          new: true,
+        });
+        // console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
+      } catch (updateError) {
+        console.error(
+          "Error updating login analytics for Google login:",
+          updateError
+        );
+        // Continue even if update fails
+      }
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -1006,34 +1109,159 @@ router.get(
   }
 );
 
-// Facebook OAuth Routes
-router.get(
-  "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] })
-);
+// ========================================
+// MOBILE FACEBOOK OAUTH ROUTE
+// ========================================
 
+// Facebook OAuth Route for Mobile App Only
+// This route is for mobile app authentication - redirects to mobile deep link
+router.get("/facebook", (req, res, next) => {
+  console.log("[Facebook OAuth Mobile Init]", {
+    query: req.query,
+    headers: {
+      referer: req.headers.referer,
+      origin: req.headers.origin,
+      host: req.headers.host,
+      "user-agent": req.headers["user-agent"],
+    },
+    appId: process.env.FACEBOOK_APP_ID ? "SET" : "MISSING",
+    callbackUrl:
+      process.env.FACEBOOK_CALLBACK_URL || config.FACEBOOK_CALLBACK_URL,
+  });
+
+  // Mobile OAuth - always redirects to mobile deep link
+  passport.authenticate("facebook", {
+    scope: ["email"],
+  })(req, res, next);
+});
+
+// Facebook OAuth Callback for Mobile App
 router.get(
   "/facebook/callback",
-  passport.authenticate("facebook", {
-    session: false,
-    failureRedirect: "/login",
-  }),
+  (req, res, next) => {
+    // Custom error handling for Facebook OAuth
+    passport.authenticate("facebook", {
+      session: false,
+      failureRedirect: false, // Don't auto-redirect, handle manually
+    })(req, res, (err) => {
+      if (err) {
+        console.error(
+          "[Facebook Mobile Callback] Passport authentication error:",
+          err
+        );
+        // Redirect to mobile app error deep link
+        const errorMessage = encodeURIComponent(
+          err.message || "Facebook authentication failed"
+        );
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${errorMessage}`
+        );
+      }
+      if (!req.user) {
+        console.error(
+          "[Facebook Mobile Callback] No user after authentication"
+        );
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${encodeURIComponent(
+            "Facebook authentication failed - no user data"
+          )}`
+        );
+      }
+      next(); // Continue to the callback handler
+    });
+  },
   async (req, res) => {
     try {
       const user = req.user;
+
+      if (!user) {
+        console.error("[Facebook Mobile Callback] User is null");
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${encodeURIComponent(
+            "User not found after Facebook authentication"
+          )}`
+        );
+      }
+
+      // Update login analytics and device info for mobile
+      try {
+        const updateData = {
+          $inc: { loginCount: 1 },
+          $set: {
+            lastLoginAt: new Date(),
+            lastActive: new Date(),
+            appVersion:
+              req.headers["x-app-version"] || user.appVersion || "1.0.0",
+            "device.type":
+              req.headers["x-device-type"] || user.device?.type || "Mobile",
+            "device.model":
+              req.headers["x-device-model"] || user.device?.model || "Unknown",
+            "device.os":
+              req.headers["x-device-os"] || user.device?.os || "Unknown",
+            "device.lastUpdated": new Date(),
+            "location.current.ip":
+              req.ip ||
+              req.headers["x-forwarded-for"] ||
+              req.connection.remoteAddress,
+            "location.current.country":
+              req.headers["x-country"] ||
+              req.headers["cf-ipcountry"] ||
+              user.location?.current?.country ||
+              "",
+            "location.current.city":
+              req.headers["x-city"] || user.location?.current?.city || "",
+            "location.current.timestamp": new Date(),
+          },
+        };
+
+        await User.findByIdAndUpdate(user._id, updateData);
+      } catch (updateError) {
+        console.error(
+          "Error updating login analytics for Facebook mobile login:",
+          updateError
+        );
+        // Continue even if update fails
+      }
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
         expiresIn: "24h",
       });
 
-      // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=facebook&userId=${user._id}`;
-      res.redirect(redirectUrl);
+      // Redirect to mobile app with token
+      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(
+        token
+      )}&provider=facebook&userId=${user._id.toString()}`;
+
+      console.log(
+        "[Facebook Mobile Callback] Success - Redirecting to mobile app:",
+        {
+          userId: user._id.toString(),
+          email: user.email,
+          hasToken: !!token,
+          tokenLength: token.length,
+        }
+      );
+
+      return res.redirect(redirectUrl);
     } catch (error) {
-      console.error("Facebook OAuth callback error:", error);
-      res.redirect(
-        `com.jackson.app://auth/error?message=Facebook authentication failed`
+      console.error(
+        "[Facebook Mobile Callback] Error in callback handler:",
+        error
+      );
+      console.error("[Facebook Mobile Callback] Error stack:", error.stack);
+      console.error("[Facebook Mobile Callback] Error details:", {
+        message: error.message,
+        name: error.name,
+        query: req.query,
+        hasUser: !!req.user,
+      });
+
+      const errorMessage = error.message || "Facebook authentication failed";
+      return res.redirect(
+        `com.jackson.app://auth/error?message=${encodeURIComponent(
+          errorMessage
+        )}`
       );
     }
   }
@@ -1137,7 +1365,7 @@ router.post(
   ],
   async (req, res) => {
     try {
-      console.log("============called ");
+      // console.log("============called ");
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -1222,8 +1450,8 @@ router.post(
         // Send SMS with reset code (simplified version)
         try {
           // In production, integrate with Twilio or similar service
-          console.log("Password reset SMS would be sent to:", user.mobile);
-          console.log("Reset token:", resetToken);
+          // console.log("Password reset SMS would be sent to:", user.mobile);
+          // console.log("Reset token:", resetToken);
 
           res.json({
             message: "Password reset code has been sent to your mobile number",
@@ -1312,7 +1540,7 @@ router.post(
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      console.log(errors);
+      // console.log(errors);
       if (!errors.isEmpty()) {
         return res.status(400).json({
           error: "Validation failed",
@@ -1349,9 +1577,9 @@ router.post(
       await user.save();
 
       // Log the password change for security
-      console.log(
-        `Password reset completed for user: ${user.email || user.mobile}`
-      );
+      // console.log(
+      //   `Password reset completed for user: ${user.email || user.mobile}`
+      // );
 
       res.json({
         message:

@@ -20,6 +20,30 @@ const bitlabsController = require("../controllers/bitlabs.controller");
 // Admin authentication middleware
 const { adminAuth } = require("../middleware/adminAuth");
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Safely parse JSON values from form-data
+ * Handles strings, arrays, and already parsed values
+ * @param {any} value - Value to parse
+ * @param {any} defaultValue - Default value if parsing fails
+ * @returns {any} - Parsed value or default
+ */
+function safeParseJSON(value, defaultValue = []) {
+  if (!value) return defaultValue;
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed;
+    } catch (e) {
+      console.error("JSON parse error:", e.message, "Value:", value);
+      return defaultValue;
+    }
+  }
+  return value;
+}
+
 // Configure multer for offer creative uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -776,6 +800,7 @@ router.get("/games", adminAuth, async (req, res) => {
       xpTier = "",
       adGame = "",
       status = "all",
+      gender = "",
     } = req.query;
 
     let query = {};
@@ -788,10 +813,7 @@ router.get("/games", adminAuth, async (req, res) => {
       ];
     }
 
-    // Country filter
-    if (country) {
-      query.countries = { $in: [country] };
-    }
+    // Country filter removed - countries field no longer exists in Game model
 
     // SDK Provider filter
     if (sdkProvider) {
@@ -824,6 +846,11 @@ router.get("/games", adminAuth, async (req, res) => {
       } else if (statusLower === "inactive") {
         query.isActive = false;
       }
+    }
+
+    // Gender filter
+    if (gender && gender !== "all" && gender.trim() !== "") {
+      query.gender = gender.toLowerCase();
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -871,7 +898,7 @@ router.get("/games", adminAuth, async (req, res) => {
 router.get("/games/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    console.log({ id });
+    // console.log({ id });
     const game = await Game.findById(id).populate("sdkProvider", "name").lean();
 
     if (!game) {
@@ -930,11 +957,19 @@ router.post(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
+      console.log("=== ADMIN GAME CREATE START ===");
+      console.log("Admin User ID:", req.user?.userId);
+      console.log("Request Body Keys:", Object.keys(req.body));
+      console.log("Request Body:", JSON.stringify(req.body, null, 2));
+      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
+
       // Fetch external details based on SDK provider
       const sdkProvider = req.body.sdkProvider || "besitos";
+      console.log("SDK Provider:", sdkProvider);
       let external = null;
 
       if (sdkProvider === "besitos") {
+        console.log("Fetching Besitos game with gameId:", req.body.gameId);
         req.query.offer_id = req.body.gameId;
         const captureGame = () => {
           let payload = null;
@@ -943,10 +978,15 @@ router.post(
             res: {
               status(c) {
                 code = c;
+                console.log("Besitos API Status Code:", c);
                 return this;
               },
               json(obj) {
                 payload = obj;
+                console.log(
+                  "Besitos API Response:",
+                  JSON.stringify(obj, null, 2)
+                );
                 return this;
               },
             },
@@ -958,12 +998,14 @@ router.post(
         const cap2 = captureGame();
         await besitosController.getOffers(req, cap2.res);
         const ext = cap2.get();
+        console.log("Besitos External Data:", ext ? "Found" : "Not found");
         if (
           !ext ||
           ext.success !== true ||
           !Array.isArray(ext.data) ||
           ext.data.length === 0
         ) {
+          console.error("❌ Besitos game not found. Response:", ext);
           return res.status(404).json({
             success: false,
             message:
@@ -972,6 +1014,7 @@ router.post(
           });
         }
         external = ext.data[0];
+        console.log("✅ Besitos game found:", external.id, external.title);
       } else if (sdkProvider === "bitlabs") {
         // Fetch from Bitlabs using cached offers
         const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
@@ -985,7 +1028,7 @@ router.post(
           });
         }
 
-        console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
+        // console.log(`Looking for Bitlabs game with ID: ${gameIdToFind}`);
 
         // Helper function to check if offer matches gameId
         const matchesGameId = (offer) => {
@@ -1020,50 +1063,50 @@ router.post(
         // Try each query combination
         for (const queryParams of queryCombinations) {
           try {
-            console.log(`Trying query: ${JSON.stringify(queryParams)}`);
+            // console.log(`Trying query: ${JSON.stringify(queryParams)}`);
             offers = await bitlabsOfferCache.getOffers(queryParams);
-            console.log(
-              `Found ${offers.length} offers with query: ${JSON.stringify(
-                queryParams
-              )}`
-            );
+            // console.log(
+            //   `Found ${offers.length} offers with query: ${JSON.stringify(
+            //     queryParams
+            //   )}`
+            // );
 
             // Search in current offers
             external = offers.find(matchesGameId);
 
             if (external) {
-              console.log(
-                `✅ Found game in Bitlabs: ${JSON.stringify({
-                  id: external.id,
-                  gameId: external.gameId,
-                  title: external.title,
-                })}`
-              );
+              // console.log(
+              //   `✅ Found game in Bitlabs: ${JSON.stringify({
+              //     id: external.id,
+              //     gameId: external.gameId,
+              //     title: external.title,
+              //   })}`
+              // );
               found = true;
               break;
             }
 
             // If not found, try refreshing cache for this query
-            console.log(
-              `Game not found in cache, refreshing for query: ${JSON.stringify(
-                queryParams
-              )}`
-            );
+            // console.log(
+            //   `Game not found in cache, refreshing for query: ${JSON.stringify(
+            //     queryParams
+            //   )}`
+            // );
             const refreshedOffers = await bitlabsOfferCache.refreshOffers(
               queryParams
             );
-            console.log(`Refreshed ${refreshedOffers.length} offers`);
+            // console.log(`Refreshed ${refreshedOffers.length} offers`);
 
             external = refreshedOffers.find(matchesGameId);
 
             if (external) {
-              console.log(
-                `✅ Found game after refresh: ${JSON.stringify({
-                  id: external.id,
-                  gameId: external.gameId,
-                  title: external.title,
-                })}`
-              );
+              // console.log(
+              //   `✅ Found game after refresh: ${JSON.stringify({
+              //     id: external.id,
+              //     gameId: external.gameId,
+              //     title: external.title,
+              //   })}`
+              // );
               found = true;
               break;
             }
@@ -1113,11 +1156,9 @@ router.post(
         };
       }
 
-      // Parse JSON fields from form-data
-      const parsedCountries = JSON.parse(req.body.countries || "[]");
-      const parsedAgeGroups = req.body.ageGroups
-        ? JSON.parse(req.body.ageGroups)
-        : [];
+      // Parse JSON fields from form-data (using safe parsing)
+      // Countries field removed - no longer parsing countries
+      const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
       const targetGender = (req.body.gender || "all").toLowerCase();
       const targetUiSection = req.body.uiSection || "";
       const targetAgeGroup =
@@ -1126,28 +1167,62 @@ router.post(
           ? parsedAgeGroups[0]
           : "");
 
+      console.log("Parsed Fields:");
+      console.log("  - Age Groups:", parsedAgeGroups);
+      console.log("  - Gender:", targetGender);
+      console.log("  - UI Section:", targetUiSection);
+      console.log("  - Age Group:", targetAgeGroup);
+
+      // Parse XP Tiers (multi-select) - already validated above
+      const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
+
+      // Parse XP Reward Config - already validated above
+      const baseXP = parseFloat(req.body.baseXP);
+      const xpMultiplier = parseFloat(req.body.xpMultiplier);
+
+      // Parse third-party game data if provided from frontend
+      let thirdPartyData = null;
+      if (req.body.thirdPartyGameData) {
+        try {
+          thirdPartyData =
+            typeof req.body.thirdPartyGameData === "string"
+              ? JSON.parse(req.body.thirdPartyGameData)
+              : req.body.thirdPartyGameData;
+        } catch (error) {
+          console.error("Error parsing thirdPartyGameData:", error);
+        }
+      }
+
       const gameData = {
         gameId: req.body.gameId,
         title: req.body.title,
         description: req.body.description,
         sdkProvider: req.body.sdkProvider,
-        countries: parsedCountries,
+        // Countries field removed
         xptrRules: req.body.xptrRules,
         rewards: {
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
           coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0,
         },
-        defaultTaskCount: req.body.defaultTaskCount
-          ? parseInt(req.body.defaultTaskCount)
-          : 0,
+        defaultTaskCount:
+          req.body.defaultTaskCount !== undefined &&
+          req.body.defaultTaskCount !== null &&
+          req.body.defaultTaskCount !== ""
+            ? parseInt(req.body.defaultTaskCount) || 0
+            : 0,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
+        xpTiers: parsedXpTiers, // Multi-select XP tiers
+        xpRewardConfig: {
+          baseXP: baseXP,
+          multiplier: xpMultiplier,
+        },
         isDefaultFallback: req.body.isDefaultFallback === "true",
         ageGroups: parsedAgeGroups,
         gender: targetGender,
         marketingChannel: req.body.marketingChannel,
         campaignName: req.body.campaignName,
         tierRestrictions: {
-          minTier: req.body.tier || "free",
+          minTier: req.body.tier ? req.body.tier.toLowerCase() : "free",
           maxTier: "platinum",
         },
         metadata: {
@@ -1163,6 +1238,8 @@ router.post(
         createdBy: req.user.userId,
         deviceType: req.body.deviceType || "android",
         uiSection: targetUiSection,
+        // Store third-party game data (use provided data or fallback to external)
+        besitosRawData: thirdPartyData || external || null,
       };
 
       // Map external details into gameDetails snapshot
@@ -1181,6 +1258,14 @@ router.post(
             : external.category || "",
         downloadUrl: external.url || "",
       };
+
+      // Store complete raw data from third-party API (Besitos, Bitlabs, etc.)
+      // Prioritize thirdPartyGameData from frontend, otherwise use external data
+      if (thirdPartyData) {
+        gameData.besitosRawData = thirdPartyData;
+      } else if (sdkProvider === "besitos" || sdkProvider === "bitlabs") {
+        gameData.besitosRawData = external;
+      }
 
       // Handle uploaded game thumbnail
       if (req.files && req.files.gameThumbnail && req.files.gameThumbnail[0]) {
@@ -1211,12 +1296,31 @@ router.post(
         uiSection: targetUiSection,
         ageGroup: targetAgeGroup,
       };
+      console.log("Upsert Filter:", JSON.stringify(filter, null, 2));
+      console.log(
+        "Game Data to Save:",
+        JSON.stringify(
+          {
+            title: gameData.title,
+            gameId: gameData.gameId,
+            sdkProvider: gameData.sdkProvider,
+            isActive: gameData.isActive,
+            rewards: gameData.rewards,
+            xpTier: gameData.xpTier,
+            xpTiers: gameData.xpTiers,
+            xpRewardConfig: gameData.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
+
       const update = {
         $set: {
           title: gameData.title,
           description: gameData.description,
           sdkProvider: gameData.sdkProvider,
-          countries: gameData.countries,
+          // Countries field removed
           xptrRules: gameData.xptrRules,
           isActive: gameData.isActive,
           isAdSupported: gameData.isAdSupported,
@@ -1228,16 +1332,45 @@ router.post(
           gender: targetGender,
           ageGroup: targetAgeGroup,
           ageGroups: parsedAgeGroups,
+          xpTier: gameData.xpTier,
+          xpTiers: gameData.xpTiers,
+          xpRewardConfig: gameData.xpRewardConfig,
+          defaultTaskCount: gameData.defaultTaskCount,
+          tierRestrictions: gameData.tierRestrictions,
+          marketingChannel: gameData.marketingChannel,
+          campaignName: gameData.campaignName,
+          isDefaultFallback: gameData.isDefaultFallback,
+          // Store complete raw data from third-party API
+          besitosRawData: gameData.besitosRawData || null,
         },
         $setOnInsert: {
           createdBy: req.user.userId,
         },
       };
 
+      console.log("Attempting to upsert game to database...");
       const upserted = await Game.findOneAndUpdate(filter, update, {
         upsert: true,
         new: true,
       });
+      console.log("✅ Game upserted successfully. ID:", upserted._id);
+      console.log(
+        "Upserted Game Data:",
+        JSON.stringify(
+          {
+            _id: upserted._id,
+            gameId: upserted.gameId,
+            title: upserted.title,
+            isActive: upserted.isActive,
+            rewards: upserted.rewards,
+            xpTier: upserted.xpTier,
+            xpTiers: upserted.xpTiers,
+          },
+          null,
+          2
+        )
+      );
+      console.log("=== ADMIN GAME CREATE END ===");
 
       res.status(201).json({
         success: true,
@@ -1245,7 +1378,14 @@ router.post(
         data: upserted,
       });
     } catch (error) {
-      console.error("Error creating game:", error);
+      console.error("=== ERROR CREATING GAME ===");
+      console.error("Error:", error);
+      console.error("Error Stack:", error.stack);
+      console.error("Error Message:", error.message);
+      console.error("Error Code:", error.code);
+      console.error("Error Name:", error.name);
+      console.error("Request Body:", req.body);
+      console.error("=== END ERROR ===");
 
       // Handle multer errors
       if (error.code === "LIMIT_FILE_SIZE") {
@@ -1282,16 +1422,45 @@ router.put(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
+      console.log("=== ADMIN GAME UPDATE START ===");
+      console.log("Game ID:", req.params.id);
+      console.log("Admin User ID:", req.user?.userId);
+      console.log("Request Body Keys:", Object.keys(req.body));
+      console.log("Request Body:", JSON.stringify(req.body, null, 2));
+      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
+
       const { id } = req.params;
 
       // Find existing game
       const existingGame = await Game.findById(id);
       if (!existingGame) {
+        console.error("❌ Game not found with ID:", id);
         return res.status(404).json({
           success: false,
           message: "Game not found",
         });
       }
+      console.log(
+        "✅ Existing game found:",
+        existingGame.gameId,
+        existingGame.title
+      );
+      console.log(
+        "Existing Game Data:",
+        JSON.stringify(
+          {
+            gameId: existingGame.gameId,
+            title: existingGame.title,
+            isActive: existingGame.isActive,
+            rewards: existingGame.rewards,
+            xpTier: existingGame.xpTier,
+            xpTiers: existingGame.xpTiers,
+            xpRewardConfig: existingGame.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
 
       // Build update data
       const updateData = {
@@ -1299,17 +1468,69 @@ router.put(
         updatedAt: new Date(),
       };
 
+      // Check if gameId or sdkProvider is being updated (to refresh external data)
+      const gameIdChanged =
+        req.body.gameId && req.body.gameId.trim() !== existingGame.gameId;
+      const sdkProviderChanged =
+        req.body.sdkProvider &&
+        req.body.sdkProvider !== existingGame.sdkProvider;
+      const shouldRefreshExternalData = gameIdChanged || sdkProviderChanged;
+
       // Update basic fields if provided
-      if (req.body.gameId) updateData.gameId = req.body.gameId;
-      if (req.body.title) updateData.title = req.body.title;
+      if (req.body.gameId) {
+        if (!req.body.gameId.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "Game ID cannot be empty",
+            error: "INVALID_GAME_ID",
+          });
+        }
+        updateData.gameId = req.body.gameId.trim();
+      }
+      if (req.body.title) {
+        if (!req.body.title.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "Game title cannot be empty",
+            error: "INVALID_TITLE",
+          });
+        }
+        updateData.title = req.body.title.trim();
+      }
       if (req.body.description) updateData.description = req.body.description;
       if (req.body.sdkProvider) updateData.sdkProvider = req.body.sdkProvider;
-      if (req.body.countries)
-        updateData.countries = JSON.parse(req.body.countries);
-      if (req.body.xptrRules) updateData.xptrRules = req.body.xptrRules;
-      if (req.body.ageGroups)
-        updateData.ageGroups = JSON.parse(req.body.ageGroups);
-      if (req.body.ageGroup) updateData.ageGroup = req.body.ageGroup;
+      // Countries field removed - no longer updating countries
+      if (req.body.xptrRules) {
+        if (!req.body.xptrRules.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "XPTR Rules cannot be empty",
+            error: "INVALID_XPTR_RULES",
+          });
+        }
+        updateData.xptrRules = req.body.xptrRules.trim();
+      }
+      if (req.body.ageGroups) {
+        const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
+        updateData.ageGroups = parsedAgeGroups;
+
+        // Auto-update ageGroup (singular) from ageGroups array if not explicitly provided
+        // Use first ageGroup from array, or explicit ageGroup if provided
+        if (req.body.ageGroup) {
+          updateData.ageGroup = req.body.ageGroup;
+        } else if (
+          Array.isArray(parsedAgeGroups) &&
+          parsedAgeGroups.length > 0
+        ) {
+          updateData.ageGroup = parsedAgeGroups[0];
+          console.log(
+            `Auto-updating ageGroup to first value from ageGroups: ${parsedAgeGroups[0]}`
+          );
+        }
+      } else if (req.body.ageGroup) {
+        // If only ageGroup is provided (not ageGroups), update it
+        updateData.ageGroup = req.body.ageGroup;
+      }
       if (req.body.gender) updateData.gender = req.body.gender;
       if (req.body.uiSection !== undefined)
         updateData.uiSection = req.body.uiSection || "";
@@ -1327,15 +1548,95 @@ router.put(
       if (req.body.isAdSupported !== undefined)
         updateData.isAdSupported = req.body.isAdSupported === "true";
 
-      // Update rewards
-      if (req.body.rewardXP || req.body.rewardCoins) {
-        updateData.rewards = {
-          xp: req.body.rewardXP
-            ? parseFloat(req.body.rewardXP)
-            : existingGame.rewards?.xp || 0,
-          coins: req.body.rewardCoins
-            ? parseFloat(req.body.rewardCoins)
-            : existingGame.rewards?.coins || 0,
+      // Ignore coins updates (read-only from API) - silently skip if provided
+      if (req.body.rewardCoins !== undefined) {
+        console.log(
+          `⚠️ rewardCoins provided (${req.body.rewardCoins}) but ignored - coins are read-only from 3rd-party API`
+        );
+        // Don't return error, just ignore the field
+      }
+
+      // Update rewards (XP only - coins are read-only from API)
+      if (req.body.rewardXP !== undefined) {
+        if (!updateData.rewards) updateData.rewards = {};
+        updateData.rewards.xp = req.body.rewardXP
+          ? parseFloat(req.body.rewardXP)
+          : existingGame.rewards?.xp || 0;
+        // Keep existing coins (read-only, from API)
+        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      } else {
+        // If XP is not being updated, ensure coins are preserved
+        if (!updateData.rewards) updateData.rewards = {};
+        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      }
+
+      // Update XP Tiers (multi-select) with validation
+      if (req.body.xpTiers !== undefined) {
+        const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
+        // Validate XP tiers
+        if (Array.isArray(parsedXpTiers) && parsedXpTiers.length > 0) {
+          const validTiers = ["Junior", "Mid", "Senior"];
+          const invalidTiers = parsedXpTiers.filter(
+            (t) => !validTiers.includes(t)
+          );
+          if (invalidTiers.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid XP tiers: ${invalidTiers.join(
+                ", "
+              )}. Must be one of: Junior, Mid, Senior`,
+              error: "INVALID_XP_TIERS",
+            });
+          }
+          updateData.xpTiers = parsedXpTiers;
+        } else if (parsedXpTiers.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "At least one XP Tier must be selected",
+            error: "XP_TIERS_REQUIRED",
+          });
+        }
+      }
+
+      // Update XP Reward Config (baseXP and multiplier) with validation
+      if (
+        req.body.baseXP !== undefined ||
+        req.body.xpMultiplier !== undefined
+      ) {
+        const baseXP =
+          req.body.baseXP !== undefined
+            ? parseFloat(req.body.baseXP)
+            : existingGame.xpRewardConfig?.baseXP || 0;
+        const xpMultiplier =
+          req.body.xpMultiplier !== undefined
+            ? parseFloat(req.body.xpMultiplier)
+            : existingGame.xpRewardConfig?.multiplier || 1.0;
+
+        // Validate baseXP
+        if (req.body.baseXP !== undefined && (isNaN(baseXP) || baseXP <= 0)) {
+          return res.status(400).json({
+            success: false,
+            message: "Base XP must be a number greater than 0",
+            error: "INVALID_BASE_XP",
+          });
+        }
+
+        // Validate multiplier
+        if (
+          req.body.xpMultiplier !== undefined &&
+          (isNaN(xpMultiplier) || xpMultiplier < 0.1)
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Stepwise Multiplier must be a number greater than or equal to 0.1",
+            error: "INVALID_MULTIPLIER",
+          });
+        }
+
+        updateData.xpRewardConfig = {
+          baseXP: baseXP,
+          multiplier: xpMultiplier,
         };
       }
 
@@ -1391,10 +1692,112 @@ router.put(
         updateData.metadata.imageUrl = imageUrl;
       }
 
+      // If gameId or sdkProvider changed, fetch fresh external data
+      if (shouldRefreshExternalData) {
+        const sdkProvider = updateData.sdkProvider || existingGame.sdkProvider;
+        const gameId = updateData.gameId || existingGame.gameId;
+        let external = null;
+
+        if (sdkProvider === "besitos") {
+          try {
+            req.query.offer_id = gameId;
+            const captureGame = () => {
+              let payload = null;
+              let code = 200;
+              return {
+                res: {
+                  status(c) {
+                    code = c;
+                    return this;
+                  },
+                  json(obj) {
+                    payload = obj;
+                    return this;
+                  },
+                },
+                get() {
+                  return payload || { success: false, data: [] };
+                },
+              };
+            };
+            const cap2 = captureGame();
+            await besitosController.getOffers(req, cap2.res);
+            const ext = cap2.get();
+            if (
+              ext &&
+              ext.success === true &&
+              Array.isArray(ext.data) &&
+              ext.data.length > 0
+            ) {
+              external = ext.data[0];
+              updateData.besitosRawData = external;
+              // Also update gameDetails with fresh data
+              updateData.gameDetails = {
+                id: external.id || "",
+                name:
+                  external.title ||
+                  external.name ||
+                  updateData.title ||
+                  existingGame.title,
+                description:
+                  external.description ||
+                  updateData.description ||
+                  existingGame.description,
+                image: external.image || external.large_image || "",
+                square_image: external.square_image || "",
+                large_image: external.large_image || external.image || "",
+                category:
+                  Array.isArray(external.categories) &&
+                  external.categories[0] &&
+                  external.categories[0].name
+                    ? external.categories[0].name
+                    : external.category || "",
+                downloadUrl: external.url || "",
+              };
+            }
+          } catch (error) {
+            console.error("Error fetching external data during update:", error);
+            // Continue without updating external data
+          }
+        } else if (sdkProvider === "bitlabs") {
+          // Similar logic for Bitlabs if needed
+          // For now, preserve existing besitosRawData
+        }
+      } else {
+        // Preserve existing besitosRawData if not refreshing
+        // (MongoDB will preserve it automatically, but being explicit)
+        if (existingGame.besitosRawData) {
+          updateData.besitosRawData = existingGame.besitosRawData;
+        }
+      }
+
+      console.log("Update Data:", JSON.stringify(updateData, null, 2));
+      console.log("Attempting to update game in database...");
+
       const game = await Game.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
       });
+
+      console.log("✅ Game updated successfully. ID:", game._id);
+      console.log(
+        "Updated Game Data:",
+        JSON.stringify(
+          {
+            _id: game._id,
+            gameId: game.gameId,
+            title: game.title,
+            isActive: game.isActive,
+            rewards: game.rewards,
+            xpTier: game.xpTier,
+            xpTiers: game.xpTiers,
+            xpRewardConfig: game.xpRewardConfig,
+          },
+          null,
+          2
+        )
+      );
+      console.log("=== ADMIN GAME UPDATE END ===");
 
       res.json({
         success: true,
@@ -1402,7 +1805,15 @@ router.put(
         data: game,
       });
     } catch (error) {
-      console.error("Error updating game:", error);
+      console.error("=== ERROR UPDATING GAME ===");
+      console.error("Error:", error);
+      console.error("Error Stack:", error.stack);
+      console.error("Error Message:", error.message);
+      console.error("Error Code:", error.code);
+      console.error("Error Name:", error.name);
+      console.error("Game ID:", req.params.id);
+      console.error("Request Body:", req.body);
+      console.error("=== END ERROR ===");
 
       // Handle multer errors
       if (error.code === "LIMIT_FILE_SIZE") {
@@ -1476,7 +1887,12 @@ router.delete("/games/:id", adminAuth, async (req, res) => {
 router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    const { page = 1, limit = 100, search = "", excludeBonus = "false" } = req.query;
+    const {
+      page = 1,
+      limit = 100,
+      search = "",
+      excludeBonus = "false",
+    } = req.query;
 
     let query = { gameId };
 
@@ -1490,19 +1906,21 @@ router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
 
     // If excludeBonus is true, exclude tasks that are configured as bonus tasks
     if (excludeBonus === "true") {
-      const rule = await WelcomeBonusTimer.findOne({ 
+      const rule = await WelcomeBonusTimer.findOne({
         isActive: true,
-        'gameBonusTasks.gameId': gameId,
-        'gameBonusTasks.isEnabled': true
+        "gameBonusTasks.gameId": gameId,
+        "gameBonusTasks.isEnabled": true,
       });
-      
+
       if (rule) {
         const gameBonusConfig = rule.gameBonusTasks.find(
-          config => config.gameId.toString() === gameId && config.isEnabled
+          (config) => config.gameId.toString() === gameId && config.isEnabled
         );
-        
+
         if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
-          const bonusTaskIds = gameBonusConfig.bonusTasks.map(bt => bt.taskId);
+          const bonusTaskIds = gameBonusConfig.bonusTasks.map(
+            (bt) => bt.taskId
+          );
           query._id = { $nin: bonusTaskIds };
         }
       }
@@ -1762,7 +2180,9 @@ router.patch("/tasks/:id/toggle-override", adminAuth, async (req, res) => {
 // Test admin access endpoint (for debugging)
 router.get("/test-admin", adminAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('role email firstName lastName');
+    const user = await User.findById(req.user.userId).select(
+      "role email firstName lastName"
+    );
     res.json({
       success: true,
       message: "Admin access confirmed",
@@ -1770,14 +2190,14 @@ router.get("/test-admin", adminAuth, async (req, res) => {
         id: user._id,
         email: user.email,
         name: `${user.firstName} ${user.lastName}`,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error checking admin access",
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1788,24 +2208,24 @@ router.get("/display-rules", adminAuth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // Get all rules (not just enabled) with status
     const [rules, total] = await Promise.all([
       GameDisplayRule.find()
-        .populate('xpTier', 'tierName xpMin xpMax')
-        .populate('createdBy', 'firstName lastName email')
-        .populate('updatedBy', 'firstName lastName email')
+        .populate("xpTier", "tierName xpMin xpMax")
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email")
         .sort({ order: 1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      GameDisplayRule.countDocuments()
+      GameDisplayRule.countDocuments(),
     ]);
 
     // Add status label to each rule
-    const rulesWithStatus = rules.map(rule => ({
+    const rulesWithStatus = rules.map((rule) => ({
       ...rule,
-      status: rule.isEnabled ? 'Active' : 'Inactive'
+      status: rule.isEnabled ? "Active" : "Inactive",
     }));
 
     res.json({
@@ -1815,8 +2235,8 @@ router.get("/display-rules", adminAuth, async (req, res) => {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     console.error("Error getting display rules:", error);
@@ -1832,11 +2252,10 @@ router.get("/display-rules", adminAuth, async (req, res) => {
 router.get("/display-rules/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const rule = await GameDisplayRule.findById(id)
-      .populate('xpTier', 'tierName xpMin xpMax tierColor bgColor borderColor')
-      .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate("createdBy", "firstName lastName email")
+      .populate("updatedBy", "firstName lastName email");
 
     if (!rule) {
       return res.status(404).json({
@@ -1849,7 +2268,7 @@ router.get("/display-rules/:id", adminAuth, async (req, res) => {
       success: true,
       data: {
         ...rule.toObject(),
-        status: rule.isEnabled ? 'Active' : 'Inactive'
+        status: rule.isEnabled ? "Active" : "Inactive",
       },
     });
   } catch (error) {
@@ -1868,28 +2287,61 @@ router.post(
   adminAuth,
   [
     body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
-    body("userMilestones").isArray({ min: 1 }).withMessage("At least one user milestone is required"),
-    body("userMilestones.*").isIn(['first_time_user', 'returning_user', 'xp_tier', 'membership_tier']).withMessage("Invalid milestone type"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("At least one user milestone is required")
+      .custom((milestones) => {
+        // Validate that first_time_user and returning_user are not both selected
+        if (
+          milestones.includes("first_time_user") &&
+          milestones.includes("returning_user")
+        ) {
+          throw new Error(
+            "Cannot select both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive."
+          );
+        }
+        return true;
+      }),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage(
+        "Invalid milestone type. Must be one of: first_time_user, returning_user, xp_tier, membership_tier"
+      ),
     body("xpTier")
       .optional()
       .custom((value, { req }) => {
-        if (req.body.userMilestones && req.body.userMilestones.includes('xp_tier') && !value) {
-          throw new Error('XP Tier is required when "XP Tier" milestone is selected');
+        if (
+          req.body.userMilestones &&
+          req.body.userMilestones.includes("xp_tier") &&
+          !value
+        ) {
+          throw new Error(
+            'XP Tier is required when "XP Tier" milestone is selected'
+          );
         }
         return true;
       }),
     body("membershipTier")
       .optional()
       .custom((value, { req }) => {
-        if (req.body.userMilestones && req.body.userMilestones.includes('membership_tier') && !value) {
-          throw new Error('Membership Tier is required when "Membership Tier" milestone is selected');
+        if (
+          req.body.userMilestones &&
+          req.body.userMilestones.includes("membership_tier") &&
+          !value
+        ) {
+          throw new Error(
+            'Membership Tier is required when "Membership Tier" milestone is selected'
+          );
         }
         return true;
       }),
     body("maxGamesToShow")
-      .isNumeric()
-      .withMessage("Max games to show must be numeric"),
-    body("isEnabled").optional().isBoolean().withMessage("Enabled status must be boolean"),
+      .isInt({ min: 1 })
+      .withMessage("Max games to show must be a positive integer"),
+    body("isEnabled")
+      .optional()
+      .isBoolean()
+      .withMessage("Enabled status must be boolean"),
   ],
   async (req, res) => {
     try {
@@ -1902,10 +2354,53 @@ router.post(
         });
       }
 
+      // Get targetSegment from request (top-level or metadata) or auto-generate
+      let targetSegment =
+        req.body.targetSegment || req.body.metadata?.targetSegment;
+      if (
+        !targetSegment &&
+        req.body.userMilestones &&
+        req.body.userMilestones.length > 0
+      ) {
+        const segmentParts = [];
+        req.body.userMilestones.forEach((milestone) => {
+          switch (milestone) {
+            case "first_time_user":
+              segmentParts.push("New Users");
+              break;
+            case "returning_user":
+              segmentParts.push("Engaged Users");
+              break;
+            case "xp_tier":
+              segmentParts.push("XP Tier");
+              break;
+            case "membership_tier":
+              if (req.body.membershipTier) {
+                const tierName =
+                  req.body.membershipTier.charAt(0).toUpperCase() +
+                  req.body.membershipTier.slice(1);
+                segmentParts.push(`${tierName} Tier`);
+              } else {
+                segmentParts.push("Membership Tier");
+              }
+              break;
+          }
+        });
+        targetSegment =
+          segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+      }
+
       const ruleData = {
         ...req.body,
         createdBy: req.user.userId,
+        targetSegment: targetSegment || "All Users", // Set as top-level field
       };
+
+      // Ensure metadata exists and set targetSegment for backward compatibility
+      if (!ruleData.metadata) {
+        ruleData.metadata = {};
+      }
+      ruleData.metadata.targetSegment = targetSegment || "All Users";
 
       // Check for duplicate rule
       const duplicate = await GameDisplayRule.findDuplicate(ruleData);
@@ -1915,7 +2410,7 @@ router.post(
           message: "A rule with these conditions already exists.",
           duplicateRuleId: duplicate._id,
           duplicateRule: duplicate,
-          shouldRedirectToEdit: true
+          shouldRedirectToEdit: true,
         });
       }
 
@@ -1923,15 +2418,15 @@ router.post(
       await rule.save();
 
       // Populate references for response
-      await rule.populate('xpTier', 'tierName xpMin xpMax');
-      await rule.populate('createdBy', 'firstName lastName email');
+      // No need to populate xpTier - it's now a string
+      await rule.populate("createdBy", "firstName lastName email");
 
       res.status(201).json({
         success: true,
         message: "Display rule created successfully",
         data: {
           ...rule.toObject(),
-          status: rule.isEnabled ? 'Active' : 'Inactive'
+          status: rule.isEnabled ? "Active" : "Inactive",
         },
       });
     } catch (error) {
@@ -1940,10 +2435,10 @@ router.post(
         return res.status(409).json({
           success: false,
           message: "A rule with this name already exists.",
-          error: "Duplicate rule name"
+          error: "Duplicate rule name",
         });
       }
-      
+
       console.error("Error creating display rule:", error);
       res.status(500).json({
         success: false,
@@ -1959,15 +2454,40 @@ router.put(
   "/display-rules/:id",
   adminAuth,
   [
-    body("ruleName").optional().trim().notEmpty().withMessage("Rule name cannot be empty"),
-    body("userMilestones").optional().isArray({ min: 1 }).withMessage("At least one user milestone is required"),
-    body("userMilestones.*").optional().isIn(['first_time_user', 'returning_user', 'xp_tier', 'membership_tier']).withMessage("Invalid milestone type"),
+    body("ruleName")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Rule name cannot be empty"),
+    body("userMilestones")
+      .optional()
+      .isArray({ min: 1 })
+      .withMessage("At least one user milestone is required")
+      .custom((milestones) => {
+        // Validate that first_time_user and returning_user are not both selected
+        if (
+          milestones &&
+          milestones.includes("first_time_user") &&
+          milestones.includes("returning_user")
+        ) {
+          throw new Error(
+            "Cannot select both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive."
+          );
+        }
+        return true;
+      }),
+    body("userMilestones.*")
+      .optional()
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
     body("xpTier")
       .optional()
       .custom((value, { req }) => {
         const milestones = req.body.userMilestones;
-        if (milestones && milestones.includes('xp_tier') && !value) {
-          throw new Error('XP Tier is required when "XP Tier" milestone is selected');
+        if (milestones && milestones.includes("xp_tier") && !value) {
+          throw new Error(
+            'XP Tier is required when "XP Tier" milestone is selected'
+          );
         }
         return true;
       }),
@@ -1975,8 +2495,10 @@ router.put(
       .optional()
       .custom((value, { req }) => {
         const milestones = req.body.userMilestones;
-        if (milestones && milestones.includes('membership_tier') && !value) {
-          throw new Error('Membership Tier is required when "Membership Tier" milestone is selected');
+        if (milestones && milestones.includes("membership_tier") && !value) {
+          throw new Error(
+            'Membership Tier is required when "Membership Tier" milestone is selected'
+          );
         }
         return true;
       }),
@@ -2001,7 +2523,7 @@ router.put(
       }
 
       const { id } = req.params;
-      
+
       // Get existing rule
       const existingRule = await GameDisplayRule.findById(id);
       if (!existingRule) {
@@ -2016,13 +2538,87 @@ router.put(
       updateData.updatedAt = new Date();
 
       // Determine final milestones after update
-      const finalMilestones = updateData.userMilestones || existingRule.userMilestones;
-      
+      const finalMilestones =
+        updateData.userMilestones || existingRule.userMilestones;
+      const finalMembershipTier =
+        updateData.membershipTier !== undefined
+          ? updateData.membershipTier
+          : existingRule.membershipTier;
+
+      // Get targetSegment from request (top-level or metadata) or auto-generate
+      let targetSegment =
+        updateData.targetSegment || updateData.metadata?.targetSegment;
+
+      // Auto-generate targetSegment from userMilestones if milestones are being updated
+      if (
+        updateData.userMilestones ||
+        updateData.membershipTier !== undefined ||
+        !targetSegment
+      ) {
+        if (finalMilestones && finalMilestones.length > 0) {
+          const segmentParts = [];
+          finalMilestones.forEach((milestone) => {
+            switch (milestone) {
+              case "first_time_user":
+                segmentParts.push("New Users");
+                break;
+              case "returning_user":
+                segmentParts.push("Engaged Users");
+                break;
+              case "xp_tier":
+                segmentParts.push("XP Tier");
+                break;
+              case "membership_tier":
+                if (finalMembershipTier) {
+                  const tierName =
+                    finalMembershipTier.charAt(0).toUpperCase() +
+                    finalMembershipTier.slice(1);
+                  segmentParts.push(`${tierName} Tier`);
+                } else {
+                  segmentParts.push("Membership Tier");
+                }
+                break;
+            }
+          });
+          targetSegment =
+            segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+        } else {
+          targetSegment =
+            targetSegment || existingRule.targetSegment || "All Users";
+        }
+      } else {
+        targetSegment =
+          targetSegment || existingRule.targetSegment || "All Users";
+      }
+
+      // Set targetSegment as top-level field
+      updateData.targetSegment = targetSegment;
+
+      // Ensure metadata exists and set targetSegment for backward compatibility
+      if (!updateData.metadata) {
+        updateData.metadata = existingRule.metadata || {};
+      }
+      updateData.metadata.targetSegment = targetSegment;
+
+      // Validate that final milestones don't have conflicting values
+      if (
+        finalMilestones &&
+        finalMilestones.includes("first_time_user") &&
+        finalMilestones.includes("returning_user")
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          error:
+            "Cannot have both 'first_time_user' and 'returning_user' milestones. They are mutually exclusive.",
+        });
+      }
+
       // Clear conditional fields if their milestones are removed
-      if (finalMilestones && !finalMilestones.includes('xp_tier')) {
+      if (finalMilestones && !finalMilestones.includes("xp_tier")) {
         updateData.xpTier = null;
       }
-      if (finalMilestones && !finalMilestones.includes('membership_tier')) {
+      if (finalMilestones && !finalMilestones.includes("membership_tier")) {
         updateData.membershipTier = null;
       }
 
@@ -2031,34 +2627,49 @@ router.put(
         ...existingRule.toObject(),
         ...updateData,
         userMilestones: finalMilestones,
-        xpTier: updateData.xpTier !== undefined ? updateData.xpTier : (finalMilestones.includes('xp_tier') ? existingRule.xpTier : null),
-        membershipTier: updateData.membershipTier !== undefined ? updateData.membershipTier : (finalMilestones.includes('membership_tier') ? existingRule.membershipTier : null),
-        segmentOverrides: updateData.segmentOverrides !== undefined ? updateData.segmentOverrides : existingRule.segmentOverrides
+        xpTier:
+          updateData.xpTier !== undefined
+            ? updateData.xpTier
+            : finalMilestones.includes("xp_tier")
+            ? existingRule.xpTier
+            : null,
+        membershipTier:
+          updateData.membershipTier !== undefined
+            ? updateData.membershipTier
+            : finalMilestones.includes("membership_tier")
+            ? existingRule.membershipTier
+            : null,
+        segmentOverrides:
+          updateData.segmentOverrides !== undefined
+            ? updateData.segmentOverrides
+            : existingRule.segmentOverrides,
       };
 
-      const duplicate = await GameDisplayRule.findDuplicate(ruleDataForCheck, id);
+      const duplicate = await GameDisplayRule.findDuplicate(
+        ruleDataForCheck,
+        id
+      );
       if (duplicate) {
         return res.status(409).json({
           success: false,
           message: "A rule with these conditions already exists.",
           duplicateRuleId: duplicate._id,
           duplicateRule: duplicate,
-          shouldRedirectToEdit: true
+          shouldRedirectToEdit: true,
         });
       }
 
       const rule = await GameDisplayRule.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
-      }).populate('xpTier', 'tierName xpMin xpMax')
-        .populate('updatedBy', 'firstName lastName email');
+      }).populate("updatedBy", "firstName lastName email");
 
       res.json({
         success: true,
         message: "Display rule updated successfully",
         data: {
           ...rule.toObject(),
-          status: rule.isEnabled ? 'Active' : 'Inactive'
+          status: rule.isEnabled ? "Active" : "Inactive",
         },
       });
     } catch (error) {
@@ -2078,10 +2689,11 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
     const { id } = req.params;
     const { confirm } = req.query; // Require confirmation query parameter
 
-    if (confirm !== 'true') {
+    if (confirm !== "true") {
       return res.status(400).json({
         success: false,
-        message: "Deletion requires confirmation. Add ?confirm=true to the URL.",
+        message:
+          "Deletion requires confirmation. Add ?confirm=true to the URL.",
       });
     }
 
@@ -2099,7 +2711,7 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
       message: "Display rule deleted successfully",
       data: {
         id: rule._id,
-        ruleName: rule.ruleName
+        ruleName: rule.ruleName,
       },
     });
   } catch (error) {
@@ -2114,34 +2726,94 @@ router.delete("/display-rules/:id", adminAuth, async (req, res) => {
 
 // ==================== TASK PROGRESSION RULES ====================
 
-// Get task progression rule for a specific game
-router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
+// Get all task progression rules
+router.get("/progression-rules", adminAuth, async (req, res) => {
   try {
-    const { gameId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
 
-    const rule = await TaskProgressionRule.findByGame(gameId)
-      .populate('gameId', 'title gameId')
-      .populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order')
-      .lean();
+    // Get only progression rules that have been configured by admins (have createdBy)
+    const query = { createdBy: { $exists: true, $ne: null } };
+
+    const [rules, total] = await Promise.all([
+      TaskProgressionRule.find(query)
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email")
+        .sort({ priority: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      TaskProgressionRule.countDocuments(query),
+    ]);
+
+    // Format response
+    const formattedRules = rules.map((rule) => {
+      return {
+        _id: rule._id,
+        ruleName: rule.ruleName || null,
+        userMilestones: rule.userMilestones || [],
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize || 5,
+        nextBatchSize: rule.nextBatchSize || 5,
+        maxBatches: rule.maxBatches || null,
+        isActive: rule.isActive !== false,
+        createdBy: rule.createdBy || null,
+        updatedBy: rule.updatedBy || null,
+        createdAt: rule.createdAt || new Date(),
+        updatedAt: rule.updatedAt || new Date(),
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedRules,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error getting progression rules:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get progression rules",
+      error: error.message,
+    });
+  }
+});
+
+// Get task progression rule by ID
+router.get("/progression-rules/:ruleId", adminAuth, async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+
+    const rule = await TaskProgressionRule.findById(ruleId).lean();
 
     if (!rule) {
-      return res.json({
-        success: true,
-        data: null,
-        message: "No progression rule configured for this game"
+      return res.status(404).json({
+        success: false,
+        message: "Progression rule not found",
       });
     }
 
     // Format response
     const formattedData = {
-      gameId: rule.gameId._id || rule.gameId,
-      gameTitle: rule.gameId.title || null,
-      gameGameId: rule.gameId.gameId || null,
+      _id: rule._id,
+      ruleName: rule.ruleName || null,
+      userMilestones: rule.userMilestones || [],
+      xpTier: rule.xpTier || null,
+      membershipTier: rule.membershipTier || null,
+      priority: rule.priority || 0,
       minimumEventThreshold: rule.minimumEventThreshold,
       postThresholdTasks: rule.postThresholdTasks
-        .filter(pt => pt.isEnabled)
+        .filter((pt) => pt.isEnabled)
         .sort((a, b) => a.order - b.order)
-        .map(pt => ({
+        .map((pt) => ({
           taskId: pt.taskId._id || pt.taskId,
           order: pt.order,
           name: pt.taskId.name || null,
@@ -2151,11 +2823,11 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
           rewardValue: pt.taskId.rewardValue || null,
           requiredXpTier: pt.requiredXpTier,
           requiredMembershipTier: pt.requiredMembershipTier,
-          isEnabled: pt.isEnabled
+          isEnabled: pt.isEnabled,
         })),
       isActive: rule.isActive,
       createdAt: rule.createdAt,
-      updatedAt: rule.updatedAt
+      updatedAt: rule.updatedAt,
     };
 
     res.json({
@@ -2163,7 +2835,7 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
       data: formattedData,
     });
   } catch (error) {
-    console.error("Error getting progression rule for game:", error);
+    console.error("Error getting progression rule:", error);
     res.status(500).json({
       success: false,
       message: "Failed to get progression rule",
@@ -2172,34 +2844,59 @@ router.get("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
   }
 });
 
-// Create or update task progression rule for a game
+// Create or update user-based task progression rule
 router.post(
-  "/progression-rules/game/:gameId",
+  "/progression-rules",
   adminAuth,
   [
-    body("minimumEventThreshold")
+    body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("User milestones must be a non-empty array"),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
+    body("xpTier")
+      .optional()
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("xp_tier") && !value) {
+          throw new Error(
+            "XP tier is required when xp_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("membershipTier")
+      .optional()
+      .isIn(["bronze", "gold", "platinum", "free", null])
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("membership_tier") && !value) {
+          throw new Error(
+            "Membership tier is required when membership_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("priority")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Priority must be a non-negative integer"),
+    body("firstBatchSize")
       .isInt({ min: 1 })
-      .withMessage("Minimum event threshold must be at least 1"),
-    body("postThresholdTasks")
-      .optional()
-      .isArray()
-      .withMessage("Post threshold tasks must be an array"),
-    body("postThresholdTasks.*.taskId")
-      .optional()
-      .isMongoId()
-      .withMessage("Invalid task ID"),
-    body("postThresholdTasks.*.order")
-      .optional()
+      .withMessage("First batch size must be at least 1"),
+    body("nextBatchSize")
       .isInt({ min: 1 })
-      .withMessage("Order must be at least 1"),
-    body("postThresholdTasks.*.requiredXpTier")
-      .optional()
-      .isIn(['junior', 'mid', 'senior', null])
-      .withMessage("Invalid XP tier"),
-    body("postThresholdTasks.*.requiredMembershipTier")
-      .optional()
-      .isIn(['bronze', 'gold', 'platinum', null])
-      .withMessage("Invalid membership tier"),
+      .withMessage("Next batch size must be at least 1"),
+    body("maxBatches")
+      .optional({ nullable: true })
+      .custom((value) => {
+        if (value === null || value === undefined || value === "") {
+          return true; // Allow null/undefined/empty
+        }
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
+      })
+      .withMessage("Max batches must be at least 1 or null"),
   ],
   async (req, res) => {
     try {
@@ -2212,71 +2909,42 @@ router.post(
         });
       }
 
-      const { gameId } = req.params;
-      const { minimumEventThreshold, postThresholdTasks = [] } = req.body;
+      const {
+        ruleName,
+        userMilestones,
+        xpTier,
+        membershipTier,
+        priority = 0,
+        firstBatchSize,
+        nextBatchSize,
+        maxBatches = null,
+      } = req.body;
 
-      // Verify game exists
-      const game = await Game.findById(gameId);
-      if (!game) {
-        return res.status(404).json({
-          success: false,
-          message: "Game not found",
-        });
-      }
-
-      // Validate post threshold tasks if provided
-      if (postThresholdTasks.length > 0) {
-        // Check for duplicate task IDs
-        const taskIds = postThresholdTasks.map(pt => pt.taskId.toString());
-        const uniqueTaskIds = [...new Set(taskIds)];
-        if (taskIds.length !== uniqueTaskIds.length) {
-          return res.status(400).json({
-            success: false,
-            message: "Duplicate task IDs are not allowed",
-          });
-        }
-
-        // Validate that all task IDs exist and belong to this game
-        const existingTasks = await GameTask.find({
-          _id: { $in: taskIds },
-          gameId: gameId
-        });
-
-        if (existingTasks.length !== taskIds.length) {
-          return res.status(400).json({
-            success: false,
-            message: "One or more task IDs are invalid or do not belong to this game",
-          });
-        }
-      }
-
-      // Find or create rule
-      let rule = await TaskProgressionRule.findByGame(gameId);
+      // Find or create rule by ruleName
+      let rule = await TaskProgressionRule.findOne({ ruleName: ruleName });
 
       if (rule) {
         // Update existing rule
-        rule.minimumEventThreshold = minimumEventThreshold;
-        rule.postThresholdTasks = postThresholdTasks.map(pt => ({
-          taskId: pt.taskId,
-          order: pt.order,
-          requiredXpTier: pt.requiredXpTier || null,
-          requiredMembershipTier: pt.requiredMembershipTier || null,
-          isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
-        }));
+        rule.userMilestones = userMilestones;
+        rule.xpTier = xpTier || null;
+        rule.membershipTier = membershipTier || null;
+        rule.priority = priority;
+        rule.firstBatchSize = firstBatchSize;
+        rule.nextBatchSize = nextBatchSize;
+        rule.maxBatches = maxBatches;
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
       } else {
         // Create new rule
         rule = new TaskProgressionRule({
-          gameId: gameId,
-          minimumEventThreshold: minimumEventThreshold,
-          postThresholdTasks: postThresholdTasks.map(pt => ({
-            taskId: pt.taskId,
-            order: pt.order,
-            requiredXpTier: pt.requiredXpTier || null,
-            requiredMembershipTier: pt.requiredMembershipTier || null,
-            isEnabled: pt.isEnabled !== undefined ? pt.isEnabled : true
-          })),
+          ruleName: ruleName,
+          userMilestones: userMilestones,
+          xpTier: xpTier || null,
+          membershipTier: membershipTier || null,
+          priority: priority,
+          firstBatchSize: firstBatchSize,
+          nextBatchSize: nextBatchSize,
+          maxBatches: maxBatches,
           createdBy: req.user.userId,
         });
       }
@@ -2285,43 +2953,34 @@ router.post(
       if (!rule.isValidConfiguration()) {
         return res.status(400).json({
           success: false,
-          message: "Invalid configuration. Please check your post threshold tasks setup.",
+          message:
+            "Invalid configuration. Please check your post threshold tasks setup.",
         });
       }
 
       await rule.save();
 
-      // Populate before returning
-      await rule.populate('gameId', 'title gameId');
-      await rule.populate('postThresholdTasks.taskId', 'name description completionRule rewardType rewardValue order');
+      // No need to populate xpTier - it's now a string
 
       // Format response
       const formattedData = {
-        gameId: rule.gameId._id || rule.gameId,
-        gameTitle: rule.gameId.title || null,
-        gameGameId: rule.gameId.gameId || null,
-        minimumEventThreshold: rule.minimumEventThreshold,
-        postThresholdTasks: rule.postThresholdTasks
-          .filter(pt => pt.isEnabled)
-          .sort((a, b) => a.order - b.order)
-          .map(pt => ({
-            taskId: pt.taskId._id || pt.taskId,
-            order: pt.order,
-            name: pt.taskId.name || null,
-            description: pt.taskId.description || null,
-            completionRule: pt.taskId.completionRule || null,
-            rewardType: pt.taskId.rewardType || null,
-            rewardValue: pt.taskId.rewardValue || null,
-            requiredXpTier: pt.requiredXpTier,
-            requiredMembershipTier: pt.requiredMembershipTier,
-            isEnabled: pt.isEnabled
-          })),
-        isActive: rule.isActive
+        _id: rule._id,
+        ruleName: rule.ruleName,
+        userMilestones: rule.userMilestones,
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize,
+        nextBatchSize: rule.nextBatchSize,
+        maxBatches: rule.maxBatches,
+        isActive: rule.isActive,
       };
 
       res.json({
         success: true,
-        message: rule.isNew ? "Progression rule created successfully" : "Progression rule updated successfully",
+        message: rule.isNew
+          ? "Progression rule created successfully"
+          : "Progression rule updated successfully",
         data: formattedData,
       });
     } catch (error) {
@@ -2335,10 +2994,154 @@ router.post(
   }
 );
 
+// Update task progression rule by ID
+router.put(
+  "/progression-rules/:ruleId",
+  adminAuth,
+  [
+    body("ruleName").notEmpty().trim().withMessage("Rule name is required"),
+    body("userMilestones")
+      .isArray({ min: 1 })
+      .withMessage("User milestones must be a non-empty array"),
+    body("userMilestones.*")
+      .isIn(["first_time_user", "returning_user", "xp_tier", "membership_tier"])
+      .withMessage("Invalid milestone type"),
+    body("xpTier")
+      .optional()
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("xp_tier") && !value) {
+          throw new Error(
+            "XP tier is required when xp_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("membershipTier")
+      .optional()
+      .isIn(["bronze", "gold", "platinum", "free", null])
+      .custom((value, { req }) => {
+        if (req.body.userMilestones?.includes("membership_tier") && !value) {
+          throw new Error(
+            "Membership tier is required when membership_tier milestone is selected"
+          );
+        }
+        return true;
+      }),
+    body("priority")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Priority must be a non-negative integer"),
+    body("firstBatchSize")
+      .isInt({ min: 1 })
+      .withMessage("First batch size must be at least 1"),
+    body("nextBatchSize")
+      .isInt({ min: 1 })
+      .withMessage("Next batch size must be at least 1"),
+    body("maxBatches")
+      .optional({ nullable: true })
+      .custom((value) => {
+        if (value === null || value === undefined || value === "") {
+          return true; // Allow null/undefined/empty
+        }
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
+      })
+      .withMessage("Max batches must be at least 1 or null"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { ruleId } = req.params;
+      const {
+        ruleName,
+        userMilestones,
+        xpTier,
+        membershipTier,
+        priority = 0,
+        firstBatchSize,
+        nextBatchSize,
+        maxBatches = null,
+        isActive,
+      } = req.body;
+
+      // Find rule by ID
+      const rule = await TaskProgressionRule.findById(ruleId);
+
+      if (!rule) {
+        return res.status(404).json({
+          success: false,
+          message: "Progression rule not found",
+        });
+      }
+
+      // Update rule fields
+      rule.ruleName = ruleName;
+      rule.userMilestones = userMilestones;
+      rule.xpTier = xpTier || null;
+      rule.membershipTier = membershipTier || null;
+      rule.priority = priority;
+      rule.firstBatchSize = firstBatchSize;
+      rule.nextBatchSize = nextBatchSize;
+      rule.maxBatches = maxBatches;
+      if (isActive !== undefined) {
+        rule.isActive = isActive;
+      }
+      rule.updatedBy = req.user.userId;
+      rule.updatedAt = new Date();
+
+      // Validate configuration
+      if (!rule.isValidConfiguration()) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid configuration. Please check your batch configuration.",
+        });
+      }
+
+      await rule.save();
+
+      // Format response
+      const formattedData = {
+        _id: rule._id,
+        ruleName: rule.ruleName,
+        userMilestones: rule.userMilestones,
+        xpTier: rule.xpTier || null,
+        membershipTier: rule.membershipTier || null,
+        priority: rule.priority || 0,
+        firstBatchSize: rule.firstBatchSize,
+        nextBatchSize: rule.nextBatchSize,
+        maxBatches: rule.maxBatches,
+        isActive: rule.isActive,
+      };
+
+      res.json({
+        success: true,
+        message: "Progression rule updated successfully",
+        data: formattedData,
+      });
+    } catch (error) {
+      console.error("Error updating progression rule:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update progression rule",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // Delete task progression rule for a game
-router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => {
+router.delete("/progression-rules/:ruleId", adminAuth, async (req, res) => {
   try {
-    const { gameId } = req.params;
+    const { ruleId } = req.params;
     const { confirm } = req.query;
 
     if (confirm !== "true") {
@@ -2348,26 +3151,21 @@ router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => 
       });
     }
 
-    const rule = await TaskProgressionRule.findByGame(gameId);
+    const rule = await TaskProgressionRule.findByIdAndDelete(ruleId);
 
     if (!rule) {
       return res.status(404).json({
         success: false,
-        message: "Progression rule not found for this game",
+        message: "Progression rule not found",
       });
     }
-
-    rule.isActive = false;
-    rule.updatedBy = req.user.userId;
-    rule.updatedAt = new Date();
-    await rule.save();
 
     res.json({
       success: true,
       message: "Progression rule deleted successfully",
       data: {
         id: rule._id,
-        gameId: rule.gameId,
+        ruleName: rule.ruleName,
       },
     });
   } catch (error) {
@@ -2386,8 +3184,11 @@ router.delete("/progression-rules/game/:gameId", adminAuth, async (req, res) => 
 router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   try {
     const rules = await WelcomeBonusTimer.find({ isActive: true })
-      .populate('gameBonusTasks.gameId', 'title gameId')
-      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+      .populate("gameBonusTasks.gameId", "title gameId")
+      .populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      )
       .sort({ createdAt: -1 })
       .lean();
 
@@ -2409,33 +3210,36 @@ router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
 router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
-    
-    const rule = await WelcomeBonusTimer.findOne({ 
+
+    const rule = await WelcomeBonusTimer.findOne({
       isActive: true,
-      'gameBonusTasks.gameId': gameId,
-      'gameBonusTasks.isEnabled': true
+      "gameBonusTasks.gameId": gameId,
+      "gameBonusTasks.isEnabled": true,
     })
-      .populate('gameBonusTasks.gameId', 'title gameId')
-      .populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue')
+      .populate("gameBonusTasks.gameId", "title gameId")
+      .populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      )
       .lean();
 
     if (!rule) {
       return res.json({
         success: true,
         data: null,
-        message: "No bonus tasks configured for this game"
+        message: "No bonus tasks configured for this game",
       });
     }
 
     const gameBonusConfig = rule.gameBonusTasks.find(
-      config => config.gameId._id.toString() === gameId && config.isEnabled
+      (config) => config.gameId._id.toString() === gameId && config.isEnabled
     );
 
     if (!gameBonusConfig) {
       return res.json({
         success: true,
         data: null,
-        message: "No bonus tasks configured for this game"
+        message: "No bonus tasks configured for this game",
       });
     }
 
@@ -2448,9 +3252,9 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
       completionDeadlineHours: 24, // Fixed 24 hours
       taskLogic: "sequential", // Always sequential
       bonusTasks: gameBonusConfig.bonusTasks
-        .filter(bt => bt.isEnabled)
+        .filter((bt) => bt.isEnabled)
         .sort((a, b) => a.order - b.order)
-        .map(bt => ({
+        .map((bt) => ({
           taskId: bt.taskId._id || bt.taskId,
           order: bt.order,
           name: bt.taskId.name || null,
@@ -2459,9 +3263,9 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
           rewardType: bt.taskId.rewardType || null,
           rewardValue: bt.taskId.rewardValue || null,
           unlockCondition: bt.unlockCondition,
-          isEnabled: bt.isEnabled
+          isEnabled: bt.isEnabled,
         })),
-      isEnabled: gameBonusConfig.isEnabled
+      isEnabled: gameBonusConfig.isEnabled,
     };
 
     res.json({
@@ -2513,11 +3317,20 @@ router.put(
         if (req.body.completionDeadlineDays !== undefined) {
           rule.completionDeadlineDays = req.body.completionDeadlineDays;
         }
+        if (req.body.maxGamesWithBonusTasks !== undefined) {
+          rule.maxGamesWithBonusTasks = req.body.maxGamesWithBonusTasks;
+        }
+        if (req.body.maxBonusTasksPerGame !== undefined) {
+          rule.maxBonusTasksPerGame = req.body.maxBonusTasksPerGame;
+        }
         if (req.body.gameOverrides !== undefined) {
           rule.gameOverrides = req.body.gameOverrides;
         }
         if (req.body.xpTierOverrides !== undefined) {
           rule.xpTierOverrides = req.body.xpTierOverrides;
+        }
+        if (req.body.isActive !== undefined) {
+          rule.isActive = req.body.isActive;
         }
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
@@ -2525,8 +3338,11 @@ router.put(
         rule = new WelcomeBonusTimer({
           unlockTimeHours: req.body.unlockTimeHours || 24,
           completionDeadlineDays: req.body.completionDeadlineDays || 7,
+          maxGamesWithBonusTasks: req.body.maxGamesWithBonusTasks || 3,
+          maxBonusTasksPerGame: req.body.maxBonusTasksPerGame || 3,
           gameOverrides: req.body.gameOverrides || [],
           xpTierOverrides: req.body.xpTierOverrides || [],
+          isActive: req.body.isActive !== undefined ? req.body.isActive : true,
           createdBy: req.user.userId,
         });
       }
@@ -2557,15 +3373,17 @@ router.post(
     body("minimumEventThreshold")
       .isInt({ min: 0 })
       .withMessage("Minimum event threshold must be a non-negative integer"),
+    body("completionDeadlineHours")
+      .optional()
+      .isInt({ min: 1, max: 168 })
+      .withMessage("Completion deadline hours must be between 1 and 168 (1 week)"),
     body("bonusTasks")
-      .isArray({ max: 3 })
-      .withMessage("Maximum 3 bonus tasks allowed"),
-    body("bonusTasks.*.taskId")
-      .isMongoId()
-      .withMessage("Invalid task ID"),
+      .isArray()
+      .withMessage("Bonus tasks must be an array"),
+    body("bonusTasks.*.taskId").isMongoId().withMessage("Invalid task ID"),
     body("bonusTasks.*.order")
-      .isInt({ min: 1, max: 3 })
-      .withMessage("Order must be between 1 and 3"),
+      .isInt({ min: 1 })
+      .withMessage("Order must be a positive integer"),
   ],
   async (req, res) => {
     try {
@@ -2579,7 +3397,7 @@ router.post(
       }
 
       const { gameId } = req.params;
-      const { minimumEventThreshold, bonusTasks } = req.body;
+      const { minimumEventThreshold, completionDeadlineHours, bonusTasks } = req.body;
 
       // Validate at least 1 task
       if (!bonusTasks || bonusTasks.length === 0) {
@@ -2589,74 +3407,113 @@ router.post(
         });
       }
 
-      // Validate bonus tasks
-      if (bonusTasks.length > 3) {
+      // Get maxBonusTasksPerGame from configuration for dynamic validation
+      const activeRule = await WelcomeBonusTimer.findOne({
+        isActive: true,
+      }).lean();
+      const maxTasksPerGame = activeRule?.maxBonusTasksPerGame || 3;
+
+      // Validate bonus tasks count using dynamic maxTasksPerGame
+      if (bonusTasks.length > maxTasksPerGame) {
         return res.status(400).json({
           success: false,
-          message: "Maximum 3 bonus tasks allowed",
+          message: `Maximum ${maxTasksPerGame} bonus tasks allowed per game`,
         });
       }
 
+      // Validate order values don't exceed maxBonusTasksPerGame
+      if (bonusTasks.length > 0) {
+        const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order || 0));
+        if (maxOrder > maxTasksPerGame) {
+          return res.status(400).json({
+            success: false,
+            message: `Task order cannot exceed ${maxTasksPerGame}`,
+          });
+        }
+      }
+
       // Validate that order values are unique and sequential
-      const orders = bonusTasks.map(bt => bt.order).sort();
-      const expectedOrders = [1, 2, 3].slice(0, bonusTasks.length);
-      if (JSON.stringify(orders) !== JSON.stringify(expectedOrders)) {
+      const orders = bonusTasks.map((bt) => bt.order).sort((a, b) => a - b);
+      const expectedOrders = Array.from(
+        { length: bonusTasks.length },
+        (_, i) => i + 1
+      );
+      const hasSequentialOrders = orders.every(
+        (order, index) => order === expectedOrders[index]
+      );
+
+      if (!hasSequentialOrders) {
         return res.status(400).json({
           success: false,
-          message: "Bonus tasks must have sequential order (1, 2, 3)",
+          message: "Bonus tasks must have sequential order starting from 1",
+          error: "INVALID_TASK_ORDER",
         });
       }
 
       // Validate no duplicate task IDs
-      const taskIdsForDuplicateCheck = bonusTasks.map(bt => bt.taskId);
-      const uniqueTaskIds = [...new Set(taskIdsForDuplicateCheck.map(id => id.toString()))];
+      const taskIdsForDuplicateCheck = bonusTasks.map((bt) => bt.taskId);
+      const uniqueTaskIds = [
+        ...new Set(taskIdsForDuplicateCheck.map((id) => id.toString())),
+      ];
       if (taskIdsForDuplicateCheck.length !== uniqueTaskIds.length) {
         return res.status(400).json({
           success: false,
-          message: "Duplicate task IDs are not allowed. Each task can only be selected once.",
+          message:
+            "Duplicate task IDs are not allowed. Each task can only be selected once.",
+          error: "DUPLICATE_TASK_IDS",
         });
       }
 
-      // Validate that all task IDs exist
-      const taskIds = bonusTasks.map(bt => bt.taskId);
-      const existingTasks = await GameTask.find({ 
+      // Validate that all task IDs exist and are active
+      const taskIds = bonusTasks.map((bt) => bt.taskId);
+      const existingTasks = await GameTask.find({
         _id: { $in: taskIds },
-        gameId: gameId
+        gameId: gameId,
+        isActive: true, // Only allow active tasks
       });
-      
+
       if (existingTasks.length !== taskIds.length) {
         return res.status(400).json({
           success: false,
-          message: "One or more task IDs are invalid or do not belong to this game",
+          message:
+            "One or more task IDs are invalid, inactive, or do not belong to this game",
+          error: "INVALID_TASK_IDS",
         });
       }
 
       // Find or create active rule
       let rule = await WelcomeBonusTimer.findOne({ isActive: true });
-      
+
       if (!rule) {
         rule = new WelcomeBonusTimer({
           unlockTimeHours: 24,
           completionDeadlineDays: 7,
+          maxGamesWithBonusTasks: 3,
+          maxBonusTasksPerGame: 3,
           createdBy: req.user.userId,
         });
       }
 
       // Find existing game bonus task configuration
       const existingGameIndex = rule.gameBonusTasks.findIndex(
-        config => config.gameId.toString() === gameId
+        (config) => config.gameId.toString() === gameId
       );
 
-      const bonusTasksData = bonusTasks.map(bt => ({
+      const bonusTasksData = bonusTasks.map((bt) => ({
         taskId: bt.taskId,
         order: bt.order,
-        unlockCondition: "Unlock this Bonus Task after Minimum Event Threshold is met.",
-        isEnabled: true
+        unlockCondition:
+          bt.unlockCondition ||
+          "Unlock this Bonus Task after Minimum Event Threshold is met.",
+        isEnabled: true,
       }));
 
       if (existingGameIndex >= 0) {
         // Update existing configuration
-        rule.gameBonusTasks[existingGameIndex].minimumEventThreshold = minimumEventThreshold;
+        rule.gameBonusTasks[existingGameIndex].minimumEventThreshold =
+          minimumEventThreshold;
+        rule.gameBonusTasks[existingGameIndex].completionDeadlineHours =
+          completionDeadlineHours || 24;
         rule.gameBonusTasks[existingGameIndex].bonusTasks = bonusTasksData;
         rule.gameBonusTasks[existingGameIndex].isEnabled = true;
         rule.gameBonusTasks[existingGameIndex].updatedAt = new Date();
@@ -2665,8 +3522,9 @@ router.post(
         rule.gameBonusTasks.push({
           gameId: gameId,
           minimumEventThreshold: minimumEventThreshold,
+          completionDeadlineHours: completionDeadlineHours || 24,
           bonusTasks: bonusTasksData,
-          isEnabled: true
+          isEnabled: true,
         });
       }
 
@@ -2675,20 +3533,36 @@ router.post(
 
       // Validate configuration
       if (!rule.isValidConfiguration()) {
+        // Log validation details for debugging
+        console.error("WelcomeBonusTimer validation failed:", {
+          unlockTimeHours: rule.unlockTimeHours,
+          completionDeadlineDays: rule.completionDeadlineDays,
+          maxBonusTasksPerGame: rule.maxBonusTasksPerGame,
+          gameBonusTasksCount: rule.gameBonusTasks.length,
+          gameBonusTasks: rule.gameBonusTasks.map(gbt => ({
+            gameId: gbt.gameId,
+            bonusTasksCount: gbt.bonusTasks?.length || 0,
+            orders: gbt.bonusTasks?.map(bt => bt.order) || []
+          }))
+        });
         return res.status(400).json({
           success: false,
-          message: "Invalid configuration. Please check your bonus tasks setup.",
+          message:
+            "Invalid configuration. Please check your bonus tasks setup. Ensure unlock time is less than completion deadline, and bonus tasks have sequential orders starting from 1.",
         });
       }
 
       await rule.save();
 
       // Populate before returning
-      await rule.populate('gameBonusTasks.gameId', 'title gameId');
-      await rule.populate('gameBonusTasks.bonusTasks.taskId', 'name description completionRule rewardType rewardValue');
+      await rule.populate("gameBonusTasks.gameId", "title gameId");
+      await rule.populate(
+        "gameBonusTasks.bonusTasks.taskId",
+        "name description completionRule rewardType rewardValue"
+      );
 
       const gameBonusConfig = rule.gameBonusTasks.find(
-        config => config.gameId._id.toString() === gameId
+        (config) => config.gameId._id.toString() === gameId
       );
 
       // Format response for frontend
@@ -2697,12 +3571,12 @@ router.post(
         gameTitle: gameBonusConfig.gameId.title || null,
         gameGameId: gameBonusConfig.gameId.gameId || null,
         minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
-        completionDeadlineHours: 24, // Fixed 24 hours
+        completionDeadlineHours: gameBonusConfig.completionDeadlineHours || 24,
         taskLogic: "sequential", // Always sequential
         bonusTasks: gameBonusConfig.bonusTasks
-          .filter(bt => bt.isEnabled)
+          .filter((bt) => bt.isEnabled)
           .sort((a, b) => a.order - b.order)
-          .map(bt => ({
+          .map((bt) => ({
             taskId: bt.taskId._id || bt.taskId,
             order: bt.order,
             name: bt.taskId.name || null,
@@ -2711,9 +3585,9 @@ router.post(
             rewardType: bt.taskId.rewardType || null,
             rewardValue: bt.taskId.rewardValue || null,
             unlockCondition: bt.unlockCondition,
-            isEnabled: bt.isEnabled
+            isEnabled: bt.isEnabled,
           })),
-        isEnabled: gameBonusConfig.isEnabled
+        isEnabled: gameBonusConfig.isEnabled,
       };
 
       res.json({
@@ -2741,7 +3615,7 @@ router.delete(
       const { gameId } = req.params;
 
       const rule = await WelcomeBonusTimer.findOne({ isActive: true });
-      
+
       if (!rule) {
         return res.status(404).json({
           success: false,
@@ -2750,7 +3624,7 @@ router.delete(
       }
 
       const gameIndex = rule.gameBonusTasks.findIndex(
-        config => config.gameId.toString() === gameId
+        (config) => config.gameId.toString() === gameId
       );
 
       if (gameIndex < 0) {
@@ -2776,6 +3650,75 @@ router.delete(
       res.status(500).json({
         success: false,
         message: "Failed to delete game bonus tasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Get all game bonus tasks configurations
+router.get(
+  "/welcome-bonus-timer/game-bonus-tasks",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const rule = await WelcomeBonusTimer.findOne({ isActive: true })
+        .populate("gameBonusTasks.gameId", "title gameId")
+        .populate(
+          "gameBonusTasks.bonusTasks.taskId",
+          "name description completionRule rewardType rewardValue"
+        )
+        .lean();
+
+      if (!rule) {
+        return res.json({
+          success: true,
+          data: {
+            configurations: [],
+          },
+        });
+      }
+
+      // Format all game bonus task configurations
+      const configurations = rule.gameBonusTasks
+        .filter((config) => config.isEnabled)
+        .map((config) => ({
+          gameId: config.gameId._id || config.gameId,
+          gameTitle: config.gameId?.title || null,
+          gameGameId: config.gameId?.gameId || null,
+          minimumEventThreshold: config.minimumEventThreshold,
+          completionDeadlineHours: config.completionDeadlineHours || 24,
+          taskLogic: "sequential", // Always sequential
+          bonusTasks: config.bonusTasks
+            .filter((bt) => bt.isEnabled)
+            .sort((a, b) => a.order - b.order)
+            .map((bt) => ({
+              taskId: bt.taskId._id || bt.taskId,
+              order: bt.order,
+              name: bt.taskId?.name || null,
+              description: bt.taskId?.description || null,
+              completionRule: bt.taskId?.completionRule || null,
+              rewardType: bt.taskId?.rewardType || null,
+              rewardValue: bt.taskId?.rewardValue || null,
+              unlockCondition: bt.unlockCondition,
+              isEnabled: bt.isEnabled,
+            })),
+          isEnabled: config.isEnabled,
+          createdAt: config.createdAt,
+          updatedAt: config.updatedAt,
+        }));
+
+      res.json({
+        success: true,
+        data: {
+          configurations,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting all game bonus tasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get game bonus tasks configurations",
         error: error.message,
       });
     }
@@ -2877,7 +3820,6 @@ router.get("/master-data/tier-access", adminAuth, async (req, res) => {
     const tiers = [
       { id: "free", name: "Free" },
       { id: "bronze", name: "Bronze" },
-      { id: "silver", name: "Silver" },
       { id: "gold", name: "Gold" },
       { id: "platinum", name: "Platinum" },
     ];
@@ -2939,12 +3881,19 @@ router.get(
 
       const { offerType = "all", status = "all" } = req.query;
 
+      // console.log("🔵 [ADMIN BACKEND] Get configured offers request:", {
+      //   offerType,
+      //   status,
+      //   query: req.query,
+      // });
+
       // Find BitLab SDK
       const bitlabSDK = await SurveySDK.findOne({
         name: { $regex: /bitlab/i },
       });
 
       if (!bitlabSDK) {
+        // console.log("⚠️ [ADMIN BACKEND] BitLab SDK not found");
         return res.json({
           success: true,
           data: {
@@ -2961,6 +3910,11 @@ router.get(
         });
       }
 
+      // console.log("✅ [ADMIN BACKEND] BitLab SDK found:", {
+      //   id: bitlabSDK._id,
+      //   name: bitlabSDK.name,
+      // });
+
       // Build base query
       const baseQuery = {
         sdkId: bitlabSDK._id,
@@ -2970,16 +3924,20 @@ router.get(
         baseQuery.status = status;
       }
 
+      // console.log("🔍 [ADMIN BACKEND] Base query:", baseQuery);
+
       // Fetch from both models based on offerType
       let allOffers = [];
 
       if (offerType === "all" || offerType === "survey") {
         // Get surveys from SurveyOffer
         const surveyQuery = { ...baseQuery, offerType: "survey" };
+        // console.log("🔍 [ADMIN BACKEND] Survey query:", surveyQuery);
         const surveys = await SurveyOffer.find(surveyQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
+        // console.log(`✅ [ADMIN BACKEND] Found ${surveys.length} surveys`);
         allOffers.push(...surveys);
       }
 
@@ -2994,10 +3952,50 @@ router.get(
         if (offerType !== "all") {
           nonGameQuery.offerType = offerType;
         }
+        // console.log("🔍 [ADMIN BACKEND] Non-game query:", nonGameQuery);
         const nonGameOffers = await NonGameOffer.find(nonGameQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
+        // console.log(
+        //   `✅ [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
+        // );
+
+        // Debug: Check all non-gaming offers regardless of query
+        const allNonGameOffersDebug = await NonGameOffer.find({})
+          .populate("sdkId", "name displayName")
+          .sort({ createdAt: -1 })
+          .lean();
+        // console.log(
+        //   `🔍 [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
+        // );
+        if (allNonGameOffersDebug.length > 0) {
+          // console.log(
+          //   "📋 [ADMIN BACKEND] All non-gaming offers in DB:",
+          //   allNonGameOffersDebug.map((o) => ({
+          //     id: o._id,
+          //     externalId: o.externalId,
+          //     title: o.title,
+          //     offerType: o.offerType,
+          //     status: o.status,
+          //     sdkId: o.sdkId?._id || o.sdkId,
+          //     sdkName: o.sdkId?.name || "N/A",
+          //   }))
+          // );
+        }
+
+        if (nonGameOffers.length > 0) {
+          // console.log(
+          //   "📋 [ADMIN BACKEND] Non-gaming offers matching query:",
+          //   nonGameOffers.slice(0, 3).map((o) => ({
+          //     id: o._id,
+          //     externalId: o.externalId,
+          //     title: o.title,
+          //     offerType: o.offerType,
+          //     status: o.status,
+          //   }))
+          // );
+        }
         allOffers.push(...nonGameOffers);
       }
 
@@ -3024,21 +4022,66 @@ router.get(
       res.json({
         success: true,
         data: {
-          configuredOffers: allOffers.map((offer) => ({
-            id: offer._id,
-            externalId: offer.externalId,
-            title: offer.title,
-            description: offer.description,
-            category: offer.category,
-            offerType: offer.offerType,
-            coinReward: offer.coinReward,
-            estimatedTime: offer.estimatedTime,
-            status: offer.status,
-            targetAudience: offer.targetAudience,
-            metadata: offer.metadata,
-            createdAt: offer.createdAt,
-            updatedAt: offer.updatedAt,
-          })),
+          configuredOffers: allOffers.map((offer) => {
+            // Extract all fields from metadata to match normalized format
+            const metadata = offer.metadata || {};
+            const bitlabsData = metadata.bitlabsData || {};
+            const publisherRevenue = metadata.publisherRevenue || {};
+
+            return {
+              id: offer._id,
+              externalId: offer.externalId,
+              title: offer.title,
+              description: offer.description,
+              category: offer.category,
+              offerType: offer.offerType,
+              coinReward: offer.coinReward,
+              estimatedTime: offer.estimatedTime,
+              status: offer.status,
+              targetAudience: offer.targetAudience,
+
+              // Return all fields in the same format as normalized offer
+              // Reward fields
+              reward: metadata.reward || {
+                coins: offer.coinReward,
+                currency: "points",
+                xp: metadata.userRewardXP || Math.round(offer.coinReward * 0.5),
+              },
+              userRewardCoins: metadata.userRewardCoins || offer.coinReward,
+              userRewardXP:
+                metadata.userRewardXP || Math.round(offer.coinReward * 0.5),
+
+              // Bitlabs specific fields
+              value: publisherRevenue.value || bitlabsData.value || 0,
+              cpi: publisherRevenue.cpi || bitlabsData.cpi || 0,
+              cr: bitlabsData.cr || 0,
+              loi: bitlabsData.loi || offer.estimatedTime || 0,
+              rating: bitlabsData.rating || 0,
+              country: bitlabsData.country || null,
+              language: bitlabsData.language || null,
+              tags: bitlabsData.tags || [],
+
+              // URLs
+              clickUrl: metadata.externalUrl || "",
+              surveyUrl: metadata.surveyUrl || "",
+              deepLink: metadata.deepLink || "",
+              supportUrl: metadata.supportUrl || "",
+
+              // Images
+              icon: metadata.thumbnail || "",
+              banner: metadata.thumbnail || "",
+
+              // Publisher revenue
+              publisherRevenue: publisherRevenue,
+
+              // Complete metadata
+              metadata: offer.metadata,
+
+              // Timestamps
+              createdAt: offer.createdAt,
+              updatedAt: offer.updatedAt,
+            };
+          }),
           breakdown,
           total: allOffers.length,
         },
@@ -3060,6 +4103,19 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
     const { sdk } = req.params;
     const { type = "all", devices, is_game = false, country } = req.query;
 
+    // console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
+    //   endpoint: "/non-game-offers/by-sdk/:sdk",
+    //   sdk,
+    //   queryParams: {
+    //     type,
+    //     devices,
+    //     is_game,
+    //     country,
+    //   },
+    //   allQueryParams: req.query,
+    //   userId: req.user?.userId,
+    // });
+
     if (sdk === "bitlabs") {
       const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
       const bitlabsNonGames = require("../utils/bitlabs-non-games");
@@ -3080,16 +4136,16 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
       const userProfile = {};
       if (country) {
         userProfile.country = country;
-        console.log(
-          `🌍 Admin request: Using country "${country}" for non-game offers`
-        );
+        // console.log(
+        //   `🌍 Admin request: Using country "${country}" for non-game offers`
+        // );
       } else {
-        console.log(
-          `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
-        );
-        console.log(
-          `   To test with India-targeted offers, add ?country=IN to the request URL`
-        );
+        // console.log(
+        //   `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
+        // );
+        // console.log(
+        //   `   To test with India-targeted offers, add ?country=IN to the request URL`
+        // );
       }
 
       // Convert devices array to platform for userProfile
@@ -3110,23 +4166,43 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         } else {
           userProfile.platform = "mobile"; // Default to mobile
         }
-        console.log(
-          `📱 Admin request: Using platform "${
-            userProfile.platform
-          }" for devices: ${devicesArray.join(", ")}`
-        );
+        // console.log(
+        //   `📱 Admin request: Using platform "${
+        //     userProfile.platform
+        //   }" for devices: ${devicesArray.join(", ")}`
+        // );
       }
 
       // Get offers - also pass devices directly for general offers API
-      const result = await bitlabsNonGames.getNonGameOffers({
+      const utilityParams = {
         userId: "admin-preview",
         userProfile: userProfile,
         type: type || "all",
         category: "all",
         devices: queryParams.devices, // Pass devices for shopping/magic receipts
-      });
+      };
+      // console.log(
+      //   "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
+      //   utilityParams
+      // );
+
+      const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
+
+      // console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
+      //   success: result.success,
+      //   totalOffers: result.totalOffers || 0,
+      //   surveysCount: result.categorized?.surveys?.length || 0,
+      //   cashbackCount: result.categorized?.cashback?.length || 0,
+      //   shoppingCount: result.categorized?.shopping?.length || 0,
+      //   magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
+      //   error: result.error,
+      // });
 
       if (!result.success) {
+        console.error(
+          "🟡 [ADMIN BACKEND ROUTE] Error from utility:",
+          result.error
+        );
         return res.status(500).json({
           success: false,
           message: result.error || "Failed to fetch non-game offers",
@@ -3134,14 +4210,20 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         });
       }
 
-      res.json({
+      const responseData = {
         success: true,
         data: result.offers,
         categorized: result.categorized,
         breakdown: result.breakdown,
         total: result.totalOffers,
         estimatedEarnings: result.estimatedEarnings,
+      };
+      console.log("🟡 [ADMIN BACKEND ROUTE] Sending response to admin:", {
+        success: responseData.success,
+        total: responseData.total,
+        surveysCount: responseData.categorized?.surveys?.length || 0,
       });
+      res.json(responseData);
     } else {
       res.status(404).json({
         success: false,
@@ -3247,6 +4329,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       autoActivate = true,
       devices,
       country, // Add country support for syncing
+      targetAudience, // Array of { offerId, targetAudience: { age: [], gender: [] } }
     } = req.body;
 
     // Build userProfile with country and device support
@@ -3254,13 +4337,13 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     const userProfile = {};
     if (country) {
       userProfile.country = country;
-      console.log(
-        `🌍 Sync request: Using country "${country}" for BitLabs offers`
-      );
+      // console.log(
+      //   `🌍 Sync request: Using country "${country}" for BitLabs offers`
+      // );
     } else {
-      console.log(
-        `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
-      );
+      // console.log(
+      //   `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
+      // );
     }
 
     // Convert devices array to platform for userProfile
@@ -3278,11 +4361,11 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       } else {
         userProfile.platform = "mobile"; // Default to mobile
       }
-      console.log(
-        `📱 Sync request: Using platform "${
-          userProfile.platform
-        }" for devices: ${devicesArray.join(", ")}`
-      );
+      // console.log(
+      //   `📱 Sync request: Using platform "${
+      //     userProfile.platform
+      //   }" for devices: ${devicesArray.join(", ")}`
+      // );
     }
 
     // Fetch offers from BitLab
@@ -3306,8 +4389,10 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
     // Collect all offers by type
     if (offerType === "all" || offerType === "survey") {
+      const surveys = result.categorized.surveys || [];
+
       allOffers.push(
-        ...(result.categorized.surveys || []).map((o) => ({
+        ...surveys.map((o) => ({
           ...o,
           offerType: "survey",
         }))
@@ -3339,11 +4424,30 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     }
 
     // Filter by offerIds if provided
+    // For cashback: ID is merchant_id (number or string)
+    // For shopping/magic receipts: ID might be product_id or anchor
+    // For surveys: ID is surveyId or id
     const offersToSync =
       offerIds && offerIds.length > 0
-        ? allOffers.filter((o) =>
-            offerIds.includes(o.id || o.surveyId || o.offerId)
-          )
+        ? allOffers.filter((o) => {
+            // Get all possible ID formats for this offer
+            const offerId = o.id || o.surveyId || o.offerId || o.externalId;
+            const merchantId = o.merchant_id?.toString();
+            const productId = o.product_id?.toString();
+            const anchor = o.anchor?.toString(); // Add anchor for magic receipts and shopping
+
+            // Convert offerIds to strings for comparison
+            const offerIdsStr = offerIds.map((id) => id?.toString());
+
+            // Check if any ID matches (normalize all to strings)
+            const matches =
+              offerIdsStr.includes(offerId?.toString()) ||
+              (merchantId && offerIdsStr.includes(merchantId)) ||
+              (productId && offerIdsStr.includes(productId)) ||
+              (anchor && offerIdsStr.includes(anchor)); // Check anchor for magic receipts/shopping
+
+            return matches;
+          })
         : allOffers;
 
     let syncedCount = 0;
@@ -3353,8 +4457,31 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
     for (const offer of offersToSync) {
       try {
-        const externalId =
-          offer.id || offer.surveyId || offer.offerId || offer.externalId;
+        // For cashback: use merchant_id as externalId
+        // For shopping/magic receipts: use product_id or anchor
+        // For surveys: use id, surveyId, or offerId
+        let externalId;
+        if (offer.offerType === "cashback") {
+          externalId =
+            offer.merchant_id?.toString() ||
+            offer.id ||
+            offer.offerId ||
+            offer.externalId;
+        } else if (
+          offer.offerType === "shopping" ||
+          offer.offerType === "magic_receipt"
+        ) {
+          externalId =
+            offer.product_id?.toString() ||
+            offer.anchor ||
+            offer.id ||
+            offer.offerId ||
+            offer.externalId;
+        } else {
+          externalId =
+            offer.id || offer.surveyId || offer.offerId || offer.externalId;
+        }
+
         if (!externalId) {
           skippedCount++;
           continue;
@@ -3364,45 +4491,233 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         const isSurvey = offer.offerType === "survey";
         const OfferModel = isSurvey ? SurveyOffer : NonGameOffer;
 
+        // Find target audience for this offer if provided
+        const offerTargetAudience = targetAudience?.find(
+          (t) =>
+            t.offerId === offer.id ||
+            t.offerId === offer.surveyId ||
+            t.offerId === offer.offerId ||
+            t.offerId === externalId
+        );
+        const selectedAges = offerTargetAudience?.targetAudience?.age || [];
+        const selectedGenders =
+          offerTargetAudience?.targetAudience?.gender || [];
+
         // Check if already exists
         const existing = await OfferModel.findOne({
           sdkId: bitlabSDK._id,
           externalId: externalId,
         });
 
-        // Extract proper values from offer data
+        // For cashback, magic receipts, and shopping: Preserve raw Bitlabs structure
+        // For surveys: Use normalized offer data
+        const isCashback = offer.offerType === "cashback";
+        const isMagicReceipt =
+          offer.offerType === "magic_receipt" ||
+          offer.offerType === "magic-receipts" ||
+          offer.offerType === "magicReceipts";
+        const isShopping = offer.offerType === "shopping";
+        const normalizedOffer = offer;
+
+        // Extract coinReward - use userRewardCoins (20% of value) for user reward
+        // But store the full value in metadata for reference
         let coinReward = 0;
+        let publisherValue = 0;
+        let userRewardCoins = 0;
+        let userRewardXP = 0;
 
-        if (typeof offer.reward === "object") {
-          // Try to get coins from reward object
-          coinReward = offer.reward?.coins || 0;
-
-          // If coins is 0, try to use payout field as fallback
-          if (coinReward === 0 && offer.reward?.payout) {
-            coinReward = parseFloat(offer.reward.payout) || 0;
-          }
+        if (isCashback) {
+          // For cashback: Extract from raw Bitlabs structure
+          // Cashback doesn't have 'value' field like surveys, so use cashback percentage
+          const cashbackValue = parseFloat(normalizedOffer.cashback) || 0;
+          publisherValue = cashbackValue; // Use cashback as base value
+          userRewardCoins = Math.round(cashbackValue * 0.2); // 20% margin
+          userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of coins as XP
+          coinReward = userRewardCoins;
+        } else if (isMagicReceipt || isShopping) {
+          // For magic receipts and shopping: Extract from total_points (sum of all events)
+          // Both have events array with total_points
+          const totalPoints = parseFloat(normalizedOffer.total_points) || 0;
+          publisherValue = totalPoints; // Use total_points as base value
+          userRewardCoins = Math.round(totalPoints * 0.2); // 20% margin
+          userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of coins as XP
+          coinReward = userRewardCoins;
         } else {
-          coinReward = offer.reward || 0;
+          // For surveys and other offers: Use existing logic
+          publisherValue = parseFloat(normalizedOffer.value) || 0;
+          userRewardCoins =
+            normalizedOffer.userRewardCoins ||
+            normalizedOffer.reward?.coins ||
+            0;
+          userRewardXP =
+            normalizedOffer.userRewardXP || normalizedOffer.reward?.xp || 0;
+          coinReward = userRewardCoins;
         }
 
-        const category =
-          typeof offer.category === "object"
-            ? offer.category?.name_internal || offer.category?.name || "other"
-            : offer.category || "other";
+        // Extract and store category - NonGameOffer model expects a string (enum), not an object
+        // For cashback: use primary_category as string
+        // For shopping/magic receipts: use first category from categories array or category.name
+        let categoryString = "other"; // Default to "other" (valid enum value)
 
-        // Map category names to valid enum values
-        const categoryMap = {
-          General: "other",
-          Other: "other",
-          Finance: "finance",
-          Shopping: "shopping",
-          Entertainment: "entertainment",
-          Technology: "technology",
-          Health: "health",
-          Travel: "travel",
-          Education: "education",
-        };
-        const mappedCategory = categoryMap[category] || category.toLowerCase();
+        if (isCashback) {
+          // Cashback offers have primary_category as a string
+          const primaryCategory = normalizedOffer.primary_category || "";
+          // Map to valid enum values
+          if (primaryCategory) {
+            const categoryLower = primaryCategory.toLowerCase();
+            // Map common categories to enum values
+            if (
+              categoryLower.includes("finance") ||
+              categoryLower.includes("banking")
+            ) {
+              categoryString = "finance";
+            } else if (
+              categoryLower.includes("shopping") ||
+              categoryLower.includes("retail") ||
+              categoryLower.includes("clothing") ||
+              categoryLower.includes("accessories") ||
+              categoryLower.includes("fashion") ||
+              categoryLower.includes("store") ||
+              categoryLower.includes("merchant")
+            ) {
+              categoryString = "shopping";
+            } else if (
+              categoryLower.includes("entertainment") ||
+              categoryLower.includes("music") ||
+              categoryLower.includes("video")
+            ) {
+              categoryString = "entertainment";
+            } else if (
+              categoryLower.includes("technology") ||
+              categoryLower.includes("tech") ||
+              categoryLower.includes("software")
+            ) {
+              categoryString = "technology";
+            } else if (
+              categoryLower.includes("health") ||
+              categoryLower.includes("fitness") ||
+              categoryLower.includes("medical")
+            ) {
+              categoryString = "health";
+            } else if (
+              categoryLower.includes("travel") ||
+              categoryLower.includes("hotel") ||
+              categoryLower.includes("flight")
+            ) {
+              categoryString = "travel";
+            } else if (
+              categoryLower.includes("education") ||
+              categoryLower.includes("learning") ||
+              categoryLower.includes("course")
+            ) {
+              categoryString = "education";
+            } else {
+              categoryString = "other";
+            }
+          }
+        } else if (isMagicReceipt || isShopping) {
+          // Shopping/magic receipts have categories array or category object
+          const categoryName =
+            normalizedOffer.categories?.[0] ||
+            normalizedOffer.category?.name ||
+            normalizedOffer.category ||
+            "";
+          if (categoryName) {
+            const categoryLower = categoryName.toLowerCase();
+            // Map to valid enum values (same logic as cashback)
+            if (
+              categoryLower.includes("finance") ||
+              categoryLower.includes("banking")
+            ) {
+              categoryString = "finance";
+            } else if (
+              categoryLower.includes("shopping") ||
+              categoryLower.includes("retail") ||
+              categoryLower.includes("clothing") ||
+              categoryLower.includes("accessories") ||
+              categoryLower.includes("fashion") ||
+              categoryLower.includes("store") ||
+              categoryLower.includes("merchant")
+            ) {
+              categoryString = "shopping";
+            } else if (
+              categoryLower.includes("entertainment") ||
+              categoryLower.includes("music") ||
+              categoryLower.includes("video")
+            ) {
+              categoryString = "entertainment";
+            } else if (
+              categoryLower.includes("technology") ||
+              categoryLower.includes("tech") ||
+              categoryLower.includes("software")
+            ) {
+              categoryString = "technology";
+            } else if (
+              categoryLower.includes("health") ||
+              categoryLower.includes("fitness") ||
+              categoryLower.includes("medical")
+            ) {
+              categoryString = "health";
+            } else if (
+              categoryLower.includes("travel") ||
+              categoryLower.includes("hotel") ||
+              categoryLower.includes("flight")
+            ) {
+              categoryString = "travel";
+            } else if (
+              categoryLower.includes("education") ||
+              categoryLower.includes("learning") ||
+              categoryLower.includes("course")
+            ) {
+              categoryString = "education";
+            } else {
+              categoryString = "other";
+            }
+          }
+        } else {
+          // For surveys and other offers: use existing category logic
+          if (normalizedOffer.category) {
+            if (typeof normalizedOffer.category === "string") {
+              const categoryLower = normalizedOffer.category.toLowerCase();
+              // Map to valid enum values
+              if (
+                [
+                  "finance",
+                  "shopping",
+                  "entertainment",
+                  "technology",
+                  "health",
+                  "travel",
+                  "education",
+                  "other",
+                ].includes(categoryLower)
+              ) {
+                categoryString = categoryLower;
+              } else {
+                categoryString = "other";
+              }
+            } else if (typeof normalizedOffer.category === "object") {
+              const categoryName = normalizedOffer.category.name || "";
+              const categoryLower = categoryName.toLowerCase();
+              if (
+                [
+                  "finance",
+                  "shopping",
+                  "entertainment",
+                  "technology",
+                  "health",
+                  "travel",
+                  "education",
+                  "other",
+                ].includes(categoryLower)
+              ) {
+                categoryString = categoryLower;
+              } else {
+                categoryString = "other";
+              }
+            }
+          }
+        }
 
         // Allow offers with 0 coins to show raw API values
         // (Previously skipped offers with coinReward < 1)
@@ -3412,43 +4727,289 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           ? "survey"
           : offer.offerType || "other";
 
+        // 🔍 DEBUG: Log offer data for surveys before saving
+        if (isSurvey || offer.offerType === "survey") {
+          // console.log(`\n🔍 SYNC: Preparing to save Survey ${externalId}`);
+          // console.log(`   coinReward: ${coinReward}`);
+          // console.log(`   offer.value: ${offer.value}`);
+          // console.log(`   offer.cpi: ${offer.cpi}`);
+          // console.log(`   offer.cr: ${offer.cr} (Conversion Rate)`);
+          // console.log(`   offer.loi: ${offer.loi} (Length of Interview)`);
+          // console.log(`   Category string: ${categoryString}`);
+          // console.log(
+          //   `   publisherRevenue will be: cpi=${
+          //     parseFloat(offer.cpi) || 0
+          //   }, value=${parseFloat(offer.value) || 0}`
+          // );
+          // console.log(
+          //   `   bitlabsData will store: cpi=${parseFloat(offer.cpi) || 0}, cr=${
+          //     parseFloat(offer.cr) || 0
+          //   }, loi=${parseFloat(offer.loi) || offer.estimatedTime || 0}`
+          // );
+        }
+
+        // Store ALL normalized offer fields in the same format
+        // For cashback: Preserve exact Bitlabs API structure in metadata
+
         const offerData = {
           sdkId: bitlabSDK._id,
           externalId: externalId,
-          title: offer.title || offer.name || "Untitled Offer",
-          description: offer.description || "",
-          category: mappedCategory,
-          offerType: offer.offerType || defaultOfferType,
-          coinReward: coinReward,
-          estimatedTime: offer.estimatedTime || offer.duration || 5,
+          title: isCashback
+            ? normalizedOffer.merchant_name || "Untitled Cashback"
+            : isMagicReceipt || isShopping
+            ? normalizedOffer.anchor ||
+              normalizedOffer.product_name ||
+              (isMagicReceipt ? "Untitled Magic Receipt" : "Untitled Shopping")
+            : normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
+          description: normalizedOffer.description || "",
+          category: categoryString, // Store as string (enum value) - MUST be one of: finance, shopping, entertainment, technology, health, travel, education, other
+          offerType: normalizedOffer.offerType || defaultOfferType,
+          coinReward: coinReward, // User reward coins (20% of value)
+          estimatedTime: isCashback
+            ? 1 // Cashback doesn't have estimated time, but model requires min 1
+            : isMagicReceipt || isShopping
+            ? Math.max(
+                1,
+                Math.round((normalizedOffer.session_hours || 0) / 60) ||
+                  normalizedOffer.estimatedTime ||
+                  1
+              ) // Ensure minimum of 1
+            : Math.max(
+                1,
+                normalizedOffer.estimatedTime ||
+                  normalizedOffer.duration ||
+                  normalizedOffer.loi ||
+                  5
+              ), // Ensure minimum of 1
           status: autoActivate ? "live" : "paused",
           targetAudience: {
-            countries: offer.countries || [],
-            minXP: offer.minXP || 0,
+            age:
+              selectedAges.length === 0 || selectedAges.includes("all")
+                ? [] // Empty array means all ages
+                : selectedAges.filter((a) => a !== "all"),
+            gender:
+              selectedGenders.length === 0 || selectedGenders.includes("all")
+                ? [] // Empty array means all genders
+                : selectedGenders.filter((g) => g !== "all"),
+            countries: isCashback
+              ? normalizedOffer.country_code
+                ? [normalizedOffer.country_code]
+                : []
+              : isMagicReceipt || isShopping
+              ? normalizedOffer.country_code
+                ? [normalizedOffer.country_code]
+                : []
+              : normalizedOffer.countries || normalizedOffer.country
+              ? [normalizedOffer.country]
+              : [],
+            minXP: normalizedOffer.minXP || 0,
           },
           metadata: {
-            externalUrl: offer.clickUrl || offer.surveyUrl || offer.url,
-            thumbnail: offer.icon || offer.banner,
-            priority: offer.priority || 0,
+            // Store all normalized offer fields in the same format
+            // ⚠️ IMPORTANT: externalUrl is stored for REFERENCE ONLY (applies to ALL offer types).
+            //
+            // INDUSTRIAL-LEVEL BEST PRACTICE (Based on Bitlabs Official Documentation):
+            // - Click URLs are user-specific and contain session IDs linked to X-User-Id
+            // - URLs expire and cannot be reused across users
+            // - When users fetch offers (surveys, cashback, magic receipts, shopping),
+            //   fresh URLs MUST be generated with their X-User-Id
+            // - This ensures proper tracking: Bitlabs knows which user clicked/completed
+            // - Callbacks will include correct userId matching the user who clicked
+            //
+            // Implementation:
+            // - Admin sync stores offer ID (externalId) + metadata (title, reward, etc.)
+            // - User fetch calls Bitlabs API with user's X-User-Id to get fresh URLs
+            // - See: /api/non-game-offers/* routes for user-side implementation
+            // - Applies to: surveys, cashback, magic receipts, shopping offers
+            //
+            // Reference: BITLABS_INDUSTRIAL_SOLUTION.md
+            externalUrl:
+              normalizedOffer.clickUrl ||
+              normalizedOffer.surveyUrl ||
+              normalizedOffer.url ||
+              normalizedOffer.click_url ||
+              "",
+            surveyUrl:
+              normalizedOffer.surveyUrl || normalizedOffer.clickUrl || "",
+            deepLink: normalizedOffer.deepLink || "",
+            supportUrl: normalizedOffer.supportUrl || "",
+            thumbnail: isCashback
+              ? normalizedOffer.images?.cardImage || ""
+              : isMagicReceipt || isShopping
+              ? normalizedOffer.creatives?.icon ||
+                normalizedOffer.icon_url ||
+                normalizedOffer.icon ||
+                ""
+              : normalizedOffer.icon || normalizedOffer.banner,
+            priority: normalizedOffer.priority || 0,
+
+            // Store complete reward object
+            reward: normalizedOffer.reward || null,
+
+            // User reward fields (calculated with 20% margin)
+            userRewardCoins: userRewardCoins, // User gets 20% of value as coins
+            userRewardXP: userRewardXP, // User gets 50% of coins as XP
+
+            // Store publisher revenue data (cpi = USD payment, value = points received)
+            publisherRevenue: {
+              cpi: parseFloat(normalizedOffer.cpi) || 0, // USD payment from Bitlabs
+              value: publisherValue, // Full value from Bitlabs (what publisher receives)
+              currency: "USD",
+            },
+
+            // For cashback and magic receipts: Store complete raw Bitlabs API structure
+            // For surveys: Store normalized Bitlabs fields
+            ...(isCashback
+              ? {
+                  // CASHBACK: Store exact Bitlabs API structure (same keys and values)
+                  rawBitlabsData: {
+                    cashback: normalizedOffer.cashback || "0",
+                    click_url: normalizedOffer.click_url || "",
+                    country_code: normalizedOffer.country_code || "",
+                    currency: normalizedOffer.currency || "USD",
+                    description: normalizedOffer.description || "",
+                    flat_payout: normalizedOffer.flat_payout || false,
+                    images: normalizedOffer.images || {},
+                    merchant_id: normalizedOffer.merchant_id || 0,
+                    merchant_name: normalizedOffer.merchant_name || "",
+                    original_cashback: normalizedOffer.original_cashback || "0",
+                    primary_category: normalizedOffer.primary_category || "",
+                    rank: normalizedOffer.rank || 0,
+                    reward_delay_days: normalizedOffer.reward_delay_days || 0,
+                    terms: normalizedOffer.terms || [],
+                    tier_mappings: normalizedOffer.tier_mappings || [],
+                    up_to: normalizedOffer.up_to || false,
+                  },
+                }
+              : isMagicReceipt || isShopping
+              ? {
+                  // MAGIC RECEIPTS & SHOPPING: Store exact Bitlabs API structure (same keys and values)
+                  rawBitlabsData: {
+                    anchor: normalizedOffer.anchor || "",
+                    app_metadata: normalizedOffer.app_metadata || {},
+                    categories: normalizedOffer.categories || [],
+                    click_url: normalizedOffer.click_url || "",
+                    confirmation_time: normalizedOffer.confirmation_time || "",
+                    creatives: normalizedOffer.creatives || {},
+                    description: normalizedOffer.description || "",
+                    disclaimer: normalizedOffer.disclaimer || "",
+                    epc: normalizedOffer.epc || "0",
+                    events: normalizedOffer.events || [],
+                    funnel_id: normalizedOffer.funnel_id || "",
+                    icon_url: normalizedOffer.icon_url || "",
+                    id: normalizedOffer.id || 0,
+                    impression_url: normalizedOffer.impression_url || "",
+                    is_game: normalizedOffer.is_game || false,
+                    is_sticky: normalizedOffer.is_sticky || false,
+                    lowest_cap_left: normalizedOffer.lowest_cap_left || null,
+                    mobile_verification_required:
+                      normalizedOffer.mobile_verification_required || false,
+                    offer_expires_at: normalizedOffer.offer_expires_at || null,
+                    pending_time: normalizedOffer.pending_time || 0,
+                    product_id: normalizedOffer.product_id || "",
+                    product_name: normalizedOffer.product_name || "",
+                    requirements: normalizedOffer.requirements || "",
+                    session_hours: normalizedOffer.session_hours || 0,
+                    stats: normalizedOffer.stats || {},
+                    support_url: normalizedOffer.support_url || "",
+                    things_to_know: normalizedOffer.things_to_know || [],
+                    total_points: normalizedOffer.total_points || "0",
+                    web_to_mobile: normalizedOffer.web_to_mobile || false,
+                    web_to_mobile_devices:
+                      normalizedOffer.web_to_mobile_devices || [],
+                  },
+                }
+              : {
+                  // SURVEYS: Preserve ALL Bitlabs fields in the same format
+                  bitlabsData: {
+                    // Core Bitlabs fields - ensure proper parsing (preserve 0 values)
+                    cpi:
+                      normalizedOffer.cpi !== undefined &&
+                      normalizedOffer.cpi !== null
+                        ? parseFloat(normalizedOffer.cpi)
+                        : 0, // Cost per install (USD payment to publisher)
+                    cr:
+                      normalizedOffer.cr !== undefined &&
+                      normalizedOffer.cr !== null
+                        ? parseFloat(normalizedOffer.cr)
+                        : 0, // Conversion rate (0-1, e.g., 0.078 = 7.8%)
+                    loi:
+                      normalizedOffer.loi !== undefined &&
+                      normalizedOffer.loi !== null
+                        ? parseFloat(normalizedOffer.loi)
+                        : normalizedOffer.estimatedTime || 0, // Length of interview (minutes)
+                    value: publisherValue, // Full value from Bitlabs (what publisher receives)
+                    rating: normalizedOffer.rating || 0, // Survey rating
+                    country: normalizedOffer.country || null, // Survey country
+                    language: normalizedOffer.language || null, // Survey language
+                    tags: normalizedOffer.tags || [], // Survey tags
+
+                    // Additional normalized fields
+                    estimatedTime: normalizedOffer.estimatedTime || 0,
+                    confirmationTime: normalizedOffer.confirmationTime || "",
+                    pendingTime: normalizedOffer.pendingTime || 0,
+                    offerExpiresAt: normalizedOffer.offerExpiresAt || null,
+                    sessionHours: normalizedOffer.sessionHours || 0,
+                    isSticky: normalizedOffer.isSticky || false,
+                    isAvailable: normalizedOffer.isAvailable !== false,
+                    mobileVerificationRequired:
+                      normalizedOffer.mobileVerificationRequired || false,
+                    webToMobile: normalizedOffer.webToMobile || false,
+                    webToMobileDevices:
+                      normalizedOffer.webToMobileDevices || [],
+                    thingsToKnow: normalizedOffer.thingsToKnow || [],
+                    requirements: normalizedOffer.requirements || "",
+                    provider: normalizedOffer.provider || "bitlabs",
+                    sdkProvider: normalizedOffer.sdkProvider || "bitlabs",
+                  },
+
+                  // Store complete normalized offer for reference (all fields)
+                  normalizedOffer: normalizedOffer, // Store the complete normalized object
+                }),
           },
           updatedBy: req.user.userId,
         };
 
         if (existing) {
           // Update existing
+          console.log(
+            `🔄 [ADMIN BACKEND SYNC] Updating existing ${offer.offerType} offer:`,
+            externalId
+          );
           Object.assign(existing, offerData);
           await existing.save();
           updatedCount++;
+          console.log(
+            `✅ [ADMIN BACKEND SYNC] Updated ${offer.offerType} offer:`,
+            externalId
+          );
         } else {
           // Create new
+          console.log(
+            `➕ [ADMIN BACKEND SYNC] Creating new ${offer.offerType} offer:`,
+            externalId
+          );
           const newOffer = new OfferModel({
             ...offerData,
             createdBy: req.user.userId,
           });
           await newOffer.save();
           syncedCount++;
+          console.log(
+            `✅ [ADMIN BACKEND SYNC] Created ${offer.offerType} offer:`,
+            externalId
+          );
         }
       } catch (error) {
+        console.error(
+          `❌ [ADMIN BACKEND SYNC] Error saving ${offer.offerType} offer:`,
+          {
+            externalId:
+              offer.id || offer.surveyId || offer.offerId || offer.externalId,
+            error: error.message,
+            stack: error.stack,
+          }
+        );
         errors.push({
           offerId: offer.id || offer.surveyId,
           error: error.message,
@@ -3460,6 +5021,15 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     bitlabSDK.analytics.totalOffers = syncedCount + updatedCount;
     bitlabSDK.analytics.lastSyncAt = new Date();
     await bitlabSDK.save();
+
+    // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
+    //   syncedCount,
+    //   updatedCount,
+    //   skippedCount,
+    //   errorCount: errors.length,
+    //   totalProcessed: offersToSync.length,
+    //   errors: errors.length > 0 ? errors.slice(0, 5) : "None",
+    // });
 
     res.json({
       success: true,
@@ -3660,6 +5230,9 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                 downloadUrl: external.url || "",
               },
 
+              // Store complete raw data from Besitos API
+              besitosRawData: external,
+
               uiSection: uiSectionKey,
               gender: gender,
               ageGroup: ageRangeKey,
@@ -3682,13 +5255,15 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                   description: gameData.description,
                   category: gameData.category,
                   sdkProvider: gameData.sdkProvider,
-                  countries: gameData.countries,
+                  // Countries field removed
                   xptrRules: gameData.xptrRules,
                   platform: gameData.platform,
                   status: gameData.status,
                   rewards: gameData.rewards,
                   metadata: gameData.metadata,
                   gameDetails: gameData.gameDetails,
+                  // Store complete raw data from Besitos API
+                  besitosRawData: gameData.besitosRawData,
                   uiSection: uiSectionKey,
                   gender: gender,
                   ageGroup: ageRangeKey,

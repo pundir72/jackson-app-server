@@ -2238,64 +2238,75 @@ router.get(
               fullGame.bannerImage ||
               fullGame.gameDetails?.large_image ||
               fullGame.gameDetails?.image ||
-              fullGame.metadata?.images?.banner ||
+              fullGame.metadata?.bannerImage ||
               null;
           }
         }
 
-        // Apply user filter to top game users
-        const gameUserQuery = {
+        // Get user demographics for this game
+        const gameUsers = await User.find({
           "games.gameId": game.gameId,
-          "games.status": { $in: ["installed", "completed"] },
           ...userFilter,
-        };
-        const gameUsers = await User.find(gameUserQuery)
-          .select("xp gender age location vip _id")
+        })
+          .select("profile location vip")
           .lean();
 
         // Calculate demographics
-        const ageGroups = {};
-        const genders = {};
+        const ageGroups = { "18-24": 0, "25-34": 0, "35-44": 0, "45+": 0 };
+        const genders = { male: 0, female: 0, other: 0 };
         const regions = {};
         const tiers = {};
-        let totalXP = 0;
-
-        // Get user IDs for reward check
-        const gameUserIds = gameUsers.map((u) => u._id);
-
-        // Check how many users received rewards for this game
-        const usersWithRewards = await Transaction.countDocuments({
-          user: { $in: gameUserIds },
-          $or: [
-            { "metadata.gameId": game.gameId },
-            { referenceId: new RegExp(game.gameId, "i") },
-            { description: new RegExp(game.gameId, "i") },
-          ],
-          type: { $in: ["credit", "reward"] },
-          status: "completed",
-        });
 
         gameUsers.forEach((user) => {
-          // Age (would need DOB or age field)
-          // Gender - stored in onboarding.gender
-          const userGender = user.onboarding?.gender;
-          if (userGender) {
-            genders[userGender] = (genders[userGender] || 0) + 1;
+          // Age groups
+          if (user.profile?.age) {
+            const age = user.profile.age;
+            if (age >= 18 && age <= 24) ageGroups["18-24"]++;
+            else if (age >= 25 && age <= 34) ageGroups["25-34"]++;
+            else if (age >= 35 && age <= 44) ageGroups["35-44"]++;
+            else if (age >= 45) ageGroups["45+"]++;
           }
-          // Region
-          if (user.location?.current?.country) {
-            const country = user.location.current.country;
-            regions[country] = (regions[country] || 0) + 1;
+
+          // Gender
+          if (user.profile?.gender) {
+            const gender = user.profile.gender.toLowerCase();
+            if (genders[gender] !== undefined) {
+              genders[gender]++;
+            } else {
+              genders.other++;
+            }
           }
-          // VIP Tier
+
+          // Regions
+          const region = user.location?.current?.country || "Unknown";
+          regions[region] = (regions[region] || 0) + 1;
+
+          // Tiers
           const tier = user.vip?.level || "free";
           tiers[tier] = (tiers[tier] || 0) + 1;
-
-          // XP
-          totalXP += user.xp?.current || 0;
         });
 
-        const avgXP = gameUsers.length > 0 ? totalXP / gameUsers.length : 0;
+        // Calculate average XP and reward conversion
+        const usersWithXP = gameUsers.filter((u) => u.xp?.current > 0);
+        const avgXP =
+          usersWithXP.length > 0
+            ? usersWithXP.reduce((sum, u) => sum + (u.xp?.current || 0), 0) /
+              usersWithXP.length
+            : 0;
+
+        // Get users who have received rewards for this game
+        const gameRewardTransactions = await Transaction.find({
+          ...transactionFilter,
+          "metadata.gameId": game.gameId,
+          type: { $in: ["credit", "reward"] },
+          status: "completed",
+        })
+          .select("user")
+          .lean();
+
+        const usersWithRewards = new Set(
+          gameRewardTransactions.map((t) => t.user?.toString())
+        ).size;
         const rewardConversion =
           gameUsers.length > 0
             ? ((usersWithRewards / gameUsers.length) * 100).toFixed(2)
@@ -2340,71 +2351,139 @@ router.get(
         .select("gameId title metadata analytics")
         .lean();
 
-      const revenueTable = await Promise.all(
-        gamesWithRevenue.map(async (game) => {
-          // Build game-specific transaction filter (without gameId filter to avoid conflict)
-          const gameTransactionFilter = { ...transactionFilter };
-          if (gameTransactionFilter.$or) {
-            delete gameTransactionFilter.$or;
+      let revenueTable = [];
+      if (gamesWithRevenue.length > 0) {
+        // Get all game IDs for batch queries
+        const gameIds = gamesWithRevenue.map((g) => g.gameId);
+
+        // Optimized: Get revenue from BesitosConversion (external revenue from SDK providers)
+        const BesitosConversion = require("../models/BesitosConversion");
+
+        // Build date filter for conversions
+        const conversionDateFilter = {};
+        if (transactionFilter.createdAt) {
+          conversionDateFilter.createdAt = transactionFilter.createdAt;
+        }
+
+        // Get revenue from completed conversions (external revenue)
+        const revenueByOffer = await BesitosConversion.aggregate([
+          {
+            $match: {
+              conversionStatus: "completed",
+              offerType: "game",
+              ...conversionDateFilter,
+            },
+          },
+          {
+            $group: {
+              _id: "$offerId",
+              revenue: { $sum: { $ifNull: ["$revenue.amount", 0] } },
+            },
+          },
+        ]);
+
+        // Create revenue map (offerId -> revenue)
+        const revenueByOfferMap = {};
+        revenueByOffer.forEach((item) => {
+          revenueByOfferMap[item._id] = item.revenue;
+        });
+
+        // Optimized: Get reward costs for all games
+        // Fetch all reward transactions and group by gameId in JavaScript (simpler approach)
+        const allRewardTransactions = await Transaction.find({
+          ...transactionFilter,
+          type: "reward",
+          balanceType: "coins",
+          status: "completed",
+        })
+          .select("amount metadata referenceId description")
+          .lean();
+
+        // Group reward costs by gameId
+        const rewardCostMap = {};
+        allRewardTransactions.forEach((transaction) => {
+          let matchedGameId = null;
+
+          // Try to match from metadata.gameId
+          if (
+            transaction.metadata?.gameId &&
+            gameIds.includes(transaction.metadata.gameId)
+          ) {
+            matchedGameId = transaction.metadata.gameId;
+          } else {
+            // Try to match from referenceId or description
+            for (const gameId of gameIds) {
+              const refMatch =
+                transaction.referenceId &&
+                new RegExp(gameId, "i").test(transaction.referenceId);
+              const descMatch =
+                transaction.description &&
+                new RegExp(gameId, "i").test(transaction.description);
+              if (refMatch || descMatch) {
+                matchedGameId = gameId;
+                break;
+              }
+            }
           }
-          gameTransactionFilter.$or = [
-            { "metadata.gameId": game.gameId },
-            { referenceId: new RegExp(game.gameId, "i") },
-            { description: new RegExp(game.gameId, "i") },
-          ];
 
-          // Get revenue from transactions (offer completions, etc.)
-          const revenueData = await Transaction.aggregate([
-            {
-              $match: {
-                ...gameTransactionFilter,
-                type: { $in: ["credit", "reward"] },
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                revenue: { $sum: "$amount" },
-              },
-            },
-          ]);
+          if (matchedGameId) {
+            rewardCostMap[matchedGameId] =
+              (rewardCostMap[matchedGameId] || 0) + (transaction.amount || 0);
+          }
+        });
 
-          // Get reward cost from transactions
-          const rewardCostData = await Transaction.aggregate([
-            {
-              $match: {
-                ...gameTransactionFilter,
-                type: "reward",
-                balanceType: "coins",
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                cost: { $sum: "$amount" },
-              },
-            },
-          ]);
+        // Optimized: Get all game users for retention in one batch query
+        const allGameUsers = await User.find({
+          "games.gameId": { $in: gameIds },
+          "games.installedAt": { $exists: true },
+          ...userFilter,
+        })
+          .select("games dailyActivity createdAt")
+          .lean();
 
-          const revenue =
-            revenueData[0]?.revenue || game.metadata?.revenue || 0;
+        // Group users by gameId
+        const gameUsersForRetentionMap = {};
+        allGameUsers.forEach((user) => {
+          user.games?.forEach((game) => {
+            if (gameIds.includes(game.gameId) && game.installedAt) {
+              if (!gameUsersForRetentionMap[game.gameId]) {
+                gameUsersForRetentionMap[game.gameId] = [];
+              }
+              gameUsersForRetentionMap[game.gameId].push({
+                dailyActivity: user.dailyActivity,
+                createdAt: user.createdAt,
+              });
+            }
+          });
+        });
+
+        // Build revenue table (now much faster - no sequential queries)
+        revenueTable = gamesWithRevenue.map((game) => {
+          // Try to match offerId to gameId - check if gameId matches any offerId in revenue map
+          // For now, use metadata.revenue as primary source, conversions as secondary
+          let revenue = game.metadata?.revenue || 0;
+
+          // Try to find revenue from conversions by matching gameId with offerId
+          // This might need adjustment based on your data structure
+          for (const [offerId, rev] of Object.entries(revenueByOfferMap)) {
+            if (
+              offerId === game.gameId ||
+              offerId.includes(game.gameId) ||
+              game.gameId.includes(offerId)
+            ) {
+              revenue += rev;
+            }
+          }
+
           const rewardCost =
-            rewardCostData[0]?.cost || game.metadata?.rewardCost || 0;
+            rewardCostMap[game.gameId] || game.metadata?.rewardCost || 0;
           const margin = revenue - rewardCost;
           const marginPercent =
             revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
 
-          // Calculate D7 retention for this game (apply user filter)
-          const gameUsersForRetention = await User.find({
-            "games.gameId": game.gameId,
-            "games.installedAt": { $exists: true },
-            ...userFilter,
-          })
-            .select("dailyActivity createdAt")
-            .lean();
-
+          // Calculate D7 retention
+          const gameUsersForRetention =
+            gameUsersForRetentionMap[game.gameId] || [];
           let d7Retention = 0;
           if (gameUsersForRetention.length > 0) {
             const retained = gameUsersForRetention.filter((user) => {
@@ -2429,271 +2508,279 @@ router.get(
             revenue: revenue,
             rewardCost: rewardCost,
             margin: margin,
+            marginProfit: margin, // Add marginProfit field (same as margin)
             marginPercent: parseFloat(marginPercent),
             d7Retention: parseFloat(d7Retention),
-            performance:
-              parseFloat(marginPercent) > 0 ? "positive" : "negative",
+            performance: parseFloat(marginPercent) > 0 ? "positive" : "negative",
           };
-        })
-      );
+        });
 
-      // Sort by revenue descending
-      revenueTable.sort((a, b) => b.revenue - a.revenue);
-
-      // ==================== ATTRIBUTION PERFORMANCE ====================
-      // Get all users and calculate sources properly - MUST use same date filters as userFilter
-      // Build base query with date filters (same as userFilter but without source/gender/age)
-      const baseDateQuery = {};
-      if (filters.startDate || filters.endDate) {
-        baseDateQuery.createdAt = {};
-        if (filters.startDate) {
-          baseDateQuery.createdAt.$gte = new Date(filters.startDate);
-        }
-        if (filters.endDate) {
-          baseDateQuery.createdAt.$lte = new Date(filters.endDate);
-        }
+        // Sort by revenue descending
+        revenueTable.sort((a, b) => b.revenue - a.revenue);
       }
 
-      // Get counts for google and facebook WITH date filters
-      const googleQuery = { "social.provider": "google", ...baseDateQuery };
-      const facebookQuery = { "social.provider": "facebook", ...baseDateQuery };
-      const googleCount = await User.countDocuments(googleQuery);
-      const facebookCount = await User.countDocuments(facebookQuery);
-
-      // Direct users query: all users who are NOT google AND NOT facebook
-      // This should match: 'local' (default), null, undefined, missing field, or any other value
-      // Simplest approach: use $nin which handles all cases
-      const directQueryBase = {
-        "social.provider": { $nin: ["google", "facebook"] },
-      };
-
-      // Combine with date filter
-      const directQuery =
-        Object.keys(baseDateQuery).length > 0
-          ? { $and: [directQueryBase, baseDateQuery] }
-          : directQueryBase;
-
-      const directCount = await User.countDocuments(directQuery);
-
-      // Total users WITH date filters (same as totalRegisteredUsers)
-      const totalUsersCount = await User.countDocuments(baseDateQuery);
-
-      // Build sources list: always include google, facebook, and direct
-      const allSources = [];
-      if (googleCount > 0) allSources.push("google");
-      if (facebookCount > 0) allSources.push("facebook");
-      if (directCount > 0) allSources.push("direct");
-
-      const attributionData = await Promise.all(
-        allSources.map(async (source) => {
-          // Build query for this source
-          let sourceQuery = {};
-          if (source === "direct") {
-            // Direct users: all users who are NOT google AND NOT facebook
-            // Simplest approach: use $nin which handles 'local', null, undefined, missing field
-            const directQueryBase = {
-              "social.provider": { $nin: ["google", "facebook"] },
-            };
-
-            // Add date filter if provided
-            if (filters.startDate || filters.endDate) {
-              const dateFilter = {};
-              dateFilter.createdAt = {};
-              if (filters.startDate) {
-                dateFilter.createdAt.$gte = new Date(filters.startDate);
-              }
-              if (filters.endDate) {
-                dateFilter.createdAt.$lte = new Date(filters.endDate);
-              }
-              sourceQuery = { $and: [directQueryBase, dateFilter] };
-            } else {
-              sourceQuery = directQueryBase;
-            }
-          } else {
-            // OAuth users: filter by social.provider
-            sourceQuery = { "social.provider": source };
-
-            // Add date filter if provided
-            if (filters.startDate || filters.endDate) {
-              sourceQuery.createdAt = {};
-              if (filters.startDate) {
-                sourceQuery.createdAt.$gte = new Date(filters.startDate);
-              }
-              if (filters.endDate) {
-                sourceQuery.createdAt.$lte = new Date(filters.endDate);
-              }
-            }
-          }
-
-          const sourceUsers = await User.find(sourceQuery)
-            .select("_id createdAt dailyActivity")
-            .lean();
-
-          const installs = sourceUsers.length;
-
-          // Calculate D1 retention
-          let d1Retention = 0;
-          if (sourceUsers.length > 0) {
-            const retained = sourceUsers.filter((user) => {
-              if (!user.dailyActivity?.activeDates || !user.createdAt)
-                return false;
-              const userCreatedAt = new Date(user.createdAt);
-              const d1Date = new Date(userCreatedAt);
-              d1Date.setDate(d1Date.getDate() + 1);
-              const d1DateStr = `${d1Date.getFullYear()}-${String(
-                d1Date.getMonth() + 1
-              ).padStart(2, "0")}-${String(d1Date.getDate()).padStart(2, "0")}`;
-              return user.dailyActivity.activeDates.includes(d1DateStr);
-            }).length;
-            d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2);
-          }
-
-          // Get revenue from source users (use IDs from filtered sourceUsers)
-          const filteredSourceUserIds = sourceUsers.map((u) => u._id);
-          const revenueData = await Transaction.aggregate([
-            {
-              $match: {
-                ...transactionFilter,
-                user: { $in: filteredSourceUserIds },
-                type: { $in: ["credit", "reward"] },
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                revenue: { $sum: "$amount" },
-              },
-            },
-          ]);
-
-          // Get reward cost
-          const costData = await Transaction.aggregate([
-            {
-              $match: {
-                ...transactionFilter,
-                user: { $in: filteredSourceUserIds },
-                type: "reward",
-                balanceType: "coins",
-                status: "completed",
-              },
-            },
-            {
-              $group: {
-                _id: null,
-                cost: { $sum: "$amount" },
-              },
-            },
-          ]);
-
-          const revenue = revenueData[0]?.revenue || 0;
-          const rewardCost = costData[0]?.cost || 0;
-          const margin = revenue - rewardCost;
-          const marginPercent =
-            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
-
-          return {
-            source: source || "direct",
-            installs: installs,
-            d1Retention: parseFloat(d1Retention),
-            revenue: revenue,
-            rewardCost: rewardCost,
-            margin: margin,
-            marginPercent: parseFloat(marginPercent),
-          };
-        })
+      // Calculate total revenue and margin profit for dashboard summary
+      const totalRevenue = revenueTable.reduce(
+        (sum, game) => sum + (game.revenue || 0),
+        0
+      );
+      const totalMarginProfit = revenueTable.reduce(
+        (sum, game) => sum + (game.margin || 0),
+        0
       );
 
       // ==================== ALERTS ====================
-      const pendingRedemptions = await Transaction.countDocuments({
-        type: "redemption",
-        "approval.status": "pending",
-        status: "pending",
+    const pendingRedemptions = await Transaction.countDocuments({
+      type: 'redemption',
+      'approval.status': 'pending',
+      status: 'pending'
+    });
+    
+    const alerts = [];
+    if (pendingRedemptions > 0) {
+      alerts.push({
+        type: 'pending_redemption',
+        severity: 'medium',
+        message: `${pendingRedemptions} pending redemptions require approval`,
+        count: pendingRedemptions,
+        timestamp: new Date(),
+        actionUrl: '/admin/transactions/redemptions/pending'
       });
+    }
+    
+    // Check for SDK failures (would need SDK error tracking)
+    // Check for fraud alerts (would need fraud detection system)
+    
+    // ==================== SEARCH FUNCTIONALITY ====================
+    let searchResults = null;
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      const [usersResults, gamesResults] = await Promise.all([
+        User.find({
+          $or: [
+            { firstName: searchRegex },
+            { lastName: searchRegex },
+            { email: searchRegex },
+            { mobile: searchRegex }
+          ]
+        })
+        .select('firstName lastName email mobile _id')
+        .limit(10)
+        .lean(),
+        Game.find({
+          $or: [
+            { title: searchRegex },
+            { gameId: searchRegex },
+            { description: searchRegex }
+          ]
+        })
+        .select('gameId title bannerImage')
+        .limit(10)
+        .lean()
+      ]);
+      
+      searchResults = {
+        users: usersResults,
+        games: gamesResults,
+        total: usersResults.length + gamesResults.length
+      };
+    }
 
-      const alerts = [];
-      if (pendingRedemptions > 0) {
-        alerts.push({
-          type: "pending_redemption",
-          severity: "medium",
-          message: `${pendingRedemptions} pending redemptions require approval`,
-          count: pendingRedemptions,
-          timestamp: new Date(),
-          actionUrl: "/admin/transactions/redemptions/pending",
-        });
+    // ==================== ATTRIBUTION PERFORMANCE ====================
+    // Get all users and calculate sources properly - MUST use same date filters as userFilter
+    // Build base query with date filters (same as userFilter but without source/gender/age)
+    const baseDateQuery = {};
+    if (filters.startDate || filters.endDate) {
+      baseDateQuery.createdAt = {};
+      if (filters.startDate) {
+        baseDateQuery.createdAt.$gte = new Date(filters.startDate);
       }
-
-      // Check for SDK failures (would need SDK error tracking)
-      // Check for fraud alerts (would need fraud detection system)
-
-      // ==================== SEARCH FUNCTIONALITY ====================
-      let searchResults = null;
-      if (search) {
-        const searchRegex = new RegExp(search, "i");
-        const [usersResults, gamesResults] = await Promise.all([
-          User.find({
-            $or: [
-              { firstName: searchRegex },
-              { lastName: searchRegex },
-              { email: searchRegex },
-              { mobile: searchRegex },
-            ],
-          })
-            .select("firstName lastName email mobile _id")
-            .limit(10)
-            .lean(),
-          Game.find({
-            $or: [
-              { title: searchRegex },
-              { gameId: searchRegex },
-              { description: searchRegex },
-            ],
-          })
-            .select("gameId title bannerImage")
-            .limit(10)
-            .lean(),
-        ]);
-
-        searchResults = {
-          users: usersResults,
-          games: gamesResults,
-          total: usersResults.length + gamesResults.length,
-        };
+      if (filters.endDate) {
+        baseDateQuery.createdAt.$lte = new Date(filters.endDate);
       }
+    }
 
-      // ==================== LEGACY VIP DATA ====================
-      const [vipUsers, totalSubscriptions, activeSubscriptions, totalTiers] =
-        await Promise.all([
-          User.countDocuments({ ...userFilter, "vip.isActive": true }),
-          VIPSubscription.countDocuments(),
-          VIPSubscription.countDocuments({ status: "active" }),
-          VIPTier.countDocuments({ active: true }),
-        ]);
+    // Get counts for google and facebook WITH date filters
+    const googleQuery = { "social.provider": "google", ...baseDateQuery };
+    const facebookQuery = { "social.provider": "facebook", ...baseDateQuery };
+    const googleCount = await User.countDocuments(googleQuery);
+    const facebookCount = await User.countDocuments(facebookQuery);
 
-      // ==================== RESPONSE ====================
-      res.json({
-        success: true,
-        data: {
-          // A. Global KPI Cards
-          kpis: {
-            totalRegisteredUsers: totalUsers,
-            activeUsersToday: activeUsersToday,
-            totalRewardsIssued: totalRewardsIssued,
-            totalRedemptions: totalRedemptions,
-            avgXPPerUser: Math.round(avgXPPerUser),
-          },
+    // Direct users query: all users who are NOT google AND NOT facebook
+    // This should match: 'local' (default), null, undefined, missing field, or any other value
+    // Simplest approach: use $nin which handles all cases
+    const directQueryBase = {
+      "social.provider": { $nin: ["google", "facebook"] },
+    };
 
-          // C. Retention Trend Graph
-          retention: {
-            current: {
-              d1: parseFloat(retention.d1),
-              d7: parseFloat(retention.d7),
-              d14: parseFloat(retention.d14),
-              d30: parseFloat(retention.d30),
+    // Combine with date filter
+    const directQuery =
+      Object.keys(baseDateQuery).length > 0
+        ? { $and: [directQueryBase, baseDateQuery] }
+        : directQueryBase;
+
+    const directCount = await User.countDocuments(directQuery);
+
+    // Build sources list: always include google, facebook, and direct
+    const allSources = [];
+    if (googleCount > 0) allSources.push("google");
+    if (facebookCount > 0) allSources.push("facebook");
+    if (directCount > 0) allSources.push("direct");
+
+    const attributionData = await Promise.all(
+      allSources.map(async (source) => {
+        // Build query for this source
+        let sourceQuery = {};
+        if (source === "direct") {
+          // Direct users: all users who are NOT google AND NOT facebook
+          // Simplest approach: use $nin which handles 'local', null, undefined, missing field
+          const directQueryBase = {
+            "social.provider": { $nin: ["google", "facebook"] },
+          };
+
+          // Add date filter if provided
+          if (filters.startDate || filters.endDate) {
+            const dateFilter = {};
+            dateFilter.createdAt = {};
+            if (filters.startDate) {
+              dateFilter.createdAt.$gte = new Date(filters.startDate);
+            }
+            if (filters.endDate) {
+              dateFilter.createdAt.$lte = new Date(filters.endDate);
+            }
+            sourceQuery = { $and: [directQueryBase, dateFilter] };
+          } else {
+            sourceQuery = directQueryBase;
+          }
+        } else {
+          // OAuth users: filter by social.provider
+          sourceQuery = { "social.provider": source };
+
+          // Add date filter if provided
+          if (filters.startDate || filters.endDate) {
+            sourceQuery.createdAt = {};
+            if (filters.startDate) {
+              sourceQuery.createdAt.$gte = new Date(filters.startDate);
+            }
+            if (filters.endDate) {
+              sourceQuery.createdAt.$lte = new Date(filters.endDate);
+            }
+          }
+        }
+
+        const sourceUsers = await User.find(sourceQuery)
+          .select("_id createdAt dailyActivity")
+          .lean();
+
+        const installs = sourceUsers.length;
+
+        // Calculate D1 retention
+        let d1Retention = 0;
+        if (sourceUsers.length > 0) {
+          const retained = sourceUsers.filter((user) => {
+            if (!user.dailyActivity?.activeDates || !user.createdAt)
+              return false;
+            const userCreatedAt = new Date(user.createdAt);
+            const d1Date = new Date(userCreatedAt);
+            d1Date.setDate(d1Date.getDate() + 1);
+            const d1DateStr = `${d1Date.getFullYear()}-${String(
+              d1Date.getMonth() + 1
+            ).padStart(2, "0")}-${String(d1Date.getDate()).padStart(2, "0")}`;
+            return user.dailyActivity.activeDates.includes(d1DateStr);
+          }).length;
+          d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2);
+        }
+
+        // Get revenue from source users (use IDs from filtered sourceUsers)
+        const filteredSourceUserIds = sourceUsers.map((u) => u._id);
+        const revenueData = await Transaction.aggregate([
+          {
+            $match: {
+              ...transactionFilter,
+              user: { $in: filteredSourceUserIds },
+              type: { $in: ["credit", "reward"] },
+              status: "completed",
             },
-            trend: retentionTrend,
-            totalCohort: retention.totalCohort,
           },
+          {
+            $group: {
+              _id: null,
+              revenue: { $sum: "$amount" },
+            },
+          },
+        ]);
+
+        // Get reward cost
+        const costData = await Transaction.aggregate([
+          {
+            $match: {
+              ...transactionFilter,
+              user: { $in: filteredSourceUserIds },
+              type: "reward",
+              balanceType: "coins",
+              status: "completed",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              cost: { $sum: "$amount" },
+            },
+          },
+        ]);
+
+        const revenue = revenueData[0]?.revenue || 0;
+        const rewardCost = costData[0]?.cost || 0;
+        const margin = revenue - rewardCost;
+        const marginPercent =
+          revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
+
+        return {
+          source: source || "direct",
+          installs: installs,
+          d1Retention: parseFloat(d1Retention),
+          revenue: revenue,
+          rewardCost: rewardCost,
+          margin: margin,
+          marginPercent: parseFloat(marginPercent),
+        };
+      })
+    );
+
+    // ==================== LEGACY VIP DATA ====================
+    const [vipUsers, totalSubscriptions, activeSubscriptions, totalTiers] = await Promise.all([
+      User.countDocuments({ ...userFilter, 'vip.isActive': true }),
+      VIPSubscription.countDocuments(),
+      VIPSubscription.countDocuments({ status: 'active' }),
+      VIPTier.countDocuments({ active: true })
+    ]);
+
+    // ==================== RESPONSE ====================
+    res.json({
+      success: true,
+      data: {
+        // A. Global KPI Cards
+        kpis: {
+          totalRegisteredUsers: totalUsers,
+          activeUsersToday: activeUsersToday,
+          totalRewardsIssued: totalRewardsIssued,
+          totalRedemptions: totalRedemptions,
+          avgXPPerUser: Math.round(avgXPPerUser),
+          totalRevenue: totalRevenue || 0,
+          marginProfit: totalMarginProfit || 0
+        },
+        
+        // C. Retention Trend Graph
+        retention: {
+          current: {
+            d1: parseFloat(retention.d1),
+            d7: parseFloat(retention.d7),
+            d14: parseFloat(retention.d14),
+            d30: parseFloat(retention.d30)
+          },
+          trend: retentionTrend,
+          totalCohort: retention.totalCohort
+        },
 
           // D. Top Played Game Snapshot
           topPlayedGame: topPlayedGame,

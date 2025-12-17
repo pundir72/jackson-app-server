@@ -9,6 +9,7 @@ const router = express.Router();
 const { body, validationResult, query } = require('express-validator');
 const { adminAuth } = require('../middleware/adminAuth');
 const AdjustEventToken = require('../models/AdjustEventToken');
+const adjustService = require('../services/adjust.service');
 
 /**
  * @route   GET /api/admin/adjust-events
@@ -357,6 +358,91 @@ router.get('/s2s/list', adminAuth, async (req, res) => {
       success: false,
       error: 'Failed to fetch S2S events',
       message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin/adjust-events/:token/analytics
+ * @desc    Get analytics data for a specific event token
+ * @access  Admin
+ * @query   startDate - Start date (YYYY-MM-DD, optional, defaults to 30 days ago)
+ * @query   endDate - End date (YYYY-MM-DD, optional, defaults to today)
+ * @query   type - Analytics type: 'complete', 'events', 'installs', 'revenue', 'devices' (optional, defaults to 'complete')
+ */
+router.get('/:token/analytics', adminAuth, async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { startDate, endDate, type = 'complete' } = req.query;
+
+    // Verify token exists in database
+    const eventToken = await AdjustEventToken.findByToken(token);
+    if (!eventToken) {
+      return res.status(404).json({
+        success: false,
+        error: 'Event token not found in database'
+      });
+    }
+
+    let analyticsData;
+
+    switch (type) {
+      case 'events':
+        analyticsData = await adjustService.getEventAnalytics({
+          eventToken: token,
+          startDate,
+          endDate
+        });
+        break;
+      case 'installs':
+        analyticsData = await adjustService.getInstallsBySource({
+          eventToken: token,
+          startDate,
+          endDate
+        });
+        break;
+      case 'revenue':
+        analyticsData = await adjustService.getRevenueData({
+          eventToken: token,
+          startDate,
+          endDate
+        });
+        break;
+      case 'devices':
+        analyticsData = await adjustService.getDeviceLocationData({
+          eventToken: token,
+          startDate,
+          endDate
+        });
+        break;
+      case 'complete':
+      default:
+        analyticsData = await adjustService.getCompleteAnalytics({
+          eventToken: token,
+          startDate,
+          endDate
+        });
+        break;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...analyticsData.data,
+        eventToken: {
+          token: eventToken.token,
+          name: eventToken.name,
+          category: eventToken.category,
+          isS2S: eventToken.isS2S
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      error: error.message || 'Failed to fetch analytics',
+      details: process.env.NODE_ENV === 'development' ? error : undefined
     });
   }
 });

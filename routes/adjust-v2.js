@@ -48,6 +48,25 @@ router.post('/report-event',
   // validateEvent,               // Step 4: Validate event type and parameters
   // validateLevelEvent,          // Step 5: Validate level progression (if level event)
   async (req, res) => {
+    console.log('\n' + '='.repeat(80));
+    console.log('🎯 [Adjust V2 Route] POST /api/v2/adjust/report-event - Request Received');
+    console.log('='.repeat(80));
+    console.log('📅 [Adjust V2 Route] Timestamp:', new Date().toISOString());
+    console.log('🌐 [Adjust V2 Route] Request Details:');
+    console.log('   - Method:', req.method);
+    console.log('   - URL:', req.originalUrl);
+    console.log('   - Path:', req.path);
+    console.log('   - IP:', req.ip);
+    console.log('   - Headers:', {
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers['authorization'] ? 'Bearer ***' : 'NOT SET',
+      'x-firebase-appcheck': req.headers['x-firebase-appcheck'] ? 'SET' : 'NOT SET',
+      'user-agent': req.headers['user-agent']
+    });
+    console.log('   - Body exists:', !!req.body);
+    console.log('   - Body keys:', req.body ? Object.keys(req.body) : 'N/A');
+    console.log('   - Full body:', JSON.stringify(req.body, null, 2));
+    
     try {
       const {
         eventType,
@@ -60,22 +79,37 @@ router.post('/report-event',
         callbackParams = {}
       } = req.body;
 
+      console.log('\n📋 [Adjust V2 Route] Extracted request parameters:');
+      console.log('   - eventType:', eventType || 'NOT PROVIDED');
+      console.log('   - levelNumber:', levelNumber !== undefined ? levelNumber : 'NOT PROVIDED');
+      console.log('   - eventToken:', eventToken || 'NOT PROVIDED');
+      console.log('   - deviceId:', deviceId || 'NOT PROVIDED');
+      console.log('   - metadata:', JSON.stringify(metadata, null, 2));
+      console.log('   - revenue:', revenue !== undefined ? revenue : 'NOT PROVIDED');
+      console.log('   - currency:', currency);
+      console.log('   - callbackParams:', JSON.stringify(callbackParams, null, 2));
+
       // Validate required fields
+      console.log('\n✅ [Adjust V2 Route] Validating required fields...');
       if (!eventType) {
+        console.error('❌ [Adjust V2 Route] Validation FAILED: eventType is missing');
         return res.status(400).json({
           success: false,
           error: 'eventType is required',
           code: 'EVENT_TYPE_MISSING'
         });
       }
+      console.log('   ✅ eventType validation passed');
 
       if (!eventToken) {
+        console.error('❌ [Adjust V2 Route] Validation FAILED: eventToken is missing');
         return res.status(400).json({
           success: false,
           error: 'eventToken is required. Get event tokens from Adjust Dashboard or use GET /api/v2/adjust/events to see available tokens.',
           code: 'EVENT_TOKEN_MISSING'
         });
       }
+      console.log('   ✅ eventToken validation passed');
 
       // TODO: Uncomment event token validation when needed
       // Validate event token exists in database (optional check)
@@ -97,63 +131,103 @@ router.post('/report-event',
         userDocument = await User.findById(userId);
       }
 
+      console.log('\n🔍 [Adjust V2 Route] Starting event processing...');
+      console.log('📥 [Adjust V2 Route] Request Body:', JSON.stringify(req.body, null, 2));
+      console.log('👤 [Adjust V2 Route] User Info:');
+      console.log('   - User ID:', userId);
+      console.log('   - User Document exists:', !!userDocument);
+      console.log('   - User Document ID:', userDocument?._id || 'N/A');
+
       // Build device identifiers
       // Priority: provided deviceId > user deviceInfo > system device identifier
+      console.log('\n📱 [Adjust V2 Route] Building device identifiers...');
       const deviceIds = {};
       
+      console.log('   - Provided deviceId:', deviceId || 'NOT PROVIDED');
+      console.log('   - User document exists:', !!userDocument);
+      console.log('   - User deviceInfo exists:', !!userDocument?.deviceInfo);
+      
       if (deviceId) {
+        console.log('   - Using provided deviceId');
         // Try to determine device type from deviceId format
         // Android: usually starts with specific patterns
         // iOS: UUID format
         if (deviceId.length === 36 && deviceId.includes('-')) {
           // Likely iOS IDFA or similar
           deviceIds.idfa = deviceId;
+          console.log('   - Detected as iOS IDFA (UUID format)');
         } else {
           // Likely Android GPS ADID
           deviceIds.gps_adid = deviceId;
+          console.log('   - Detected as Android GPS ADID');
         }
       } else if (userDocument?.deviceInfo) {
+        console.log('   - Using device info from user profile');
         // Use device info from user profile
         const deviceInfo = userDocument.deviceInfo;
-        if (deviceInfo.idfa) deviceIds.idfa = deviceInfo.idfa;
-        if (deviceInfo.gpsAdid) deviceIds.gps_adid = deviceInfo.gpsAdid;
-        if (deviceInfo.fireAdid) deviceIds.fire_adid = deviceInfo.fireAdid;
-        if (deviceInfo.oaid) deviceIds.oaid = deviceInfo.oaid;
-        if (deviceInfo.webUuid) deviceIds.web_uuid = deviceInfo.webUuid;
-        if (deviceInfo.idfv) deviceIds.idfv = deviceInfo.idfv;
-        if (deviceInfo.androidId) deviceIds.android_id = deviceInfo.androidId;
+        console.log('   - User deviceInfo:', JSON.stringify(deviceInfo, null, 2));
+        
+        if (deviceInfo.idfa) {
+          deviceIds.idfa = deviceInfo.idfa;
+          console.log('   - Added idfa:', deviceInfo.idfa);
+        }
+        if (deviceInfo.gpsAdid) {
+          deviceIds.gps_adid = deviceInfo.gpsAdid;
+          console.log('   - Added gpsAdid:', deviceInfo.gpsAdid);
+        }
+        if (deviceInfo.fireAdid) {
+          deviceIds.fire_adid = deviceInfo.fireAdid;
+          console.log('   - Added fireAdid:', deviceInfo.fireAdid);
+        }
+        if (deviceInfo.oaid) {
+          deviceIds.oaid = deviceInfo.oaid;
+          console.log('   - Added oaid:', deviceInfo.oaid);
+        }
+        if (deviceInfo.webUuid) {
+          deviceIds.web_uuid = deviceInfo.webUuid;
+          console.log('   - Added webUuid:', deviceInfo.webUuid);
+        }
+        if (deviceInfo.idfv) {
+          deviceIds.idfv = deviceInfo.idfv;
+          console.log('   - Added idfv:', deviceInfo.idfv);
+        }
+        if (deviceInfo.androidId) {
+          deviceIds.android_id = deviceInfo.androidId;
+          console.log('   - Added androidId:', deviceInfo.androidId);
+        }
       }
 
-      // TODO: Uncomment device ID validation when needed
-      // Ensure at least one device identifier
-      // if (Object.keys(deviceIds).length === 0) {
-      //   return res.status(400).json({
-      //     success: false,
-      //     error: 'Device identifier required. Provide deviceId or ensure user has device info.',
-      //     code: 'DEVICE_ID_MISSING'
-      //   });
-      // }
+      console.log('   - Final deviceIds:', JSON.stringify(deviceIds, null, 2));
+      console.log('   - Device IDs count:', Object.keys(deviceIds).length);
       
       // If no device ID provided, use a default placeholder (Adjust may still accept it)
       if (Object.keys(deviceIds).length === 0) {
-        console.warn('⚠️ No device identifier provided - using placeholder');
+        console.warn('⚠️ [Adjust V2 Route] No device identifier provided - using placeholder');
         deviceIds.gps_adid = 'no-device-id'; // Placeholder
+        console.log('   - Added placeholder gps_adid: no-device-id');
       }
 
       // Build event data for Adjust
+      console.log('\n📦 [Adjust V2 Route] Building event data...');
       const eventData = {
         event_token: eventToken,
         s2s: '1', // Required for S2S requests
         ...deviceIds
       };
 
+      console.log('   - Base eventData:', JSON.stringify(eventData, null, 2));
+
       // Add revenue if provided
       if (revenue !== undefined && revenue !== null) {
         eventData.revenue = Number(revenue);
         eventData.currency = currency;
+        console.log('   - Added revenue:', eventData.revenue, eventData.currency);
+      } else {
+        console.log('   - No revenue provided');
       }
 
       // Build callback parameters
+      console.log('\n📋 [Adjust V2 Route] Building callback parameters...');
       const finalCallbackParams = {
         ...(userId && { userId: userId }),
         eventType: eventType,
@@ -166,11 +240,35 @@ router.post('/report-event',
         ...metadata
       };
 
+      console.log('   - Callback params:', JSON.stringify(finalCallbackParams, null, 2));
+      console.log('   - Has attribution:', !!req.attribution);
+      console.log('   - Attribution:', req.attribution ? JSON.stringify(req.attribution, null, 2) : 'N/A');
+
       eventData.callback_params = JSON.stringify(finalCallbackParams);
+      console.log('   - callback_params (stringified):', eventData.callback_params);
+
+      console.log('\n📤 [Adjust V2 Route] Final eventData to send:');
+      console.log('   - Full eventData:', JSON.stringify(eventData, null, 2));
+      console.log('   - eventData keys:', Object.keys(eventData));
+      console.log('   - event_token:', eventData.event_token);
+      console.log('   - s2s:', eventData.s2s);
+      console.log('   - app_token will be added by service:', 'Yes (from config)');
 
       // Send event to Adjust S2S API
+      console.log('\n🚀 [Adjust V2 Route] Calling adjustService.sendEvent()...');
       const adjustResult = await adjustService.sendEvent(eventData);
-      console.log('Adjust result:', adjustResult);
+      
+      console.log('\n📥 [Adjust V2 Route] Received result from adjustService:');
+      console.log('   - adjustResult:', JSON.stringify(adjustResult, null, 2));
+      console.log('   - adjustResult.success:', adjustResult.success);
+      console.log('   - adjustResult.status:', adjustResult.status);
+      console.log('   - adjustResult.data:', adjustResult.data);
+      console.log('   - adjustResult.data type:', typeof adjustResult.data);
+      console.log('   - adjustResult.data is null?', adjustResult.data === null);
+      console.log('   - adjustResult.data is undefined?', adjustResult.data === undefined);
+      console.log('   - adjustResult.data is empty object?', 
+        adjustResult.data && typeof adjustResult.data === 'object' && Object.keys(adjustResult.data).length === 0);
+      console.log('   - adjustResult.data keys:', adjustResult.data ? Object.keys(adjustResult.data) : 'N/A');
 
       // TODO: Uncomment user progress update when needed
       // Update user progress if level event (optional - only if user exists)
@@ -192,13 +290,16 @@ router.post('/report-event',
       // }
 
       // Log successful event
-      console.log(`✅ S2S Event tracked: ${eventType} for user ${userId}`, {
-        level: levelNumber,
-        campaign: req.attribution?.campaign,
-        eventToken: eventToken
-      });
+      console.log('\n✅ [Adjust V2 Route] Event successfully sent to Adjust');
+      console.log(`   - Event Type: ${eventType}`);
+      console.log(`   - User ID: ${userId}`);
+      console.log(`   - Level: ${levelNumber || 'N/A'}`);
+      console.log(`   - Campaign: ${req.attribution?.campaign || 'N/A'}`);
+      console.log(`   - Event Token: ${eventToken}`);
+      console.log(`   - Adjust Status: ${adjustResult.status}`);
+      console.log(`   - Adjust Response Data: ${JSON.stringify(adjustResult.data)}`);
 
-      return res.status(200).json({
+      const responseData = {
         success: true,
         message: 'Event reported successfully',
         data: {
@@ -207,16 +308,54 @@ router.post('/report-event',
           adjustResponse: adjustResult.data,
           timestamp: new Date().toISOString()
         }
-      });
+      };
+
+      console.log('\n📤 [Adjust V2 Route] Sending response to client:');
+      console.log('   - Response status: 200');
+      console.log('   - Response data:', JSON.stringify(responseData, null, 2));
+
+      console.log('\n' + '='.repeat(80));
+      console.log('✅ [Adjust V2 Route] Request completed successfully');
+      console.log('='.repeat(80));
+      console.log('📊 [Adjust V2 Route] Summary:');
+      console.log('   - Event Type:', eventType);
+      console.log('   - Event Token:', eventToken);
+      console.log('   - User ID:', userId);
+      console.log('   - Adjust Status:', adjustResult.status);
+      console.log('   - Adjust Response Empty?', !adjustResult.data || Object.keys(adjustResult.data).length === 0);
+      console.log('   - Note: Empty Adjust response is normal (200 OK with {} body)');
+      console.log('='.repeat(80) + '\n');
+
+      return res.status(200).json(responseData);
     } catch (error) {
+      console.error('\n' + '='.repeat(80));
+      console.error('❌ [Adjust V2 Route] ERROR occurred in report-event handler');
+      console.error('='.repeat(80));
+      console.error('🔍 [Adjust V2 Route] Error Details:');
+      console.error('   - Error Type:', error.constructor.name);
+      console.error('   - Error Message:', error.message);
+      console.error('   - Error Status:', error.status || 'N/A');
+      console.error('   - Error Code:', error.code || 'N/A');
+      console.error('   - Error Stack:', error.stack);
+      console.error('   - Full Error Object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      
+      if (error.response) {
+        console.error('   - Error Response Status:', error.response.status);
+        console.error('   - Error Response Data:', JSON.stringify(error.response.data, null, 2));
+      }
+      
       console.error('Error reporting S2S event:', error);
       
-      return res.status(error.status || 500).json({
+      const errorResponse = {
         success: false,
         error: error.message || 'Failed to report event',
         code: error.code || 'EVENT_REPORT_ERROR',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
+      };
+      
+      console.error('📤 [Adjust V2 Route] Sending error response:', JSON.stringify(errorResponse, null, 2));
+      
+      return res.status(error.status || 500).json(errorResponse);
     }
   }
 );

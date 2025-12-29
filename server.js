@@ -1,4 +1,5 @@
 require("dotenv").config();
+const Sentry = require("@sentry/node");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,6 +11,7 @@ const winston = require("winston");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
+require("./instrument.js");
 
 // Initialize Redis client
 let redis;
@@ -329,6 +331,19 @@ mongoose
           ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
         },
       });
+    });
+
+    app.get("/debug-sentry", function mainHandler(req, res) {
+      throw new Error("My first Sentry error!");
+    });
+
+    Sentry.setupExpressErrorHandler(app);
+    // Optional fallthrough error handler
+    app.use(function onError(err, req, res, next) {
+      // The error id is attached to `res.sentry` to be returned
+      // and optionally displayed to the user for support.
+      res.statusCode = 500;
+      res.end(res.sentry + "\n");
     });
 
     // Graceful shutdown handling

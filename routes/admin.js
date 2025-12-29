@@ -13,6 +13,7 @@ const XPMultiplier = require("../models/XPMultiplier");
 const Transaction = require("../models/Transaction");
 const Game = require("../models/Game");
 const Referral = require("../models/Referral");
+const besitosService = require("../services/besitos.service");
 const { getVIPPricing } = require("../utils/pricing");
 const {
   calculateRetention,
@@ -894,6 +895,20 @@ router.get("/users/:id", adminAuth, async (req, res) => {
       Promise.resolve(0), // TODO: Implement bonus day tracking if needed
     ]);
 
+    // Fetch latest downloaded games count from Besitos
+    let downloadedGamesCount = (user.games?.length || 0);
+    try {
+      const besitosResponse = await besitosService.getUserData(id);
+      const besitosData = besitosResponse.data || besitosResponse;
+      // Calculate total downloaded games from in_progress and completed arrays
+      const inProgressCount = besitosData.in_progress?.length || 0;
+      const completedCount = besitosData.completed?.length || 0;
+      downloadedGamesCount = inProgressCount + completedCount;
+    } catch (error) {
+      console.warn("Failed to fetch Besitos user data for admin:", error.message);
+      // Fall back to local games count
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1246,7 +1261,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
       redemptionPreference: (safeRedemption.preference || "none").toUpperCase(),
       mostPlayedGame: mostPlayedGame ? mostPlayedGame.gameId || "N/A" : "N/A",
       lastGamePlayed: lastGamePlayed ? lastGamePlayed.gameId || "N/A" : "N/A",
-      totalGamesDownloaded: safeGames.length || 0,
+      totalGamesDownloaded: downloadedGamesCount,
       avgSessionDuration:
         typeof safeAnalytics.avgSessionDuration === "number"
           ? `${safeAnalytics.avgSessionDuration} min`
@@ -1314,7 +1329,7 @@ router.get("/users/:id", adminAuth, async (req, res) => {
       avatar:
         safeProfile.avatar || "https://c.animaapp.com/t66hdvJZ/img/avatar.svg",
       memberSince: user.createdAt,
-      gamesPlayed: safeGames.length || 0,
+      gamesPlayed: downloadedGamesCount,
       tasksCompleted:
         safeTasks.filter((task) => task && task.completed).length || 0,
       surveysCompleted:
@@ -1446,23 +1461,37 @@ router.put(
       }
 
       // Prevent email changes for Google-authenticated users
-      const normalizedNewEmail = updateData.email ? updateData.email.toLowerCase() : null;
-      const normalizedExistingEmail = existingUser.email ? existingUser.email.toLowerCase() : null;
-      if (normalizedNewEmail && normalizedNewEmail !== normalizedExistingEmail) {
+      const normalizedNewEmail = updateData.email
+        ? updateData.email.toLowerCase()
+        : null;
+      const normalizedExistingEmail = existingUser.email
+        ? existingUser.email.toLowerCase()
+        : null;
+      if (
+        normalizedNewEmail &&
+        normalizedNewEmail !== normalizedExistingEmail
+      ) {
         // Check if user is a Google-authenticated user
         if (existingUser.social && existingUser.social.googleId) {
           return res.status(400).json({
             success: false,
             message: "Email cannot be changed for Google-authenticated users",
             errors: [
-              { field: "email", message: "Email address cannot be modified for users who signed in with Google" },
+              {
+                field: "email",
+                message:
+                  "Email address cannot be modified for users who signed in with Google",
+              },
             ],
           });
         }
       }
 
       // Check email uniqueness if being updated (compare case-insensitively)
-      if (normalizedNewEmail && normalizedNewEmail !== normalizedExistingEmail) {
+      if (
+        normalizedNewEmail &&
+        normalizedNewEmail !== normalizedExistingEmail
+      ) {
         const emailExists = await User.findOne({
           email: normalizedNewEmail,
           _id: { $ne: id },

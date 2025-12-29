@@ -3046,6 +3046,21 @@ router.post(
         });
       }
 
+      // Check for duplicate priority in the same segment (xpTier + membershipTier)
+      const duplicateQuery = {
+        priority: priority,
+        xpTier: xpTier || null,
+        membershipTier: membershipTier || null,
+        _id: { $ne: rule._id || null }, // Exclude current rule if updating
+      };
+      const existingRule = await TaskProgressionRule.findOne(duplicateQuery);
+      if (existingRule) {
+        return res.status(400).json({
+          success: false,
+          message: "A rule with the same priority already exists for this segment (XP Tier + Membership Tier combination)",
+        });
+      }
+
       // Validate configuration
       if (!rule.isValidConfiguration()) {
         return res.status(400).json({

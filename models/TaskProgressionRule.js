@@ -150,7 +150,7 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
 
   // Get all active rules
   const rules = await this.find({ isActive: true })
-    .sort({ priority: -1, createdAt: -1 })
+    .sort({ priority: 1, createdAt: -1 })
     .lean();
 
   console.log(`Found ${rules?.length || 0} active task progression rules`);
@@ -162,7 +162,7 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
   }
 
   console.log(
-    "Active Rules:",
+    "Active Rules (sorted by priority):",
     rules.map((r) => ({
       ruleName: r.ruleName,
       userMilestones: r.userMilestones,
@@ -172,9 +172,8 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
     }))
   );
 
-  // Score each rule based on how well it matches the user
-  const scoredRulesPromises = rules.map(async (rule) => {
-    let score = 0;
+  // Find the first matching rule (highest priority first)
+  for (const rule of rules) {
     let matches = true;
     const matchDetails = [];
 
@@ -183,7 +182,6 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
       switch (milestone) {
         case "first_time_user":
           if (gamesPlayed === 0) {
-            score += 10;
             matchDetails.push("✅ first_time_user: PASSED");
           } else {
             matches = false;
@@ -195,7 +193,6 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
 
         case "returning_user":
           if (gamesPlayed > 0) {
-            score += 10;
             matchDetails.push("✅ returning_user: PASSED");
           } else {
             matches = false;
@@ -266,7 +263,6 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
             const requiredTier = rule.xpTier.toLowerCase();
             if (userXpTier && tierRange) {
               if (userXpTier === requiredTier) {
-                score += 10;
                 const maxDisplay =
                   tierRange.max === Infinity ? "∞" : tierRange.max;
                 matchDetails.push(
@@ -298,7 +294,6 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
             const userTierLevel = tierHierarchy[membershipTier] || 0;
             const requiredTierLevel = tierHierarchy[rule.membershipTier] || 0;
             if (userTierLevel >= requiredTierLevel) {
-              score += 10;
               matchDetails.push(
                 `✅ membership_tier (${rule.membershipTier}): PASSED (user: ${membershipTier}, level: ${userTierLevel} >= ${requiredTierLevel})`
               );
@@ -313,37 +308,13 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
       }
     }
 
-    // If rule doesn't match, exclude it
-    if (!matches) {
-      console.log(`Rule "${rule.ruleName}" does NOT match:`, matchDetails);
-      return null;
+    if (matches) {
+      console.log(`✅ Rule "${rule.ruleName}" MATCHES (priority: ${rule.priority}):`, matchDetails);
+      console.log("=== TASK PROGRESSION RULE MATCHING END (SUCCESS) ===");
+      return rule;
+    } else {
+      console.log(`❌ Rule "${rule.ruleName}" does NOT match:`, matchDetails);
     }
-
-    // Add priority to score
-    score += rule.priority || 0;
-    console.log(
-      `Rule "${rule.ruleName}" MATCHES (score: ${score}):`,
-      matchDetails
-    );
-
-    return { rule, score };
-  });
-
-  // Wait for all async operations to complete
-  const scoredRulesResults = await Promise.all(scoredRulesPromises);
-
-  // Filter out null results and sort by score
-  const scoredRules = scoredRulesResults
-    .filter((item) => item !== null)
-    .sort((a, b) => b.score - a.score); // Sort by score descending
-
-  // Return the best matching rule
-  if (scoredRules.length > 0) {
-    console.log(
-      `✅ Best matching rule: "${scoredRules[0].rule.ruleName}" (score: ${scoredRules[0].score})`
-    );
-    console.log("=== TASK PROGRESSION RULE MATCHING END (SUCCESS) ===");
-    return scoredRules[0].rule;
   }
 
   console.log("❌ No rules matched user profile");

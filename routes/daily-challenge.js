@@ -2845,6 +2845,24 @@ router.post("/claim-reward", protect, async (req, res) => {
       });
     }
 
+    // If the underlying challenge requires manual claiming by an admin,
+    // reject user-initiated claim attempts.
+    try {
+      const challengeForTxn = await DailyChallenge.findById(
+        transaction.metadata?.challengeId
+      ).select("claimType");
+      if (challengeForTxn && challengeForTxn.claimType === "manual") {
+        return res.status(403).json({
+          success: false,
+          error:
+            "This challenge requires manual claim handling by an administrator. You cannot claim this reward via the API.",
+        });
+      }
+    } catch (err) {
+      console.warn("Unable to verify challenge claimType:", err && err.message);
+      // If we can't verify, fallthrough to normal checks (safer to allow admin override later)
+    }
+
     // Verify ad was watched (check metadata or request body)
     const { adWatched } = req.body;
     if (!adWatched && !transaction.metadata?.adWatched) {

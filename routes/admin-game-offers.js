@@ -22,6 +22,27 @@ const { adminAuth } = require("../middleware/adminAuth");
 
 // ==================== HELPER FUNCTIONS ====================
 
+// Ensure compound unique index exists for game variants (gameId+gender+uiSection+ageGroup)
+try {
+  Game.collection.createIndex(
+    { gameId: 1, gender: 1, uiSection: 1, ageGroup: 1 },
+    { unique: true }
+  );
+} catch (e) {
+  // ignore - index may already exist or not be creatable at runtime
+  console.warn("Could not create game variant unique index:", e.message);
+}
+
+function normalizeSegmentValue(v) {
+  if (v === undefined || v === null) return "";
+  if (typeof v !== "string") return String(v).trim();
+  return v.trim();
+}
+
+function normalizeGender(g) {
+  return normalizeSegmentValue(g).toLowerCase() || "all";
+}
+
 /**
  * Safely parse JSON values from form-data
  * Handles strings, arrays, and already parsed values
@@ -950,6 +971,39 @@ router.get("/games/check-id/:gameId", adminAuth, async (req, res) => {
   }
 });
 
+// Check if a game variant (gameId + gender + uiSection + ageGroup) already exists
+router.post("/games/check-variant", adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.body;
+    const gender = normalizeGender(req.body.gender || "all");
+    const uiSection = normalizeSegmentValue(req.body.uiSection || "");
+    const ageGroup = normalizeSegmentValue(req.body.ageGroup || "");
+
+    if (!gameId) {
+      return res.status(400).json({
+        success: false,
+        message: "gameId is required",
+      });
+    }
+
+    const existing = await Game.findOne({
+      gameId: gameId,
+      gender: gender,
+      uiSection: uiSection,
+      ageGroup: ageGroup,
+    }).lean();
+
+    res.json({
+      success: true,
+      exists: !!existing,
+      data: existing || null,
+    });
+  } catch (error) {
+    console.error("Error checking game variant:", error);
+    res.status(500).json({ success: false, message: "Failed to check variant", error: error.message });
+  }
+});
+
 // Create new game with file uploads
 router.post(
   "/games",
@@ -1159,13 +1213,14 @@ router.post(
       // Parse JSON fields from form-data (using safe parsing)
       // Countries field removed - no longer parsing countries
       const parsedAgeGroups = safeParseJSON(req.body.ageGroups, []);
-      const targetGender = (req.body.gender || "all").toLowerCase();
-      const targetUiSection = req.body.uiSection || "";
-      const targetAgeGroup =
+      const targetGender = normalizeGender(req.body.gender || "all");
+      const targetUiSection = normalizeSegmentValue(req.body.uiSection || "");
+      const targetAgeGroup = normalizeSegmentValue(
         req.body.ageGroup ||
-        (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
-          ? parsedAgeGroups[0]
-          : "");
+          (Array.isArray(parsedAgeGroups) && parsedAgeGroups.length > 0
+            ? parsedAgeGroups[0]
+            : "")
+      );
 
       console.log("Parsed Fields:");
       console.log("  - Age Groups:", parsedAgeGroups);
@@ -1296,6 +1351,21 @@ router.post(
         uiSection: targetUiSection,
         ageGroup: targetAgeGroup,
       };
+
+      // Prevent duplicate variant creation by checking existing document first
+      try {
+        const existingVariant = await Game.findOne(filter).lean();
+        if (existingVariant) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "A game variant with the same gameId and segment (gender/uiSection/ageGroup) already exists.",
+            duplicateId: existingVariant._id,
+          });
+        }
+      } catch (e) {
+        console.warn("Error checking for existing game variant:", e.message);
+      }
       console.log("Upsert Filter:", JSON.stringify(filter, null, 2));
       console.log(
         "Game Data to Save:",
@@ -1517,23 +1587,23 @@ router.put(
         // Auto-update ageGroup (singular) from ageGroups array if not explicitly provided
         // Use first ageGroup from array, or explicit ageGroup if provided
         if (req.body.ageGroup) {
-          updateData.ageGroup = req.body.ageGroup;
+          updateData.ageGroup = normalizeSegmentValue(req.body.ageGroup);
         } else if (
           Array.isArray(parsedAgeGroups) &&
           parsedAgeGroups.length > 0
         ) {
-          updateData.ageGroup = parsedAgeGroups[0];
+          updateData.ageGroup = normalizeSegmentValue(parsedAgeGroups[0]);
           console.log(
             `Auto-updating ageGroup to first value from ageGroups: ${parsedAgeGroups[0]}`
           );
         }
       } else if (req.body.ageGroup) {
         // If only ageGroup is provided (not ageGroups), update it
-        updateData.ageGroup = req.body.ageGroup;
+        updateData.ageGroup = normalizeSegmentValue(req.body.ageGroup);
       }
-      if (req.body.gender) updateData.gender = req.body.gender;
+      if (req.body.gender) updateData.gender = normalizeGender(req.body.gender);
       if (req.body.uiSection !== undefined)
-        updateData.uiSection = req.body.uiSection || "";
+        updateData.uiSection = normalizeSegmentValue(req.body.uiSection || "");
       if (req.body.marketingChannel)
         updateData.marketingChannel = req.body.marketingChannel;
       if (req.body.campaignName)
@@ -1769,6 +1839,33 @@ router.put(
         if (existingGame.besitosRawData) {
           updateData.besitosRawData = existingGame.besitosRawData;
         }
+      }
+
+      // If changing variant identifying fields (gameId, gender, uiSection, ageGroup),
+      // ensure we don't create a duplicate variant
+      try {
+        const newGameId = updateData.gameId || existingGame.gameId;
+        const newGender = updateData.gender || existingGame.gender || "all";
+        const newUiSection = updateData.uiSection || existingGame.uiSection || "";
+        const newAgeGroup = updateData.ageGroup || existingGame.ageGroup || "";
+
+        const duplicate = await Game.findOne({
+          gameId: newGameId,
+          gender: newGender,
+          uiSection: newUiSection,
+          ageGroup: newAgeGroup,
+          _id: { $ne: id },
+        }).lean();
+        if (duplicate) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "A game variant with the same gameId and segment already exists.",
+            duplicateId: duplicate._id,
+          });
+        }
+      } catch (e) {
+        console.warn("Error checking for duplicate variant before update:", e.message);
       }
 
       console.log("Update Data:", JSON.stringify(updateData, null, 2));
@@ -2946,6 +3043,21 @@ router.post(
           nextBatchSize: nextBatchSize,
           maxBatches: maxBatches,
           createdBy: req.user.userId,
+        });
+      }
+
+      // Check for duplicate priority in the same segment (xpTier + membershipTier)
+      const duplicateQuery = {
+        priority: priority,
+        xpTier: xpTier || null,
+        membershipTier: membershipTier || null,
+        _id: { $ne: rule._id || null }, // Exclude current rule if updating
+      };
+      const existingRule = await TaskProgressionRule.findOne(duplicateQuery);
+      if (existingRule) {
+        return res.status(400).json({
+          success: false,
+          message: "A rule with the same priority already exists for this segment (XP Tier + Membership Tier combination)",
         });
       }
 
@@ -5138,7 +5250,7 @@ router.post("/seed-games", adminAuth, async (req, res) => {
     };
 
     for (const [genderKey, ageRanges] of Object.entries(segments)) {
-      const gender = genderKey.toLowerCase();
+      const gender = normalizeGender(genderKey);
 
       for (const [ageRangeKey, uiSections] of Object.entries(ageRanges)) {
         for (const [uiSectionKey, titles] of Object.entries(uiSections)) {
@@ -5233,10 +5345,10 @@ router.post("/seed-games", adminAuth, async (req, res) => {
               // Store complete raw data from Besitos API
               besitosRawData: external,
 
-              uiSection: uiSectionKey,
+              uiSection: normalizeSegmentValue(uiSectionKey),
               gender: gender,
-              ageGroup: ageRangeKey,
-              ageGroups: [ageRangeKey],
+              ageGroup: normalizeSegmentValue(ageRangeKey),
+              ageGroups: [normalizeSegmentValue(ageRangeKey)],
               createdBy: req.user.userId,
             };
 
@@ -5245,8 +5357,8 @@ router.post("/seed-games", adminAuth, async (req, res) => {
               const filter = {
                 gameId: external.id,
                 gender: gender,
-                uiSection: uiSectionKey,
-                ageGroup: ageRangeKey,
+                uiSection: normalizeSegmentValue(uiSectionKey),
+                ageGroup: normalizeSegmentValue(ageRangeKey),
               };
               const update = {
                 $set: {
@@ -5264,10 +5376,10 @@ router.post("/seed-games", adminAuth, async (req, res) => {
                   gameDetails: gameData.gameDetails,
                   // Store complete raw data from Besitos API
                   besitosRawData: gameData.besitosRawData,
-                  uiSection: uiSectionKey,
+                  uiSection: normalizeSegmentValue(uiSectionKey),
                   gender: gender,
-                  ageGroup: ageRangeKey,
-                  ageGroups: [ageRangeKey],
+                  ageGroup: normalizeSegmentValue(ageRangeKey),
+                  ageGroups: [normalizeSegmentValue(ageRangeKey)],
                 },
                 $setOnInsert: {
                   createdBy: req.user.userId,

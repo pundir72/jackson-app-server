@@ -608,7 +608,7 @@ router.get("/discover", protect, async (req, res) => {
     // If user logged in with Google, fetch all age groups and all genders
     // Otherwise, apply ageGroup and gender filters as normal
     if (!isGoogleUser) {
-      if (ageGroup) filter.ageGroup = ageGroup;
+      if (ageGroup) filter.ageGroups = { $in: [ageGroup] };
       // Gender filter: match specific gender OR "Any"/"all" (which applies to all genders)
       // Normalize gender values: handle case-insensitive matching and "Any"/"all" equivalence
       if (gender) {
@@ -622,10 +622,10 @@ router.get("/discover", protect, async (req, res) => {
 
         // Add "Any" or "all" for games that apply to all genders
         if (normalizedGender === "all" || normalizedGender === "any") {
-          genderVariations.push("Any", "all", "ANY");
+          genderVariations.push("Any", "all", "ANY", "any");
         } else {
           // For specific genders, also include "Any" and "all" to match games for all genders
-          genderVariations.push("Any", "all", "ANY");
+          genderVariations.push("Any", "all", "ANY", "any");
         }
 
         // Use case-insensitive regex matching
@@ -893,15 +893,6 @@ router.get("/discover", protect, async (req, res) => {
 
     const userProfileGamesCount = await Game.countDocuments(userProfileFilter);
     console.log(`Games matching user profile filter: ${userProfileGamesCount}`);
-    if (userProfileGamesCount > 0 && allGames.length === 0) {
-      console.log(
-        "⚠️ WARNING: Games exist for user profile but not for query params!"
-      );
-      console.log(
-        "User Profile Filter:",
-        JSON.stringify(userProfileFilter, null, 2)
-      );
-    }
     console.log("=== END FILTER ANALYSIS ===");
 
     const pageNum = Math.max(parseInt(page) || 1, 1);
@@ -912,6 +903,16 @@ router.get("/discover", protect, async (req, res) => {
     console.log("Final filter being used:", JSON.stringify(filter, null, 2));
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
     console.log(`✅ Found ${allGames.length} games matching filter`);
+
+    if (userProfileGamesCount > 0 && allGames.length === 0) {
+      console.log(
+        "⚠️ WARNING: Games exist for user profile but not for query params!"
+      );
+      console.log(
+        "User Profile Filter:",
+        JSON.stringify(userProfileFilter, null, 2)
+      );
+    }
 
     if (isGoogleUser) {
       console.log("=== GOOGLE USER: GAMES FOUND ===");
@@ -1031,17 +1032,19 @@ router.get("/discover", protect, async (req, res) => {
       if (userXpTierDoc) {
         // Map tier names to lowercase for matching
         const tierNameMap = {
-          "Junior": "junior",
-          "Middle": "mid", 
-          "Senior": "senior"
+          Junior: "junior",
+          Middle: "mid",
+          Senior: "senior",
         };
-        userXpTier = tierNameMap[userXpTierDoc.tierName] || userXpTierDoc.tierName.toLowerCase();
+        userXpTier =
+          tierNameMap[userXpTierDoc.tierName] ||
+          userXpTierDoc.tierName.toLowerCase();
         console.log("✅ User XP Tier from Admin Config:", {
           tierName: userXpTierDoc.tierName,
           tierKey: userXpTier,
           xpMin: userXpTierDoc.xpMin,
           xpMax: userXpTierDoc.xpMax,
-          xpRange: userXpTierDoc.xpRange
+          xpRange: userXpTierDoc.xpRange,
         });
       } else {
         console.log("⚠️ No XP tier found in admin config, using fallback");
@@ -1075,28 +1078,38 @@ router.get("/discover", protect, async (req, res) => {
         // Normalize tier names for comparison
         const normalizeTierName = (tier) => {
           const tierMap = {
-            "Junior": "junior",
-            "Middle": "mid",
-            "Senior": "senior",
-            "junior": "junior",
-            "mid": "mid", 
-            "senior": "senior"
+            Junior: "junior",
+            Middle: "mid",
+            Senior: "senior",
+            junior: "junior",
+            mid: "mid",
+            senior: "senior",
           };
           return tierMap[tier] || tier.toLowerCase();
         };
 
         const userTierNormalized = normalizeTierName(userXpTier);
-        const gameTiersNormalized = g.xpTiers.map(tier => normalizeTierName(tier));
-        
+        const gameTiersNormalized = g.xpTiers.map((tier) =>
+          normalizeTierName(tier)
+        );
+
         passesXpTier = gameTiersNormalized.includes(userTierNormalized);
 
         if (!passesXpTier) {
           console.log(
-            `❌ Game ${g.gameId} (${g.title}) filtered out: XP tier mismatch (required: ${g.xpTiers.join(", ")}, user: ${userXpTier})`
+            `❌ Game ${g.gameId} (${
+              g.title
+            }) filtered out: XP tier mismatch (required: ${g.xpTiers.join(
+              ", "
+            )}, user: ${userXpTier})`
           );
         } else {
           console.log(
-            `✅ Game ${g.gameId} (${g.title}) passes XP tier check (user: ${userXpTier}, game allows: ${g.xpTiers.join(", ")})`
+            `✅ Game ${g.gameId} (${
+              g.title
+            }) passes XP tier check (user: ${userXpTier}, game allows: ${g.xpTiers.join(
+              ", "
+            )})`
           );
         }
       } else {
@@ -1109,7 +1122,9 @@ router.get("/discover", protect, async (req, res) => {
       // Check VIP/membership tier requirement
       if (g.tierRestrictions) {
         const minTier = (g.tierRestrictions.minTier || "free").toLowerCase();
-        const maxTier = (g.tierRestrictions.maxTier || "platinum").toLowerCase();
+        const maxTier = (
+          g.tierRestrictions.maxTier || "platinum"
+        ).toLowerCase();
         const userTierLower = userMembershipTier.toLowerCase();
 
         // Tier hierarchy: free < bronze < gold < platinum

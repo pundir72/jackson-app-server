@@ -14,6 +14,134 @@ class AccountOverviewService {
   }
 
   /**
+   * Check if all three daily milestones are completed and award a hardcoded reward once.
+   * Prevent duplicate awards by setting `milestone_allTasks_claimed` on the user.
+   */
+  async checkAndGrantThreeTaskReward(userId, userDoc = null) {
+    try {
+      const user = userDoc || (await User.findById(userId));
+      if (!user) return null;
+
+      // Don't award twice
+      if (user.milestone_allTasks_claimed) return null;
+
+      const userConfig = this.getUserConfig(user);
+
+      // Verify each milestone using existing verification logic
+      const gamesDone = await this.verifyMilestoneCompletion(userId, 'gamesPlayed', userConfig);
+      const coinsDone = await this.verifyMilestoneCompletion(userId, 'coinsEarned', userConfig);
+      const challengesDone = await this.verifyMilestoneCompletion(userId, 'challengesCompleted', userConfig);
+
+      if (!(gamesDone && coinsDone && challengesDone)) {
+        return null;
+      }
+
+      // Hardcoded combined reward - change these values if needed
+      const reward = { coins: 1200, xp: 600 };
+
+      // Ensure wallet/xp structure
+      if (!user.wallet) user.wallet = { balance: 0 };
+      if (!user.xp) user.xp = { current: 0, total: 0 };
+
+      // Apply coins
+      user.wallet.balance = (user.wallet.balance || 0) + (reward.coins || 0);
+
+      // Apply XP with tier multiplier helper
+      const { finalXP } = await applyTierMultiplierToXP(user, reward.xp || 0);
+      user.xp.current = (user.xp.current || 0) + finalXP;
+      user.xp.total = (user.xp.total || 0) + finalXP;
+
+      // Mark combined milestone claimed to avoid duplicates
+      user.milestone_allTasks_claimed = true;
+
+      // Create transaction record
+      const transaction = new Transaction({
+        user: userId,
+        type: 'credit',
+        amount: reward.coins,
+        description: 'Combined Milestone Reward - 3 daily tasks completed',
+        status: 'completed',
+        referenceId: `MILESTONE-ALL-3-${Date.now()}`
+      });
+
+      await Promise.all([user.save(), transaction.save()]);
+
+      return {
+        reward,
+        newBalance: user.wallet.balance,
+        newXP: user.xp.current
+      };
+    } catch (error) {
+      console.error('Error in checkAndGrantThreeTaskReward:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check and award each individual milestone reward when completed (gamesPlayed, coinsEarned, challengesCompleted).
+   * Prevent duplicates by checking `milestone_<type>_claimed` flags on the user.
+   */
+  async checkAndGrantIndividualMilestoneRewards(userId, userDoc = null) {
+    try {
+      const user = userDoc || (await User.findById(userId));
+      if (!user) return null;
+
+      const userConfig = this.getUserConfig(user);
+      const milestoneTypes = ['gamesPlayed', 'coinsEarned', 'challengesCompleted'];
+      const awarded = [];
+
+      for (const type of milestoneTypes) {
+        const milestoneKey = `milestone_${type}_claimed`;
+
+        // Skip already claimed
+        if (user[milestoneKey]) continue;
+
+        // Verify completion
+        const completed = await this.verifyMilestoneCompletion(userId, type, userConfig);
+        if (!completed) continue;
+
+        // Award configured reward for this milestone
+        const reward = userConfig.milestoneRewards[type].reward || { coins: 0, xp: 0 };
+
+        // Ensure wallet/xp exist
+        if (!user.wallet) user.wallet = { balance: 0 };
+        if (!user.xp) user.xp = { current: 0, total: 0 };
+
+        // Apply coins
+        user.wallet.balance = (user.wallet.balance || 0) + (reward.coins || 0);
+
+        // Apply XP using tier multiplier
+        const { finalXP } = await applyTierMultiplierToXP(user, reward.xp || 0);
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
+
+        // Mark as claimed to prevent duplicates
+        user[milestoneKey] = true;
+
+        // Create transaction
+        const transaction = new Transaction({
+          user: userId,
+          type: 'credit',
+          amount: reward.coins,
+          description: `Milestone Reward - ${type}`,
+          status: 'completed',
+          referenceId: `MILESTONE-${type.toUpperCase()}-${Date.now()}`
+        });
+
+        // Save both
+        await Promise.all([user.save(), transaction.save()]);
+
+        awarded.push({ type, reward, newBalance: user.wallet.balance, newXP: user.xp.current });
+      }
+
+      return awarded;
+    } catch (error) {
+      console.error('Error in checkAndGrantIndividualMilestoneRewards:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get user-specific configuration based on onboarding data
    */
   getUserConfig(user) {
@@ -169,6 +297,19 @@ class AccountOverviewService {
 
       // Get user-specific configuration
       const userConfig = this.getUserConfig(user);
+
+      // Check and award combined reward if user completed all three daily tasks
+      // This will create a transaction and set a flag to avoid duplicate awards
+      try {
+        // First, auto-award any individual milestones that are completed but not claimed
+        await this.checkAndGrantIndividualMilestoneRewards(userId, user);
+
+        // Then, award the combined three-task reward if applicable
+        await this.checkAndGrantThreeTaskReward(userId, user);
+      } catch (err) {
+        console.error('Error awarding combined three-task reward:', err);
+        // proceed without failing the whole endpoint
+      }
 
       // Calculate total earnings
       const totalEarnings = {

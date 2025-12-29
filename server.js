@@ -162,6 +162,7 @@ mongoose
     const streakRoutes = require("./routes/streak");
     const navigationRoutes = require("./routes/navigation");
     const gameOffersRoutes = require("./routes/game-offers");
+    const userGameOffersRoutes = require("./routes/user-game-offers");
     const payoutsRoutes = require("./routes/payouts");
     const fraudPreventionRoutes = require("./routes/fraud-prevention");
     const achievementRoutes = require("./routes/achievements");
@@ -210,7 +211,7 @@ mongoose
     const adjustRoutes = require("./routes/adjust");
     const adjustV2Routes = require("./routes/adjust-v2");
     const adminAdjustEventsRoutes = require("./routes/admin-adjust-events");
-    
+
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
     initializeFirebaseAdmin();
@@ -245,6 +246,7 @@ mongoose
     app.use("/api/streak", streakRoutes);
     app.use("/api/navigation", navigationRoutes);
     app.use("/api/game-offers", gameOffersRoutes);
+    app.use("/api/user/game-offers", userGameOffersRoutes);
     app.use("/api/payouts", payoutsRoutes);
     app.use("/api/fraud-prevention", fraudPreventionRoutes);
     app.use("/api/achievements", achievementRoutes);

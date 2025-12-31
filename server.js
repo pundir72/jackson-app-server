@@ -12,6 +12,7 @@ const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
 require("./instrument.js");
+const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
 let redis;

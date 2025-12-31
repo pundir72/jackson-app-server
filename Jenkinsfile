@@ -25,11 +25,12 @@ pipeline {
         stage('Gitleaks Secret Scan') {
             steps {
                 sh '''
-                echo "🔐 Running Gitleaks secret scan..."
                 docker run --rm \
                     -v "$PWD:/repo" \
                     zricethezav/gitleaks:latest detect \
                     --source="/repo" \
+                    --report-format=json \
+                    --report-path=/repo/gitleaks-report.json \
                     --exit-code=1
                 '''
             }

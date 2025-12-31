@@ -25,20 +25,16 @@ pipeline {
         stage('Gitleaks Secret Scan') {
             steps {
                 sh '''
-                echo "🔐 Running Gitleaks secret scan..."
+                    echo "🔐 Running Gitleaks secret scan..."
 
-                if ! command -v gitleaks >/dev/null 2>&1; then
-                  curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
-                  chmod +x gitleaks
-                fi
+                    if ! command -v gitleaks >/dev/null 2>&1; then
+                    curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_8.18.2_linux_x64.tar.gz -o gitleaks.tar.gz
+                    tar -xzf gitleaks.tar.gz
+                    chmod +x gitleaks
+                    sudo mv gitleaks /usr/local/bin/
+                    fi
 
-                ./gitleaks detect \
-                  --source . \
-                  --config .gitleaks.toml \
-                  --exit-code 1 \
-                  --verbose
-
-                echo "✅ Gitleaks scan passed"
+                    gitleaks detect --source . --exit-code 1
                 '''
             }
         }

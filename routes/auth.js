@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const { body, validationResult } = require("express-validator");
 const twilio = require("twilio");
 const otpConfig = require("../config/otp-config");
+const { getFirebaseAdmin } = require("../utils/firebaseAdmin");
 const {
   standardizePhone,
   findUserByPhone,
@@ -20,6 +21,7 @@ const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const passport = require("passport");
 const { sendPasswordResetEmail } = require("../utils/email");
+const admin = getFirebaseAdmin();
 
 // Twilio client initialization
 // const client = twilio(
@@ -216,13 +218,12 @@ router.post("/send-otp", async (req, res) => {
 
     await otpVerification.save();
 
-    // In production, send SMS here
+    //In production, send SMS here
     // const message = await client.messages.create({
     //   body: `Your Jackson App verification code is: ${otp}`,
     //   from: process.env.TWILIO_PHONE_NUMBER,
     //   to: `+${standardizedMobile}`
     // });
-
     res.json({
       message: "OTP sent successfully",
       mobile: standardizedMobile,
@@ -349,6 +350,23 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
+// 1. PRE-CHECK: Check if mobile/email is available before sending SMS
+router.post("/check-availability", async (req, res) => {
+  try {
+    const { mobile } = req.body;
+
+    const existingUser = await User.findOne({ mobile });
+    if (existingUser) {
+      return res
+        .status(400)
+        .json({ message: "Mobile number already registered." });
+    }
+    res.status(200).json({ message: "Available" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Sign up
 router.post(
   "/signup",
@@ -383,6 +401,7 @@ router.post(
         deviceType,
         deviceModel,
         deviceOS,
+        firebaseToken,
       } = req.body;
 
       // Standardize mobile number format
@@ -419,22 +438,32 @@ router.post(
         });
       }
 
-      // Check if OTP is verified for this mobile number
-      const OTPVerification = require("../models/OTPVerification");
-      const verifiedOTP = await findVerifiedOTPByPhone(
-        OTPVerification,
-        standardizedMobile
-      );
+      // // Check if OTP is verified for this mobile number
+      // const OTPVerification = require("../models/OTPVerification");
+      // const verifiedOTP = await findVerifiedOTPByPhone(
+      //   OTPVerification,
+      //   standardizedMobile
+      // );
 
-      if (!verifiedOTP) {
-        return res.status(400).json({
-          error: "OTP not verified",
-          message:
-            "Please verify your mobile number with OTP before completing registration. You must complete OTP verification first.",
-          requiresOTPVerification: true,
-          mobile: standardizedMobile,
-          note: "Send OTP and verify it before attempting signup",
-        });
+      // if (!verifiedOTP) {
+      //   return res.status(400).json({
+      //     error: "OTP not verified",
+      //     message:
+      //       "Please verify your mobile number with OTP before completing registration. You must complete OTP verification first.",
+      //     requiresOTPVerification: true,
+      //     mobile: standardizedMobile,
+      //     note: "Send OTP and verify it before attempting signup",
+      //   });
+      // }
+
+      // VERIFY THE TOKEN with Google (High Security)
+      // Verify the Token
+      const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+      const verifiedMobile = decodedToken.phone_number;
+      const firebaseUid = decodedToken.uid;
+      // Final security check
+      if (verifiedMobile !== mobile) {
+        return res.status(400).json({ message: "Mobile number mismatch" });
       }
 
       // Create new user with verified mobile
@@ -513,6 +542,7 @@ router.post(
             coinsEarned:
               typeof dailyEarningGoal === "number" ? dailyEarningGoal : 900,
             challengesCompleted: 3,
+            // firebaseUid: firebaseUid,
           },
         },
       });

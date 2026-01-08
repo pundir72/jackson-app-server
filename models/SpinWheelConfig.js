@@ -69,6 +69,15 @@ const spinWheelConfigSchema = new mongoose.Schema(
       diamond: { type: Number, default: 2.5 },
     },
 
+    // Additional spins per tier (daily)
+    additionalSpinsPerTier: {
+      bronze: { type: Number, default: 5 },
+      silver: { type: Number, default: 0 },
+      gold: { type: Number, default: 10 },
+      platinum: { type: Number, default: 50 },
+      diamond: { type: Number, default: 0 },
+    },
+
     // Status and metadata
     isActive: {
       type: Boolean,
@@ -146,6 +155,14 @@ spinWheelConfigSchema.methods.isUserEligible = function (userTier) {
  */
 spinWheelConfigSchema.methods.getVIPMultiplier = function (userTier) {
   return this.vipMultipliers[userTier.toLowerCase()] || 1.0;
+};
+
+/**
+ * Get max spins per day for user tier
+ */
+spinWheelConfigSchema.methods.getMaxSpinsForUser = function (userTier) {
+  const additional = this.additionalSpinsPerTier[userTier.toLowerCase()] || 0;
+  return this.maxSpinsPerDay + additional;
 };
 
 /**

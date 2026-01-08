@@ -15,8 +15,9 @@ router.get("/welcome-bonus-timer", protect, async (req, res) => {
     const user = await User.findById(req.user.userId)
       .select("signup createdAt xp games")
       .lean();
-    if (!user)
+    if (!user) {
       return res.status(404).json({ success: false, error: "User not found" });
+    }
 
     const config = await WelcomeBonusTimer.getActiveRule();
     if (!config || !config.isActive) {
@@ -45,80 +46,29 @@ router.get("/welcome-bonus-timer", protect, async (req, res) => {
         : 0;
     const gameId = req.query.gameId;
 
-    let unlockTimeHours,
-      completionDeadlineDays,
-      timerInfo = null,
-      gameBonusTasks = null;
-
-    if (gameId) {
-      // Use game-specific calculation when gameId provided
-      try {
-        unlockTimeHours = config.calculateUnlockTime(gameId, userXp);
-        completionDeadlineDays = config.calculateCompletionDeadline(
-          gameId,
-          userXp
-        );
-        timerInfo = config.getTimerInfo(gameId, userXp, signupAt);
-        gameBonusTasks = config.getBonusTasksForGame(gameId);
-      } catch (e) {
-        // Fallback to defaults if any error
-        unlockTimeHours =
-          config.getUnlockTimeForXpTier(userXp) || config.unlockTimeHours;
-        completionDeadlineDays =
-          config.getCompletionDeadlineForXpTier(userXp) ||
-          config.completionDeadlineDays;
-      }
-    } else {
-      // No gameId: use XP-tier or default values
-      unlockTimeHours =
-        config.getUnlockTimeForXpTier(userXp) || config.unlockTimeHours;
-      completionDeadlineDays =
-        config.getCompletionDeadlineForXpTier(userXp) ||
-        config.completionDeadlineDays;
-
-      const unlockTime = new Date(
-        signupAt.getTime() + unlockTimeHours * 60 * 60 * 1000
-      );
-      const completionDeadline = new Date(
-        unlockTime.getTime() + completionDeadlineDays * 24 * 60 * 60 * 1000
-      );
-      const now = new Date();
-
-      timerInfo = {
-        startedAt: signupAt,
-        unlockTime,
-        completionDeadline,
-        isUnlocked: now >= unlockTime,
-        isExpired: now > completionDeadline,
-        timeUntilUnlock: Math.max(0, unlockTime.getTime() - now.getTime()),
-        timeUntilExpiry: Math.max(
-          0,
-          completionDeadline.getTime() - now.getTime()
-        ),
-        unlockTimeHours,
-        completionDeadlineDays,
-      };
-    }
-
-    const payload = {
-      isActive: !!config.isActive,
-      metadata: config.metadata || {},
-      maxGamesWithBonusTasks: config.maxGamesWithBonusTasks,
-      maxBonusTasksPerGame: config.maxBonusTasksPerGame,
-      timer: timerInfo,
-      gameId: gameId || null,
-      gameBonusTasks: gameBonusTasks || null,
+    // Prepare context for the toJSON transform
+    const userContext = {
+      gameId,
+      userXp,
+      gameDownloadTime: signupAt,
     };
+    
+    // The toJSON method on the model will now calculate the timer dynamically
+    const payload = config.toJSON({ userContext });
 
-    // If bonus has expired, return simple expired message
-    if (timerInfo && timerInfo.isExpired) {
+    // Add game-specific bonus tasks if a gameId is provided
+    payload.gameBonusTasks = gameId ? config.getBonusTasksForGame(gameId) : null;
+    payload.gameId = gameId || null;
+
+    // If bonus has expired, return a simplified expired message
+    if (payload.timer && payload.timer.isExpired) {
       return res.json({
         success: true,
         data: {
           isActive: false,
           message: "Bonus expired",
-          expiredAt: timerInfo.completionDeadline,
-          startedAt: timerInfo.startedAt,
+          expiredAt: payload.timer.completionDeadline,
+          startedAt: payload.timer.startedAt,
         },
       });
     }

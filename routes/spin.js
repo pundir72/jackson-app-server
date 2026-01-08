@@ -160,7 +160,10 @@ router.get("/status", protect, async (req, res) => {
     }
 
     // Get active spin wheel configuration
-    const config = await getSpinWheelConfig();
+    const config = await SpinWheelConfig.findOne({ isActive: true });
+    if (!config) {
+      config = DEFAULT_SPIN_CONFIG;
+    }
 
     // Get user's VIP tier
     const userTier = user.vip?.level || "Bronze";
@@ -229,9 +232,21 @@ router.get("/status", protect, async (req, res) => {
 
     // Check VIP benefits
     const vipBenefits = await getUserVIPBenefits(req.user.userId);
-    const dailyLimit = vipBenefits.unlimitedSpins
-      ? 999
-      : config.maxSpinsPerDay || 3;
+    let dailyLimit;
+    if (config instanceof SpinWheelConfig) {
+      dailyLimit = vipBenefits.unlimitedSpins
+        ? 999
+        : config.getMaxSpinsForUser(userTier);
+    } else {
+      // DEFAULT_SPIN_CONFIG
+      const additional =
+        { bronze: 5, silver: 0, gold: 10, platinum: 50, diamond: 0 }[
+          userTier.toLowerCase()
+        ] || 0;
+      dailyLimit = vipBenefits.unlimitedSpins
+        ? 999
+        : (config.maxSpinsPerDay || 3) + additional;
+    }
     const remainingSpins = Math.max(0, dailyLimit - todaySpins);
 
     // Check cooldown period
@@ -296,7 +311,10 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    const config = await getSpinWheelConfig();
+    const config = await SpinWheelConfig.findOne({ isActive: true });
+    if (!config) {
+      config = DEFAULT_SPIN_CONFIG;
+    }
     const userTier = user.vip?.level || "Bronze";
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
@@ -355,9 +373,21 @@ router.post("/spin", protect, async (req, res) => {
     });
 
     const vipBenefits = await getUserVIPBenefits(userId);
-    const dailyLimit = vipBenefits.unlimitedSpins
-      ? 999
-      : config.maxSpinsPerDay || 3;
+    let dailyLimit;
+    if (config instanceof SpinWheelConfig) {
+      dailyLimit = vipBenefits.unlimitedSpins
+        ? 999
+        : config.getMaxSpinsForUser(userTier);
+    } else {
+      // DEFAULT_SPIN_CONFIG
+      const additional =
+        { bronze: 5, silver: 0, gold: 10, platinum: 50, diamond: 0 }[
+          userTier.toLowerCase()
+        ] || 0;
+      dailyLimit = vipBenefits.unlimitedSpins
+        ? 999
+        : (config.maxSpinsPerDay || 3) + additional;
+    }
 
     if (todaySpins >= dailyLimit) {
       return res.status(400).json({

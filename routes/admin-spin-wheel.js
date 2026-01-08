@@ -694,6 +694,13 @@ router.get("/config", adminAuth, async (req, res) => {
           platinum: 2.0,
           diamond: 2.5,
         },
+        additionalSpinsPerTier: {
+          bronze: 5,
+          silver: 0,
+          gold: 10,
+          platinum: 50,
+          diamond: 0,
+        },
         isActive: true,
         visualSettings: {
           wheelColors: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"],
@@ -812,6 +819,7 @@ router.post(
         eligibleTiers = TIER_LIST;
 
       const vipMultipliers = req.body.vipMultipliers;
+      const additionalSpinsPerTier = req.body.additionalSpinsPerTier;
       const visualSettings = req.body.visualSettings;
       const startDate = req.body.startDate
         ? new Date(req.body.startDate)
@@ -834,6 +842,13 @@ router.post(
           gold: 1.5,
           platinum: 2.0,
           diamond: 2.5,
+        },
+        additionalSpinsPerTier: additionalSpinsPerTier || {
+          bronze: 5,
+          silver: 0,
+          gold: 10,
+          platinum: 50,
+          diamond: 0,
         },
         visualSettings: visualSettings || {
           wheelColors: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"],

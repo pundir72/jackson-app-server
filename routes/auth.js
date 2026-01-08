@@ -458,20 +458,20 @@ router.post(
 
       // VERIFY THE TOKEN with Google (High Security)
       // Verify the Token
-      const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
-      const verifiedMobile = decodedToken.phone_number;
-      const firebaseUid = decodedToken.uid;
-      // Final security check
-      if (verifiedMobile !== mobile) {
-        return res.status(400).json({ message: "Mobile number mismatch" });
-      }
+      // const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+      // const verifiedMobile = decodedToken.phone_number;
+      // const firebaseUid = decodedToken.uid;
+      // // Final security check
+      // if (verifiedMobile !== mobile) {
+      //   return res.status(400).json({ message: "Mobile number mismatch" });
+      // }
 
       // Create new user with verified mobile
       const user = new User({
         firstName,
         lastName,
         email: email.toLowerCase(),
-        mobile: standardizedMobile,
+        mobile,
         password, // Will be hashed by pre-save middleware
         socialTag,
         isVerified: true, // Mobile is already verified

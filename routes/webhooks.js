@@ -10,6 +10,7 @@ const crypto = require("crypto");
 const config = require("../config/config");
 const UserChallengeProgress = require("../models/UserChallengeProgress");
 const BesitosConversion = require("../models/BesitosConversion");
+const EverflowConversion = require("../models/EverflowConversion");
 const DailyChallenge = require("../models/DailyChallenge");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
@@ -1592,5 +1593,688 @@ async function processReinstall(callback) {
     }
   }
 }
+
+/**
+ * @route   POST /api/webhooks/everflow/postback
+ * @desc    Handle Everflow conversion postback (POST request)
+ * @body    {Object} - Everflow postback data
+ * @access  Public (but should verify signature in production)
+ */
+router.post("/everflow/postback", async (req, res) => {
+  try {
+    console.log("\n=== EVERFLOW POSTBACK START ===");
+    console.log("Everflow postback received:", JSON.stringify(req.body, null, 2));
+    console.log("Headers:", JSON.stringify(req.headers, null, 2));
+
+    const postbackData = req.body;
+
+    // Extract key fields from Everflow postback
+    // Everflow postback structure: uses sub_id1, sub_id2, etc. for user tracking
+    // Reference: https://developers.everflow.io/docs/affiliate/postbacks/
+    const {
+      transaction_id,
+      offer_id,
+      network_id,
+      advertiser_id,
+      conversion_id,
+      goal_id,
+      user_id,
+      sub_id1,        // Everflow uses sub_id1 for user tracking
+      sub_id2,         // Additional tracking parameter
+      sub_id3,         // Additional tracking parameter
+      revenue,
+      payout,
+      currency,
+      status,
+      event_timestamp,
+      conversion_status,
+      ip,
+      user_agent,
+      country,
+      offer_name,
+      ...additionalData
+    } = postbackData;
+
+    // Validate required fields
+    if (!transaction_id && !conversion_id) {
+      console.warn("⚠️ Everflow postback missing transaction_id/conversion_id");
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: transaction_id or conversion_id",
+      });
+    }
+
+    // Verify webhook signature if configured
+    // Everflow signature verification method (check documentation for exact method)
+    if (config.EVERFLOW_WEBHOOK_SECRET) {
+      const signature = req.headers["x-everflow-signature"] || 
+                       req.headers["x-signature"] || 
+                       req.headers["x-eflow-signature"] ||
+                       req.body.signature;
+      
+      if (signature) {
+        const crypto = require("crypto");
+        
+        // Everflow may use different signature methods:
+        // Method 1: HMAC SHA256 of request body
+        const bodyString = typeof postbackData === "string" 
+          ? postbackData 
+          : JSON.stringify(postbackData);
+        
+        const expectedSignature = crypto
+          .createHmac("sha256", config.EVERFLOW_WEBHOOK_SECRET)
+          .update(bodyString)
+          .digest("hex");
+
+        // Compare signatures (case-insensitive for some implementations)
+        if (signature.toLowerCase() !== expectedSignature.toLowerCase() && 
+            signature !== expectedSignature) {
+          console.error("❌ Everflow postback signature verification failed");
+          console.error("   Expected:", expectedSignature);
+          console.error("   Received:", signature);
+          return res.status(401).json({
+            success: false,
+            error: "Invalid signature",
+          });
+        }
+        
+        console.log("✅ Everflow postback signature verified");
+      } else {
+        console.warn("⚠️ Everflow postback received without signature - proceeding without verification");
+      }
+    } else {
+      console.warn("⚠️ EVERFLOW_WEBHOOK_SECRET not configured, skipping verification");
+    }
+
+    // Find user by Everflow user_id or transaction metadata
+    let user = null;
+    if (user_id) {
+      // Try to find user by Everflow user_id stored in metadata
+      user = await User.findOne({
+        "metadata.everflow.userId": user_id,
+      });
+    }
+
+    // If user not found, try to extract from transaction_id or conversion_id
+    if (!user && transaction_id) {
+      // Check if we have a conversion record with this transaction_id
+      const existingConversion = await EverflowConversion.findOne({
+        everflowTransactionId: transaction_id,
+      });
+      if (existingConversion) {
+        user = await User.findById(existingConversion.userId);
+      }
+    }
+
+    if (!user) {
+      console.warn("⚠️ User not found for Everflow postback - transaction_id:", transaction_id);
+      // Still save the conversion for later processing
+      const conversion = new EverflowConversion({
+        userId: new require("mongoose").Types.ObjectId(), // Placeholder
+        everflowTransactionId: transaction_id,
+        offerId: offer_id || "unknown",
+        offerName: additionalData.offer_name || "Unknown Offer",
+        networkId: network_id,
+        advertiserId: advertiser_id,
+        conversionId: conversion_id || transaction_id,
+        postbackId: goal_id,
+        conversionStatus: conversion_status || status || "pending",
+        rewardAmount: payout || revenue || 0,
+        revenue: {
+          amount: revenue || payout || 0,
+          currency: currency || "USD",
+        },
+        eventTimestamp: event_timestamp ? new Date(event_timestamp) : new Date(),
+        metadata: {
+          ip,
+          userAgent: user_agent,
+          country,
+          additionalData,
+        },
+        notes: "User not found - pending user association",
+      });
+
+      await conversion.save();
+      return res.status(200).json({
+        success: true,
+        message: "Postback received but user not found - saved for later processing",
+        conversionId: conversion._id,
+      });
+    }
+
+    console.log("✅ User found:", user._id.toString());
+
+    // Create or update Everflow conversion record
+    let conversion = await EverflowConversion.findOne({
+      $or: [
+        { everflowTransactionId: transaction_id },
+        { conversionId: conversion_id || transaction_id },
+      ],
+    });
+
+    if (!conversion) {
+      conversion = new EverflowConversion({
+        userId: user._id,
+        everflowTransactionId: transaction_id,
+        offerId: offer_id || "unknown",
+        offerName: additionalData.offer_name || additionalData.offer_name || "Unknown Offer",
+        networkId: network_id,
+        advertiserId: advertiser_id,
+        conversionId: conversion_id || transaction_id,
+        postbackId: goal_id,
+        conversionStatus: conversion_status || status || "pending",
+        rewardAmount: payout || revenue || 0,
+        revenue: {
+          amount: revenue || payout || 0,
+          currency: currency || "USD",
+        },
+        eventTimestamp: event_timestamp ? new Date(event_timestamp) : new Date(),
+        metadata: {
+          ip,
+          userAgent: user_agent,
+          country,
+          additionalData,
+        },
+      });
+    } else {
+      // Update existing conversion
+      conversion.conversionStatus = conversion_status || status || conversion.conversionStatus;
+      if (conversion_status === "approved" || status === "approved" || conversion_status === "completed" || status === "completed") {
+        conversion.completedAt = new Date();
+      }
+      if (revenue || payout) {
+        conversion.revenue = {
+          amount: revenue || payout || 0,
+          currency: currency || conversion.revenue?.currency || "USD",
+        };
+      }
+    }
+
+    await conversion.save();
+    console.log("✅ Conversion record saved:", conversion._id);
+
+    // If conversion is completed/approved, process rewards
+    const isCompleted = conversion.conversionStatus === "completed" || 
+                        conversion.conversionStatus === "approved" ||
+                        status === "approved" ||
+                        status === "completed";
+
+    if (isCompleted && !conversion.isCredited) {
+      console.log("\n--- Processing Everflow Rewards ---");
+      
+      // Check if it's part of a daily challenge
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const challenge = await DailyChallenge.findOne({
+        challengeDate: today,
+        isVisible: true,
+        status: "live",
+        "sdkTask.provider": "everflow",
+        "sdkTask.offerId": offer_id,
+      });
+
+      if (challenge) {
+        // Get user's progress for this challenge
+        let progress = await UserChallengeProgress.getUserChallengeForDate(
+          user._id,
+          today
+        );
+
+        if (!progress) {
+          progress = await UserChallengeProgress.getOrCreateTodayChallenge(
+            user._id,
+            challenge._id,
+            today
+          );
+        }
+
+        // Update SDK task progress
+        progress.sdkTaskProgress = {
+          taskStarted: true,
+          taskCompleted: true,
+          externalTaskId: transaction_id || conversion_id,
+          conversionId: conversion._id,
+        };
+
+        // Mark challenge as completed
+        await progress.markCompleted({
+          coins: challenge.coinReward,
+          xp: challenge.xpReward,
+        });
+
+        // Credit user rewards
+        user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
+        const baseXp = challenge.xpReward;
+        const { finalXP } = await applyTierMultiplierToXP(user, baseXp);
+
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
+
+        await user.save();
+
+        // Mark conversion as credited
+        await conversion.creditRewards(challenge.coinReward, finalXP);
+
+        console.log(
+          `✅ Daily challenge completed via Everflow webhook for user ${user._id}`
+        );
+      } else {
+        // No challenge, credit direct rewards based on conversion payout
+        const coinsToCredit = Math.floor((payout || revenue || 0) * 100); // Convert to coins (adjust multiplier as needed)
+        const xpToCredit = Math.floor(coinsToCredit / 10); // 1 XP per 10 coins (adjust as needed)
+
+        user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
+        const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
+
+        await user.save();
+
+        // Create transaction record
+        const transaction = new Transaction({
+          userId: user._id,
+          type: "credit",
+          amount: coinsToCredit,
+          currency: "coins",
+          description: `Everflow conversion - ${conversion.offerName}`,
+          referenceId: transaction_id || conversion_id,
+          metadata: {
+            source: "everflow_webhook",
+            conversionId: conversion._id,
+            offerId: offer_id,
+            revenue: revenue || payout || 0,
+          },
+        });
+        await transaction.save();
+
+        // Mark conversion as credited
+        await conversion.creditRewards(coinsToCredit, finalXP);
+
+        console.log(
+          `✅ Rewards credited via Everflow webhook: ${coinsToCredit} coins, ${finalXP} XP`
+        );
+      }
+    }
+
+    console.log("=== EVERFLOW POSTBACK END ===\n");
+
+    res.status(200).json({
+      success: true,
+      message: "Webhook processed successfully",
+      data: {
+        conversionId: conversion._id,
+        status: conversion.conversionStatus,
+        credited: conversion.isCredited,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error processing Everflow webhook:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process webhook",
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * Shared function to process Everflow postback
+ */
+async function processEverflowPostback(postbackData, req, res) {
+  try {
+    // Extract key fields from Everflow postback
+    // Everflow uses sub_id1, sub_id2, etc. for user tracking
+    const {
+      transaction_id,
+      offer_id,
+      network_id,
+      advertiser_id,
+      conversion_id,
+      goal_id,
+      user_id,
+      sub_id1,        // Primary user tracking parameter
+      sub_id2,
+      sub_id3,
+      revenue,
+      payout,
+      currency,
+      status,
+      event_timestamp,
+      conversion_status,
+      ip,
+      user_agent,
+      country,
+      offer_name,
+      ...additionalData
+    } = postbackData;
+
+    // Validate required fields
+    if (!transaction_id && !conversion_id) {
+      console.warn("⚠️ Everflow postback missing transaction_id/conversion_id");
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: transaction_id or conversion_id",
+      });
+    }
+
+    // Verify webhook signature if configured (same as above)
+    if (config.EVERFLOW_WEBHOOK_SECRET) {
+      const signature = req.headers["x-everflow-signature"] || 
+                       req.headers["x-signature"] || 
+                       req.headers["x-eflow-signature"] ||
+                       postbackData.signature;
+      
+      if (signature) {
+        const crypto = require("crypto");
+        const bodyString = typeof postbackData === "string" 
+          ? postbackData 
+          : JSON.stringify(postbackData);
+        
+        const expectedSignature = crypto
+          .createHmac("sha256", config.EVERFLOW_WEBHOOK_SECRET)
+          .update(bodyString)
+          .digest("hex");
+
+        if (signature.toLowerCase() !== expectedSignature.toLowerCase() && 
+            signature !== expectedSignature) {
+          console.error("❌ Everflow postback signature verification failed");
+          return res.status(401).json({
+            success: false,
+            error: "Invalid signature",
+          });
+        }
+        
+        console.log("✅ Everflow postback signature verified");
+      } else {
+        console.warn("⚠️ Everflow postback received without signature - proceeding without verification");
+      }
+    } else {
+      console.warn("⚠️ EVERFLOW_WEBHOOK_SECRET not configured, skipping verification");
+    }
+
+    // Find user by Everflow user_id (sub_id1), sub_id1, or transaction metadata
+    // Everflow sends user ID as sub_id1 in postback
+    let user = null;
+    const everflowUserId = user_id || sub_id1 || postbackData.sub_id_1;
+    
+    if (everflowUserId) {
+      // Try multiple lookup methods:
+      // 1. Direct user ID if sub_id1 is our internal user ID
+      try {
+        user = await User.findById(everflowUserId);
+      } catch (e) {
+        // Not a valid ObjectId, try other methods
+      }
+      
+      // 2. Find by Everflow user_id stored in metadata
+      if (!user) {
+        user = await User.findOne({
+          "metadata.everflow.userId": everflowUserId,
+        });
+      }
+      
+      // 3. Find by sub_id1 in metadata
+      if (!user) {
+        user = await User.findOne({
+          "metadata.everflow.sub_id1": everflowUserId,
+        });
+      }
+    }
+
+    if (!user && transaction_id) {
+      const existingConversion = await EverflowConversion.findOne({
+        everflowTransactionId: transaction_id,
+      });
+      if (existingConversion) {
+        user = await User.findById(existingConversion.userId);
+      }
+    }
+
+    if (!user) {
+      console.warn("⚠️ User not found for Everflow postback - transaction_id:", transaction_id);
+      const conversion = new EverflowConversion({
+        userId: new require("mongoose").Types.ObjectId(),
+        everflowTransactionId: transaction_id,
+        offerId: offer_id || "unknown",
+        offerName: offer_name || "Unknown Offer",
+        networkId: network_id,
+        advertiserId: advertiser_id,
+        conversionId: conversion_id || transaction_id,
+        postbackId: goal_id,
+        conversionStatus: conversion_status || status || "pending",
+        rewardAmount: payout || revenue || 0,
+        revenue: {
+          amount: revenue || payout || 0,
+          currency: currency || "USD",
+        },
+        eventTimestamp: event_timestamp ? new Date(event_timestamp) : new Date(),
+        metadata: {
+          ip,
+          userAgent: user_agent,
+          country,
+          additionalData,
+        },
+        notes: "User not found - pending user association",
+      });
+
+      await conversion.save();
+      return res.status(200).json({
+        success: true,
+        message: "Postback received but user not found - saved for later processing",
+        conversionId: conversion._id,
+      });
+    }
+
+    console.log("✅ User found:", user._id.toString());
+
+    let conversion = await EverflowConversion.findOne({
+      $or: [
+        { everflowTransactionId: transaction_id },
+        { conversionId: conversion_id || transaction_id },
+      ],
+    });
+
+    if (!conversion) {
+      conversion = new EverflowConversion({
+        userId: user._id,
+        everflowTransactionId: transaction_id,
+        offerId: offer_id || "unknown",
+        offerName: offer_name || "Unknown Offer",
+        networkId: network_id,
+        advertiserId: advertiser_id,
+        conversionId: conversion_id || transaction_id,
+        postbackId: goal_id,
+        conversionStatus: conversion_status || status || "pending",
+        rewardAmount: payout || revenue || 0,
+        revenue: {
+          amount: revenue || payout || 0,
+          currency: currency || "USD",
+        },
+        eventTimestamp: event_timestamp ? new Date(event_timestamp) : new Date(),
+        metadata: {
+          ip,
+          userAgent: user_agent,
+          country,
+          additionalData,
+        },
+      });
+    } else {
+      conversion.conversionStatus = conversion_status || status || conversion.conversionStatus;
+      if (conversion_status === "approved" || status === "approved" || conversion_status === "completed" || status === "completed") {
+        conversion.completedAt = new Date();
+      }
+      if (revenue || payout) {
+        conversion.revenue = {
+          amount: revenue || payout || 0,
+          currency: currency || conversion.revenue?.currency || "USD",
+        };
+      }
+    }
+
+    await conversion.save();
+    console.log("✅ Conversion record saved:", conversion._id);
+
+    const isCompleted = conversion.conversionStatus === "completed" || 
+                        conversion.conversionStatus === "approved" ||
+                        status === "approved" ||
+                        status === "completed";
+
+    if (isCompleted && !conversion.isCredited) {
+      console.log("\n--- Processing Everflow Rewards ---");
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const challenge = await DailyChallenge.findOne({
+        challengeDate: today,
+        isVisible: true,
+        status: "live",
+        "sdkTask.provider": "everflow",
+        "sdkTask.offerId": offer_id,
+      });
+
+      if (challenge) {
+        let progress = await UserChallengeProgress.getUserChallengeForDate(
+          user._id,
+          today
+        );
+
+        if (!progress) {
+          progress = await UserChallengeProgress.getOrCreateTodayChallenge(
+            user._id,
+            challenge._id,
+            today
+          );
+        }
+
+        progress.sdkTaskProgress = {
+          taskStarted: true,
+          taskCompleted: true,
+          externalTaskId: transaction_id || conversion_id,
+          conversionId: conversion._id,
+        };
+
+        await progress.markCompleted({
+          coins: challenge.coinReward,
+          xp: challenge.xpReward,
+        });
+
+        user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
+        const baseXp = challenge.xpReward;
+        const { finalXP } = await applyTierMultiplierToXP(user, baseXp);
+
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
+
+        await user.save();
+        await conversion.creditRewards(challenge.coinReward, finalXP);
+
+        console.log(
+          `✅ Daily challenge completed via Everflow webhook for user ${user._id}`
+        );
+      } else {
+        const coinsToCredit = Math.floor((payout || revenue || 0) * 100);
+        const xpToCredit = Math.floor(coinsToCredit / 10);
+
+        user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
+        const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);
+        user.xp.current = (user.xp.current || 0) + finalXP;
+        user.xp.total = (user.xp.total || 0) + finalXP;
+
+        await user.save();
+
+        const transaction = new Transaction({
+          userId: user._id,
+          type: "credit",
+          amount: coinsToCredit,
+          currency: "coins",
+          description: `Everflow conversion - ${conversion.offerName}`,
+          referenceId: transaction_id || conversion_id,
+          metadata: {
+            source: "everflow_webhook",
+            conversionId: conversion._id,
+            offerId: offer_id,
+            revenue: revenue || payout || 0,
+          },
+        });
+        await transaction.save();
+        await conversion.creditRewards(coinsToCredit, finalXP);
+
+        console.log(
+          `✅ Rewards credited via Everflow webhook: ${coinsToCredit} coins, ${finalXP} XP`
+        );
+      }
+    }
+
+    console.log("=== EVERFLOW POSTBACK END ===\n");
+
+    return res.status(200).json({
+      success: true,
+      message: "Webhook processed successfully",
+      data: {
+        conversionId: conversion._id,
+        status: conversion.conversionStatus,
+        credited: conversion.isCredited,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error processing Everflow postback:", error);
+    throw error;
+  }
+}
+
+/**
+ * @route   POST /api/webhooks/everflow/postback
+ * @desc    Handle Everflow conversion postback (POST request)
+ * @body    {Object} - Everflow postback data
+ * @access  Public (but should verify signature in production)
+ */
+// REMOVED DUPLICATE - Using the first implementation at line 1603
+
+/**
+ * @route   GET /api/webhooks/everflow/postback
+ * @desc    Handle Everflow conversion postback (GET request - for URL-based postbacks)
+ * @query   {string} transaction_id - Transaction ID
+ * @query   {string} offer_id - Offer ID
+ * @query   {string} status - Conversion status
+ * @access  Public
+ */
+router.get("/everflow/postback", async (req, res) => {
+  try {
+    console.log("\n=== EVERFLOW GET POSTBACK START ===");
+    console.log("Query params:", req.query);
+
+    const postbackData = {
+      transaction_id: req.query.transaction_id,
+      offer_id: req.query.offer_id,
+      network_id: req.query.network_id,
+      conversion_id: req.query.conversion_id,
+      goal_id: req.query.goal_id,
+      user_id: req.query.user_id,
+      sub_id1: req.query.sub_id1 || req.query.sub_id_1, // Everflow user tracking
+      sub_id2: req.query.sub_id2 || req.query.sub_id_2,
+      sub_id3: req.query.sub_id3 || req.query.sub_id_3,
+      revenue: req.query.revenue ? parseFloat(req.query.revenue) : null,
+      payout: req.query.payout ? parseFloat(req.query.payout) : null,
+      currency: req.query.currency || "USD",
+      status: req.query.status,
+      conversion_status: req.query.conversion_status || req.query.status,
+      event_timestamp: req.query.event_timestamp,
+      ip: req.ip || req.connection.remoteAddress,
+      user_agent: req.headers["user-agent"],
+      country: req.query.country,
+      offer_name: req.query.offer_name,
+    };
+
+    await processEverflowPostback(postbackData, req, res);
+  } catch (error) {
+    console.error("❌ Error processing Everflow GET postback:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process webhook",
+    });
+  }
+});
 
 module.exports = router;

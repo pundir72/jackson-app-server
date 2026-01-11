@@ -10,6 +10,8 @@ const protect = require("../middleware/auth");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const bitlabsNonGames = require("../utils/bitlabs-non-games");
+const everflowService = require("../services/everflow.service");
+const config = require("../config/config");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 
 // Helper function to calculate age from dateOfBirth or ageRange
@@ -83,17 +85,25 @@ async function getAdminConfiguredOffers(
     const SurveyOffer = require("../models/SurveyOffer");
     const NonGameOffer = require("../models/NonGameOffer");
 
-    // Find BitLab SDK
-    const bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
+    // Find SDK - try Bitlabs first, then Everflow
+    let sdk = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
+    let sdkProvider = "bitlabs";
+    
+    if (!sdk) {
+      // Try Everflow SDK
+      sdk = await SurveySDK.findOne({ name: { $regex: /everflow/i } });
+      sdkProvider = "everflow";
+    }
 
-    if (!bitlabSDK) {
-      console.warn("⚠️ [getAdminConfiguredOffers] BitLab SDK not found");
+    if (!sdk) {
+      console.warn("⚠️ [getAdminConfiguredOffers] No SDK found (Bitlabs or Everflow)");
       return [];
     }
 
-    console.log("🟢 [getAdminConfiguredOffers] BitLab SDK found:", {
-      sdkId: bitlabSDK._id.toString(),
-      name: bitlabSDK.name,
+    console.log("🟢 [getAdminConfiguredOffers] SDK found:", {
+      sdkId: sdk._id.toString(),
+      name: sdk.name,
+      provider: sdkProvider,
     });
 
     let allOffers = [];
@@ -102,7 +112,7 @@ async function getAdminConfiguredOffers(
     if (offerType === "all") {
       // Fetch surveys from SurveyOffer
       const surveyQuery = {
-        sdkId: bitlabSDK._id,
+        sdkId: sdk._id,
         offerType: "survey",
         status: "live",
       };
@@ -113,7 +123,7 @@ async function getAdminConfiguredOffers(
 
       // Fetch non-gaming offers from NonGameOffer
       const nonGameQuery = {
-        sdkId: bitlabSDK._id,
+        sdkId: sdk._id,
         status: "live",
       };
       const nonGameOffers = await NonGameOffer.find(nonGameQuery)
@@ -129,7 +139,7 @@ async function getAdminConfiguredOffers(
 
       // Build query
       const query = {
-        sdkId: bitlabSDK._id,
+        sdkId: sdk._id,
         status: "live",
       };
 
@@ -197,12 +207,10 @@ async function getAdminConfiguredOffers(
       filteredOut: allOffers.length - eligibleOffers.length,
     });
 
-    // INDUSTRIAL-LEVEL: Fetch fresh offers from Bitlabs with user's X-User-Id
+    // INDUSTRIAL-LEVEL: Fetch fresh offers from SDK with user's X-User-Id
     // This ensures click URLs are user-specific and properly tracked
     if (eligibleOffers.length > 0 && userId) {
       try {
-        // Determine which Bitlabs API function to call based on offer type
-        let bitlabsResult = null;
         const userProfileForAPI = {
           ...userProfile,
           platform: "mobile",
@@ -213,110 +221,137 @@ async function getAdminConfiguredOffers(
           ip: req?.ip || req?.connection?.remoteAddress,
         };
 
-        if (offerType === "survey" || offerType === "surveys") {
-          bitlabsResult = await bitlabsNonGames.getSurveys({
-            userId: userId,
-            userProfile: userProfileForAPI,
-            category: category || "all",
-          });
-        } else if (offerType === "cashback") {
-          bitlabsResult = await bitlabsNonGames.getCashbackOffers({
-            userId: userId,
-            userProfile: userProfileForAPI,
-            category: category || "all",
-          });
-        } else if (
-          offerType === "magic_receipt" ||
-          offerType === "magic-receipts" ||
-          offerType === "magicReceipts"
-        ) {
-          bitlabsResult = await bitlabsNonGames.getMagicReceipts({
-            userId: userId,
-            userProfile: userProfileForAPI,
-            category: category || "all",
-          });
-        } else if (offerType === "shopping") {
-          bitlabsResult = await bitlabsNonGames.getShoppingOffers({
-            userId: userId,
-            userProfile: userProfileForAPI,
-            category: category || "all",
-          });
-        } else if (offerType === "all") {
-          // For "all", fetch all types and combine
-          bitlabsResult = await bitlabsNonGames.getNonGameOffers({
-            userId: userId,
-            userProfile: userProfileForAPI,
-            type: "all",
-            category: category || "all",
-          });
+        let apiResult = null;
+
+        if (sdkProvider === "bitlabs") {
+          // Bitlabs API calls
+          const bitlabsNonGames = require("../utils/bitlabs-non-games");
+          
+          if (offerType === "survey" || offerType === "surveys") {
+            apiResult = await bitlabsNonGames.getSurveys({
+              userId: userId,
+              userProfile: userProfileForAPI,
+              category: category || "all",
+            });
+          } else if (offerType === "cashback") {
+            apiResult = await bitlabsNonGames.getCashbackOffers({
+              userId: userId,
+              userProfile: userProfileForAPI,
+              category: category || "all",
+            });
+          } else if (
+            offerType === "magic_receipt" ||
+            offerType === "magic-receipts" ||
+            offerType === "magicReceipts"
+          ) {
+            apiResult = await bitlabsNonGames.getMagicReceipts({
+              userId: userId,
+              userProfile: userProfileForAPI,
+              category: category || "all",
+            });
+          } else if (offerType === "shopping") {
+            apiResult = await bitlabsNonGames.getShoppingOffers({
+              userId: userId,
+              userProfile: userProfileForAPI,
+              category: category || "all",
+            });
+          } else if (offerType === "all") {
+            // For "all", fetch all types and combine
+            apiResult = await bitlabsNonGames.getNonGameOffers({
+              userId: userId,
+              userProfile: userProfileForAPI,
+              type: "all",
+              category: category || "all",
+            });
+          }
+        } else if (sdkProvider === "everflow") {
+          // Everflow API calls
+          const everflowService = require("../services/everflow.service");
+          
+          if (everflowService.isConfigured()) {
+            const queryParams = {
+              offer_status: "active",
+              userId: userId, // Pass user ID for user-specific click URLs (sub_id1 tracking)
+            };
+            
+            if (category && category !== "all") {
+              queryParams.category = category;
+            }
+            
+            apiResult = await everflowService.getOffers(queryParams);
+            
+            // Normalize Everflow response to match Bitlabs format
+            if (apiResult.success && apiResult.data) {
+              apiResult = {
+                success: true,
+                offers: apiResult.data,
+                categorized: {
+                  surveys: apiResult.data.filter(o => (o.offerType || o.type) === "survey"),
+                  cashback: apiResult.data.filter(o => (o.offerType || o.type) === "cashback"),
+                  shopping: apiResult.data.filter(o => (o.offerType || o.type) === "shopping"),
+                  magicReceipts: apiResult.data.filter(o => (o.offerType || o.type) === "magic_receipt"),
+                  other: apiResult.data.filter(o => !["survey", "cashback", "shopping", "magic_receipt"].includes(o.offerType || o.type)),
+                },
+                totalOffers: apiResult.data.length,
+              };
+            }
+          }
         }
 
-        // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
+        // 🔵 RAW API RESPONSE - Direct response from third-party API
         console.log(
-          "\n🔵 [BITLABS API] ========== RAW API RESPONSE =========="
+          `\n🔵 [${sdkProvider.toUpperCase()} API] ========== RAW API RESPONSE ==========`
         );
-        console.log("🔵 [BITLABS API] Offer Type:", offerType);
-        console.log("🔵 [BITLABS API] User ID:", userId);
-        console.log("🔵 [BITLABS API] Success:", bitlabsResult?.success);
+        console.log(`🔵 [${sdkProvider.toUpperCase()} API] Offer Type:`, offerType);
+        console.log(`🔵 [${sdkProvider.toUpperCase()} API] User ID:`, userId);
+        console.log(`🔵 [${sdkProvider.toUpperCase()} API] Success:`, apiResult?.success);
         console.log(
-          "🔵 [BITLABS API] Full Response:",
-          JSON.stringify(bitlabsResult, null, 2)
+          `🔵 [${sdkProvider.toUpperCase()} API] Full Response:`,
+          JSON.stringify(apiResult, null, 2).substring(0, 2000)
         );
-        if (bitlabsResult?.categorized) {
+        if (apiResult?.categorized) {
           console.log(
-            "🔵 [BITLABS API] Surveys Count:",
-            bitlabsResult.categorized.surveys?.length || 0
+            `🔵 [${sdkProvider.toUpperCase()} API] Surveys Count:`,
+            apiResult.categorized.surveys?.length || 0
           );
           console.log(
-            "🔵 [BITLABS API] Cashback Count:",
-            bitlabsResult.categorized.cashback?.length || 0
+            `🔵 [${sdkProvider.toUpperCase()} API] Cashback Count:`,
+            apiResult.categorized.cashback?.length || 0
           );
           console.log(
-            "🔵 [BITLABS API] Magic Receipts Count:",
-            bitlabsResult.categorized.magicReceipts?.length || 0
+            `🔵 [${sdkProvider.toUpperCase()} API] Magic Receipts Count:`,
+            apiResult.categorized.magicReceipts?.length || 0
           );
           console.log(
-            "🔵 [BITLABS API] Shopping Count:",
-            bitlabsResult.categorized.shopping?.length || 0
-          );
-        }
-        if (bitlabsResult?.surveys) {
-          console.log(
-            "🔵 [BITLABS API] Surveys Array Length:",
-            bitlabsResult.surveys.length
-          );
-        }
-        if (bitlabsResult?.cashback) {
-          console.log(
-            "🔵 [BITLABS API] Cashback Array Length:",
-            bitlabsResult.cashback.length
+            `🔵 [${sdkProvider.toUpperCase()} API] Shopping Count:`,
+            apiResult.categorized.shopping?.length || 0
           );
         }
         console.log(
-          "🔵 [BITLABS API] ===========================================\n"
+          `🔵 [${sdkProvider.toUpperCase()} API] ===========================================\n`
         );
 
-        // Match admin config with fresh Bitlabs response
-        if (bitlabsResult && bitlabsResult.success) {
+        // Match admin config with fresh API response
+        if (apiResult && apiResult.success) {
           const freshOffers = [];
 
           // Get fresh offers from appropriate category
           let freshOffersList = [];
           if (offerType === "survey" || offerType === "surveys") {
             freshOffersList =
-              bitlabsResult.categorized?.surveys || bitlabsResult.surveys || [];
+              apiResult.categorized?.surveys || apiResult.surveys || [];
           } else if (offerType === "cashback") {
             freshOffersList =
-              bitlabsResult.categorized?.cashback ||
-              bitlabsResult.cashback ||
+              apiResult.categorized?.cashback ||
+              apiResult.cashback ||
               [];
             console.log(
-              "🟢 [getAdminConfiguredOffers] Fresh cashback offers from Bitlabs:",
+              `🟢 [getAdminConfiguredOffers] Fresh cashback offers from ${sdkProvider}:`,
               {
                 count: freshOffersList.length,
                 sampleIds: freshOffersList
                   .slice(0, 5)
-                  .map((o) => o.merchant_id),
+                  .map((o) => o.merchant_id || o.offerId || o.externalId),
               }
             );
           } else if (
@@ -324,40 +359,48 @@ async function getAdminConfiguredOffers(
             offerType === "magic-receipts" ||
             offerType === "magicReceipts"
           ) {
-            freshOffersList = bitlabsResult.categorized?.magicReceipts || [];
+            freshOffersList = apiResult.categorized?.magicReceipts || [];
           } else if (offerType === "shopping") {
-            freshOffersList = bitlabsResult.categorized?.shopping || [];
+            freshOffersList = apiResult.categorized?.shopping || [];
           } else if (offerType === "all") {
             // Combine all types
             freshOffersList = [
-              ...(bitlabsResult.categorized?.surveys || []),
-              ...(bitlabsResult.categorized?.cashback || []),
-              ...(bitlabsResult.categorized?.magicReceipts || []),
-              ...(bitlabsResult.categorized?.shopping || []),
+              ...(apiResult.categorized?.surveys || []),
+              ...(apiResult.categorized?.cashback || []),
+              ...(apiResult.categorized?.magicReceipts || []),
+              ...(apiResult.categorized?.shopping || []),
             ];
           }
 
           console.log(
-            "🟢 [getAdminConfiguredOffers] Matching admin offers with fresh Bitlabs offers..."
+            `🟢 [getAdminConfiguredOffers] Matching admin offers with fresh ${sdkProvider} offers...`
           );
           console.log("🟢 [getAdminConfiguredOffers] Matching:", {
             eligibleOffersCount: eligibleOffers.length,
             freshOffersCount: freshOffersList.length,
+            sdkProvider: sdkProvider,
           });
 
-          // Match each admin-configured offer with fresh Bitlabs response
+          // Match each admin-configured offer with fresh API response
           let matchedCount = 0;
           let unmatchedCount = 0;
           for (const configuredOffer of eligibleOffers) {
-            // For cashback: match by merchant_id (stored as externalId)
+            // Match by externalId (works for both Bitlabs and Everflow)
             const matchingFreshOffer = freshOffersList.find((fresh) => {
-              if (offerType === "cashback") {
-                // For cashback, match by merchant_id
+              if (sdkProvider === "bitlabs" && offerType === "cashback") {
+                // For Bitlabs cashback, match by merchant_id
                 return (
-                  fresh.merchant_id?.toString() ===
-                    configuredOffer.externalId ||
+                  fresh.merchant_id?.toString() === configuredOffer.externalId ||
                   fresh.id === configuredOffer.externalId ||
                   fresh.offerId === configuredOffer.externalId
+                );
+              } else if (sdkProvider === "everflow") {
+                // For Everflow, match by network_offer_id or offerId
+                return (
+                  fresh.network_offer_id?.toString() === configuredOffer.externalId ||
+                  fresh.offerId === configuredOffer.externalId ||
+                  fresh.id === configuredOffer.externalId ||
+                  fresh.externalId === configuredOffer.externalId
                 );
               } else {
                 // For surveys and other offers, match by id/surveyId/offerId
@@ -1177,6 +1220,7 @@ router.get("/", protect, async (req, res) => {
       (offers.length === 0 || useAdminConfig === "false") &&
       !isCashbackRequest
     ) {
+      // Try Bitlabs first
       console.log("🔵 [MAIN ROUTE] Falling back to BitLab API...");
       const result = await bitlabsNonGames.getNonGameOffers({
         userId: user._id.toString(),
@@ -1252,6 +1296,85 @@ router.get("/", protect, async (req, res) => {
           }));
         }
         source = "bitlab_direct";
+      }
+
+      // Step 3: If still no offers, try Everflow API
+      if (offers.length === 0 && everflowService.isConfigured()) {
+        console.log("🔵 [MAIN ROUTE] Trying Everflow API as additional fallback...");
+        console.log("🔵 [MAIN ROUTE] Everflow config check:", {
+          configured: everflowService.isConfigured(),
+          baseURL: config.EVERFLOW_BASE_URL,
+          apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+        });
+        
+        try {
+          // Pass userId for user-specific click URLs (Everflow uses sub_id1 for tracking)
+          const everflowResult = await everflowService.getPostbacks({
+            status: "active",
+            limit: parseInt(limit) * 2, // Get more to filter
+            userId: user?._id?.toString(), // Pass user ID for tracking
+          });
+
+          console.log("🔵 [MAIN ROUTE] Everflow result:", {
+            success: everflowResult.success,
+            dataLength: everflowResult.data?.length || 0,
+            total: everflowResult.total || 0,
+            error: everflowResult.error,
+          });
+
+          if (everflowResult.success && everflowResult.data && everflowResult.data.length > 0) {
+            // Filter offers by type if specified
+            let filteredOffers = everflowResult.data;
+            
+            if (type !== "all") {
+              filteredOffers = filteredOffers.filter((offer) => {
+                const offerType = offer.offerType || offer.type || "other";
+                return offerType === type || 
+                       (type === "magic_receipt" && offerType === "magic_receipt") ||
+                       (type === "magic-receipts" && offerType === "magic_receipt");
+              });
+            }
+
+            // Filter by category if specified
+            if (category && category !== "all") {
+              filteredOffers = filteredOffers.filter((offer) => {
+                const offerCategory = (offer.category || "").toLowerCase();
+                return offerCategory.includes(category.toLowerCase());
+              });
+            }
+
+            // Add user-specific click URLs if needed
+            const normalizedEverflowOffers = filteredOffers.map((offer) => ({
+              ...offer,
+              source: "everflow",
+              provider: "everflow",
+            }));
+
+            // Merge with existing offers
+            offers = [...offers, ...normalizedEverflowOffers];
+            
+            // Categorize Everflow offers
+            normalizedEverflowOffers.forEach((offer) => {
+              const offerType = offer.offerType || offer.type || "other";
+              const categoryKey = offerType === "magic_receipt" ? "magicReceipts" : offerType;
+              if (categorized[categoryKey]) {
+                categorized[categoryKey].push(offer);
+              } else {
+                categorized.other.push(offer);
+              }
+            });
+
+            if (normalizedEverflowOffers.length > 0) {
+              source = source === "bitlab_direct" ? "bitlab_everflow" : "everflow";
+              console.log(
+                `✅ [MAIN ROUTE] Added ${normalizedEverflowOffers.length} offers from Everflow`
+              );
+            }
+          }
+        } catch (everflowError) {
+          console.error("❌ [MAIN ROUTE] Everflow API error:", everflowError);
+          // Continue without Everflow offers
+        }
       }
     } else if (
       isCashbackRequest &&
@@ -3016,5 +3139,7 @@ router.post("/callback/bitlabs", async (req, res) => {
     });
   }
 });
+
+module.exports = router;
 
 module.exports = router;

@@ -101,6 +101,14 @@ module.exports = {
   BITLABS_REFRESH_INTERVAL_MINUTES:
     parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
 
+  // Everflow - Non-Gaming Offers Platform
+  // Documentation: https://developers.everflow.io/docs/affiliate/postbacks/
+  // Base URL: https://api.eflow.team (for US) or https://api-eu.eflow.team (for EU)
+  // Endpoints include /v1 (e.g., /v1/affiliate/postbacks)
+  EVERFLOW_BASE_URL: process.env.EVERFLOW_BASE_URL || "https://api.eflow.team",
+  EVERFLOW_API_KEY: process.env.EVERFLOW_API_KEY,
+  EVERFLOW_WEBHOOK_SECRET: process.env.EVERFLOW_WEBHOOK_SECRET,
+
   // Adjust - S2S API for event tracking
   // Documentation: https://dev.adjust.com/en/api/s2s-api
   ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,

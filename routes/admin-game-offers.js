@@ -3876,6 +3876,7 @@ router.get("/master-data/sdk-providers", adminAuth, async (req, res) => {
       { id: "bitlabs", name: "BitLabs" },
       { id: "adgem", name: "AdGem" },
       { id: "besitos", name: "Besitos" },
+      { id: "everflow", name: "Everflow" },
       { id: "cpx", name: "CPX Research" },
       { id: "ayet", name: "Ayet Studios" },
       { id: "unity", name: "Unity Ads" },
@@ -4029,7 +4030,7 @@ router.get(
 
       // Build base query
       const baseQuery = {
-        sdkId: bitlabSDK._id,
+        sdkId: sdk._id,
       };
 
       if (status !== "all") {
@@ -4336,10 +4337,102 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         surveysCount: responseData.categorized?.surveys?.length || 0,
       });
       res.json(responseData);
+    } else if (sdk === "everflow") {
+      // Everflow SDK support
+      const everflowService = require("../services/everflow.service");
+
+      if (!everflowService.isConfigured()) {
+        return res.status(400).json({
+          success: false,
+          message: "Everflow API is not configured. Please set EVERFLOW_API_KEY in environment variables.",
+        });
+      }
+
+      // Build query parameters for Everflow
+      const queryParams = {};
+      
+      // Map type to Everflow offer_status if needed
+      if (type && type !== "all") {
+        // Everflow uses offer_status field, but we'll filter after fetching
+        queryParams.offer_status = "active";
+      }
+
+      // Add country filter if provided
+      if (country) {
+        queryParams.country = country;
+      }
+
+      try {
+        const result = await everflowService.getOffers(queryParams);
+
+        if (!result.success) {
+          return res.status(500).json({
+            success: false,
+            message: result.error || "Failed to fetch Everflow offers",
+            data: [],
+          });
+        }
+
+        // Filter by type if specified
+        let filteredOffers = result.data || [];
+        if (type && type !== "all") {
+          filteredOffers = filteredOffers.filter((offer) => {
+            const offerType = offer.offerType || offer.type || "other";
+            return offerType === type;
+          });
+        }
+
+        // Categorize offers
+        const categorized = {
+          surveys: [],
+          cashback: [],
+          shopping: [],
+          magicReceipts: [],
+          other: [],
+        };
+
+        filteredOffers.forEach((offer) => {
+          const offerType = offer.offerType || offer.type || "other";
+          const categoryKey = offerType === "magic_receipt" ? "magicReceipts" : offerType;
+          if (categorized[categoryKey]) {
+            categorized[categoryKey].push(offer);
+          } else {
+            categorized.other.push(offer);
+          }
+        });
+
+        const responseData = {
+          success: true,
+          data: filteredOffers,
+          categorized: categorized,
+          breakdown: {
+            surveys: categorized.surveys.length,
+            cashback: categorized.cashback.length,
+            shopping: categorized.shopping.length,
+            magicReceipts: categorized.magicReceipts.length,
+            other: categorized.other.length,
+          },
+          total: filteredOffers.length,
+          estimatedEarnings: filteredOffers.reduce(
+            (sum, o) => sum + (o.coinReward || o.reward?.coins || 0),
+            0
+          ),
+        };
+
+        res.json(responseData);
+      } catch (error) {
+        console.error("Error fetching Everflow offers:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch Everflow offers",
+          error: error.message,
+          data: [],
+        });
+      }
     } else {
       res.status(404).json({
         success: false,
-        message: "Non-game offers are only available from Bitlabs SDK.",
+        message: `Non-game offers are only available from Bitlabs or Everflow SDK. Received: ${sdk}`,
       });
     }
   } catch (error) {

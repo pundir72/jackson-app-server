@@ -1686,22 +1686,54 @@ router.post("/everflow/postback", async (req, res) => {
       console.warn("⚠️ EVERFLOW_WEBHOOK_SECRET not configured, skipping verification");
     }
 
-    // Find user by Everflow user_id or transaction metadata
+    // Find user by Everflow tracking parameters
+    // Everflow uses sub_id1, sub_id2, sub_id3 for user tracking
+    // sub_id1 is typically used for user ID
     let user = null;
-    if (user_id) {
+    
+    // Priority 1: Try sub_id1 (primary user tracking parameter)
+    if (sub_id1) {
+      // sub_id1 should contain our user's MongoDB ObjectId
+      if (require("mongoose").Types.ObjectId.isValid(sub_id1)) {
+        user = await User.findById(sub_id1);
+      } else {
+        // If not ObjectId, try as string match in metadata
+        user = await User.findOne({
+          "metadata.everflow.sub_id1": sub_id1,
+        });
+      }
+    }
+    
+    // Priority 2: Try user_id from postback
+    if (!user && user_id) {
       // Try to find user by Everflow user_id stored in metadata
       user = await User.findOne({
         "metadata.everflow.userId": user_id,
       });
+      
+      // Also try direct ObjectId if user_id is valid ObjectId
+      if (!user && require("mongoose").Types.ObjectId.isValid(user_id)) {
+        user = await User.findById(user_id);
+      }
     }
-
-    // If user not found, try to extract from transaction_id or conversion_id
+    
+    // Priority 3: Try to extract from transaction_id or conversion_id (existing conversion)
     if (!user && transaction_id) {
       // Check if we have a conversion record with this transaction_id
       const existingConversion = await EverflowConversion.findOne({
         everflowTransactionId: transaction_id,
       });
-      if (existingConversion) {
+      if (existingConversion && existingConversion.userId) {
+        user = await User.findById(existingConversion.userId);
+      }
+    }
+    
+    // Priority 4: Try conversion_id
+    if (!user && conversion_id) {
+      const existingConversion = await EverflowConversion.findOne({
+        conversionId: conversion_id,
+      });
+      if (existingConversion && existingConversion.userId) {
         user = await User.findById(existingConversion.userId);
       }
     }

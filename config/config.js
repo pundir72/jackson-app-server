@@ -109,6 +109,12 @@ module.exports = {
   EVERFLOW_API_KEY: process.env.EVERFLOW_API_KEY,
   EVERFLOW_WEBHOOK_SECRET: process.env.EVERFLOW_WEBHOOK_SECRET,
 
+  // AppLovin MAX - Ad Mediation Platform
+  // Documentation: https://support.axon.ai/en/max/getting-started/
+  // AppLovin MAX is a client-side SDK for rewarded ads mediation
+  // Supported Ad Networks: Facebook, Google AdMob, Digital Turbine, Inmobi, Mintegral, Bidmachine, Liftoff/Vungle, Pangle, Moloco, Google Ad Manager
+  APPLOVIN_MAX_SDK_KEY: process.env.APPLOVIN_MAX_SDK_KEY,
+
   // Adjust - S2S API for event tracking
   // Documentation: https://dev.adjust.com/en/api/s2s-api
   ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,

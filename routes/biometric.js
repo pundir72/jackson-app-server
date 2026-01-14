@@ -33,12 +33,10 @@ router.post("/verify", async (req, res) => {
     }
 
     if (!token) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Token is required. Please provide JWT token in Authorization header as Bearer token.",
-        });
+      return res.status(400).json({
+        error:
+          "Token is required. Please provide JWT token in Authorization header as Bearer token.",
+      });
     }
 
     // Verify JWT token
@@ -150,7 +148,7 @@ router.post("/verify", async (req, res) => {
 
     // Generate JWT token
     const jwtToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "24h",
+      expiresIn: "60d",
     });
 
     // Update user's biometric status
@@ -162,7 +160,7 @@ router.post("/verify", async (req, res) => {
         "biometric.lastLogin": new Date(),
         "biometric.token": null,
         "biometric.tokenExpiresAt": null,
-      }
+      },
     };
 
     // Update face verification status if applicable
@@ -175,17 +173,21 @@ router.post("/verify", async (req, res) => {
       update.$set["biometric.livenessCheck.lastScore"] =
         verificationData.livenessScore;
       update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
-      update.$set["biometric.livenessCheck.lastScanType"] = scanType || "os_face_id";
+      update.$set["biometric.livenessCheck.lastScanType"] =
+        scanType || "os_face_id";
     }
 
     await User.findByIdAndUpdate(user._id, update);
 
     // Invalidate profile cache so GET /api/profile reflects latest face verification status
     try {
-      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      const { invalidateUserCaches } = require("../utils/optimizedProfile");
       invalidateUserCaches(user._id.toString());
     } catch (e) {
-      console.warn('Failed to invalidate user caches after face verification:', e.message);
+      console.warn(
+        "Failed to invalidate user caches after face verification:",
+        e.message
+      );
     }
 
     // Log successful verification
@@ -284,7 +286,7 @@ router.post("/setup", async (req, res) => {
         "biometric.lastSetupAt": new Date(),
         "biometric.attempts": 0,
         "biometric.lockedUntil": null,
-      }
+      },
     };
 
     if (verificationData) {
@@ -303,10 +305,13 @@ router.post("/setup", async (req, res) => {
 
     // Invalidate profile cache so GET /api/profile reflects latest face verification status
     try {
-      const { invalidateUserCaches } = require('../utils/optimizedProfile');
+      const { invalidateUserCaches } = require("../utils/optimizedProfile");
       invalidateUserCaches(user._id.toString());
     } catch (e) {
-      console.warn('Failed to invalidate user caches after biometric setup:', e.message);
+      console.warn(
+        "Failed to invalidate user caches after biometric setup:",
+        e.message
+      );
     }
 
     // Log successful setup

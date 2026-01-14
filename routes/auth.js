@@ -575,7 +575,7 @@ router.post(
 
       // Generate JWT token since user is complete
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
+        expiresIn: "60d",
       });
 
       // Get additional fields for response
@@ -756,7 +756,7 @@ router.post(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
+        expiresIn: "60d",
       });
 
       // TODO: Firebase token generation - uncomment when Firebase credentials are available
@@ -973,7 +973,7 @@ router.post(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
+        expiresIn: "60d",
       });
 
       // Update login analytics for admin as well
@@ -1124,7 +1124,7 @@ router.get(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
+        expiresIn: "60d",
       });
 
       // Redirect to frontend with token
@@ -1255,7 +1255,7 @@ router.get(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
+        expiresIn: "60d",
       });
 
       // Redirect to mobile app with token

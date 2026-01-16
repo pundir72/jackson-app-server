@@ -466,7 +466,7 @@ router.post("/:requestId/reject", adminAuth, async (req, res) => {
 
     // Refund coins to user
     const userId = payoutRequest.userId._id || payoutRequest.userId;
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select("wallet email firstName profile");
     if (user) {
       user.wallet.balance =
         (user.wallet.balance || 0) + payoutRequest.coinsDeducted;
@@ -483,21 +483,47 @@ router.post("/:requestId/reject", adminAuth, async (req, res) => {
       }
     );
 
-    // Send rejection email to user
+    // Send rejection email to recipient email (the email user provided in payout request)
     try {
-      const userEmail = user?.email || payoutRequest.reward.recipient.email;
-      const userName = user?.firstName || user?.profile?.firstName || "User";
+      // Priority: Use recipient email from payout request (the email user provided)
+      const recipientEmail = payoutRequest.reward?.recipient?.email;
+      
+      // Get recipient name from payout request
+      const recipientName = 
+        payoutRequest.reward?.recipient?.name ||
+        user?.firstName || 
+        user?.profile?.firstName || 
+        payoutRequest.userId?.firstName ||
+        "User";
 
-      await sendPayoutRejectedEmail(
-        userEmail,
-        userName,
-        payoutRequest.reward.value.denomination,
-        payoutRequest.reward.value.currency_code,
-        reason.trim()
-      );
+      if (recipientEmail) {
+        await sendPayoutRejectedEmail(
+          recipientEmail, // Send to recipient email that user provided
+          recipientName,
+          payoutRequest.reward.value.denomination,
+          payoutRequest.reward.value.currency_code,
+          reason.trim() // Admin's rejection message
+        );
+        console.log(`✅ Rejection email sent to recipient ${recipientEmail} for payout request ${requestId}`);
+      } else {
+        // Fallback to user email if recipient email not found
+        const fallbackEmail = user?.email || payoutRequest.userId?.email;
+        if (fallbackEmail) {
+          await sendPayoutRejectedEmail(
+            fallbackEmail,
+            recipientName,
+            payoutRequest.reward.value.denomination,
+            payoutRequest.reward.value.currency_code,
+            reason.trim()
+          );
+          console.log(`✅ Rejection email sent to fallback email ${fallbackEmail} for payout request ${requestId}`);
+        } else {
+          console.warn(`⚠️ Could not send rejection email: No recipient email found for payout request ${requestId}`);
+        }
+      }
     } catch (emailError) {
       console.error("Error sending rejection email:", emailError);
-      // Don't fail the request if email fails
+      // Don't fail the request if email fails, but log the error
     }
 
     res.json({

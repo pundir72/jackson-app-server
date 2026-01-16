@@ -579,7 +579,7 @@ router.post('/:orderId/approve', protect, async (req, res) => {
 router.post('/:orderId/reject', protect, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const user = await User.findById(req.user.userId).select('_id');
+    const user = await User.findById(req.user.userId).select('_id wallet');
     
     if (!user) {
       return res.status(404).json({
@@ -587,6 +587,22 @@ router.post('/:orderId/reject', protect, async (req, res) => {
         error: 'User not found'
       });
     }
+
+    // Find transaction and payout request
+    const transaction = await Transaction.findOne({ 
+      referenceId: orderId, 
+      user: user._id 
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        error: 'Transaction not found'
+      });
+    }
+
+    // Find PayoutRequest by transaction referenceId
+    const payoutRequest = await PayoutRequest.findById(transaction.referenceId);
 
     // Reject order with Tremendous
     const rejectResult = await tremendous.rejectOrder(orderId);
@@ -599,17 +615,36 @@ router.post('/:orderId/reject', protect, async (req, res) => {
     }
 
     // Update transaction status
-    await Transaction.findOneAndUpdate(
-      { referenceId: orderId, user: user._id },
-      { status: 'rejected' }
-    );
+    transaction.status = 'rejected';
+    await transaction.save();
+
+    // Refund coins to user wallet if coins were deducted
+    if (payoutRequest && payoutRequest.coinsDeducted) {
+      user.wallet.balance = (user.wallet.balance || 0) + payoutRequest.coinsDeducted;
+      user.wallet.lastUpdated = new Date();
+      await user.save();
+
+      // Update PayoutRequest status
+      payoutRequest.status = 'rejected';
+      payoutRequest.rejectedAt = new Date();
+      await payoutRequest.save();
+
+      console.log(`✅ Refunded ${payoutRequest.coinsDeducted} coins to user ${user._id} for rejected order ${orderId}`);
+    } else if (transaction.balanceType === 'coins' && transaction.amount) {
+      // Fallback: refund based on transaction amount
+      user.wallet.balance = (user.wallet.balance || 0) + transaction.amount;
+      user.wallet.lastUpdated = new Date();
+      await user.save();
+      console.log(`✅ Refunded ${transaction.amount} coins to user ${user._id} for rejected order ${orderId} (fallback)`);
+    }
 
     res.json({
       success: true,
       data: {
         message: 'Order rejected successfully',
         orderId: orderId,
-        status: 'rejected'
+        status: 'rejected',
+        coinsRefunded: payoutRequest?.coinsDeducted || transaction.amount || 0
       }
     });
   } catch (error) {
@@ -1314,6 +1349,59 @@ router.post('/webhook/tremendous', async (req, res) => {
       
       transaction.status = newStatus;
       await transaction.save();
+
+      // If rejected, refund coins to user wallet
+      if (status === 'REJECTED' && transaction.balanceType === 'coins') {
+        // Find PayoutRequest by transaction referenceId or tremendousOrderId
+        let payoutRequest = null;
+        
+        // Try to find by transaction referenceId (which should be payoutRequestId)
+        if (transaction.referenceId) {
+          payoutRequest = await PayoutRequest.findById(transaction.referenceId);
+        }
+        
+        // If not found, try to find by tremendousOrderId
+        if (!payoutRequest && order_id) {
+          payoutRequest = await PayoutRequest.findOne({ tremendousOrderId: order_id });
+        }
+        
+        // If still not found, try to find via TremendousOrder metadata
+        if (!payoutRequest && tremendousOrder && tremendousOrder.metadata && tremendousOrder.metadata.payoutRequestId) {
+          payoutRequest = await PayoutRequest.findById(tremendousOrder.metadata.payoutRequestId);
+        }
+
+        if (payoutRequest && payoutRequest.coinsDeducted) {
+          const userId = payoutRequest.userId._id || payoutRequest.userId;
+          const user = await User.findById(userId);
+          
+          if (user) {
+            // Refund coins to user wallet
+            user.wallet.balance = (user.wallet.balance || 0) + payoutRequest.coinsDeducted;
+            user.wallet.lastUpdated = new Date();
+            await user.save();
+
+            // Update PayoutRequest status to rejected if not already
+            if (payoutRequest.status !== 'rejected') {
+              payoutRequest.status = 'rejected';
+              payoutRequest.rejectedAt = new Date();
+              await payoutRequest.save();
+            }
+
+            console.log(`✅ Refunded ${payoutRequest.coinsDeducted} coins to user ${userId} for rejected order ${order_id}`);
+          }
+        } else {
+          // Fallback: refund based on transaction amount if PayoutRequest not found
+          const userId = transaction.user._id || transaction.user;
+          const user = await User.findById(userId);
+          
+          if (user && transaction.amount) {
+            user.wallet.balance = (user.wallet.balance || 0) + transaction.amount;
+            user.wallet.lastUpdated = new Date();
+            await user.save();
+            console.log(`✅ Refunded ${transaction.amount} coins to user ${userId} for rejected order ${order_id} (fallback)`);
+          }
+        }
+      }
     }
 
     res.json({

@@ -79,19 +79,20 @@ function globalActivityTracker(req, res, next) {
       });
 
       if (!shouldSkip) {
-        console.log('Tracking activity for user:', userId, 'on route:', req.path);
-        // Track activity asynchronously without blocking the request
-        trackUserActivity(userId, {
-          endpoint: req.path,
-          method: req.method,
-          userAgent: req.headers['user-agent'],
-          ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-          timestamp: new Date(),
-          source: 'global_middleware'
-        }).catch(error => {
-          // Log error but don't fail the request
-          console.error('Global activity tracking error:', error);
-        });
+        // COMMENTED OUT: Daily login activity tracking - now handled by challenge completion check in stats endpoint
+        // console.log('Tracking activity for user:', userId, 'on route:', req.path);
+        // // Track activity asynchronously without blocking the request
+        // trackUserActivity(userId, {
+        //   endpoint: req.path,
+        //   method: req.method,
+        //   userAgent: req.headers['user-agent'],
+        //   ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        //   timestamp: new Date(),
+        //   source: 'global_middleware'
+        // }).catch(error => {
+        //   // Log error but don't fail the request
+        //   console.error('Global activity tracking error:', error);
+        // });
       } else {
         console.log('Skipping activity tracking for user:', userId, 'on route:', req.path);
       }
@@ -134,19 +135,20 @@ function globalActivityTrackerWithOptions(options = {}) {
       });
 
       if (!shouldSkip) {
-        const trackingData = {
-          endpoint: req.path,
-          method: req.method,
-          userAgent: req.headers['user-agent'],
-          ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-          timestamp: new Date(),
-          source: 'global_middleware',
-          ...options
-        };
+        // COMMENTED OUT: Daily login activity tracking - now handled by challenge completion check in stats endpoint
+        // const trackingData = {
+        //   endpoint: req.path,
+        //   method: req.method,
+        //   userAgent: req.headers['user-agent'],
+        //   ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        //   timestamp: new Date(),
+        //   source: 'global_middleware',
+        //   ...options
+        // };
 
-        trackUserActivity(req.user.userId, trackingData).catch(error => {
-          console.error('Global activity tracking error:', error);
-        });
+        // trackUserActivity(req.user.userId, trackingData).catch(error => {
+        //   console.error('Global activity tracking error:', error);
+        // });
       }
     }
     

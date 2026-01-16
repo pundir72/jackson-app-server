@@ -5,9 +5,9 @@ const REGIONAL_PRICING = {
   US: {
     currency: 'USD',
     symbol: '$',
-    bronze: { weekly: 2.00, monthly: 5.00, yearly: 50.00 },
-    gold: { weekly: 4.00, monthly: 10.00, yearly: 100.00 },
-    platinum: { weekly: 8.00, monthly: 20.00, yearly: 200.00 }
+    bronze: { weekly: 2.99, monthly: 7.99, yearly: 69.99 },
+    gold: { weekly: 4.99, monthly: 12.99, yearly: 109.99 },
+    platinum: { weekly: 7.99, monthly: 19.99, yearly: 169.99 }
   },
   EU: {
     currency: 'EUR',

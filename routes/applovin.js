@@ -7,6 +7,7 @@
 const express = require("express");
 const router = express.Router();
 const protect = require("../middleware/auth");
+const { adminAuth } = require("../middleware/adminAuth");
 const config = require("../config/config");
 const AppLovinRewardedAd = require("../models/AppLovinRewardedAd");
 const User = require("../models/User");
@@ -14,6 +15,32 @@ const Transaction = require("../models/Transaction");
 const DailyChallenge = require("../models/DailyChallenge");
 const UserChallengeProgress = require("../models/UserChallengeProgress");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
+
+/**
+ * @route   GET /api/applovin/health
+ * @desc    Health check for AppLovin MAX integration
+ * @access  Public
+ */
+router.get("/health", async (req, res) => {
+  try {
+    const isConfigured = !!config.APPLOVIN_MAX_SDK_KEY;
+    
+    res.json({
+      success: true,
+      data: {
+        status: "healthy",
+        configured: isConfigured,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Error in AppLovin health check:", error);
+    res.status(500).json({
+      success: false,
+      error: "Health check failed",
+    });
+  }
+});
 
 /**
  * @route   GET /api/applovin/config
@@ -206,6 +233,25 @@ router.post("/rewarded-ad/complete", protect, async (req, res) => {
       return res.status(404).json({
         success: false,
         error: "Ad record not found",
+      });
+    }
+
+    // Prevent double crediting - check if already credited
+    if (adRecord.isCredited) {
+      return res.json({
+        success: true,
+        data: {
+          adRecordId: adRecord._id,
+          status: adRecord.status,
+          rewards: {
+            coins: adRecord.creditedCoins,
+            xp: adRecord.creditedXP,
+          },
+          newBalance: user.wallet.balance,
+          newXP: user.xp.current,
+          alreadyCredited: true,
+          message: "Rewards already credited for this ad",
+        },
       });
     }
 
@@ -497,6 +543,223 @@ router.get("/rewarded-ad/stats", protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to get ad statistics",
+    });
+  }
+});
+
+// ==================== ADMIN ENDPOINTS ====================
+
+/**
+ * @route   GET /api/applovin/admin/stats
+ * @desc    Get AppLovin MAX statistics (Admin only)
+ * @query   {string} startDate - Start date (YYYY-MM-DD)
+ * @query   {string} endDate - End date (YYYY-MM-DD)
+ * @query   {string} adNetwork - Filter by ad network
+ * @access  Protected (Admin only)
+ */
+router.get("/admin/stats", protect, adminAuth, async (req, res) => {
+  try {
+    const { startDate, endDate, adNetwork } = req.query;
+
+    // Get network stats
+    const networkStats = await AppLovinRewardedAd.getNetworkStats(
+      startDate,
+      endDate
+    );
+
+    // Get overall stats
+    const matchQuery = {
+      status: "completed",
+    };
+
+    if (startDate || endDate) {
+      matchQuery.completedAt = {};
+      if (startDate) matchQuery.completedAt.$gte = new Date(startDate);
+      if (endDate) matchQuery.completedAt.$lte = new Date(endDate);
+    }
+
+    if (adNetwork) {
+      matchQuery.adNetwork = adNetwork;
+    }
+
+    const [
+      totalCompleted,
+      totalFailed,
+      totalLoaded,
+      totalDisplayed,
+      totalRevenue,
+      totalCoins,
+      totalXP,
+    ] = await Promise.all([
+      AppLovinRewardedAd.countDocuments({
+        ...matchQuery,
+        status: "completed",
+      }),
+      AppLovinRewardedAd.countDocuments({ status: "failed" }),
+      AppLovinRewardedAd.countDocuments({ status: "loaded" }),
+      AppLovinRewardedAd.countDocuments({ status: "displayed" }),
+      AppLovinRewardedAd.aggregate([
+        { $match: matchQuery },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$metadata.revenue.amount" },
+            avg: { $avg: "$metadata.revenue.amount" },
+          },
+        },
+      ]),
+      AppLovinRewardedAd.aggregate([
+        { $match: matchQuery },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$creditedCoins" },
+          },
+        },
+      ]),
+      AppLovinRewardedAd.aggregate([
+        { $match: matchQuery },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$creditedXP" },
+          },
+        },
+      ]),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalCompleted,
+          totalFailed,
+          totalLoaded,
+          totalDisplayed,
+          totalRevenue: totalRevenue[0]?.total || 0,
+          avgRevenue: totalRevenue[0]?.avg || 0,
+          totalCoins: totalCoins[0]?.total || 0,
+          totalXP: totalXP[0]?.total || 0,
+        },
+        networkStats,
+        dateRange: {
+          startDate: startDate || null,
+          endDate: endDate || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error getting AppLovin admin stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get statistics",
+    });
+  }
+});
+
+/**
+ * @route   GET /api/applovin/admin/ads
+ * @desc    Get all ad records with filters (Admin only)
+ * @query   {number} page - Page number
+ * @query   {number} limit - Items per page
+ * @query   {string} status - Filter by status
+ * @query   {string} adNetwork - Filter by ad network
+ * @query   {string} userId - Filter by user ID
+ * @query   {string} startDate - Start date (YYYY-MM-DD)
+ * @query   {string} endDate - End date (YYYY-MM-DD)
+ * @access  Protected (Admin only)
+ */
+router.get("/admin/ads", protect, adminAuth, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      adNetwork,
+      userId,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const query = {};
+
+    if (status) query.status = status;
+    if (adNetwork) query.adNetwork = adNetwork;
+    if (userId) query.userId = userId;
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    const [ads, total] = await Promise.all([
+      AppLovinRewardedAd.find(query)
+        .populate("userId", "firstName lastName email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      AppLovinRewardedAd.countDocuments(query),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        ads,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit)),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error getting AppLovin ads:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get ads",
+    });
+  }
+});
+
+/**
+ * @route   GET /api/applovin/admin/pending-rewards
+ * @desc    Get pending rewards (completed but not credited) (Admin only)
+ * @query   {number} limit - Limit results (default: 100)
+ * @access  Protected (Admin only)
+ */
+router.get("/admin/pending-rewards", protect, adminAuth, async (req, res) => {
+  try {
+    const { limit = 100 } = req.query;
+
+    const pendingRewards = await AppLovinRewardedAd.getPendingRewards(
+      parseInt(limit)
+    );
+
+    res.json({
+      success: true,
+      data: {
+        pendingRewards,
+        total: pendingRewards.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error getting pending rewards:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get pending rewards",
     });
   }
 });

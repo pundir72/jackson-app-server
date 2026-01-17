@@ -184,6 +184,7 @@ mongoose
     const adminDailyChallengesRoutes = require("./routes/admin-daily-challenges");
     const besitosRoutes = require("./routes/besitos");
     const bitlabsRoutes = require("./routes/bitlabs");
+    const everflowRoutes = require("./routes/everflow");
     const nonGameOffersRoutes = require("./routes/non-game-offers");
     const dailyChallengeRoutes = require("./routes/daily-challenge");
     const webhookRoutes = require("./routes/webhooks");
@@ -215,6 +216,7 @@ mongoose
     const adjustRoutes = require("./routes/adjust");
     const adjustV2Routes = require("./routes/adjust-v2");
     const adminAdjustEventsRoutes = require("./routes/admin-adjust-events");
+    const affiseRoutes = require("./routes/affise");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
@@ -283,6 +285,8 @@ mongoose
     app.use("/api/admin/daily-challenges", adminDailyChallengesRoutes);
     app.use("/api/besitos", besitosRoutes);
     app.use("/api/bitlabs", bitlabsRoutes);
+    app.use("/api/everflow", everflowRoutes);
+    app.use("/api/affise", affiseRoutes);
     app.use("/api/adjust", adjustRoutes);
     app.use("/api/v2/adjust", adjustV2Routes);
     app.use("/api/admin/adjust-events", adminAdjustEventsRoutes);
@@ -350,27 +354,23 @@ mongoose
     });
 
     // Graceful shutdown handling
-    process.on("SIGTERM", () => {
-      console.log("SIGTERM received, shutting down gracefully");
-      server.close(() => {
+    const shutdownGracefully = async (signal) => {
+      console.log(`${signal} received, shutting down gracefully`);
+      server.close(async () => {
         console.log("Server closed");
-        mongoose.connection.close(() => {
+        try {
+          await mongoose.connection.close();
           console.log("MongoDB connection closed");
+        } catch (error) {
+          console.error("Error closing MongoDB connection:", error);
+        } finally {
           process.exit(0);
-        });
+        }
       });
-    });
+    };
 
-    process.on("SIGINT", () => {
-      console.log("SIGINT received, shutting down gracefully");
-      server.close(() => {
-        console.log("Server closed");
-        mongoose.connection.close(() => {
-          console.log("MongoDB connection closed");
-          process.exit(0);
-        });
-      });
-    });
+    process.on("SIGTERM", () => shutdownGracefully("SIGTERM"));
+    process.on("SIGINT", () => shutdownGracefully("SIGINT"));
 
     // Start scheduler for My Account Overview
     const scheduler = require("./utils/scheduler");

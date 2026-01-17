@@ -43,43 +43,44 @@ function protectedRouteTracker(req, res, next) {
     });
 
     if (!shouldSkip) {
-      console.log("=== ACTIVITY TRACKER ===");
-      console.log(
-        "Tracking activity for user:",
-        req.user.userId,
-        "on route:",
-        req.path
-      );
-      console.log("Request Method:", req.method);
-      console.log("Query Params:", req.query);
-      console.log(
-        "Request Body Keys:",
-        req.body ? Object.keys(req.body) : "No body"
-      );
-      // Track activity asynchronously without blocking the request
-      trackUserActivity(req.user.userId, {
-        endpoint: req.path,
-        method: req.method,
-        userAgent: req.headers["user-agent"],
-        ip:
-          req.ip ||
-          req.headers["x-forwarded-for"] ||
-          req.connection.remoteAddress,
-        timestamp: new Date(),
-        source: "protected_route_middleware",
-      })
-        .then(() => {
-          console.log(
-            "✅ Activity tracked successfully for user:",
-            req.user.userId
-          );
-        })
-        .catch((error) => {
-          // Log error but don't fail the request
-          console.error("❌ Protected route activity tracking error:", error);
-          console.error("Error Stack:", error.stack);
-        });
-      console.log("=== END ACTIVITY TRACKER ===");
+      // COMMENTED OUT: Daily login activity tracking - now handled by challenge completion check in stats endpoint
+      // console.log("=== ACTIVITY TRACKER ===");
+      // console.log(
+      //   "Tracking activity for user:",
+      //   req.user.userId,
+      //   "on route:",
+      //   req.path
+      // );
+      // console.log("Request Method:", req.method);
+      // console.log("Query Params:", req.query);
+      // console.log(
+      //   "Request Body Keys:",
+      //   req.body ? Object.keys(req.body) : "No body"
+      // );
+      // // Track activity asynchronously without blocking the request
+      // trackUserActivity(req.user.userId, {
+      //   endpoint: req.path,
+      //   method: req.method,
+      //   userAgent: req.headers["user-agent"],
+      //   ip:
+      //     req.ip ||
+      //     req.headers["x-forwarded-for"] ||
+      //     req.connection.remoteAddress,
+      //   timestamp: new Date(),
+      //   source: "protected_route_middleware",
+      // })
+      //   .then(() => {
+      //     console.log(
+      //       "✅ Activity tracked successfully for user:",
+      //       req.user.userId
+      //     );
+      //   })
+      //   .catch((error) => {
+      //     // Log error but don't fail the request
+      //     console.error("❌ Protected route activity tracking error:", error);
+      //     console.error("Error Stack:", error.stack);
+      //   });
+      // console.log("=== END ACTIVITY TRACKER ===");
     } else {
       console.log(
         "Skipping activity tracking for user:",

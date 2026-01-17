@@ -109,6 +109,12 @@ module.exports = {
   EVERFLOW_API_KEY: process.env.EVERFLOW_API_KEY,
   EVERFLOW_WEBHOOK_SECRET: process.env.EVERFLOW_WEBHOOK_SECRET,
 
+  // Affise - Affiliate Tracking Platform
+  // Documentation: https://api-wdigital.affise.com/docs3.1/
+  AFFISE_BASE_URL: process.env.AFFISE_BASE_URL || "https://api-wdigital.affise.com",
+  AFFISE_API_VERSION: process.env.AFFISE_API_VERSION || "3.0",
+  AFFISE_API_KEY: process.env.AFFISE_API_KEY,
+
   // AppLovin MAX - Ad Mediation Platform
   // Documentation: https://support.axon.ai/en/max/getting-started/
   // AppLovin MAX is a client-side SDK for rewarded ads mediation

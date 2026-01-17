@@ -83,7 +83,7 @@ class EverflowService {
   }
 
   /**
-   * Get all offers (legacy method name - now uses correct endpoint)
+   * Get all postbacks/offers (legacy method name - delegates to getOffers)
    * Endpoint: GET /v1/affiliates/alloffers
    * Documentation: https://developers.everflow.io/docs/affiliate/
    * @param {Object} queryParams - Query parameters (network_id, offer_id, status, etc.)
@@ -93,23 +93,14 @@ class EverflowService {
     // Use the correct getOffers method
     return this.getOffers(queryParams);
   }
-  
-  /**
-   * Get all postbacks/offers (legacy method name - delegates to getOffers)
-   * @param {Object} queryParams - Query parameters
-   * @returns {Promise<Object>} Offers data
-   */
-  async getPostbacks(queryParams = {}) {
-    return this.getOffers(queryParams);
-  }
 
   /**
-   * Get postback by ID
-   * Endpoint: GET /affiliate/postbacks/{id}
-   * @param {string} postbackId - Postback ID
-   * @returns {Promise<Object>} Postback data
+   * Get offer by ID
+   * Endpoint: GET /v1/affiliates/alloffers (with network_offer_id filter)
+   * @param {string} offerId - Offer ID (network_offer_id)
+   * @returns {Promise<Object>} Offer data
    */
-  async getPostbackById(postbackId) {
+  async getOfferById(offerId) {
     if (!this.isConfigured()) {
       throw {
         status: 500,
@@ -119,19 +110,57 @@ class EverflowService {
     }
 
     try {
-      // Use correct endpoint structure
-      const endpoint = `/v1/affiliates/alloffers/${postbackId}`;
-      const response = await this.client.get(endpoint);
+      // Everflow API uses query parameters, not path parameters
+      // Filter by network_offer_id
+      const endpoint = `/v1/affiliates/alloffers`;
+      const response = await this.client.get(endpoint, {
+        params: {
+          network_offer_id: offerId,
+        },
+      });
+
+      // Everflow returns an array of offers, find the matching one
+      let offers = [];
+      if (response.data?.offers && Array.isArray(response.data.offers)) {
+        offers = response.data.offers;
+      } else if (Array.isArray(response.data)) {
+        offers = response.data;
+      }
+
+      // Find the offer with matching network_offer_id
+      const offer = offers.find(
+        (o) =>
+          o.network_offer_id?.toString() === offerId.toString() ||
+          o.offer_id?.toString() === offerId.toString() ||
+          o.id?.toString() === offerId.toString()
+      );
+
+      if (!offer) {
+        throw {
+          status: 404,
+          message: `Offer with ID ${offerId} not found`,
+          data: null,
+        };
+      }
 
       return {
         success: true,
-        data: this.normalizeOffer(response.data),
+        data: this.normalizeOffer(offer),
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      console.error("Everflow getPostbackById error:", error);
+      console.error("Everflow getOfferById error:", error);
       throw error;
     }
+  }
+
+  /**
+   * Get postback by ID (legacy method name - delegates to getOfferById)
+   * @param {string} postbackId - Postback/Offer ID
+   * @returns {Promise<Object>} Postback data
+   */
+  async getPostbackById(postbackId) {
+    return this.getOfferById(postbackId);
   }
 
   /**

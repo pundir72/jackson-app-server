@@ -9,6 +9,10 @@ const Transaction = require("../models/Transaction");
 const { trackAchievements } = require("./achievements");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const StreakBonusConfig = require("../models/StreakBonusConfig");
+const SpinWheelLog = require("../models/SpinWheelLog");
+const UserChallengeProgress = require("../models/UserChallengeProgress");
+const DailyRewardProgress = require("../models/DailyRewardProgress");
+const { getISOWeekKey } = require("../utils/dailyRewardHelpers");
 
 // Cache for streak config (refresh every 5 minutes)
 let streakConfigCache = null;
@@ -321,6 +325,87 @@ async function recordStreakHistory(user, activity) {
 }
 
 /**
+ * Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
+ * @param {string} userId - User ID
+ * @param {Date} today - Today's date
+ * @returns {Promise<boolean>} Whether user completed any challenge
+ */
+async function checkChallengeCompletionToday(userId, today) {
+  try {
+    // Normalize today's date to UTC start and end of day
+    const normalizedStart = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      )
+    );
+    const normalizedEnd = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        23,
+        59,
+        59,
+        999
+      )
+    );
+
+    // Check 1: Spinwheel completion
+    const spinWheelCompleted = await SpinWheelLog.findOne({
+      user: userId,
+      createdAt: { $gte: normalizedStart, $lte: normalizedEnd }
+    });
+
+    if (spinWheelCompleted) {
+      return true;
+    }
+
+    // Check 2: Daily Challenge completion
+    const challengeCompleted = await UserChallengeProgress.findOne({
+      userId: userId,
+      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
+      status: 'completed'
+    });
+
+    if (challengeCompleted) {
+      return true;
+    }
+
+    // Check 3: Daily Reward completion (check if today's reward is claimed)
+    // Calculate today's day index (0-6, Monday = 0)
+    const todayIdx = (today.getUTCDay() + 6) % 7; // Convert Sunday=0 to Monday=0
+    
+    // Calculate week key using the same helper function as daily rewards
+    const weekKey = getISOWeekKey(today);
+
+    const dailyRewardProgress = await DailyRewardProgress.findOne({
+      userId: userId,
+      weekKey: weekKey
+    });
+
+    if (dailyRewardProgress && dailyRewardProgress.days && dailyRewardProgress.days[todayIdx]) {
+      const todayReward = dailyRewardProgress.days[todayIdx];
+      if (todayReward.status === 'claimed') {
+        return true;
+      }
+    }
+
+    // None of the challenges were completed today
+    return false;
+  } catch (error) {
+    console.error("Error checking challenge completion:", error);
+    // In case of error, assume no completion to be safe
+    return false;
+  }
+}
+
+/**
  * Get user activity statistics
  * @param {string} userId - User ID
  * @returns {Promise<Object>} Activity statistics
@@ -340,19 +425,40 @@ async function getUserActivityStats(userId) {
     }
 
     const activity = user.dailyActivity;
-    const todayStr = getDateString(new Date());
+    const today = new Date();
+    const todayStr = getDateString(today);
     const isActiveToday = activity.activeDates.includes(todayStr);
+
+    // Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
+    const completedChallengeToday = await checkChallengeCompletionToday(userId, today);
 
     // Clean up any invalid streak history entries
     cleanupStreakHistory(activity);
 
-    // Save the cleaned up data
-    if (activity.streakHistory) {
+    // If user didn't complete any challenge today, subtract 1 day from streak
+    // (but not below 0)
+    let adjustedStreak = activity.currentStreak || 0;
+    let needsSave = false;
+
+    if (!completedChallengeToday && adjustedStreak > 0) {
+      adjustedStreak = Math.max(0, adjustedStreak - 1);
+      
+      // Update the user's streak if it changed
+      if (adjustedStreak !== activity.currentStreak) {
+        activity.currentStreak = adjustedStreak;
+        activity.lastStreakReset = today;
+        activity.resetReason = "no_challenge_completed";
+        needsSave = true;
+      }
+    }
+
+    // Save if any changes were made
+    if (needsSave) {
       await user.save();
     }
 
     return {
-      currentStreak: activity.currentStreak,
+      currentStreak: adjustedStreak,
       totalActiveDays: activity.totalActiveDays,
       longestStreak: activity.longestStreak,
       lastActiveDate: activity.lastActiveDate,
@@ -360,6 +466,7 @@ async function getUserActivityStats(userId) {
       isActiveToday: isActiveToday,
       lastStreakReset: activity.lastStreakReset,
       resetReason: activity.resetReason,
+      challengeCompletedToday: completedChallengeToday,
     };
   } catch (error) {
     console.error("Error getting user activity stats:", error);

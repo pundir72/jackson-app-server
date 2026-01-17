@@ -1,14 +1,14 @@
-const nodemailer = require('nodemailer');
-const config  = require('../config/config');
+const nodemailer = require("nodemailer");
+const config = require("../config/config");
 
 const sendEmail = async (to, subject, text, html = null) => {
   try {
     // Create transporter
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: "gmail",
       host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+      port: 465,
+      secure: true,
       auth: {
         user: config.EMAIL,
         pass: config.EMAIL_PASSWORD,
@@ -31,15 +31,15 @@ const sendEmail = async (to, subject, text, html = null) => {
     await transporter.sendMail(mailOptions);
     return true;
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error("Error sending email:", error);
     throw error;
   }
 };
 
 // Password reset email template
-const sendPasswordResetEmail = async (to, resetUrl, userName = 'User') => {
-  const subject = 'Password Reset Request - Jackson App';
-  
+const sendPasswordResetEmail = async (to, resetUrl, userName = "User") => {
+  const subject = "Password Reset Request - Jackson App";
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -134,7 +134,7 @@ const sendPasswordResetEmail = async (to, resetUrl, userName = 'User') => {
     </body>
     </html>
   `;
-  
+
   const text = `
     Password Reset Request - Jackson App
     
@@ -157,14 +157,19 @@ const sendPasswordResetEmail = async (to, resetUrl, userName = 'User') => {
     
     This is an automated message, please do not reply to this email.
   `;
-  
+
   return await sendEmail(to, subject, text, html);
 };
 
 // Payout request confirmation email
-const sendPayoutRequestConfirmationEmail = async (to, userName = 'User', amount, currency = 'USD') => {
-  const subject = 'Payout Request Submitted - Under Review';
-  
+const sendPayoutRequestConfirmationEmail = async (
+  to,
+  userName = "User",
+  amount,
+  currency = "USD"
+) => {
+  const subject = "Payout Request Submitted - Under Review";
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -239,7 +244,7 @@ const sendPayoutRequestConfirmationEmail = async (to, userName = 'User', amount,
     </body>
     </html>
   `;
-  
+
   const text = `
     Payout Request Submitted - Under Review
     
@@ -260,14 +265,20 @@ const sendPayoutRequestConfirmationEmail = async (to, userName = 'User', amount,
     
     This is an automated message, please do not reply to this email.
   `;
-  
+
   return await sendEmail(to, subject, text, html);
 };
 
 // Payout approved and processed email
-const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency = 'USD', orderId) => {
-  const subject = 'Payout Approved - Your Reward is on the Way!';
-  
+const sendPayoutApprovedEmail = async (
+  to,
+  userName = "User",
+  amount,
+  currency = "USD",
+  orderId
+) => {
+  const subject = "Payout Approved - Your Reward is on the Way!";
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -325,7 +336,7 @@ const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency =
         <div class="success-box">
           <strong>Payout Details:</strong><br>
           Amount: ${currency} ${amount.toFixed(2)}<br>
-          Order ID: ${orderId || 'N/A'}<br>
+          Order ID: ${orderId || "N/A"}<br>
           Status: Completed
         </div>
         
@@ -343,7 +354,7 @@ const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency =
     </body>
     </html>
   `;
-  
+
   const text = `
     Payout Approved - Your Reward is on the Way!
     
@@ -353,7 +364,7 @@ const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency =
     
     Payout Details:
     Amount: ${currency} ${amount.toFixed(2)}
-    Order ID: ${orderId || 'N/A'}
+    Order ID: ${orderId || "N/A"}
     Status: Completed
     
     Your reward is being processed and you should receive it shortly. Please check your email for the reward delivery link.
@@ -365,14 +376,36 @@ const sendPayoutApprovedEmail = async (to, userName = 'User', amount, currency =
     
     This is an automated message, please do not reply to this email.
   `;
-  
+
   return await sendEmail(to, subject, text, html);
 };
 
 // Payout rejected email
-const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency = 'USD', reason) => {
-  const subject = 'Payout Request Rejected';
-  
+const sendPayoutRejectedEmail = async (
+  to,
+  userName = "User",
+  amount,
+  currency = "USD",
+  reason
+) => {
+  const subject = "Payout Request Rejected";
+
+  // Escape HTML to prevent XSS attacks
+  const escapeHtml = (text) => {
+    if (!text) return "";
+    const map = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    };
+    return text.replace(/[&<>"']/g, (m) => map[m]);
+  };
+
+  const safeUserName = escapeHtml(userName);
+  const safeReason = escapeHtml(reason || "No reason provided");
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -404,9 +437,19 @@ const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency =
         .warning-box { 
           background: #ffebee; 
           border-left: 4px solid #f44336; 
-          padding: 15px; 
+          padding: 20px; 
           margin: 20px 0; 
           border-radius: 5px;
+        }
+        .reason-box {
+          background: #fff;
+          border: 2px solid #f44336;
+          padding: 15px;
+          margin: 15px 0;
+          border-radius: 5px;
+          font-size: 16px;
+          line-height: 1.8;
+          white-space: pre-wrap;
         }
         .footer { 
           text-align: center; 
@@ -423,19 +466,24 @@ const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency =
       </div>
       
       <div class="content">
-        <h2>Hello ${userName}!</h2>
+        <h2>Hello ${safeUserName}!</h2>
         
         <p>We regret to inform you that your payout request has been rejected.</p>
         
         <div class="warning-box">
           <strong>Request Details:</strong><br>
           Amount: ${currency} ${amount.toFixed(2)}<br>
-          Status: Rejected<br><br>
-          <strong>Rejection Reason:</strong><br>
-          ${reason}
+          Status: <strong style="color: #f44336;">Rejected</strong>
         </div>
         
-        <p>Your coins have been refunded to your account balance. If you believe this is an error or have any questions, please contact our support team.</p>
+        <div class="reason-box">
+          <strong style="color: #f44336; font-size: 18px;">Rejection Reason:</strong><br><br>
+          ${safeReason}
+        </div>
+        
+        <p><strong>Important:</strong> Your coins (${(amount * 10).toFixed(0)} coins) have been refunded to your account balance.</p>
+        
+        <p>If you believe this is an error or have any questions, please contact our support team.</p>
         
         <p>Best regards,<br>The Jackson App Team</p>
       </div>
@@ -447,7 +495,7 @@ const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency =
     </body>
     </html>
   `;
-  
+
   const text = `
     Payout Request Rejected
     
@@ -459,17 +507,22 @@ const sendPayoutRejectedEmail = async (to, userName = 'User', amount, currency =
     Amount: ${currency} ${amount.toFixed(2)}
     Status: Rejected
     
-    Rejection Reason:
-    ${reason}
+    ============================================
+    REJECTION REASON:
+    ============================================
+    ${reason || "No reason provided"}
+    ============================================
     
-    Your coins have been refunded to your account balance. If you believe this is an error or have any questions, please contact our support team.
+    Important: Your coins (${(amount * 10).toFixed(0)} coins) have been refunded to your account balance.
+    
+    If you believe this is an error or have any questions, please contact our support team.
     
     Best regards,
     The Jackson App Team
     
     This is an automated message, please do not reply to this email.
   `;
-  
+
   return await sendEmail(to, subject, text, html);
 };
 

@@ -3877,6 +3877,7 @@ router.get("/master-data/sdk-providers", adminAuth, async (req, res) => {
       { id: "adgem", name: "AdGem" },
       { id: "besitos", name: "Besitos" },
       { id: "everflow", name: "Everflow" },
+      { id: "applovin_max", name: "AppLovin MAX" },
       { id: "cpx", name: "CPX Research" },
       { id: "ayet", name: "Ayet Studios" },
       { id: "unity", name: "Unity Ads" },

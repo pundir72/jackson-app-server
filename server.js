@@ -187,6 +187,7 @@ mongoose
     const nonGameOffersRoutes = require("./routes/non-game-offers");
     const dailyChallengeRoutes = require("./routes/daily-challenge");
     const webhookRoutes = require("./routes/webhooks");
+    const applovinRoutes = require("./routes/applovin");
     const dailyRewardsRoutes = require("./routes/daily-rewards");
     const dailyRewardsV2Routes = require("./routes/daily-rewards-v2");
     const adminDailyRewardsRoutes = require("./routes/admin-daily-rewards");
@@ -288,6 +289,7 @@ mongoose
     app.use("/api/non-game-offers", nonGameOffersRoutes);
     app.use("/api/daily-challenge", dailyChallengeRoutes);
     app.use("/api/webhooks", webhookRoutes);
+    app.use("/api/applovin", applovinRoutes);
     app.use("/api/daily-rewards", dailyRewardsRoutes);
     app.use("/api/v2/daily-rewards", dailyRewardsV2Routes);
     app.use("/api/admin/daily-rewards", adminDailyRewardsRoutes);

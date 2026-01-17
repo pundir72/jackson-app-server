@@ -11,7 +11,7 @@ const winston = require("winston");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
-require("./instrument.js");
+import { requestCounter } from './metrics.js';
 const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
@@ -83,6 +83,14 @@ app.use(passport.initialize());
 // Global Activity Tracking Middleware
 const { globalActivityTracker } = require("./middleware/globalActivityTracker");
 app.use(globalActivityTracker);
+
+app.use((req, res, next) => {
+  requestCounter.add(1, {
+    method: req.method,
+    route: req.route?.path || req.path,
+  });
+  next();
+});
 
 // MongoDB connection
 mongoose

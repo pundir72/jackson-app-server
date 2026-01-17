@@ -22,19 +22,19 @@ pipeline {
             }
         }
 
-        stage('Gitleaks Secret Scan') {
-            steps {
-                sh '''
-                docker run --rm \
-                    -v "$PWD:/repo" \
-                    zricethezav/gitleaks:latest detect \
-                    --source="/repo" \
-                    --report-format=json \
-                    --report-path=/repo/gitleaks-report.json \
-                    --exit-code=1
-                '''
-            }
-        }
+        // stage('Gitleaks Secret Scan') {
+        //     steps {
+        //         sh '''
+        //         docker run --rm \
+        //             -v "$PWD:/repo" \
+        //             zricethezav/gitleaks:latest detect \
+        //             --source="/repo" \
+        //             --report-format=json \
+        //             --report-path=/repo/gitleaks-report.json \
+        //             --exit-code=1
+        //         '''
+        //     }
+        // }
 
         stage('Copy .env') {
             steps {

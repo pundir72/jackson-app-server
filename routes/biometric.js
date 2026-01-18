@@ -395,4 +395,264 @@ router.post("/reset", async (req, res) => {
   }
 });
 
+// Check biometric registration status
+// Used by: BiometricLoginButton.jsx - checks if Face ID is registered before allowing login
+router.get("/status", async (req, res) => {
+  try {
+    const { mobile, email, deviceId } = req.query;
+
+    // At least one identifier is required
+    if (!mobile && !email && !deviceId) {
+      return res.status(400).json({
+        error: "Mobile, email, or deviceId is required",
+        isRegistered: false,
+      });
+    }
+
+    let user;
+
+    // Find user by mobile (highest priority)
+    if (mobile) {
+      user = await User.findOne({ mobile });
+    }
+    // Find user by email if mobile not found
+    else if (email && !user) {
+      user = await User.findOne({ email });
+    }
+    // Find user by device ID if mobile/email not provided
+    // Note: This requires deviceId to be stored in user model during setup
+    else if (deviceId && !user) {
+      // Try to find user by device ID stored in biometric.livenessCheck.lastDeviceId
+      // This works if user registered from this device
+      user = await User.findOne({
+        "biometric.livenessCheck.lastDeviceId": deviceId,
+        "biometric.setup": true,
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+        isRegistered: false,
+        success: false,
+      });
+    }
+
+    // Check if biometric is set up and verified
+    const isSetup = user.biometric?.setup === true;
+    const biometricType = user.biometric?.type || "none";
+    const isVerified =
+      user.biometric?.faceVerification?.verified === true ||
+      biometricType === "fingerprint"; // Fingerprint doesn't have separate verification flag
+
+    const isRegistered = isSetup && (biometricType === "face_id" || biometricType === "fingerprint") && isVerified;
+
+    // Log status check for analytics
+    try {
+      await analytics.log("biometric_status_check", {
+        userId: user._id,
+        isRegistered: isRegistered,
+        biometricType: biometricType,
+        checkMethod: mobile ? "mobile" : email ? "email" : "deviceId",
+      });
+    } catch (analyticsError) {
+      console.warn("Failed to log biometric status check:", analyticsError.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      isRegistered: isRegistered,
+      biometricType: biometricType,
+      setup: isSetup,
+      verified: isVerified,
+      lastVerified: user.biometric?.faceVerification?.lastVerified || null,
+      user: isRegistered
+        ? {
+            _id: user._id,
+            mobile: user.mobile,
+            email: user.email,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Biometric status check error:", error);
+    try {
+      await analytics.log("biometric_status_check_failed", {
+        error: error.message,
+        stack: error.stack,
+      });
+    } catch (analyticsError) {
+      // Ignore analytics errors
+    }
+    res.status(500).json({
+      error: "Failed to check biometric status",
+      isRegistered: false,
+      success: false,
+    });
+  }
+});
+
+// Biometric login (Face ID / Fingerprint login)
+// Used by: BiometricLoginButton.jsx - authenticates user with Face ID and returns fresh token
+router.post("/biometric-login", async (req, res) => {
+  try {
+    const { mobile, email, deviceId, biometricType } = req.body;
+
+    // At least mobile or email is required
+    if (!mobile && !email) {
+      return res.status(400).json({
+        error: "Mobile or email is required",
+      });
+    }
+
+    if (!deviceId) {
+      return res.status(400).json({
+        error: "Device ID is required",
+      });
+    }
+
+    // Find user by mobile or email
+    let user;
+    if (mobile) {
+      user = await User.findOne({ mobile });
+    } else if (email) {
+      user = await User.findOne({ email });
+    }
+
+    if (!user) {
+      return res.status(404).json({ 
+        error: "User not found",
+        success: false,
+      });
+    }
+
+    // Check if user account status allows authentication
+    if (user.profile && user.profile.status !== "active") {
+      const status = user.profile.status;
+      const statusReason = user.profile.statusReason;
+
+      let message =
+        "Your account is not active. Please contact support for more information.";
+      if (status === "suspended") {
+        message =
+          statusReason ||
+          "Your account has been suspended. Please contact support for more information.";
+      } else if (status === "paused") {
+        message =
+          statusReason ||
+          "Your account has been paused. Please contact support for more information.";
+      } else if (status === "inactive") {
+        message =
+          "Your account is inactive. Please contact support to reactivate your account.";
+      }
+
+      return res.status(403).json({
+        error: "Account not active",
+        message: message,
+        accountStatus: status,
+        statusReason: statusReason,
+        success: false,
+      });
+    }
+
+    // Check if biometric is set up
+    if (!user.biometric?.setup) {
+      return res.status(403).json({
+        error: "Biometric authentication is not set up. Please register Face ID first.",
+        success: false,
+      });
+    }
+
+    // Verify biometric type matches (optional validation)
+    const expectedType = user.biometric?.type;
+    if (
+      biometricType &&
+      expectedType &&
+      expectedType !== "none" &&
+      !biometricType.toLowerCase().includes(expectedType.toLowerCase()) &&
+      !expectedType.toLowerCase().includes(biometricType.toLowerCase())
+    ) {
+      // Log mismatch but don't block - device may support multiple types
+      console.warn(
+        `Biometric type mismatch for user ${user._id}: Expected ${expectedType}, Got ${biometricType}`
+      );
+    }
+
+    // Check if account is locked due to too many failed attempts
+    if (user.biometric.lockedUntil && user.biometric.lockedUntil > new Date()) {
+      return res.status(403).json({
+        error: "Account locked. Please try again later",
+        unlockTime: user.biometric.lockedUntil,
+        success: false,
+      });
+    }
+
+    // Reset attempt counter on successful login
+    const update = {
+      $set: {
+        "biometric.attempts": 0,
+        "biometric.lastLogin": new Date(),
+        "biometric.lockedUntil": null,
+      },
+    };
+
+    await User.findByIdAndUpdate(user._id, update);
+
+    // Generate fresh JWT token (same as regular login)
+    const jwtToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "60d",
+    });
+
+    // Log successful biometric login
+    try {
+      await analytics.log("biometric_login_success", {
+        userId: user._id,
+        deviceId: deviceId,
+        biometricType: biometricType || expectedType,
+      });
+    } catch (analyticsError) {
+      console.warn("Failed to log biometric login:", analyticsError.message);
+    }
+
+    // Invalidate profile cache so GET /api/profile reflects latest data
+    try {
+      const { invalidateUserCaches } = require("../utils/optimizedProfile");
+      invalidateUserCaches(user._id.toString());
+    } catch (e) {
+      console.warn(
+        "Failed to invalidate user caches after biometric login:",
+        e.message
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      token: jwtToken,
+      user: {
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        mobile: user.mobile,
+        biometricType: user.biometric?.type,
+        faceVerified: user.biometric?.faceVerification?.verified || false,
+      },
+    });
+  } catch (error) {
+    console.error("Biometric login error:", error);
+    try {
+      await analytics.log("biometric_login_failed", {
+        error: error.message,
+        stack: error.stack,
+      });
+    } catch (analyticsError) {
+      // Ignore analytics errors
+    }
+    res.status(500).json({ 
+      error: "Failed to authenticate with biometric",
+      success: false,
+    });
+  }
+});
+
 module.exports = router;

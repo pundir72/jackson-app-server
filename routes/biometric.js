@@ -186,7 +186,6 @@ router.post("/verify", async (req, res) => {
       await User.findByIdAndUpdate(user._id, {
         $set: {
           "biometric.attempts": 0,
-          "biometric.lastAttempt": new Date(),
           "biometric.lockedUntil": lockUntil,
         },
       });
@@ -206,11 +205,9 @@ router.post("/verify", async (req, res) => {
     // Initialize biometric object if it doesn't exist
     const update = {
       $set: {
-        "biometric.enabled": true,
         "biometric.setup": true,
         "biometric.type": "face_id",
         "biometric.attempts": attempts,
-        "biometric.lastAttempt": new Date(),
         "biometric.lastVerification": new Date(),
         "biometric.lastLogin": new Date(),
         "biometric.token": null,
@@ -218,9 +215,13 @@ router.post("/verify", async (req, res) => {
       },
     };
 
-    // Update face verification status if applicable
+    // 🔥 FIX: Always initialize faceVerification structure (even without verificationData)
+    // This ensures the schema structure is complete in the database
+    update.$set["biometric.faceVerification.verified"] = verificationData ? true : false;
+    update.$set["biometric.faceVerification.verificationAttempts"] = 0;
+
+    // Update face verification status if verificationData exists
     if (verificationData) {
-      update.$set["biometric.faceVerification.verified"] = true;
       update.$set["biometric.faceVerification.confidenceScore"] =
         verificationData.faceMatchScore;
       update.$set["biometric.faceVerification.lastVerified"] = new Date();
@@ -230,6 +231,12 @@ router.post("/verify", async (req, res) => {
       update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
       update.$set["biometric.livenessCheck.lastScanType"] =
         scanType || "os_face_id";
+    } else {
+      // 🔥 FIX: Initialize livenessCheck structure even without verificationData
+      update.$set["biometric.livenessCheck.lastChecked"] = null;
+      update.$set["biometric.livenessCheck.lastScore"] = null;
+      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId || null;
+      update.$set["biometric.livenessCheck.lastScanType"] = scanType || null;
     }
 
     // 🔥 FIX: Add logging before update
@@ -428,7 +435,6 @@ router.post("/setup", async (req, res) => {
     // Mongoose dot notation works for nested fields, but we need to ensure parent objects exist
     const update = {
       $set: {
-        "biometric.enabled": true,
         "biometric.setup": true,
         "biometric.type": type,
         "biometric.lastSetupAt": new Date(),
@@ -437,10 +443,19 @@ router.post("/setup", async (req, res) => {
       },
     };
 
-    // Set nested verification fields
+    // 🔥 FIX: Ensure biometric object exists if it doesn't
+    // Initialize the base biometric object if missing
+    if (!user.biometric) {
+      update.$set["biometric.enabled"] = false;
+    }
+
+    // 🔥 FIX: Always initialize faceVerification structure (even without verificationData)
+    // This ensures the schema structure is complete in the database
+    update.$set["biometric.faceVerification.verified"] = verificationData ? true : false;
+    update.$set["biometric.faceVerification.verificationAttempts"] = 0;
+    
+    // Set nested verification fields if verificationData exists
     if (verificationData) {
-      // Ensure nested objects are set - Mongoose dot notation creates them automatically
-      update.$set["biometric.faceVerification.verified"] = true;
       update.$set["biometric.faceVerification.confidenceScore"] =
         verificationData.faceMatchScore || 1.0;
       update.$set["biometric.faceVerification.lastVerified"] = new Date();
@@ -449,6 +464,13 @@ router.post("/setup", async (req, res) => {
         verificationData.livenessScore || 1.0;
       update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
       update.$set["biometric.livenessCheck.lastScanType"] = type;
+    } else {
+      // 🔥 FIX: Initialize livenessCheck structure even without verificationData
+      // This ensures the nested object exists in the database
+      update.$set["biometric.livenessCheck.lastChecked"] = null;
+      update.$set["biometric.livenessCheck.lastScore"] = null;
+      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId || null;
+      update.$set["biometric.livenessCheck.lastScanType"] = type || null;
     }
 
     // 🔥 FIX: Add logging before update
@@ -479,8 +501,15 @@ router.post("/setup", async (req, res) => {
       setup: updatedUser.biometric?.setup,
       type: updatedUser.biometric?.type,
       verified: updatedUser.biometric?.faceVerification?.verified,
+      hasFaceVerification: !!updatedUser.biometric?.faceVerification,
+      hasLivenessCheck: !!updatedUser.biometric?.livenessCheck,
+      faceVerificationKeys: updatedUser.biometric?.faceVerification ? Object.keys(updatedUser.biometric.faceVerification) : [],
+      livenessCheckKeys: updatedUser.biometric?.livenessCheck ? Object.keys(updatedUser.biometric.livenessCheck) : [],
       mobile: updatedUser.mobile,
     });
+    
+    // 🔥 FIX: Log full biometric object for debugging
+    console.log(`[BIOMETRIC-SETUP] Full biometric object:`, JSON.stringify(updatedUser.biometric, null, 2));
 
     // Invalidate profile cache so GET /api/profile reflects latest face verification status
     try {
@@ -552,12 +581,10 @@ router.post("/reset", async (req, res) => {
     // Reset biometric settings
     await User.findByIdAndUpdate(user._id, {
       $set: {
-        "biometric.enabled": false,
         "biometric.setup": false,
         "biometric.type": "none",
         "biometric.lastSetupAt": null,
         "biometric.lastVerification": null,
-        "biometric.lastAttempt": null,
         "biometric.attempts": 0,
         "biometric.lockedUntil": null,
         "biometric.token": null,
@@ -814,7 +841,6 @@ router.post("/biometric-login", async (req, res) => {
     const update = {
       $set: {
         "biometric.attempts": 0,
-        "biometric.lastAttempt": new Date(),
         "biometric.lastLogin": new Date(),
         "biometric.lockedUntil": null,
       },

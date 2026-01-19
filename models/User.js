@@ -407,6 +407,7 @@ const userSchema = new mongoose.Schema({
     },
 
     // Biometric
+   // Biometric
     biometric: {
         enabled: {
             type: Boolean,

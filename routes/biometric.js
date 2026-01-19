@@ -186,6 +186,7 @@ router.post("/verify", async (req, res) => {
       await User.findByIdAndUpdate(user._id, {
         $set: {
           "biometric.attempts": 0,
+          "biometric.lastAttempt": new Date(),
           "biometric.lockedUntil": lockUntil,
         },
       });
@@ -205,9 +206,11 @@ router.post("/verify", async (req, res) => {
     // Initialize biometric object if it doesn't exist
     const update = {
       $set: {
+        "biometric.enabled": true,
         "biometric.setup": true,
         "biometric.type": "face_id",
         "biometric.attempts": attempts,
+        "biometric.lastAttempt": new Date(),
         "biometric.lastVerification": new Date(),
         "biometric.lastLogin": new Date(),
         "biometric.token": null,
@@ -425,6 +428,7 @@ router.post("/setup", async (req, res) => {
     // Mongoose dot notation works for nested fields, but we need to ensure parent objects exist
     const update = {
       $set: {
+        "biometric.enabled": true,
         "biometric.setup": true,
         "biometric.type": type,
         "biometric.lastSetupAt": new Date(),
@@ -432,12 +436,6 @@ router.post("/setup", async (req, res) => {
         "biometric.lockedUntil": null,
       },
     };
-
-    // 🔥 FIX: Ensure biometric object exists if it doesn't
-    // Initialize the base biometric object if missing
-    if (!user.biometric) {
-      update.$set["biometric.enabled"] = false;
-    }
 
     // Set nested verification fields
     if (verificationData) {
@@ -554,10 +552,12 @@ router.post("/reset", async (req, res) => {
     // Reset biometric settings
     await User.findByIdAndUpdate(user._id, {
       $set: {
+        "biometric.enabled": false,
         "biometric.setup": false,
         "biometric.type": "none",
         "biometric.lastSetupAt": null,
         "biometric.lastVerification": null,
+        "biometric.lastAttempt": null,
         "biometric.attempts": 0,
         "biometric.lockedUntil": null,
         "biometric.token": null,
@@ -814,6 +814,7 @@ router.post("/biometric-login", async (req, res) => {
     const update = {
       $set: {
         "biometric.attempts": 0,
+        "biometric.lastAttempt": new Date(),
         "biometric.lastLogin": new Date(),
         "biometric.lockedUntil": null,
       },

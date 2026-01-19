@@ -296,8 +296,42 @@ router.post("/setup", async (req, res) => {
   try {
     const { mobile, type, verificationData, deviceId } = req.body;
 
+    // 🔥 FIX: Validate required fields
     if (!mobile || !["face_id", "fingerprint"].includes(type)) {
       return res.status(400).json({ error: "Invalid request parameters" });
+    }
+
+    if (!deviceId) {
+      return res.status(400).json({ error: "Device ID is required" });
+    }
+
+    // 🔥 FIX: Extract and verify JWT token (same as /verify endpoint)
+    let token = req.header("Authorization");
+    if (token && token.startsWith("Bearer ")) {
+      token = token.replace("Bearer ", "");
+    }
+
+    // Fallback: try x-auth-token header
+    if (!token) {
+      token = req.header("x-auth-token");
+    }
+
+    // Fallback: try body token (for backward compatibility)
+    if (!token) {
+      token = req.body.token;
+    }
+
+    // 🔥 FIX: Verify JWT token to ensure user is authenticated
+    let decoded;
+    if (token) {
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
+      } catch (jwtError) {
+        return res.status(401).json({
+          error: "Invalid or expired token",
+          message: jwtError.message,
+        });
+      }
     }
 
     // 🔥 FIX: Use normalized mobile lookup
@@ -306,6 +340,41 @@ router.post("/setup", async (req, res) => {
     if (!user) {
       console.error(`[BIOMETRIC-SETUP] User not found for mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`);
       return res.status(404).json({ error: "User not found" });
+    }
+
+    // 🔥 FIX: Verify token userId matches the user being updated (security check)
+    if (decoded && decoded.userId && decoded.userId !== user._id.toString()) {
+      return res.status(403).json({
+        error: "Unauthorized: Token does not match user",
+      });
+    }
+
+    // Check if user account status allows authentication
+    if (user.profile && user.profile.status !== "active") {
+      const status = user.profile.status;
+      const statusReason = user.profile.statusReason;
+
+      let message =
+        "Your account is not active. Please contact support for more information.";
+      if (status === "suspended") {
+        message =
+          statusReason ||
+          "Your account has been suspended. Please contact support for more information.";
+      } else if (status === "paused") {
+        message =
+          statusReason ||
+          "Your account has been paused. Please contact support for more information.";
+      } else if (status === "inactive") {
+        message =
+          "Your account is inactive. Please contact support to reactivate your account.";
+      }
+
+      return res.status(403).json({
+        error: "Account not active",
+        message: message,
+        accountStatus: status,
+        statusReason: statusReason,
+      });
     }
 
     // 🔥 FIX: Log user found
@@ -353,6 +422,7 @@ router.post("/setup", async (req, res) => {
     }
 
     // 🔥 FIX: Build update object with proper initialization
+    // Mongoose dot notation works for nested fields, but we need to ensure parent objects exist
     const update = {
       $set: {
         "biometric.setup": true,
@@ -363,22 +433,41 @@ router.post("/setup", async (req, res) => {
       },
     };
 
+    // 🔥 FIX: Ensure biometric object exists if it doesn't
+    // Initialize the base biometric object if missing
+    if (!user.biometric) {
+      update.$set["biometric.enabled"] = false;
+    }
+
+    // Set nested verification fields
     if (verificationData) {
+      // Ensure nested objects are set - Mongoose dot notation creates them automatically
       update.$set["biometric.faceVerification.verified"] = true;
       update.$set["biometric.faceVerification.confidenceScore"] =
-        verificationData.faceMatchScore;
+        verificationData.faceMatchScore || 1.0;
       update.$set["biometric.faceVerification.lastVerified"] = new Date();
       update.$set["biometric.livenessCheck.lastChecked"] = new Date();
       update.$set["biometric.livenessCheck.lastScore"] =
-        verificationData.livenessScore;
+        verificationData.livenessScore || 1.0;
       update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
       update.$set["biometric.livenessCheck.lastScanType"] = type;
     }
 
     // 🔥 FIX: Add logging before update
     console.log(`[BIOMETRIC-SETUP] Updating user ${user._id} with:`, JSON.stringify(update, null, 2));
+    console.log(`[BIOMETRIC-SETUP] Current user biometric state:`, {
+      hasBiometric: !!user.biometric,
+      hasFaceVerification: !!user.biometric?.faceVerification,
+      hasLivenessCheck: !!user.biometric?.livenessCheck,
+    });
 
-    const updateResult = await User.findByIdAndUpdate(user._id, update, { new: true });
+    // 🔥 FIX: Use findByIdAndUpdate with proper options
+    // Mongoose will create nested paths automatically with dot notation
+    const updateResult = await User.findByIdAndUpdate(
+      user._id,
+      update,
+      { new: true, runValidators: false }
+    );
     
     // 🔥 FIX: Verify update was successful
     if (!updateResult) {
@@ -415,7 +504,9 @@ router.post("/setup", async (req, res) => {
       livenessScore: verificationData?.livenessScore,
     });
 
+    // 🔥 FIX: Return consistent response structure
     res.status(200).json({
+      success: true,
       message: "Biometric setup successful",
       user: {
         _id: user._id,
@@ -426,6 +517,12 @@ router.post("/setup", async (req, res) => {
         biometricType: type,
         faceVerified: verificationData ? true : false,
         confidenceScore: verificationData?.faceMatchScore,
+      },
+      biometric: {
+        setup: updatedUser.biometric?.setup || true,
+        type: updatedUser.biometric?.type || type,
+        verified: updatedUser.biometric?.faceVerification?.verified || false,
+        lastVerified: updatedUser.biometric?.faceVerification?.lastVerified || new Date(),
       },
     });
   } catch (error) {

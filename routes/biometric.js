@@ -35,24 +35,32 @@ const normalizeMobile = (mobile) => {
 };
 
 // 🔥 FIX: Helper to find user by mobile with normalization
-const findUserByMobile = async (mobile) => {
+const findUserByMobile = async (mobile, useLean = false) => {
   if (!mobile) return null;
   
   const normalized = normalizeMobile(mobile);
   
   // Try exact match first
-  let user = await User.findOne({ mobile: normalized });
+  let query = User.findOne({ mobile: normalized });
+  if (useLean) query = query.lean();
+  let user = await query;
   
   // If not found, try with + prefix
   if (!user) {
-    user = await User.findOne({ mobile: `+${normalized}` });
+    query = User.findOne({ mobile: `+${normalized}` });
+    if (useLean) query = query.lean();
+    user = await query;
   }
   
   // If still not found, try with country code
   if (!user && normalized.length === 10) {
-    user = await User.findOne({ mobile: `91${normalized}` });
+    query = User.findOne({ mobile: `91${normalized}` });
+    if (useLean) query = query.lean();
+    user = await query;
     if (!user) {
-      user = await User.findOne({ mobile: `+91${normalized}` });
+      query = User.findOne({ mobile: `+91${normalized}` });
+      if (useLean) query = query.lean();
+      user = await query;
     }
   }
   
@@ -435,6 +443,7 @@ router.post("/setup", async (req, res) => {
     // Mongoose dot notation works for nested fields, but we need to ensure parent objects exist
     const update = {
       $set: {
+        "biometric.enabled": true, // Always set enabled to true when setting up
         "biometric.setup": true,
         "biometric.type": type,
         "biometric.lastSetupAt": new Date(),
@@ -442,12 +451,6 @@ router.post("/setup", async (req, res) => {
         "biometric.lockedUntil": null,
       },
     };
-
-    // 🔥 FIX: Ensure biometric object exists if it doesn't
-    // Initialize the base biometric object if missing
-    if (!user.biometric) {
-      update.$set["biometric.enabled"] = false;
-    }
 
     // 🔥 FIX: Always initialize faceVerification structure (even without verificationData)
     // This ensures the schema structure is complete in the database
@@ -495,8 +498,19 @@ router.post("/setup", async (req, res) => {
       return res.status(500).json({ error: "Failed to setup biometric" });
     }
     
-    // 🔥 FIX: Verify the update by fetching user again
-    const updatedUser = await User.findById(user._id);
+    // 🔥 FIX: Use updateResult directly (it already has the updated data)
+    // But also fetch fresh from DB to ensure persistence
+    const updatedUser = await User.findById(user._id).lean();
+    
+    // 🔥 FIX: Verify the data was actually saved
+    if (!updatedUser.biometric || updatedUser.biometric.setup !== true) {
+      console.error(`[BIOMETRIC-SETUP] WARNING: Update may not have persisted!`, {
+        hasBiometric: !!updatedUser.biometric,
+        setup: updatedUser.biometric?.setup,
+        type: updatedUser.biometric?.type,
+      });
+    }
+    
     console.log(`[BIOMETRIC-SETUP] User after update:`, {
       setup: updatedUser.biometric?.setup,
       type: updatedUser.biometric?.type,
@@ -627,9 +641,9 @@ router.get("/status", async (req, res) => {
 
     let user;
 
-    // 🔥 FIX: Use normalized mobile lookup
+    // 🔥 FIX: Use normalized mobile lookup with lean() to get raw data
     if (mobile) {
-      user = await findUserByMobile(mobile);
+      user = await findUserByMobile(mobile, true); // Use lean() to get raw MongoDB data
       console.log(`[BIOMETRIC-STATUS] Searching by mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`);
     }
     // Find user by email if mobile not found
@@ -664,11 +678,23 @@ router.get("/status", async (req, res) => {
       biometricType: user.biometric?.type,
       faceVerified: user.biometric?.faceVerification?.verified,
       isVerified: user.isVerified,
+      hasBiometric: !!user.biometric,
+      biometricKeys: user.biometric ? Object.keys(user.biometric) : [],
+      fullBiometric: JSON.stringify(user.biometric, null, 2),
     });
 
     // Check if biometric is set up and verified
     const isSetup = user.biometric?.setup === true;
     const biometricType = user.biometric?.type || "none";
+    
+    // 🔥 FIX: Log raw values for debugging
+    console.log(`[BIOMETRIC-STATUS] Raw values:`, {
+      'user.biometric': user.biometric,
+      'user.biometric?.setup': user.biometric?.setup,
+      'user.biometric?.type': user.biometric?.type,
+      'isSetup (=== true)': isSetup,
+      'biometricType': biometricType,
+    });
     
     // 🔥 FIX: Less strict verification logic
     // For face_id: require faceVerification.verified OR fallback to isVerified

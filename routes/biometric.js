@@ -153,15 +153,17 @@ router.post("/verify", async (req, res) => {
 
     // Update user's biometric status
     // CRITICAL: Use $set operator to properly update nested fields
-    const update = {
-      $set: {
-        "biometric.attempts": attempts,
-        "biometric.lastVerification": new Date(),
-        "biometric.lastLogin": new Date(),
-        "biometric.token": null,
-        "biometric.tokenExpiresAt": null,
-      },
-    };
+   const update = {
+  $set: {
+    "biometric.setup": true,                 // 🔥 FIX
+    "biometric.type": "face_id",             // 🔥 FIX
+    "biometric.attempts": attempts,
+    "biometric.lastVerification": new Date(),
+    "biometric.lastLogin": new Date(),
+    "biometric.token": null,
+    "biometric.tokenExpiresAt": null,
+  },
+};
 
     // Update face verification status if applicable
     if (verificationData) {
@@ -441,11 +443,19 @@ router.get("/status", async (req, res) => {
     // Check if biometric is set up and verified
     const isSetup = user.biometric?.setup === true;
     const biometricType = user.biometric?.type || "none";
-    const isVerified =
-      user.biometric?.faceVerification?.verified === true ||
-      biometricType === "fingerprint"; // Fingerprint doesn't have separate verification flag
+   const biometricVerified =
+  user.biometric?.faceVerification?.verified === true ||
+  biometricType === "fingerprint";
 
-    const isRegistered = isSetup && (biometricType === "face_id" || biometricType === "fingerprint") && isVerified;
+// 🔥 FALLBACK FOR OLD USERS
+const isVerified =
+  biometricVerified || user.isVerified === true;
+
+const isRegistered =
+  isSetup &&
+  biometricType !== "none" &&
+  isVerified;
+
 
     // Log status check for analytics
     try {
@@ -460,20 +470,24 @@ router.get("/status", async (req, res) => {
     }
 
     res.status(200).json({
-      success: true,
-      isRegistered: isRegistered,
-      biometricType: biometricType,
-      setup: isSetup,
-      verified: isVerified,
-      lastVerified: user.biometric?.faceVerification?.lastVerified || null,
-      user: isRegistered
-        ? {
-            _id: user._id,
-            mobile: user.mobile,
-            email: user.email,
-          }
-        : null,
-    });
+  success: true,
+  isRegistered,
+  biometricType,
+  setup: isSetup,
+  verified: isVerified,
+  lastVerified:
+    user.biometric?.faceVerification?.lastVerified ||
+    user.biometric?.lastVerification ||
+    null,
+  user: isRegistered
+    ? {
+        _id: user._id,
+        mobile: user.mobile,
+        email: user.email,
+      }
+    : null,
+});
+
   } catch (error) {
     console.error("Biometric status check error:", error);
     try {

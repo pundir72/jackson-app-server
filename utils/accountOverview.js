@@ -54,14 +54,45 @@ class AccountOverviewService {
       // Mark combined milestone claimed to avoid duplicates
       user.milestone_allTasks_claimed = true;
 
-      // Create transaction record
+      const baseReferenceId = `MILESTONE-ALL-3-${Date.now()}`;
+
+      // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+      const hasCoins = reward.coins > 0;
+      const hasXP = finalXP > 0;
+      let primaryAmount = 0;
+      let primaryBalanceType = 'coins';
+
+      if (hasCoins && hasXP) {
+        // Both rewards - use coins as primary
+        primaryAmount = reward.coins;
+        primaryBalanceType = 'coins';
+      } else if (hasCoins) {
+        // Only coins
+        primaryAmount = reward.coins;
+        primaryBalanceType = 'coins';
+      } else if (hasXP) {
+        // Only XP
+        primaryAmount = finalXP;
+        primaryBalanceType = 'xp';
+      }
+
+      // Create single transaction with both coins and XP in metadata
       const transaction = new Transaction({
         user: userId,
         type: 'credit',
-        amount: reward.coins,
+        balanceType: primaryBalanceType,
+        amount: primaryAmount,
         description: 'Combined Milestone Reward - 3 daily tasks completed',
         status: 'completed',
-        referenceId: `MILESTONE-ALL-3-${Date.now()}`
+        referenceId: baseReferenceId,
+        metadata: {
+          coins: reward.coins || 0,
+          xp: finalXP || 0,
+          baseXp: reward.xp || 0,
+          finalXp: finalXP || 0,
+          source: 'milestone_reward',
+          milestoneType: 'all_three_tasks'
+        }
       });
 
       await Promise.all([user.save(), transaction.save()]);
@@ -118,17 +149,48 @@ class AccountOverviewService {
         // Mark as claimed to prevent duplicates
         user[milestoneKey] = true;
 
-        // Create transaction
+        const baseReferenceId = `MILESTONE-${type.toUpperCase()}-${Date.now()}`;
+
+        // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+        const hasCoins = reward.coins > 0;
+        const hasXP = finalXP > 0;
+        let primaryAmount = 0;
+        let primaryBalanceType = 'coins';
+
+        if (hasCoins && hasXP) {
+          // Both rewards - use coins as primary
+          primaryAmount = reward.coins;
+          primaryBalanceType = 'coins';
+        } else if (hasCoins) {
+          // Only coins
+          primaryAmount = reward.coins;
+          primaryBalanceType = 'coins';
+        } else if (hasXP) {
+          // Only XP
+          primaryAmount = finalXP;
+          primaryBalanceType = 'xp';
+        }
+
+        // Create single transaction with both coins and XP in metadata
         const transaction = new Transaction({
           user: userId,
           type: 'credit',
-          amount: reward.coins,
+          balanceType: primaryBalanceType,
+          amount: primaryAmount,
           description: `Milestone Reward - ${type}`,
           status: 'completed',
-          referenceId: `MILESTONE-${type.toUpperCase()}-${Date.now()}`
+          referenceId: baseReferenceId,
+          metadata: {
+            coins: reward.coins || 0,
+            xp: finalXP || 0,
+            baseXp: reward.xp || 0,
+            finalXp: finalXP || 0,
+            source: 'milestone_reward',
+            milestoneType: type
+          }
         });
 
-        // Save both
+        // Save both user and transaction
         await Promise.all([user.save(), transaction.save()]);
 
         awarded.push({ type, reward, newBalance: user.wallet.balance, newXP: user.xp.current });
@@ -551,14 +613,45 @@ class AccountOverviewService {
       user.xp.total = (user.xp.total || 0) + finalXP;
       user[milestoneKey] = true;
 
-      // Create transaction record
+      const baseReferenceId = `MILESTONE-${milestoneType}-${Date.now()}`;
+
+      // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+      const hasCoins = reward.coins > 0;
+      const hasXP = finalXP > 0;
+      let primaryAmount = 0;
+      let primaryBalanceType = 'coins';
+
+      if (hasCoins && hasXP) {
+        // Both rewards - use coins as primary
+        primaryAmount = reward.coins;
+        primaryBalanceType = 'coins';
+      } else if (hasCoins) {
+        // Only coins
+        primaryAmount = reward.coins;
+        primaryBalanceType = 'coins';
+      } else if (hasXP) {
+        // Only XP
+        primaryAmount = finalXP;
+        primaryBalanceType = 'xp';
+      }
+
+      // Create single transaction with both coins and XP in metadata
       const transaction = new Transaction({
         user: userId,
         type: 'credit',
-        amount: reward.coins,
+        balanceType: primaryBalanceType,
+        amount: primaryAmount,
         description: `Milestone Reward - ${milestoneType}`,
         status: 'completed',
-        referenceId: `MILESTONE-${milestoneType}-${Date.now()}`
+        referenceId: baseReferenceId,
+        metadata: {
+          coins: reward.coins || 0,
+          xp: finalXP || 0,
+          baseXp: reward.xp || 0,
+          finalXp: finalXP || 0,
+          source: 'milestone_reward',
+          milestoneType: milestoneType
+        }
       });
 
       await Promise.all([user.save(), transaction.save()]);

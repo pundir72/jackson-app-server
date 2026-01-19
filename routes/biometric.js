@@ -35,32 +35,24 @@ const normalizeMobile = (mobile) => {
 };
 
 // 🔥 FIX: Helper to find user by mobile with normalization
-const findUserByMobile = async (mobile, useLean = false) => {
+const findUserByMobile = async (mobile) => {
   if (!mobile) return null;
   
   const normalized = normalizeMobile(mobile);
   
   // Try exact match first
-  let query = User.findOne({ mobile: normalized });
-  if (useLean) query = query.lean();
-  let user = await query;
+  let user = await User.findOne({ mobile: normalized });
   
   // If not found, try with + prefix
   if (!user) {
-    query = User.findOne({ mobile: `+${normalized}` });
-    if (useLean) query = query.lean();
-    user = await query;
+    user = await User.findOne({ mobile: `+${normalized}` });
   }
   
   // If still not found, try with country code
   if (!user && normalized.length === 10) {
-    query = User.findOne({ mobile: `91${normalized}` });
-    if (useLean) query = query.lean();
-    user = await query;
+    user = await User.findOne({ mobile: `91${normalized}` });
     if (!user) {
-      query = User.findOne({ mobile: `+91${normalized}` });
-      if (useLean) query = query.lean();
-      user = await query;
+      user = await User.findOne({ mobile: `+91${normalized}` });
     }
   }
   
@@ -223,13 +215,9 @@ router.post("/verify", async (req, res) => {
       },
     };
 
-    // 🔥 FIX: Always initialize faceVerification structure (even without verificationData)
-    // This ensures the schema structure is complete in the database
-    update.$set["biometric.faceVerification.verified"] = verificationData ? true : false;
-    update.$set["biometric.faceVerification.verificationAttempts"] = 0;
-
-    // Update face verification status if verificationData exists
+    // Update face verification status if applicable
     if (verificationData) {
+      update.$set["biometric.faceVerification.verified"] = true;
       update.$set["biometric.faceVerification.confidenceScore"] =
         verificationData.faceMatchScore;
       update.$set["biometric.faceVerification.lastVerified"] = new Date();
@@ -239,18 +227,21 @@ router.post("/verify", async (req, res) => {
       update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
       update.$set["biometric.livenessCheck.lastScanType"] =
         scanType || "os_face_id";
-    } else {
-      // 🔥 FIX: Initialize livenessCheck structure even without verificationData
-      update.$set["biometric.livenessCheck.lastChecked"] = null;
-      update.$set["biometric.livenessCheck.lastScore"] = null;
-      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId || null;
-      update.$set["biometric.livenessCheck.lastScanType"] = scanType || null;
     }
 
     // 🔥 FIX: Add logging before update
     console.log(`[BIOMETRIC-VERIFY] Updating user ${user._id} with:`, JSON.stringify(update, null, 2));
     
-    const updateResult = await User.findByIdAndUpdate(user._id, update, { new: true });
+    // 🔥 FIX: Use strict: false to allow saving fields not in schema
+    const updateResult = await User.findByIdAndUpdate(
+      user._id, 
+      update, 
+      { 
+        new: true,
+        strict: false, // 🔥 CRITICAL: Allow saving fields not in schema
+        runValidators: false
+      }
+    );
     
     // 🔥 FIX: Verify update was successful
     if (!updateResult) {
@@ -439,91 +430,120 @@ router.post("/setup", async (req, res) => {
       }
     }
 
-    // 🔥 FIX: Build update object with proper initialization
-    // Mongoose dot notation works for nested fields, but we need to ensure parent objects exist
-    const update = {
-      $set: {
-        "biometric.enabled": true, // Always set enabled to true when setting up
-        "biometric.setup": true,
-        "biometric.type": type,
-        "biometric.lastSetupAt": new Date(),
-        "biometric.attempts": 0,
-        "biometric.lockedUntil": null,
-      },
-    };
-
-    // 🔥 FIX: Always initialize faceVerification structure (even without verificationData)
-    // This ensures the schema structure is complete in the database
-    update.$set["biometric.faceVerification.verified"] = verificationData ? true : false;
-    update.$set["biometric.faceVerification.verificationAttempts"] = 0;
-    
-    // Set nested verification fields if verificationData exists
-    if (verificationData) {
-      update.$set["biometric.faceVerification.confidenceScore"] =
-        verificationData.faceMatchScore || 1.0;
-      update.$set["biometric.faceVerification.lastVerified"] = new Date();
-      update.$set["biometric.livenessCheck.lastChecked"] = new Date();
-      update.$set["biometric.livenessCheck.lastScore"] =
-        verificationData.livenessScore || 1.0;
-      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId;
-      update.$set["biometric.livenessCheck.lastScanType"] = type;
-    } else {
-      // 🔥 FIX: Initialize livenessCheck structure even without verificationData
-      // This ensures the nested object exists in the database
-      update.$set["biometric.livenessCheck.lastChecked"] = null;
-      update.$set["biometric.livenessCheck.lastScore"] = null;
-      update.$set["biometric.livenessCheck.lastDeviceId"] = deviceId || null;
-      update.$set["biometric.livenessCheck.lastScanType"] = type || null;
-    }
-
-    // 🔥 FIX: Add logging before update
-    console.log(`[BIOMETRIC-SETUP] Updating user ${user._id} with:`, JSON.stringify(update, null, 2));
-    console.log(`[BIOMETRIC-SETUP] Current user biometric state:`, {
+    // 🔥 FIX: Use save() method instead of findByIdAndUpdate for better reliability with nested objects
+    // This ensures nested biometric fields are properly saved to the database
+    console.log(`[BIOMETRIC-SETUP] Using save() method to ensure data persistence`);
+    console.log(`[BIOMETRIC-SETUP] Current user biometric state before update:`, {
       hasBiometric: !!user.biometric,
       hasFaceVerification: !!user.biometric?.faceVerification,
       hasLivenessCheck: !!user.biometric?.livenessCheck,
     });
 
-    // 🔥 FIX: Use findByIdAndUpdate with proper options
-    // Mongoose will create nested paths automatically with dot notation
-    const updateResult = await User.findByIdAndUpdate(
-      user._id,
-      update,
-      { new: true, runValidators: false }
-    );
-    
-    // 🔥 FIX: Verify update was successful
-    if (!updateResult) {
-      console.error(`[BIOMETRIC-SETUP] Failed to update user ${user._id}`);
-      return res.status(500).json({ error: "Failed to setup biometric" });
+    // Fetch fresh user document
+    const userDoc = await User.findById(user._id);
+    if (!userDoc) {
+      console.error(`[BIOMETRIC-SETUP] User not found: ${user._id}`);
+      return res.status(404).json({ error: "User not found" });
     }
-    
-    // 🔥 FIX: Use updateResult directly (it already has the updated data)
-    // But also fetch fresh from DB to ensure persistence
-    const updatedUser = await User.findById(user._id).lean();
-    
-    // 🔥 FIX: Verify the data was actually saved
-    if (!updatedUser.biometric || updatedUser.biometric.setup !== true) {
-      console.error(`[BIOMETRIC-SETUP] WARNING: Update may not have persisted!`, {
-        hasBiometric: !!updatedUser.biometric,
-        setup: updatedUser.biometric?.setup,
-        type: updatedUser.biometric?.type,
+
+    // Initialize biometric object if it doesn't exist
+    if (!userDoc.biometric) {
+      userDoc.biometric = {
+        enabled: false,
+        attempts: 0
+      };
+    }
+
+    // Set top-level biometric fields
+    userDoc.biometric.setup = true;
+    userDoc.biometric.type = type;
+    userDoc.biometric.lastSetupAt = new Date();
+    userDoc.biometric.attempts = 0;
+    userDoc.biometric.lockedUntil = null;
+
+    // Initialize nested objects if they don't exist
+    if (!userDoc.biometric.faceVerification) {
+      userDoc.biometric.faceVerification = {};
+    }
+    if (!userDoc.biometric.livenessCheck) {
+      userDoc.biometric.livenessCheck = {};
+    }
+
+    // Set nested verification fields
+    if (verificationData) {
+      userDoc.biometric.faceVerification.verified = true;
+      userDoc.biometric.faceVerification.confidenceScore = verificationData.faceMatchScore || 1.0;
+      userDoc.biometric.faceVerification.lastVerified = new Date();
+      userDoc.biometric.faceVerification.verificationAttempts = 0;
+      
+      userDoc.biometric.livenessCheck.lastChecked = new Date();
+      userDoc.biometric.livenessCheck.lastScore = verificationData.livenessScore || 1.0;
+      userDoc.biometric.livenessCheck.lastDeviceId = deviceId;
+      userDoc.biometric.livenessCheck.lastScanType = type;
+    } else {
+      // Initialize even without verificationData
+      userDoc.biometric.faceVerification.verified = false;
+      userDoc.biometric.faceVerification.verificationAttempts = 0;
+      
+      userDoc.biometric.livenessCheck.lastChecked = null;
+      userDoc.biometric.livenessCheck.lastScore = null;
+      userDoc.biometric.livenessCheck.lastDeviceId = deviceId || null;
+      userDoc.biometric.livenessCheck.lastScanType = type || null;
+    }
+
+    // Log before save
+    console.log(`[BIOMETRIC-SETUP] Saving user with biometric:`, {
+      setup: userDoc.biometric.setup,
+      type: userDoc.biometric.type,
+      hasFaceVerification: !!userDoc.biometric.faceVerification,
+      hasLivenessCheck: !!userDoc.biometric.livenessCheck,
+    });
+
+    // Mark biometric as modified to ensure Mongoose saves nested fields
+    userDoc.markModified('biometric');
+    userDoc.markModified('biometric.faceVerification');
+    userDoc.markModified('biometric.livenessCheck');
+
+    // Save the document - this is more reliable than findByIdAndUpdate for nested objects
+    try {
+      await userDoc.save({ validateBeforeSave: false });
+      console.log(`[BIOMETRIC-SETUP] ✅ Save completed successfully`);
+    } catch (saveError) {
+      console.error(`[BIOMETRIC-SETUP] ❌ Save error:`, saveError);
+      console.error(`[BIOMETRIC-SETUP] Save error message:`, saveError.message);
+      console.error(`[BIOMETRIC-SETUP] Save error stack:`, saveError.stack);
+      return res.status(500).json({ 
+        error: "Failed to save biometric data",
+        details: saveError.message 
       });
     }
-    
-    console.log(`[BIOMETRIC-SETUP] User after update:`, {
+
+    // Fetch fresh from database to verify save
+    const updatedUser = await User.findById(user._id).lean();
+    console.log(`[BIOMETRIC-SETUP] Database verification after save:`, {
       setup: updatedUser.biometric?.setup,
       type: updatedUser.biometric?.type,
       verified: updatedUser.biometric?.faceVerification?.verified,
       hasFaceVerification: !!updatedUser.biometric?.faceVerification,
       hasLivenessCheck: !!updatedUser.biometric?.livenessCheck,
-      faceVerificationKeys: updatedUser.biometric?.faceVerification ? Object.keys(updatedUser.biometric.faceVerification) : [],
-      livenessCheckKeys: updatedUser.biometric?.livenessCheck ? Object.keys(updatedUser.biometric.livenessCheck) : [],
       mobile: updatedUser.mobile,
     });
     
-    // 🔥 FIX: Log full biometric object for debugging
-    console.log(`[BIOMETRIC-SETUP] Full biometric object:`, JSON.stringify(updatedUser.biometric, null, 2));
+    // 🔥 CRITICAL: Log full biometric object to see what was actually saved
+    console.log(`[BIOMETRIC-SETUP] Full biometric object from database:`, JSON.stringify(updatedUser.biometric, null, 2));
+    
+    // Verify save was successful
+    if (!updatedUser.biometric?.setup) {
+      console.error(`[BIOMETRIC-SETUP] ❌ CRITICAL: Save completed but biometric.setup is NOT true in database!`);
+      console.error(`[BIOMETRIC-SETUP] This indicates a serious database/schema issue.`);
+      console.error(`[BIOMETRIC-SETUP] Current biometric state:`, JSON.stringify(updatedUser.biometric, null, 2));
+      return res.status(500).json({ 
+        error: "Biometric data was not saved to database. Please check backend logs and schema configuration.",
+        details: "Setup field is missing after save operation"
+      });
+    } else {
+      console.log(`[BIOMETRIC-SETUP] ✅ Verification successful - biometric.setup is true in database`);
+    }
 
     // Invalidate profile cache so GET /api/profile reflects latest face verification status
     try {
@@ -641,9 +661,9 @@ router.get("/status", async (req, res) => {
 
     let user;
 
-    // 🔥 FIX: Use normalized mobile lookup with lean() to get raw data
+    // 🔥 FIX: Use normalized mobile lookup
     if (mobile) {
-      user = await findUserByMobile(mobile, true); // Use lean() to get raw MongoDB data
+      user = await findUserByMobile(mobile);
       console.log(`[BIOMETRIC-STATUS] Searching by mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`);
     }
     // Find user by email if mobile not found
@@ -678,23 +698,11 @@ router.get("/status", async (req, res) => {
       biometricType: user.biometric?.type,
       faceVerified: user.biometric?.faceVerification?.verified,
       isVerified: user.isVerified,
-      hasBiometric: !!user.biometric,
-      biometricKeys: user.biometric ? Object.keys(user.biometric) : [],
-      fullBiometric: JSON.stringify(user.biometric, null, 2),
     });
 
     // Check if biometric is set up and verified
     const isSetup = user.biometric?.setup === true;
     const biometricType = user.biometric?.type || "none";
-    
-    // 🔥 FIX: Log raw values for debugging
-    console.log(`[BIOMETRIC-STATUS] Raw values:`, {
-      'user.biometric': user.biometric,
-      'user.biometric?.setup': user.biometric?.setup,
-      'user.biometric?.type': user.biometric?.type,
-      'isSetup (=== true)': isSetup,
-      'biometricType': biometricType,
-    });
     
     // 🔥 FIX: Less strict verification logic
     // For face_id: require faceVerification.verified OR fallback to isVerified

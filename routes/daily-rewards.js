@@ -716,6 +716,92 @@ router.get("/week", protect, async (req, res) => {
     // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
     const enrichedDays = progress.days.map((day) => {
       const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
+      
+      // Special handling for day 7
+      if (day.dayNumber === 7) {
+        // If big reward is eligible, use big reward values
+        if (progress.bigRewardEligible && cfg.bigReward?.enabled) {
+          let baseCoins = cfg.bigReward?.coinValue ?? cfg.bigReward?.coins ?? 200;
+          let baseXP = cfg.bigReward?.xpValue ?? cfg.bigReward?.xp ?? 100;
+
+          // Apply weekly multiplier if enabled and week > 1
+          let finalCoins = baseCoins;
+          let finalXP = baseXP;
+          if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+            finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+            finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+          }
+
+          // Apply accessBenefits multiplier to XP only (after weekly multiplier)
+          if (accessBenefitsMultiplier > 1.0) {
+            finalXP = applyMultiplier(
+              finalXP,
+              accessBenefitsMultiplier,
+              roundingRule
+            );
+          }
+
+          return {
+            ...day.toObject(),
+            rewardCoins: finalCoins,
+            rewardXp: finalXP,
+          };
+        } else {
+          // Big reward not eligible - use day 6's values as fallback
+          const day6 = progress.days.find((d) => d.dayNumber === 6);
+          if (day6) {
+            const day6Config = cfg.days.find((d) => d.dayNumber === 6);
+            if (day6Config && day6Config.active) {
+              const rewardType = day6Config.rewardType || "Both";
+              let baseCoins = 0;
+              let baseXP = 0;
+
+              if (rewardType === "Coins" || rewardType === "Both") {
+                baseCoins =
+                  day6Config.coinValue !== undefined
+                    ? day6Config.coinValue
+                    : day6Config.coins || 0;
+              }
+              if (rewardType === "XP" || rewardType === "Both") {
+                baseXP =
+                  day6Config.xpValue !== undefined
+                    ? day6Config.xpValue
+                    : day6Config.xp || 0;
+              }
+
+              // Apply weekly multiplier if enabled and week > 1
+              let finalCoins = baseCoins;
+              let finalXP = baseXP;
+              if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+                finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
+                finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
+              }
+
+              // Apply accessBenefits multiplier to XP only (after weekly multiplier)
+              if (accessBenefitsMultiplier > 1.0) {
+                finalXP = applyMultiplier(
+                  finalXP,
+                  accessBenefitsMultiplier,
+                  roundingRule
+                );
+              }
+
+              return {
+                ...day.toObject(),
+                rewardCoins: finalCoins,
+                rewardXp: finalXP,
+              };
+            }
+          }
+          // If day 6 config not found or inactive, return 0
+          return {
+            ...day.toObject(),
+            rewardCoins: 0,
+            rewardXp: 0,
+          };
+        }
+      }
+
       // Use admin config V2 values only - check if day is active
       if (!dayConfig || !dayConfig.active) {
         return {
@@ -856,33 +942,82 @@ router.post("/claim", protect, async (req, res) => {
       );
     }
 
-    // Determine reward from admin config
-    const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
-    if (!dayConfig) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Day configuration not found" });
-    }
-
-    if (dayConfig.active === false) {
-      return res
-        .status(400)
-        .json({ success: false, error: "This day's reward is not active" });
-    }
-
-    const rewardType = dayConfig.rewardType || "Both";
+    // Special handling for day 7 - check big reward eligibility first
+    let bigReward = null;
+    let bigRewardCoins = 0;
+    let bigRewardXP = 0;
     let baseCoins = 0;
     let baseXP = 0;
 
-    if (rewardType === "Coins" || rewardType === "Both") {
-      baseCoins =
-        dayConfig.coinValue !== undefined
-          ? dayConfig.coinValue
-          : dayConfig.coins || 0;
-    }
-    if (rewardType === "XP" || rewardType === "Both") {
-      baseXP =
-        dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+    if (day.dayNumber === 7) {
+      // For day 7, use big reward if eligible, otherwise use day 6's values
+      if (progress.bigRewardEligible && cfg.bigReward?.enabled) {
+        // Use big reward values
+        bigReward = cfg.bigReward;
+        const bigRewardType = bigReward.rewardType || "Both";
+
+        if (bigRewardType === "Coins" || bigRewardType === "Both") {
+          baseCoins =
+            bigReward.coinValue !== undefined
+              ? bigReward.coinValue
+              : bigReward.coins || 0;
+        }
+        if (bigRewardType === "XP" || bigRewardType === "Both") {
+          baseXP =
+            bigReward.xpValue !== undefined
+              ? bigReward.xpValue
+              : bigReward.xp || 0;
+        }
+
+        // Weekly multiplier will be applied to baseCoins/baseXP later
+        progress.bigRewardGranted = true;
+      } else {
+        // Big reward not eligible - use day 6's values as fallback
+        const day6Config = cfg.days.find((d) => d.dayNumber === 6);
+        if (day6Config && day6Config.active) {
+          const rewardType = day6Config.rewardType || "Both";
+
+          if (rewardType === "Coins" || rewardType === "Both") {
+            baseCoins =
+              day6Config.coinValue !== undefined
+                ? day6Config.coinValue
+                : day6Config.coins || 0;
+          }
+          if (rewardType === "XP" || rewardType === "Both") {
+            baseXP =
+              day6Config.xpValue !== undefined
+                ? day6Config.xpValue
+                : day6Config.xp || 0;
+          }
+        }
+      }
+    } else {
+      // For days 1-6, use normal day config
+      const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
+      if (!dayConfig) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Day configuration not found" });
+      }
+
+      if (dayConfig.active === false) {
+        return res
+          .status(400)
+          .json({ success: false, error: "This day's reward is not active" });
+      }
+
+      const rewardType = dayConfig.rewardType || "Both";
+
+      if (rewardType === "Coins" || rewardType === "Both") {
+        baseCoins =
+          dayConfig.coinValue !== undefined
+            ? dayConfig.coinValue
+            : dayConfig.coins || 0;
+      }
+      if (rewardType === "XP" || rewardType === "Both") {
+        baseXP =
+          dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
+      }
     }
 
     // Apply weekly multiplier if enabled and week > 1
@@ -896,68 +1031,6 @@ router.post("/claim", protect, async (req, res) => {
     // Store base XP (after weekly multiplier, before accessBenefits multiplier)
     // This will be used for metadata and passed to applyTierMultiplierToXP
     const baseXPForTier = xpAfterWeekly;
-
-    // Check perfect streak for big reward on Day 7 (V2 config)
-    let bigReward = null;
-    let bigRewardCoins = 0;
-    let bigRewardXP = 0;
-
-    if (day.dayNumber === 7 && cfg.bigReward?.enabled !== false) {
-      const downgradeOnMiss = cfg.bigReward.downgradeOnMiss !== false;
-
-      if (downgradeOnMiss) {
-        const allClaimed = progress.days
-          .slice(0, 6)
-          .every((d) => d.status === "claimed");
-        if (allClaimed && weekNumber === 1) {
-          bigReward = cfg.bigReward;
-          progress.bigRewardEligible = true;
-          progress.bigRewardGranted = true;
-        }
-      } else {
-        if (weekNumber === 1) {
-          bigReward = cfg.bigReward;
-          progress.bigRewardEligible = true;
-          progress.bigRewardGranted = true;
-        }
-      }
-
-      if (bigReward) {
-        const bigRewardType = bigReward.rewardType || "Both";
-
-        if (bigRewardType === "Coins" || bigRewardType === "Both") {
-          bigRewardCoins =
-            bigReward.coinValue !== undefined
-              ? bigReward.coinValue
-              : bigReward.coins || 0;
-        }
-        if (bigRewardType === "XP" || bigRewardType === "Both") {
-          bigRewardXP =
-            bigReward.xpValue !== undefined
-              ? bigReward.xpValue
-              : bigReward.xp || 0;
-        }
-
-        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
-          bigRewardCoins = applyMultiplier(
-            bigRewardCoins,
-            weekMultiplier,
-            roundingRule
-          );
-          bigRewardXP = applyMultiplier(
-            bigRewardXP,
-            weekMultiplier,
-            roundingRule
-          );
-        }
-
-        // Big reward XP will be multiplied by applyTierMultiplierToXP later
-        // No need to apply accessBenefits multiplier here
-      } else if (weekNumber === 1) {
-        bigRewardCoins = cfg.fallbackReward?.coins || 0;
-        bigRewardXP = cfg.fallbackReward?.xp || 0;
-      }
-    }
 
     const coins = finalCoins + bigRewardCoins;
     // XP before tier multiplier (after weekly multiplier)

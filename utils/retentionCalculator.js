@@ -30,19 +30,18 @@ async function calculateRetention(filters = {}) {
       matchStage["onboarding.gender"] = gender.toLowerCase();
     }
 
-    // Default date range: last 30 days
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Only apply date filter if dates are provided
+    // If no dates provided (null/undefined/empty string), retrieve all users (no date filter)
+    let start = startDate && startDate.trim() !== '' ? new Date(startDate) : undefined;
+    let end = endDate && endDate.trim() !== '' ? new Date(endDate) : undefined;
 
-    // Add date filter
-    if (startDate || endDate) {
+    // Add date filter only if dates are provided
+    if (start || end) {
       matchStage.createdAt = {};
-      if (startDate) {
+      if (start) {
         matchStage.createdAt.$gte = start;
       }
-      if (endDate) {
+      if (end) {
         matchStage.createdAt.$lte = end;
       }
     }
@@ -411,18 +410,24 @@ async function getRetentionTrend(filters = {}) {
   try {
     const { startDate, endDate, gameId, source, age, gender } = filters;
 
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Only apply date filter if dates are provided
+    // If no dates provided (null/undefined/empty string), retrieve all users (no date filter)
+    let start = startDate && startDate.trim() !== '' ? new Date(startDate) : undefined;
+    let end = endDate && endDate.trim() !== '' ? new Date(endDate) : undefined;
 
     // Build user query match stage
-    const matchStage = {
-      createdAt: {
-        $gte: start,
-        $lte: end,
-      },
-    };
+    const matchStage = {};
+
+    // Add date filter only if dates are provided
+    if (start || end) {
+      matchStage.createdAt = {};
+      if (start) {
+        matchStage.createdAt.$gte = start;
+      }
+      if (end) {
+        matchStage.createdAt.$lte = end;
+      }
+    }
 
     // Source filter
     if (source) {

@@ -4031,7 +4031,7 @@ router.get(
 
       // Build base query
       const baseQuery = {
-        sdkId: sdk._id,
+        sdkId: bitlabSDK._id,
       };
 
       if (status !== "all") {

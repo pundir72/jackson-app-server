@@ -412,6 +412,24 @@ const userSchema = new mongoose.Schema({
             type: Boolean,
             default: false
         },
+        setup: {
+            type: Boolean,
+            default: false
+        },
+        type: {
+            type: String,
+            enum: ['none', 'face_id', 'fingerprint'],
+            default: 'none'
+        },
+        lastSetupAt: {
+            type: Date
+        },
+        lastVerification: {
+            type: Date
+        },
+        lastLogin: {
+            type: Date
+        },
         lastAttempt: {
             type: Date
         },
@@ -421,6 +439,48 @@ const userSchema = new mongoose.Schema({
         },
         lockedUntil: {
             type: Date
+        },
+        token: {
+            type: String
+        },
+        tokenExpiresAt: {
+            type: Date
+        },
+        faceVerification: {
+            verified: {
+                type: Boolean,
+                default: false
+            },
+            faceVector: {
+                type: Buffer
+            },
+            lastVerified: {
+                type: Date
+            },
+            confidenceScore: {
+                type: Number
+            },
+            verificationAttempts: {
+                type: Number,
+                default: 0
+            },
+            lastFailedAttempt: {
+                type: Date
+            }
+        },
+        livenessCheck: {
+            lastChecked: {
+                type: Date
+            },
+            lastScore: {
+                type: Number
+            },
+            lastDeviceId: {
+                type: String
+            },
+            lastScanType: {
+                type: String
+            }
         }
     },
 

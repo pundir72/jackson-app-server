@@ -96,14 +96,14 @@ const gameDisplayRuleSchema = new mongoose.Schema(
           default: null,
         },
       },
-      // New users limit
+      // New users limit (applies to users with gamesPlayed === 0)
       newUsersLimit: {
         type: Number,
         min: 1,
         max: 50,
         default: null,
       },
-      // Engaged users limit
+      // Engaged users limit (applies to users with gamesPlayed >= 3)
       engagedUsersLimit: {
         type: Number,
         min: 1,
@@ -193,7 +193,7 @@ function generateTargetSegmentFromMilestones(
         segmentParts.push("New Users");
         break;
       case "returning_user":
-        segmentParts.push("Engaged Users");
+        segmentParts.push("Engaged Users (3+ games)");
         break;
       case "xp_tier":
         segmentParts.push("XP Tier");
@@ -460,13 +460,13 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
     }
   }
 
-  // Check returning user (one or more games downloaded)
+  // Check returning user (three or more games downloaded)
   if (this.userMilestones.includes("returning_user")) {
-    milestoneChecks.returning_user = gamesPlayed > 0;
-    if (gamesPlayed === 0) {
+    milestoneChecks.returning_user = gamesPlayed >= 3;
+    if (gamesPlayed < 3) {
       applies = false;
       console.log(
-        `  ❌ returning_user milestone: FAILED (gamesPlayed: ${gamesPlayed}, expected: > 0)`
+        `  ❌ returning_user milestone: FAILED (gamesPlayed: ${gamesPlayed}, expected: >= 3)`
       );
     } else {
       console.log(
@@ -553,20 +553,20 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
       );
     }
 
-    // Check engaged users limit
+    // Check engaged users limit (requires 3 or more games downloaded)
     if (
-      gamesPlayed > 0 &&
+      gamesPlayed >= 3 &&
       this.gameCountLimits.engagedUsersLimit !== null &&
       this.gameCountLimits.engagedUsersLimit !== undefined
     ) {
       console.log(
-        `    ✅ Engaged Users Limit: ${this.gameCountLimits.engagedUsersLimit} (user is engaged)`
+        `    ✅ Engaged Users Limit: ${this.gameCountLimits.engagedUsersLimit} (user is engaged with ${gamesPlayed} games)`
       );
       maxGames = this.gameCountLimits.engagedUsersLimit;
       console.log(`    → maxGames updated to: ${maxGames}`);
     } else {
       console.log(
-        `    ⏭️  Engaged Users Limit: SKIPPED (gamesPlayed: ${gamesPlayed}, limit: ${this.gameCountLimits.engagedUsersLimit})`
+        `    ⏭️  Engaged Users Limit: SKIPPED (gamesPlayed: ${gamesPlayed}, requires >= 3, limit: ${this.gameCountLimits.engagedUsersLimit})`
       );
     }
 

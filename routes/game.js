@@ -9,6 +9,7 @@ const GameTask = require("../models/GameTask");
 const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const XPTier = require("../models/XPTier");
+const BatchClaim = require("../models/BatchClaim");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const {
   getUserXpTier,
@@ -367,10 +368,22 @@ router.get("/downloads", protect, async (req, res) => {
 // Credit earned XP and coins to the authenticated user
 router.post("/earn", protect, async (req, res) => {
   try {
-    const { gameId, offerId, coins = 0, xp = 0, reason } = req.body;
+    const { 
+      gameId, 
+      offerId, 
+      coins = 0, 
+      xp = 0, 
+      reason,
+      batchNumber,        // NEW
+      batchesClaimed,     // NEW
+      gameTitle           // NEW
+    } = req.body;
+    
     const coinsNum = Number(coins);
     const baseXpNum = Number(xp);
+    const userId = req.user.userId; // Get from auth middleware
 
+    // Validation
     if (isNaN(coinsNum) || coinsNum < 0 || isNaN(baseXpNum) || baseXpNum < 0) {
       return res.status(400).json({
         success: false,
@@ -378,18 +391,55 @@ router.post("/earn", protect, async (req, res) => {
       });
     }
 
-    // basic per-call cap to avoid accidental large credits
-    if (coinsNum > 100000 || baseXpNum > 100000) {
-      return res
-        .status(400)
-        .json({ success: false, message: "coins/xp exceed per-call cap" });
+    // Validate batch fields (if provided)
+    if (batchNumber !== undefined) {
+      if (!Number.isInteger(batchNumber) || batchNumber < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "batchNumber must be a positive integer",
+        });
+      }
+      if (!Number.isInteger(batchesClaimed) || batchesClaimed < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "batchesClaimed must be a positive integer",
+        });
+      }
     }
 
-    const user = await User.findById(req.user.userId).select("wallet xp games");
+    // Per-call cap check
+    if (coinsNum > 100000 || baseXpNum > 100000) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "coins/xp exceed per-call cap" 
+      });
+    }
+
+    const user = await User.findById(userId).select("wallet xp games");
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found" 
+      });
+    }
+
+    // NEW: Check if batches already claimed (prevent duplicate claims)
+    if (gameId && batchNumber !== undefined) {
+      const batchNumbersToCheck = Array.from({ length: batchesClaimed }, (_, i) => batchNumber + i);
+      const existingClaim = await BatchClaim.findOne({
+        userId: user._id,
+        gameId: gameId,
+        batchNumber: { $in: batchNumbersToCheck }
+      });
+
+      if (existingClaim) {
+        return res.status(400).json({
+          success: false,
+          message: `Batch ${existingClaim.batchNumber} already claimed for this game`,
+          alreadyClaimed: true,
+          claimedBatchNumber: existingClaim.batchNumber
+        });
+      }
     }
 
     // Update wallet balance (coins)
@@ -399,7 +449,7 @@ router.post("/earn", protect, async (req, res) => {
 
     // Update xp object (current + total) with tier-based multiplier
     user.xp = user.xp || {};
-    const { finalXP, multiplier: tierMultiplier } =
+    const { finalXP, multiplier: tierMultiplier } = 
       await applyTierMultiplierToXP(user, baseXpNum);
     user.xp.current = Number(user.xp.current || 0) + finalXP;
     user.xp.total = Number(user.xp.total || 0) + finalXP;
@@ -422,7 +472,7 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // Find Game document to get ObjectId for proper linking (if gameId provided)
+    // Find Game document to get ObjectId for proper linking
     let gameDoc = null;
     if (gameId) {
       gameDoc = await Game.findOne({ gameId: gameId }).select("_id").lean();
@@ -435,7 +485,7 @@ router.post("/earn", protect, async (req, res) => {
       amount: coinsNum,
       balanceType: "coins",
       description: gameId
-        ? `Game earnings - ${gameId}`
+        ? `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ''}`
         : `Manual game earnings${reason ? ` - ${reason}` : ""}`,
       status: "completed",
       referenceId: `GAME-EARN-${gameId || "manual"}-${Date.now()}`,
@@ -449,15 +499,40 @@ router.post("/earn", protect, async (req, res) => {
         xpEarned: finalXP,
         baseXp: baseXpNum,
         tierMultiplier,
+        batchNumber: batchNumber || null,        // NEW
+        batchesClaimed: batchesClaimed || null,  // NEW
+        gameTitle: gameTitle || null             // NEW
       },
     });
 
-    await Promise.all([user.save(), transaction.save()]);
+    // NEW: Create batch claim records to track which batches have been claimed
+    const batchClaims = [];
+    if (gameId && batchNumber !== undefined) {
+      for (let i = 0; i < batchesClaimed; i++) {
+        batchClaims.push({
+          userId: user._id,
+          gameId: gameId,
+          batchNumber: batchNumber + i,
+          coins: coinsNum / batchesClaimed,  // Divide coins across batches if multiple
+          xp: finalXP / batchesClaimed,       // Divide XP across batches if multiple
+          gameTitle: gameTitle || null,
+          claimedAt: new Date(),
+          transactionId: transaction._id
+        });
+      }
+    }
+
+    // Save all data
+    const savePromises = [user.save(), transaction.save()];
+    if (batchClaims.length > 0) {
+      savePromises.push(BatchClaim.insertMany(batchClaims));
+    }
+    await Promise.all(savePromises);
 
     // Track achievements for game earnings
     setImmediate(async () => {
       try {
-        await trackAchievements(req.user.userId, "wallet", {
+        await trackAchievements(userId, "wallet", {
           coins: coinsNum,
           xp: finalXP,
           category: "game_earn",
@@ -465,9 +540,8 @@ router.post("/earn", protect, async (req, res) => {
           reason: reason,
         });
 
-        // Also track XP achievements
-        await trackAchievements(req.user.userId, "xp", {
-          xp: xpNum,
+        await trackAchievements(userId, "xp", {
+          xp: finalXP,
           category: "game_earn",
         });
       } catch (error) {
@@ -480,6 +554,8 @@ router.post("/earn", protect, async (req, res) => {
       data: {
         wallet: { balance: user.wallet.balance },
         xp: { current: user.xp.current, total: user.xp.total },
+        batchesClaimed: batchClaims.length,  // NEW
+        batchNumbers: batchClaims.map(b => b.batchNumber)  // NEW
       },
     });
   } catch (error) {
@@ -488,6 +564,59 @@ router.post("/earn", protect, async (req, res) => {
       success: false,
       message: "Failed to credit earnings",
       error: error.message,
+    });
+  }
+});
+
+// Get batch claim status for a game
+router.get("/batch-status", protect, async (req, res) => {
+  try {
+    const { gameId } = req.query;
+    const userId = req.user.userId; // From auth middleware
+
+    if (!gameId) {
+      return res.status(400).json({
+        success: false,
+        message: "gameId is required"
+      });
+    }
+
+    // Find all claimed batches for this user + game
+    const claimedBatches = await BatchClaim.find({
+      userId: userId,
+      gameId: gameId
+    })
+    .sort({ batchNumber: 1 }) // Sort by batch number ascending
+    .select("batchNumber coins xp claimedAt")
+    .lean();
+
+    // Calculate totals
+    const totalCoinsClaimed = claimedBatches.reduce((sum, b) => sum + (b.coins || 0), 0);
+    const totalXPClaimed = claimedBatches.reduce((sum, b) => sum + (b.xp || 0), 0);
+    const batchNumbers = claimedBatches.map(b => b.batchNumber);
+    const lastClaimedAt = claimedBatches.length > 0 
+      ? claimedBatches[claimedBatches.length - 1].claimedAt 
+      : null;
+
+    return res.json({
+      success: true,
+      data: {
+        gameId: gameId,
+        userId: userId,
+        claimedBatches: batchNumbers,
+        totalBatchesClaimed: batchNumbers.length,
+        lastClaimedAt: lastClaimedAt,
+        totalCoinsClaimed: totalCoinsClaimed,
+        totalXPClaimed: totalXPClaimed,
+        batchDetails: claimedBatches // Optional: include full details
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching batch status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch batch status",
+      error: error.message
     });
   }
 });
@@ -903,6 +1032,34 @@ router.get("/discover", protect, async (req, res) => {
     console.log("Final filter being used:", JSON.stringify(filter, null, 2));
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
     console.log(`✅ Found ${allGames.length} games matching filter`);
+
+    // Hide already downloaded/installed games from discovery listings
+    // This ensures games the user has already downloaded are not shown again
+    if (Array.isArray(user.games) && user.games.length > 0) {
+      const downloadedGameIds = new Set(
+        user.games
+          .filter((g) => {
+            return (
+              g.installedAt ||
+              g.status === "installed" ||
+              (g.date && !g.completed)
+            );
+          })
+          .map((g) => String(g.gameId))
+      );
+
+      if (downloadedGameIds.size > 0) {
+        const beforeHideCount = allGames.length;
+        allGames = allGames.filter(
+          (g) => !downloadedGameIds.has(String(g.gameId))
+        );
+        const afterHideCount = allGames.length;
+
+        console.log(
+          `Applied downloaded-games exclusion: ${beforeHideCount} -> ${afterHideCount} games (hidden ${beforeHideCount - afterHideCount})`
+        );
+      }
+    }
 
     if (userProfileGamesCount > 0 && allGames.length === 0) {
       console.log(

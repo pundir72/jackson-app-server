@@ -2210,6 +2210,19 @@ router.post("/complete", protect, async (req, res) => {
         break;
 
       case "game":
+        /**
+         * TEMPORARY OVERRIDE:
+         * For game-type daily challenges, skip all gameplay validation and
+         * always allow completion when user hits "Mark complete".
+         *
+         * WARNING: This means users can complete the challenge and earn rewards
+         * without actually playing the game. Re-enable the original validation
+         * below when you want to enforce real gameplay.
+         */
+        actionValidated = true;
+
+        /*
+        // ORIGINAL STRICT VALIDATION (commented out):
         // Verify game was played for required time
         const gameId =
           challenge.assignedGame?.gameId ||
@@ -2319,6 +2332,7 @@ router.post("/complete", protect, async (req, res) => {
             }
           }
         }
+        */
         break;
 
       case "survey":

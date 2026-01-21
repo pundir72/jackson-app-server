@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { resetDailyProgress } = require('../middleware/dailyProgressReset');
 const UserChallengeProgress = require('../models/UserChallengeProgress');
+const DailyChallenge = require('../models/DailyChallenge');
 const bitlabsOfferCache = require('./bitlabsOfferCache');
 const { processDecayForAllUsers } = require('./xpDecayV2');
 const config = require('../config/config');
@@ -19,16 +20,19 @@ class Scheduler {
   start() {
     // Reset daily progress at midnight every day
     this.scheduleDailyProgressReset();
-    
+
     // Expire old daily challenges
     this.scheduleExpireOldChallenges();
-    
+
+    // Update past daily challenges to completed status
+    this.scheduleUpdatePastChallenges();
+
     // Process XP decay for inactive users
     this.scheduleXPDecay();
-    
+
     // Start Bitlabs offer cache refresh
     this.startBitlabsOfferRefresh();
-    
+
     console.log('Scheduler started successfully');
   }
 
@@ -111,6 +115,68 @@ class Scheduler {
       return result;
     } catch (error) {
       console.error('Error in manual daily challenge expiration:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule updating past daily challenges to completed status
+   * Runs at midnight every day (00:00) to mark challenges with past challengeDate as completed
+   */
+  scheduleUpdatePastChallenges() {
+    // Run at midnight every day (00:00)
+    const job = cron.schedule('0 0 * * *', async () => {
+      console.log('Running daily challenge status update...');
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Set to start of today
+
+        const result = await DailyChallenge.updateMany(
+          {
+            challengeDate: { $lt: today },
+            status: { $nin: ['completed', 'expired', 'draft'] }
+          },
+          {
+            $set: { status: 'completed' }
+          }
+        );
+
+        console.log(`Updated ${result.modifiedCount} past daily challenges to completed status`);
+      } catch (error) {
+        console.error('Error updating past daily challenges:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+
+    this.jobs.push(job);
+    console.log('Daily challenge status update scheduled for midnight UTC');
+  }
+
+  /**
+   * Manually trigger past daily challenges status update (for testing)
+   */
+  async triggerUpdatePastChallenges() {
+    console.log('Manually triggering past daily challenges status update...');
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Set to start of today
+
+      const result = await DailyChallenge.updateMany(
+        {
+          challengeDate: { $lt: today },
+          status: { $nin: ['completed', 'expired', 'draft'] }
+        },
+        {
+          $set: { status: 'completed' }
+        }
+      );
+
+      console.log(`Manually updated ${result.modifiedCount} past daily challenges to completed status`);
+      return result;
+    } catch (error) {
+      console.error('Error in manual past daily challenges status update:', error);
       throw error;
     }
   }

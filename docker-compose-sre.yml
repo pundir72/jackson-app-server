@@ -15,7 +15,7 @@ services:
       - .:/app
       - /app/node_modules
     depends_on:
-      - redis
+      - sre_redis
 
   sre_redis:
     image: redis:latest

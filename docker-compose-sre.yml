@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   app:
-    build: sre
+    build: .
     container_name: ackson-app-sre
     restart: always
     environment:

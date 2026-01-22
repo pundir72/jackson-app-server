@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  app:
+    build: sre
+    container_name: ackson-app-sre
+    restart: always
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=jackson-app-backend
+    ports:
+      - "4002:4001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: jackson-redis-sre
+    restart: always
+    ports:
+      - "6380:6379"

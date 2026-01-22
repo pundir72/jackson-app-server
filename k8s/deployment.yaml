@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jackson-app
+  namespace: jackson-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: jackson-app
+  template:
+    metadata:
+      labels:
+        app: jackson-app
+    spec:
+      containers:
+        - name: jackson-app
+          image: IMAGE_REGISTRY/jackson-app-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4001
+          envFrom:
+            - secretRef:
+                name: jackson-app-env
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 4001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4001
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

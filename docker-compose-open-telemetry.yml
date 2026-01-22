@@ -12,8 +12,23 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-alerts.yml:/etc/prometheus/prometheus-alerts.yml
     ports:
       - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    environment:
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
 
   tempo:
     image: grafana/tempo:latest
@@ -22,6 +37,23 @@ services:
       - ./tempo.yaml:/etc/tempo.yaml
     ports:
       - "3200:3200"
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml
+      - ./:/var/log/app
+    depends_on:
+      - loki
 
   grafana:
     image: grafana/grafana:latest
@@ -34,3 +66,4 @@ services:
     depends_on:
       - prometheus
       - tempo
+      - loki

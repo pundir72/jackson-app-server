@@ -1,0 +1,16 @@
+groups:
+  - name: app-alerts
+    rules:
+      - alert: High5xxErrorRate
+        expr: |
+          (
+            sum(increase(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(increase(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate"
+          description: "5xx error rate is above 5% for 5 minutes."

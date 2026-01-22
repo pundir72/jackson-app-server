@@ -1,3 +1,4 @@
+require("./instrument");
 require("dotenv").config();
 const Sentry = require("@sentry/node");
 const express = require("express");
@@ -11,7 +12,8 @@ const winston = require("winston");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
-import { requestCounter } from './metrics.js';
+const { context, trace } = require("@opentelemetry/api");
+const { requestCounter } = require("./metrics");
 const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
@@ -44,6 +46,7 @@ const logger = winston.createLogger({
   transports: [
     new winston.transports.File({ filename: "error.log", level: "error" }),
     new winston.transports.File({ filename: "combined.log" }),
+    new winston.transports.Console(),
   ],
 });
 
@@ -68,6 +71,19 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Basic liveness/readiness endpoints for monitoring
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/ready", (req, res) => {
+  const isDbReady = mongoose.connection.readyState === 1;
+  res.status(isDbReady ? 200 : 503).json({
+    status: isDbReady ? "ready" : "not_ready",
+    db: isDbReady ? "connected" : "disconnected",
+  });
+});
+
 // Rate limiting
 const apiLimiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS,
@@ -84,10 +100,26 @@ app.use(passport.initialize());
 const { globalActivityTracker } = require("./middleware/globalActivityTracker");
 app.use(globalActivityTracker);
 
+// Structured request logging with trace correlation when available
 app.use((req, res, next) => {
-  requestCounter.add(1, {
-    method: req.method,
-    route: req.route?.path || req.path,
+  const startTime = Date.now();
+  res.on("finish", () => {
+    const span = trace.getSpan(context.active());
+    const traceId = span ? span.spanContext().traceId : undefined;
+    requestCounter.add(1, {
+      method: req.method,
+      route: req.route?.path || req.path,
+      status: res.statusCode,
+    });
+    logger.info("http_request", {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      status: res.statusCode,
+      duration_ms: Date.now() - startTime,
+      trace_id: traceId,
+      ip: req.ip,
+      user_agent: req.headers["user-agent"],
+    });
   });
   next();
 });

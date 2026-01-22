@@ -1,10 +1,9 @@
-import { metrics } from "@opentelemetry/api";
+const { metrics } = require("@opentelemetry/api");
 
-const meter = metrics.getMeter("legal-tech-cyprus-api");
+const meter = metrics.getMeter("jackson-app-backend");
 
-export const requestCounter = meter.createCounter(
-  "http_requests_total",
-  {
-    description: "Total HTTP requests",
-  }
-);
+const requestCounter = meter.createCounter("http_requests_total", {
+  description: "Total HTTP requests",
+});
+
+module.exports = { requestCounter };

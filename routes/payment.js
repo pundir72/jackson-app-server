@@ -294,8 +294,7 @@ router.post('/confirm', protect, [
       });
     }
 
-    // Confirm payment intent (mock implementation)
-    // const confirmedPayment = await stripe.paymentIntents.confirm(paymentIntentId, { return_url: 'jacksonrewards://payment-success', payment_method:"pm_card_visa" });
+    // Confirm payment intent
     const confirmedPayment = await stripe.paymentIntents.retrieve(paymentIntentId);
 
     if (confirmedPayment.status !== 'succeeded') {
@@ -308,34 +307,87 @@ router.post('/confirm', protect, [
       });
     }
 
+    // Get or create Stripe customer
+    let stripeCustomerId = null;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user already has a Stripe customer ID
+    if (user.stripeCustomerId) {
+      stripeCustomerId = user.stripeCustomerId;
+      
+      // Verify the customer still exists in Stripe
+      try {
+        await stripe.customers.retrieve(stripeCustomerId);
+      } catch (stripeError) {
+        // Customer doesn't exist in Stripe, create a new one
+        console.log('Stripe customer not found, creating new one:', stripeError.message);
+        stripeCustomerId = null;
+      }
+    }
+
+    // Create Stripe customer if it doesn't exist
+    if (!stripeCustomerId) {
+      const stripeCustomer = await stripe.customers.create({
+        email: user.email || undefined,
+        phone: user.mobile || undefined,
+        name: user.name || undefined,
+        metadata: {
+          userId: userId.toString(),
+          mongoUserId: userId.toString()
+        }
+      });
+      
+      stripeCustomerId = stripeCustomer.id;
+      
+      // Save Stripe customer ID to user record
+      user.stripeCustomerId = stripeCustomerId;
+      await user.save();
+      
+      console.log(`Created Stripe customer ${stripeCustomerId} for user ${userId}`);
+    }
+
     // Create recurring subscription if yearly plan
     let stripeSubscriptionId = null;
     if (subscription.plan === 'yearly') {
-      const stripeSubscription = await stripe.subscriptions.create({
-        customer: userId, // In real implementation, create Stripe customer
-        items: [{
-          price_data: {
-            currency: subscription.currency.toLowerCase(),
-            product_data: {
-              name: `VIP ${subscription.tier} ${subscription.plan}`,
-            },
-            unit_amount: Math.round(subscription.amount * 100),
-            recurring: {
-              interval: 'year'
+      try {
+        const stripeSubscription = await stripe.subscriptions.create({
+          customer: stripeCustomerId, // Use Stripe customer ID, not MongoDB userId
+          items: [{
+            price_data: {
+              currency: subscription.currency.toLowerCase(),
+              product_data: {
+                name: `VIP ${subscription.tier} ${subscription.plan}`,
+              },
+              unit_amount: Math.round(subscription.amount * 100),
+              recurring: {
+                interval: 'year'
+              }
             }
+          }],
+          metadata: {
+            subscriptionId: subscription._id.toString(),
+            userId: userId.toString()
           }
-        }],
-        metadata: {
-          subscriptionId: subscription._id.toString(),
-          userId: userId.toString()
-        }
-      });
-      stripeSubscriptionId = stripeSubscription.id;
+        });
+        stripeSubscriptionId = stripeSubscription.id;
+      } catch (stripeError) {
+        console.error('Error creating Stripe subscription:', stripeError);
+        // Don't fail the whole request if subscription creation fails
+        // The one-time payment already succeeded
+      }
     }
 
     // Update subscription status
     subscription.status = 'active';
     subscription.stripeSubscriptionId = stripeSubscriptionId;
+    subscription.stripeCustomerId = stripeCustomerId; // Store for future reference
     subscription.nextBillingDate = subscription.endDate;
     await subscription.save();
 

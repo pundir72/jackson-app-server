@@ -101,6 +101,26 @@ module.exports = {
   BITLABS_REFRESH_INTERVAL_MINUTES:
     parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
 
+  // Everflow - Non-Gaming Offers Platform
+  // Documentation: https://developers.everflow.io/docs/affiliate/postbacks/
+  // Base URL: https://api.eflow.team (for US) or https://api-eu.eflow.team (for EU)
+  // Endpoints include /v1 (e.g., /v1/affiliate/postbacks)
+  EVERFLOW_BASE_URL: process.env.EVERFLOW_BASE_URL || "https://api.eflow.team",
+  EVERFLOW_API_KEY: process.env.EVERFLOW_API_KEY,
+  EVERFLOW_WEBHOOK_SECRET: process.env.EVERFLOW_WEBHOOK_SECRET,
+
+  // Affise - Affiliate Tracking Platform
+  // Documentation: https://api-wdigital.affise.com/docs3.1/
+  AFFISE_BASE_URL: process.env.AFFISE_BASE_URL || "https://api-wdigital.affise.com",
+  AFFISE_API_VERSION: process.env.AFFISE_API_VERSION || "3.0",
+  AFFISE_API_KEY: process.env.AFFISE_API_KEY,
+
+  // AppLovin MAX - Ad Mediation Platform
+  // Documentation: https://support.axon.ai/en/max/getting-started/
+  // AppLovin MAX is a client-side SDK for rewarded ads mediation
+  // Supported Ad Networks: Facebook, Google AdMob, Digital Turbine, Inmobi, Mintegral, Bidmachine, Liftoff/Vungle, Pangle, Moloco, Google Ad Manager
+  APPLOVIN_MAX_SDK_KEY: process.env.APPLOVIN_MAX_SDK_KEY,
+
   // Adjust - S2S API for event tracking
   // Documentation: https://dev.adjust.com/en/api/s2s-api
   ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,

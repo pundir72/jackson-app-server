@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
 const crypto = require("crypto");
+const everflowService = require("../services/everflow.service");
+const config = require("../config/config");
 
 // Test biometric verification
 router.post("/test/biometric", async (req, res) => {
@@ -125,6 +127,174 @@ router.post("/test/login-flow", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to test login flow" });
+  }
+});
+
+// Test Everflow API
+router.get("/everflow/health", async (req, res) => {
+  try {
+    console.log("\n🧪 [EVERFLOW TEST] Health check requested");
+    
+    const healthStatus = await everflowService.healthCheck();
+    
+    res.status(200).json({
+      success: true,
+      health: healthStatus,
+      config: {
+        baseURL: config.EVERFLOW_BASE_URL || "not set",
+        apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+        configured: everflowService.isConfigured(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      config: {
+        baseURL: config.EVERFLOW_BASE_URL || "not set",
+        apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+        configured: everflowService.isConfigured(),
+      },
+    });
+  }
+});
+
+// Test Everflow API - Direct call
+router.get("/everflow/test", async (req, res) => {
+  try {
+    console.log("\n🧪 [EVERFLOW TEST] Direct API test requested");
+    
+    const { limit = 10, status = "active" } = req.query;
+    
+    if (!everflowService.isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        error: "Everflow API is not configured",
+        config: {
+          baseURL: config.EVERFLOW_BASE_URL || "not set",
+          apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+        },
+      });
+    }
+
+    console.log("🧪 [EVERFLOW TEST] Calling getPostbacks with params:", { limit, status });
+    
+    const result = await everflowService.getPostbacks({
+      limit: parseInt(limit),
+      status: status,
+    });
+
+    res.status(200).json({
+      success: true,
+      result: result,
+      config: {
+        baseURL: config.EVERFLOW_BASE_URL,
+        apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+      },
+      requestParams: {
+        limit: parseInt(limit),
+        status: status,
+      },
+    });
+  } catch (error) {
+    console.error("🧪 [EVERFLOW TEST] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      errorDetails: {
+        status: error.status,
+        data: error.data,
+      },
+      config: {
+        baseURL: config.EVERFLOW_BASE_URL || "not set",
+        apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+      },
+    });
+  }
+});
+
+// Test Everflow API - Raw request
+router.get("/everflow/raw", async (req, res) => {
+  try {
+    console.log("\n🧪 [EVERFLOW TEST] Raw API test requested");
+    
+    const axios = require("axios");
+    const baseURL = config.EVERFLOW_BASE_URL || "https://api.eflow.team";
+    const apiKey = config.EVERFLOW_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: "EVERFLOW_API_KEY is not set",
+      });
+    }
+
+    // Try different endpoints and auth methods
+    const testResults = [];
+
+    const endpoints = [
+      "/v1/affiliate/postbacks",  // Most likely - base URL is api.eflow.team
+      "/affiliate/postbacks",     // If base URL already includes /v1
+      "/v1/postbacks",            // Alternative structure
+      "/postbacks",               // If base URL includes /v1/affiliate
+      "/v1/affiliates/alloffers",     // Offers endpoint
+      "/affiliates/alloffers",        // Offers if base includes /v1
+    ];
+
+    const authMethods = [
+      { header: "X-Eflow-API-Key", value: apiKey },
+      { header: "Authorization", value: `Bearer ${apiKey}` },
+      { header: "X-API-Key", value: apiKey },
+      { header: "API-Key", value: apiKey },
+    ];
+
+    for (const endpoint of endpoints) {
+      for (const authMethod of authMethods) {
+        try {
+          const response = await axios.get(`${baseURL}${endpoint}`, {
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+              [authMethod.header]: authMethod.value,
+            },
+            params: {
+              limit: 5,
+            },
+            timeout: 10000,
+          });
+
+          testResults.push({
+            endpoint,
+            authMethod: authMethod.header,
+            status: response.status,
+            success: true,
+            dataKeys: response.data ? Object.keys(response.data) : [],
+            dataSample: JSON.stringify(response.data).substring(0, 500),
+          });
+        } catch (error) {
+          testResults.push({
+            endpoint,
+            authMethod: authMethod.header,
+            success: false,
+            status: error.response?.status,
+            error: error.message,
+            errorData: error.response?.data,
+          });
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      baseURL,
+      apiKey: "***SET***",
+      testResults,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 

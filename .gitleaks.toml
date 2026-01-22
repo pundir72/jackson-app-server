@@ -1,0 +1,17 @@
+title = "Jackson App Secrets Scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  "node_modules",
+  "dist",
+  "build",
+  ".env.example"
+]
+
+regexes = [
+  "EXAMPLE_API_KEY",
+  "DUMMY_SECRET"
+]

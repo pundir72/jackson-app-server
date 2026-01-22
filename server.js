@@ -1,4 +1,5 @@
 require("dotenv").config();
+const Sentry = require("@sentry/node");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,6 +11,8 @@ const winston = require("winston");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
+require("./instrument.js");
+const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
 let redis;
@@ -181,9 +184,11 @@ mongoose
     const adminDailyChallengesRoutes = require("./routes/admin-daily-challenges");
     const besitosRoutes = require("./routes/besitos");
     const bitlabsRoutes = require("./routes/bitlabs");
+    const everflowRoutes = require("./routes/everflow");
     const nonGameOffersRoutes = require("./routes/non-game-offers");
     const dailyChallengeRoutes = require("./routes/daily-challenge");
     const webhookRoutes = require("./routes/webhooks");
+    const applovinRoutes = require("./routes/applovin");
     const dailyRewardsRoutes = require("./routes/daily-rewards");
     const dailyRewardsV2Routes = require("./routes/daily-rewards-v2");
     const adminDailyRewardsRoutes = require("./routes/admin-daily-rewards");
@@ -211,6 +216,7 @@ mongoose
     const adjustRoutes = require("./routes/adjust");
     const adjustV2Routes = require("./routes/adjust-v2");
     const adminAdjustEventsRoutes = require("./routes/admin-adjust-events");
+    const affiseRoutes = require("./routes/affise");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
@@ -279,12 +285,15 @@ mongoose
     app.use("/api/admin/daily-challenges", adminDailyChallengesRoutes);
     app.use("/api/besitos", besitosRoutes);
     app.use("/api/bitlabs", bitlabsRoutes);
+    app.use("/api/everflow", everflowRoutes);
+    app.use("/api/affise", affiseRoutes);
     app.use("/api/adjust", adjustRoutes);
     app.use("/api/v2/adjust", adjustV2Routes);
     app.use("/api/admin/adjust-events", adminAdjustEventsRoutes);
     app.use("/api/non-game-offers", nonGameOffersRoutes);
     app.use("/api/daily-challenge", dailyChallengeRoutes);
     app.use("/api/webhooks", webhookRoutes);
+    app.use("/api/applovin", applovinRoutes);
     app.use("/api/daily-rewards", dailyRewardsRoutes);
     app.use("/api/v2/daily-rewards", dailyRewardsV2Routes);
     app.use("/api/admin/daily-rewards", adminDailyRewardsRoutes);
@@ -331,28 +340,37 @@ mongoose
       });
     });
 
-    // Graceful shutdown handling
-    process.on("SIGTERM", () => {
-      console.log("SIGTERM received, shutting down gracefully");
-      server.close(() => {
-        console.log("Server closed");
-        mongoose.connection.close(() => {
-          console.log("MongoDB connection closed");
-          process.exit(0);
-        });
-      });
+    app.get("/debug-sentry", function mainHandler(req, res) {
+      throw new Error("My first Sentry error!");
     });
 
-    process.on("SIGINT", () => {
-      console.log("SIGINT received, shutting down gracefully");
-      server.close(() => {
-        console.log("Server closed");
-        mongoose.connection.close(() => {
-          console.log("MongoDB connection closed");
-          process.exit(0);
-        });
-      });
+    Sentry.setupExpressErrorHandler(app);
+    // Optional fallthrough error handler
+    app.use(function onError(err, req, res, next) {
+      // The error id is attached to `res.sentry` to be returned
+      // and optionally displayed to the user for support.
+      res.statusCode = 500;
+      res.end(res.sentry + "\n");
     });
+
+    // Graceful shutdown handling
+    const shutdownGracefully = async (signal) => {
+      console.log(`${signal} received, shutting down gracefully`);
+      server.close(async () => {
+        console.log("Server closed");
+        try {
+          await mongoose.connection.close();
+          console.log("MongoDB connection closed");
+        } catch (error) {
+          console.error("Error closing MongoDB connection:", error);
+        } finally {
+          process.exit(0);
+        }
+      });
+    };
+
+    process.on("SIGTERM", () => shutdownGracefully("SIGTERM"));
+    process.on("SIGINT", () => shutdownGracefully("SIGINT"));
 
     // Start scheduler for My Account Overview
     const scheduler = require("./utils/scheduler");

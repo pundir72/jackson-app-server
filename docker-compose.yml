@@ -3,7 +3,7 @@ version: '3.8'
 services:
   app:
     build: .
-    container_name: jackson-app
+    container_name: jackson-app-sre
     restart: always
     ports:
       - "4001:4001"

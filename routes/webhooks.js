@@ -758,11 +758,34 @@ router.get("/besitos/postback", async (req, res) => {
           xp: finalXP,
         });
 
-        // Create transaction record
+        // Create single transaction record for coins and XP
+        const baseReferenceId = `BESITOS-CHALLENGE-${challenge._id}-${Date.now()}`;
+        
+        // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+        const hasCoins = challenge.coinReward > 0;
+        const hasXP = finalXP > 0;
+        let primaryAmount = 0;
+        let primaryBalanceType = "coins";
+
+        if (hasCoins && hasXP) {
+          // Both rewards - use coins as primary
+          primaryAmount = challenge.coinReward;
+          primaryBalanceType = "coins";
+        } else if (hasCoins) {
+          // Only coins
+          primaryAmount = challenge.coinReward;
+          primaryBalanceType = "coins";
+        } else if (hasXP) {
+          // Only XP
+          primaryAmount = finalXP;
+          primaryBalanceType = "xp";
+        }
+
         const transaction = new Transaction({
           user: user._id,
           type: "credit",
-          amount: challenge.coinReward,
+          balanceType: primaryBalanceType,
+          amount: primaryAmount,
           description: `Daily Challenge (Besitos): ${challenge.title}`,
           status: "completed",
           metadata: {
@@ -770,8 +793,14 @@ router.get("/besitos/postback", async (req, res) => {
             conversionId: conversion._id,
             offerId: finalOfferId,
             source: "besitos_postback",
+            coins: challenge.coinReward || 0,
+            xp: finalXP || 0,
+            baseXp: baseXp,
+            xpEarned: finalXP,
+            finalXp: finalXP,
+            tierMultiplier: tierMultiplier,
           },
-          referenceId: `BESITOS-CHALLENGE-${challenge._id}-${Date.now()}`,
+          referenceId: baseReferenceId,
         });
 
         await transaction.save();
@@ -1192,7 +1221,56 @@ router.post("/bitlabs/completion", async (req, res) => {
 
         await user.save();
         await progress.claimRewards();
-        await challenge.updateAnalytics("complete");
+        await challenge.updateAnalytics("complete", {
+          coins: challenge.coinReward,
+          xp: finalXP2,
+        });
+
+        // Create single transaction record for coins and XP
+        const baseReferenceId = `BITLABS-CHALLENGE-${challenge._id}-${Date.now()}`;
+        
+        // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+        const hasCoins = challenge.coinReward > 0;
+        const hasXP = finalXP2 > 0;
+        let primaryAmount = 0;
+        let primaryBalanceType = "coins";
+
+        if (hasCoins && hasXP) {
+          // Both rewards - use coins as primary
+          primaryAmount = challenge.coinReward;
+          primaryBalanceType = "coins";
+        } else if (hasCoins) {
+          // Only coins
+          primaryAmount = challenge.coinReward;
+          primaryBalanceType = "coins";
+        } else if (hasXP) {
+          // Only XP
+          primaryAmount = finalXP2;
+          primaryBalanceType = "xp";
+        }
+
+        const transaction = new Transaction({
+          user: userId,
+          type: "credit",
+          balanceType: primaryBalanceType,
+          amount: primaryAmount,
+          description: `Daily Challenge (BitLabs): ${challenge.title}`,
+          status: "completed",
+          metadata: {
+            challengeId: challenge._id,
+            surveyId: surveyId,
+            source: "bitlabs_webhook",
+            coins: challenge.coinReward || 0,
+            xp: finalXP2 || 0,
+            baseXp: baseXp2,
+            xpEarned: finalXP2,
+            finalXp: finalXP2,
+            tierMultiplier: tierMultiplier2,
+          },
+          referenceId: baseReferenceId,
+        });
+
+        await transaction.save();
 
         console.log(
           `Daily challenge completed via BitLabs webhook for user ${userId}`

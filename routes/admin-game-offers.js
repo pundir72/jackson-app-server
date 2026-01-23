@@ -1000,7 +1000,11 @@ router.post("/games/check-variant", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error checking game variant:", error);
-    res.status(500).json({ success: false, message: "Failed to check variant", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Failed to check variant",
+      error: error.message,
+    });
   }
 });
 
@@ -1830,8 +1834,111 @@ router.put(
             // Continue without updating external data
           }
         } else if (sdkProvider === "bitlabs") {
-          // Similar logic for Bitlabs if needed
-          // For now, preserve existing besitosRawData
+          try {
+            const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+            const gameIdToFind = gameId?.toString().trim();
+
+            if (gameIdToFind) {
+              // Helper function to check if offer matches gameId
+              const matchesGameId = (offer) => {
+                const offerId =
+                  offer.id?.toString() ||
+                  offer.offer_id?.toString() ||
+                  offer.game_id?.toString() ||
+                  "";
+                const productId =
+                  offer.product_id?.toString() ||
+                  offer.productId?.toString() ||
+                  "";
+                const appId = offer.app_metadata?.app_id?.toString() || "";
+
+                return (
+                  offerId === gameIdToFind ||
+                  productId === gameIdToFind ||
+                  appId === gameIdToFind
+                );
+              };
+
+              // Try multiple query combinations to find the game
+              const queryCombinations = [
+                { is_game: true },
+                { is_game: true, devices: ["android"] },
+                { is_game: true, devices: ["iphone"] },
+                { is_game: true, devices: ["android", "iphone"] },
+              ];
+
+              let offers = [];
+              let found = false;
+
+              // Try each query combination
+              for (const queryParams of queryCombinations) {
+                try {
+                  offers = await bitlabsOfferCache.getOffers(queryParams);
+                  external = offers.find(matchesGameId);
+
+                  if (external) {
+                    found = true;
+                    break;
+                  }
+
+                  // If not found, try refreshing cache
+                  const refreshedOffers = await bitlabsOfferCache.refreshOffers(
+                    queryParams
+                  );
+                  external = refreshedOffers.find(matchesGameId);
+
+                  if (external) {
+                    found = true;
+                    break;
+                  }
+                } catch (error) {
+                  console.error(
+                    `Error fetching offers for query ${JSON.stringify(
+                      queryParams
+                    )}:`,
+                    error.message
+                  );
+                }
+              }
+
+              if (found && external) {
+                updateData.besitosRawData = external;
+                // Also update gameDetails with fresh data
+                updateData.gameDetails = {
+                  id: external.id || "",
+                  name:
+                    external.anchor ||
+                    external.title ||
+                    external.name ||
+                    updateData.title ||
+                    existingGame.title,
+                  description:
+                    external.description ||
+                    updateData.description ||
+                    existingGame.description,
+                  image:
+                    external.icon_url ||
+                    external.creatives?.images?.["600x300"] ||
+                    "",
+                  square_image: external.icon_url || "",
+                  large_image: external.creatives?.images?.["600x300"] || "",
+                  category:
+                    Array.isArray(external.categories) &&
+                    external.categories[0] &&
+                    external.categories[0].name
+                      ? external.categories[0].name
+                      : external.category || "",
+                  downloadUrl: external.click_url || "",
+                };
+              }
+            }
+          } catch (error) {
+            console.error(
+              "Error fetching Bitlabs external data during update:",
+              error
+            );
+            // Continue without updating external data
+          }
         }
       } else {
         // Preserve existing besitosRawData if not refreshing
@@ -1846,7 +1953,8 @@ router.put(
       try {
         const newGameId = updateData.gameId || existingGame.gameId;
         const newGender = updateData.gender || existingGame.gender || "all";
-        const newUiSection = updateData.uiSection || existingGame.uiSection || "";
+        const newUiSection =
+          updateData.uiSection || existingGame.uiSection || "";
         const newAgeGroup = updateData.ageGroup || existingGame.ageGroup || "";
 
         const duplicate = await Game.findOne({
@@ -1865,7 +1973,10 @@ router.put(
           });
         }
       } catch (e) {
-        console.warn("Error checking for duplicate variant before update:", e.message);
+        console.warn(
+          "Error checking for duplicate variant before update:",
+          e.message
+        );
       }
 
       console.log("Update Data:", JSON.stringify(updateData, null, 2));
@@ -2442,6 +2553,11 @@ router.post(
   ],
   async (req, res) => {
     try {
+      // Log received userMilestones for debugging
+      if (req.body.userMilestones) {
+        console.log("🔍 [Display Rule Creation] Received userMilestones:", req.body.userMilestones);
+      }
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -2449,6 +2565,19 @@ router.post(
           message: "Validation failed",
           errors: errors.array(),
         });
+      }
+
+      // Additional validation: Ensure userMilestones contains valid values
+      if (req.body.userMilestones && Array.isArray(req.body.userMilestones)) {
+        const validMilestones = ["first_time_user", "returning_user", "xp_tier", "membership_tier"];
+        const invalidMilestones = req.body.userMilestones.filter(m => !validMilestones.includes(m));
+        if (invalidMilestones.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Validation failed",
+            error: `Invalid milestone values: ${invalidMilestones.join(", ")}. Valid values are: ${validMilestones.join(", ")}`,
+          });
+        }
       }
 
       // Get targetSegment from request (top-level or metadata) or auto-generate
@@ -2466,7 +2595,7 @@ router.post(
               segmentParts.push("New Users");
               break;
             case "returning_user":
-              segmentParts.push("Engaged Users");
+              segmentParts.push("Engaged Users (3+ games)");
               break;
             case "xp_tier":
               segmentParts.push("XP Tier");
@@ -2660,7 +2789,7 @@ router.put(
                 segmentParts.push("New Users");
                 break;
               case "returning_user":
-                segmentParts.push("Engaged Users");
+                segmentParts.push("Engaged Users (3+ games)");
                 break;
               case "xp_tier":
                 segmentParts.push("XP Tier");
@@ -3057,7 +3186,8 @@ router.post(
       if (existingRule) {
         return res.status(400).json({
           success: false,
-          message: "A rule with the same priority already exists for this segment (XP Tier + Membership Tier combination)",
+          message:
+            "A rule with the same priority already exists for this segment (XP Tier + Membership Tier combination)",
         });
       }
 
@@ -3488,10 +3618,10 @@ router.post(
     body("completionDeadlineHours")
       .optional()
       .isInt({ min: 1, max: 168 })
-      .withMessage("Completion deadline hours must be between 1 and 168 (1 week)"),
-    body("bonusTasks")
-      .isArray()
-      .withMessage("Bonus tasks must be an array"),
+      .withMessage(
+        "Completion deadline hours must be between 1 and 168 (1 week)"
+      ),
+    body("bonusTasks").isArray().withMessage("Bonus tasks must be an array"),
     body("bonusTasks.*.taskId").isMongoId().withMessage("Invalid task ID"),
     body("bonusTasks.*.order")
       .isInt({ min: 1 })
@@ -3509,7 +3639,8 @@ router.post(
       }
 
       const { gameId } = req.params;
-      const { minimumEventThreshold, completionDeadlineHours, bonusTasks } = req.body;
+      const { minimumEventThreshold, completionDeadlineHours, bonusTasks } =
+        req.body;
 
       // Validate at least 1 task
       if (!bonusTasks || bonusTasks.length === 0) {
@@ -3651,11 +3782,11 @@ router.post(
           completionDeadlineDays: rule.completionDeadlineDays,
           maxBonusTasksPerGame: rule.maxBonusTasksPerGame,
           gameBonusTasksCount: rule.gameBonusTasks.length,
-          gameBonusTasks: rule.gameBonusTasks.map(gbt => ({
+          gameBonusTasks: rule.gameBonusTasks.map((gbt) => ({
             gameId: gbt.gameId,
             bonusTasksCount: gbt.bonusTasks?.length || 0,
-            orders: gbt.bonusTasks?.map(bt => bt.order) || []
-          }))
+            orders: gbt.bonusTasks?.map((bt) => bt.order) || [],
+          })),
         });
         return res.status(400).json({
           success: false,
@@ -3959,6 +4090,17 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
     if (sdk === "besitos") {
       await besitosController.getOffers(req, res);
     } else if (sdk === "bitlabs") {
+      // Add is_game parameter to query for BitLabs game offers
+      req.query.is_game = "true";
+      // Add device platform if provided
+      if (req.query.device_platform) {
+        const platform = req.query.device_platform.toLowerCase();
+        if (platform === "ios" || platform === "iphone") {
+          req.query.devices = ["iphone"];
+        } else if (platform === "android") {
+          req.query.devices = ["android"];
+        }
+      }
       await bitlabsController.getOffers(req, res);
     } else {
       res.status(404).json({
@@ -4031,7 +4173,7 @@ router.get(
 
       // Build base query
       const baseQuery = {
-        sdkId: sdk._id,
+        sdkId: bitlabSDK._id,
       };
 
       if (status !== "all") {
@@ -5529,6 +5671,300 @@ router.post("/seed-games", adminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to seed games",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/admin/game-offers/seed-games-bitlabs
+ * Bulk import/seed games from Bitlabs API
+ * Body: { segments: {...}, region: "US", device: "android" }
+ */
+router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
+  try {
+    const { segments, region = "US", device = "android" } = req.body;
+
+    if (!segments || typeof segments !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "segments object is required in request body",
+      });
+    }
+
+    const bitlabsService = require("../services/bitlabs.service");
+    const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+
+    // Helper to normalize titles for matching
+    const normalizeTitle = (title = "") => {
+      return String(title)
+        .toLowerCase()
+        .replace(/®|\u00ae/g, "")
+        .replace(/[^a-z0-9\s:-]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    };
+
+    const stripHtml = (html = "") => {
+      return String(html)
+        .replace(/<[^>]*>/g, "")
+        .trim();
+    };
+
+    // Fetch all Bitlabs game offers once
+    console.log(`Fetching Bitlabs game offers for ${device}/${region}...`);
+    let offers = [];
+    try {
+      // Build query parameters
+      const queryParams = {
+        is_game: true,
+        country: region,
+      };
+
+      // Add device filter
+      if (device === "ios" || device === "iphone") {
+        queryParams.devices = ["iphone"];
+      } else if (device === "android") {
+        queryParams.devices = ["android"];
+      } else {
+        queryParams.devices = ["android", "iphone"];
+      }
+
+      // Fetch offers using cache
+      offers = await bitlabsOfferCache.getOffers(queryParams);
+
+      // If no offers, try refreshing cache
+      if (offers.length === 0) {
+        offers = await bitlabsOfferCache.refreshOffers(queryParams);
+      }
+    } catch (e) {
+      console.error("Failed to fetch Bitlabs offers:", e);
+      return res.status(503).json({
+        success: false,
+        message: "Failed to fetch offers from Bitlabs API",
+        error: e.message || "Service unavailable",
+      });
+    }
+
+    if (offers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No game offers found from Bitlabs API",
+      });
+    }
+
+    console.log(`Found ${offers.length} Bitlabs game offers`);
+
+    // Build a normalized lookup map by anchor/title
+    const offerMap = new Map();
+    offers.forEach((offer) => {
+      const title = offer.anchor || offer.title || offer.name || "";
+      const norm = normalizeTitle(title);
+      if (norm) {
+        offerMap.set(norm, offer);
+      }
+    });
+
+    // Process segments
+    const results = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+      matched: [],
+      unmatched: [],
+    };
+
+    for (const [genderKey, ageRanges] of Object.entries(segments)) {
+      const gender = normalizeGender(genderKey);
+
+      for (const [ageRangeKey, uiSections] of Object.entries(ageRanges)) {
+        for (const [uiSectionKey, titles] of Object.entries(uiSections)) {
+          if (!Array.isArray(titles)) continue;
+
+          for (const title of titles) {
+            const norm = normalizeTitle(title);
+            const external = offerMap.get(norm);
+
+            if (!external) {
+              results.unmatched.push({
+                title,
+                gender,
+                ageRange: ageRangeKey,
+                uiSection: uiSectionKey,
+              });
+              results.skipped++;
+              continue;
+            }
+
+            const gameId =
+              external.id?.toString() || external.offer_id?.toString() || "";
+            results.matched.push({ title, gameId });
+
+            // Build game data
+            const gameData = {
+              gameId: gameId,
+              title:
+                external.anchor || external.title || external.name || title,
+              description:
+                stripHtml(external.description || "") ||
+                "No description available",
+              category:
+                Array.isArray(external.categories) &&
+                external.categories[0]?.name
+                  ? external.categories[0].name
+                  : external.category || "General",
+
+              sdkProvider: "bitlabs",
+              xptrRules: "default",
+              platform: device === "ios" ? "iOS" : "Android",
+              status: "active",
+
+              rewards: {
+                coins: 50,
+                xp: 100,
+              },
+
+              metadata: {
+                genre:
+                  Array.isArray(external.categories) &&
+                  external.categories[0]?.name
+                    ? external.categories[0].name
+                    : external.category || "General",
+                thumbnail: {
+                  url:
+                    external.icon_url ||
+                    external.creatives?.images?.["600x300"] ||
+                    "",
+                  dimensions: { width: 512, height: 512 },
+                  altText: `${external.anchor || title} thumbnail`,
+                },
+                images: {
+                  icon: external.icon_url || "",
+                  banner: external.creatives?.images?.["600x300"] || "",
+                  screenshots: external.app_metadata?.screenshot_urls || [],
+                },
+                packageName: external.app_metadata?.package_name || "",
+                developer: "",
+                rating: 4.0,
+                downloads: "1M+",
+                size: "",
+                version: "",
+                lastUpdated: new Date(),
+                ageRating: "12+",
+              },
+
+              gameDetails: {
+                id: gameId,
+                name:
+                  external.anchor || external.title || external.name || title,
+                description: stripHtml(external.description || ""),
+                image:
+                  external.icon_url ||
+                  external.creatives?.images?.["600x300"] ||
+                  "",
+                square_image: external.icon_url || "",
+                large_image: external.creatives?.images?.["600x300"] || "",
+                category:
+                  Array.isArray(external.categories) &&
+                  external.categories[0]?.name
+                    ? external.categories[0].name
+                    : external.category || "",
+                downloadUrl: external.click_url || "",
+              },
+
+              // Store complete raw data from Bitlabs API
+              besitosRawData: external,
+
+              uiSection: normalizeSegmentValue(uiSectionKey),
+              gender: gender,
+              ageGroup: normalizeSegmentValue(ageRangeKey),
+              ageGroups: [normalizeSegmentValue(ageRangeKey)],
+              createdBy: req.user.userId,
+            };
+
+            try {
+              // Atomic upsert by (gameId, gender, uiSection, ageGroup)
+              const filter = {
+                gameId: gameId,
+                gender: gender,
+                uiSection: normalizeSegmentValue(uiSectionKey),
+                ageGroup: normalizeSegmentValue(ageRangeKey),
+              };
+              const update = {
+                $set: {
+                  // mutable/always-updated fields
+                  title: gameData.title,
+                  description: gameData.description,
+                  category: gameData.category,
+                  sdkProvider: gameData.sdkProvider,
+                  xptrRules: gameData.xptrRules,
+                  platform: gameData.platform,
+                  status: gameData.status,
+                  rewards: gameData.rewards,
+                  metadata: gameData.metadata,
+                  gameDetails: gameData.gameDetails,
+                  // Store complete raw data from Bitlabs API
+                  besitosRawData: gameData.besitosRawData,
+                  uiSection: normalizeSegmentValue(uiSectionKey),
+                  gender: gender,
+                  ageGroup: normalizeSegmentValue(ageRangeKey),
+                  ageGroups: [normalizeSegmentValue(ageRangeKey)],
+                },
+                $setOnInsert: {
+                  createdBy: req.user.userId,
+                },
+              };
+              const result = await Game.updateOne(filter, update, {
+                upsert: true,
+              });
+              if (result.upsertedCount && result.upsertedCount > 0) {
+                results.created++;
+              } else if (result.modifiedCount && result.modifiedCount > 0) {
+                results.updated++;
+              } else {
+                // Matched but no changes (already up-to-date)
+                results.skipped++;
+              }
+            } catch (err) {
+              console.error(
+                `Error upserting Bitlabs game ${gameId}:`,
+                err.message
+              );
+              results.errors.push({
+                title,
+                gameId: gameId,
+                error: err.message,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    console.log("Bitlabs seed complete:", results);
+
+    res.json({
+      success: true,
+      message: "Bitlabs game seeding completed",
+      data: {
+        summary: {
+          totalProcessed: results.created + results.updated + results.skipped,
+          created: results.created,
+          updated: results.updated,
+          skipped: results.skipped,
+          errors: results.errors.length,
+        },
+        matched: results.matched.length,
+        unmatched: results.unmatched,
+        errors: results.errors,
+      },
+    });
+  } catch (error) {
+    console.error("Error seeding Bitlabs games:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to seed Bitlabs games",
       error: error.message,
     });
   }

@@ -52,12 +52,14 @@ router.get("/welcome-bonus-timer", protect, async (req, res) => {
       userXp,
       gameDownloadTime: signupAt,
     };
-    
+
     // The toJSON method on the model will now calculate the timer dynamically
     const payload = config.toJSON({ userContext });
 
     // Add game-specific bonus tasks if a gameId is provided
-    payload.gameBonusTasks = gameId ? config.getBonusTasksForGame(gameId) : null;
+    payload.gameBonusTasks = gameId
+      ? config.getBonusTasksForGame(gameId)
+      : null;
     payload.gameId = gameId || null;
 
     // If bonus has expired, return a simplified expired message

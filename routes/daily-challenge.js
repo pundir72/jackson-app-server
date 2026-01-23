@@ -2210,6 +2210,19 @@ router.post("/complete", protect, async (req, res) => {
         break;
 
       case "game":
+        /**
+         * TEMPORARY OVERRIDE:
+         * For game-type daily challenges, skip all gameplay validation and
+         * always allow completion when user hits "Mark complete".
+         *
+         * WARNING: This means users can complete the challenge and earn rewards
+         * without actually playing the game. Re-enable the original validation
+         * below when you want to enforce real gameplay.
+         */
+        actionValidated = true;
+
+        /*
+        // ORIGINAL STRICT VALIDATION (commented out):
         // Verify game was played for required time
         const gameId =
           challenge.assignedGame?.gameId ||
@@ -2319,6 +2332,7 @@ router.post("/complete", protect, async (req, res) => {
             }
           }
         }
+        */
         break;
 
       case "survey":
@@ -2710,15 +2724,42 @@ router.post("/complete", protect, async (req, res) => {
 
     // Determine transaction status based on claim type
     const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
+    const baseReferenceId = `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`;
 
+    // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
+    const hasCoins = totalCoins > 0;
+    const hasXP = shouldCreditImmediately && finalXP > 0;
+    let primaryAmount = 0;
+    let primaryBalanceType = "coins";
+
+    if (hasCoins && hasXP) {
+      // Both rewards - use coins as primary
+      primaryAmount = totalCoins;
+      primaryBalanceType = "coins";
+    } else if (hasCoins) {
+      // Only coins
+      primaryAmount = totalCoins;
+      primaryBalanceType = "coins";
+    } else if (hasXP) {
+      // Only XP
+      primaryAmount = finalXP;
+      primaryBalanceType = "xp";
+    }
+
+    // Add coins and XP to metadata for single transaction log
+    transactionMetadata.coins = totalCoins;
+    transactionMetadata.xp = shouldCreditImmediately ? finalXP : 0;
+    transactionMetadata.finalXp = shouldCreditImmediately ? finalXP : 0;
+
+    // Create single transaction with both coins and XP in metadata
     const transaction = new Transaction({
       user: userId,
       type: "credit",
-      amount: totalCoins,
-      balanceType: "coins",
+      balanceType: primaryBalanceType,
+      amount: primaryAmount,
       description: `Daily Challenge: ${challenge.title}`,
       status: transactionStatus,
-      referenceId: `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`,
+      referenceId: baseReferenceId,
       game: linkedGameObjectId,
       gameId: linkedGameCode,
       metadata: transactionMetadata,

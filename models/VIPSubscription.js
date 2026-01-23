@@ -31,6 +31,10 @@ const vipSubscriptionSchema = new mongoose.Schema({
   stripeSubscriptionId: { 
     type: String 
   },
+  stripeCustomerId: {
+    type: String,
+    default: null
+  },
   amount: { 
     type: Number, 
     required: true,
@@ -94,6 +98,7 @@ vipSubscriptionSchema.pre('save', function(next) {
 vipSubscriptionSchema.index({ userId: 1, status: 1 });
 vipSubscriptionSchema.index({ paymentIntentId: 1 });
 vipSubscriptionSchema.index({ stripeSubscriptionId: 1 });
+vipSubscriptionSchema.index({ stripeCustomerId: 1 }); // Added index for stripeCustomerId
 vipSubscriptionSchema.index({ endDate: 1, status: 1 });
 vipSubscriptionSchema.index({ createdAt: -1 });
 
@@ -180,10 +185,3 @@ vipSubscriptionSchema.methods.getSummary = function() {
 };
 
 module.exports = mongoose.model('VIPSubscription', vipSubscriptionSchema);
-
-
-
-
-
-
-

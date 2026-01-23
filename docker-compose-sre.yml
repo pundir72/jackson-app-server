@@ -16,6 +16,8 @@ services:
       - /app/node_modules
     depends_on:
       - sre_redis
+    networks:
+      - sre-net
 
   sre_redis:
     image: redis:latest
@@ -23,3 +25,9 @@ services:
     restart: always
     ports:
       - "6380:6379"
+    networks:
+      - sre-net
+
+networks:
+  sre-net:
+    external: true

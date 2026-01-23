@@ -7,6 +7,8 @@ services:
     ports:
       - "4318:4318"
       - "8889:8889"
+    networks:
+      - sre-net
 
   prometheus:
     image: prom/prometheus:latest
@@ -15,6 +17,8 @@ services:
       - ./prometheus-alerts.yml:/etc/prometheus/prometheus-alerts.yml
     ports:
       - "9090:9090"
+    networks:
+      - sre-net
 
   alertmanager:
     image: prom/alertmanager:latest
@@ -29,6 +33,8 @@ services:
       - SMTP_USERNAME=${SMTP_USERNAME}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
+    networks:
+      - sre-net
 
   tempo:
     image: grafana/tempo:latest
@@ -37,6 +43,8 @@ services:
       - ./tempo.yaml:/etc/tempo.yaml
     ports:
       - "3200:3200"
+    networks:
+      - sre-net
 
   loki:
     image: grafana/loki:2.9.8
@@ -45,6 +53,8 @@ services:
       - ./loki-config.yml:/etc/loki/local-config.yaml
     ports:
       - "3100:3100"
+    networks:
+      - sre-net
 
   promtail:
     image: grafana/promtail:2.9.8
@@ -54,6 +64,8 @@ services:
       - ./:/var/log/app
     depends_on:
       - loki
+    networks:
+      - sre-net
 
   grafana:
     image: grafana/grafana:latest
@@ -67,3 +79,9 @@ services:
       - prometheus
       - tempo
       - loki
+    networks:
+      - sre-net
+
+networks:
+  sre-net:
+    external: true

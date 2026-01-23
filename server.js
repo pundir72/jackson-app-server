@@ -13,7 +13,11 @@ const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
 const { context, trace } = require("@opentelemetry/api");
-const { requestCounter } = require("./metrics");
+const {
+  requestCounter,
+  serverRequestCounter,
+  requestDurationHistogram,
+} = require("./metrics");
 const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
@@ -106,16 +110,28 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const span = trace.getSpan(context.active());
     const traceId = span ? span.spanContext().traceId : undefined;
+    const route = req.route?.path || req.path;
+    const durationMs = Date.now() - startTime;
     requestCounter.add(1, {
       method: req.method,
-      route: req.route?.path || req.path,
+      route,
       status: res.statusCode,
+    });
+    serverRequestCounter.add(1, {
+      http_method: req.method,
+      http_route: route,
+      http_status_code: String(res.statusCode),
+    });
+    requestDurationHistogram.record(durationMs, {
+      http_method: req.method,
+      http_route: route,
+      http_status_code: String(res.statusCode),
     });
     logger.info("http_request", {
       method: req.method,
       path: req.originalUrl || req.url,
       status: res.statusCode,
-      duration_ms: Date.now() - startTime,
+      duration_ms: durationMs,
       trace_id: traceId,
       ip: req.ip,
       user_agent: req.headers["user-agent"],

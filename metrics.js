@@ -6,4 +6,20 @@ const requestCounter = meter.createCounter("http_requests_total", {
   description: "Total HTTP requests",
 });
 
-module.exports = { requestCounter };
+const serverRequestCounter = meter.createCounter("http_server_requests_total", {
+  description: "Total inbound HTTP requests",
+});
+
+const requestDurationHistogram = meter.createHistogram(
+  "http_server_duration_milliseconds",
+  {
+    description: "Inbound HTTP request duration in milliseconds",
+    unit: "ms",
+  }
+);
+
+module.exports = {
+  requestCounter,
+  serverRequestCounter,
+  requestDurationHistogram,
+};

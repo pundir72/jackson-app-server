@@ -10,7 +10,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=jackson-app-backend
     ports:
-      - "4002:4001"
+      - "4001:4001"
     volumes:
       - .:/app
       - /app/node_modules

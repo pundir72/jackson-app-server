@@ -61,7 +61,7 @@ services:
     command: ["-config.file=/etc/promtail/config.yml"]
     volumes:
       - ./promtail-config.yml:/etc/promtail/config.yml
-      - ./:/var/log/app
+      - /var/www/SRE/jackson-app-server:/var/log/app
     depends_on:
       - loki
     networks:

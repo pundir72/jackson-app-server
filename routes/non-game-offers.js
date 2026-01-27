@@ -221,6 +221,11 @@ async function getAdminConfiguredOffers(
           ip: req?.ip || req?.connection?.remoteAddress,
         };
 
+        // Cashback offers are often US-targeted; ensure country is US when fetching from Bitlabs
+        if (sdkProvider === "bitlabs" && offerType === "cashback") {
+          userProfileForAPI.country = "US";
+        }
+
         let apiResult = null;
 
         if (sdkProvider === "bitlabs") {
@@ -1076,13 +1081,17 @@ router.get("/", protect, async (req, res) => {
       ageRange: user.onboarding?.ageRange || "N/A",
     });
 
+    // Device type affects eligibility for admin-configured NonGameOffer.requirements.deviceType
+    // Cashback offers are typically web-based, so treat deviceType as "web" for type=cashback
+    const deviceTypeForOffers = type === "cashback" ? "web" : "mobile";
+
     const userProfile = {
       age: getUserAge(user),
       gender: getUserGender(user),
       country: user.location?.current?.country || "US",
       language: user.preferences?.language || "en",
       xp: user.xp?.current || 0,
-      deviceType: "mobile",
+      deviceType: deviceTypeForOffers,
       hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 

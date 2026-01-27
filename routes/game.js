@@ -20,23 +20,190 @@ const {
 const besitosController = require("../controllers/besitos.controller");
 const { trackAchievements } = require("../utils/achievements");
 
-/**
- * Calculate stepwise XP reward for a task
- * Task 1: Base XP
- * Task 2: Base XP × Multiplier
- * Task 3: Task 2 XP × Multiplier
- * Task N: Task (N-1) XP × Multiplier
- * @param {Number} taskNumber - 1-based task number (Task 1, Task 2, etc.)
- * @param {Number} baseXP - Base XP for Task 1
- * @param {Number} multiplier - Stepwise multiplier
- * @returns {Number} - Calculated XP for this task
- */
+
 function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
   if (taskNumber <= 1) {
     return baseXP;
   }
   // Task N = Base XP × (Multiplier ^ (N-1))
   return baseXP * Math.pow(multiplier, taskNumber - 1);
+}
+
+/**
+ * Check if a game is currently available from its SDK provider
+ * @param {Object} game - Game document from database
+ * @param {Object} userProfile - User profile for API calls
+ * @returns {Promise<boolean>} True if game is available, false otherwise
+ */
+async function checkGameAvailability(game, userProfile, userId = null, isRetry = false) {
+  try {
+    // Normalize SDK provider to lowercase for case-insensitive comparison
+    const normalizedProvider = (game.sdkProvider || "").toLowerCase();
+
+    if (normalizedProvider === "besitos") {
+      const besitosService = require("../services/besitos.service");
+      const externalId = game.gameDetails?.id || game.gameId;
+
+      if (!externalId) {
+        return false;
+      }
+
+      try {
+        // Fetch ALL offers directly from Besitos API (not from cache)
+        const requestParams = {
+          platform: userProfile.platform || "mobile",
+          country: userProfile.country || "US",
+          _t: Date.now(), // prevent caching
+        };
+
+        const response = await besitosService.getOffers(requestParams);
+        const offers = Array.isArray(response) ? response : response?.data || [];
+
+        // If API returns no offers, game is not available
+        if (!Array.isArray(offers) || offers.length === 0) {
+          return false;
+        }
+
+        // Find matching offer by externalId
+        const matchingOffer = offers.find((offer) => {
+          const offerId = offer.id || offer.offer_id || offer.game_id;
+          return String(offerId) === String(externalId);
+        });
+
+        if (!matchingOffer) {
+          // Game is not in current Besitos inventory
+          return false;
+        }
+
+        // Budget must be Active
+        const budgetStatus = matchingOffer.budget_status;
+        const isBudgetActive = budgetStatus === "Active";
+        if (!isBudgetActive) {
+          return false;
+        }
+
+        // Optional: user-specific availability check
+        if (userId) {
+          try {
+            const userData = await besitosService.getUserData(userId);
+            const userDataResponse = userData.data || userData;
+
+            const inProgressGames =
+              userDataResponse.in_progress || userDataResponse.data?.in_progress || [];
+            const availableGames =
+              userDataResponse.available || userDataResponse.data?.available || [];
+
+            const isInUserProgress = inProgressGames.some((g) => {
+              const id = g.id || g.game_id || g.offer_id;
+              return String(id) === String(externalId);
+            });
+
+            const isInUserAvailable = availableGames.some((g) => {
+              const id = g.id || g.game_id || g.offer_id;
+              return String(id) === String(externalId);
+            });
+
+            // Game must be available or already in progress for this user
+            if (!isInUserAvailable && !isInUserProgress) {
+              return false;
+            }
+          } catch (userDataError) {
+            // On user-data failure, fall back to budget-only check (already passed)
+          }
+        }
+
+        return true;
+      } catch (error) {
+        console.error(
+          `   ❌ [BESITOS] Error checking Besitos availability for game ${game.gameId}:`,
+          {
+            message: error.message,
+            status: error.status || error.response?.status,
+          }
+        );
+        return false;
+      }
+    } else if (normalizedProvider === "bitlabs") {
+      const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+      const gameIdToFind = game.gameId?.toString().trim();
+
+      if (!gameIdToFind) {
+        return false;
+      }
+
+      try {
+        // Convert platform to devices array for Bitlabs
+        let devices = [];
+        const platform = userProfile.platform || "mobile";
+        if (platform === "ios" || platform === "iphone") {
+          devices = ["iphone"];
+        } else if (platform === "android") {
+          devices = ["android"];
+        } else if (platform === "mobile") {
+          devices = ["iphone", "android"];
+        }
+
+        const queryParams = {
+          is_game: true,
+          devices: devices.length > 0 ? devices : undefined,
+        };
+
+        const offers = await bitlabsOfferCache.getOffers(queryParams);
+
+        if (!Array.isArray(offers) || offers.length === 0) {
+          return false;
+        }
+
+        const matchesGameId = (offer) => {
+          const offerId =
+            offer.id?.toString().trim() ||
+            offer.offer_id?.toString().trim() ||
+            offer.game_id?.toString().trim() ||
+            "";
+          const productId =
+            offer.product_id?.toString().trim() ||
+            offer.productId?.toString().trim() ||
+            "";
+          const appId = offer.app_metadata?.app_id?.toString().trim() || "";
+
+          return (
+            offerId === gameIdToFind ||
+            productId === gameIdToFind ||
+            appId === gameIdToFind
+          );
+        };
+
+        const matchingOffer = offers.find(matchesGameId);
+
+        // Only available if Bitlabs still returns this offer
+        return !!matchingOffer;
+      } catch (error) {
+        console.error(
+          `   ❌ [BITLABS] Error checking Bitlabs availability for game ${game.gameId}:`,
+          {
+            message: error.message,
+          }
+        );
+        return false;
+      }
+    } else {
+      // For games without SDK provider or unknown providers
+      // If game has Besitos data, check as Besitos game once
+      if (!isRetry && (game.besitosRawData || game.gameDetails?.id)) {
+        const tempGame = { ...game, sdkProvider: "besitos" };
+        return await checkGameAvailability(tempGame, userProfile, userId, true);
+      }
+
+      // Unknown providers are treated as unavailable for safety
+      return false;
+    }
+  } catch (error) {
+    console.error(
+      `Error checking availability for game ${game.gameId}:`,
+      error.message
+    );
+    return false;
+  }
 }
 // Get user's games (downloaded/installed games list)
 router.get("/", protect, async (req, res) => {
@@ -629,9 +796,6 @@ router.get("/batch-status", protect, async (req, res) => {
  */
 router.get("/discover", protect, async (req, res) => {
   try {
-    console.log("=== GAME DISCOVER START ===");
-    console.log("Raw Query Params:", req.query);
-
     const {
       uiSection,
       ageGroup,
@@ -641,22 +805,10 @@ router.get("/discover", protect, async (req, res) => {
       page = 1,
       limit = 20,
       country,
+      status, // Status filter (active, inactive, all)
     } = req.query;
 
-    console.log("Parsed Query Params:", {
-      uiSection: uiSection || "NOT PROVIDED",
-      ageGroup: ageGroup || "NOT PROVIDED",
-      gender: gender || "NOT PROVIDED",
-      tier: tier || "NOT PROVIDED",
-      membership: membership || "NOT PROVIDED",
-      page: page,
-      limit: limit,
-      country: country || "NOT PROVIDED",
-    });
-
     const userId = req.user.userId;
-    console.log("User ID from JWT token:", userId);
-    console.log("Tracking activity for user:", userId, "on route:", req.path);
 
     const user = await User.findById(userId).lean();
 
@@ -728,9 +880,27 @@ router.get("/discover", protect, async (req, res) => {
     }
 
     // Build base filter
-    const filter = { isActive: true };
+    // Handle status filter: active (default), inactive, or all
+    const filter = {};
+    if (status) {
+      const normalizedStatus = status.toLowerCase();
+      if (normalizedStatus === "active" || normalizedStatus === "true") {
+        filter.isActive = true;
+      } else if (normalizedStatus === "inactive" || normalizedStatus === "false") {
+        filter.isActive = false;
+      } else if (normalizedStatus === "all") {
+        // Don't filter by isActive - show all games
+      } else {
+        // Default to active if invalid status provided
+        filter.isActive = true;
+      }
+    } else {
+      // Default behavior: only show active games
+      filter.isActive = true;
+    }
+    
     if (uiSection) filter.uiSection = uiSection;
-
+    
     // Check if user has Google ID (can login with Google - may not have age/gender)
     const isGoogleUser = !!user.social?.googleId;
 
@@ -764,16 +934,6 @@ router.get("/discover", protect, async (req, res) => {
       }
     } else {
       // For Google users, don't filter by ageGroup or gender to show all games
-      console.log("=== GOOGLE USER DETECTED ===");
-      console.log("Google user detected - fetching all age groups and genders");
-      console.log(
-        "Filter before Google user logic:",
-        JSON.stringify(
-          { isActive: true, uiSection: uiSection || "NOT SET" },
-          null,
-          2
-        )
-      );
     }
 
     // XP Tier filter (Junior, Mid, Senior)
@@ -825,92 +985,32 @@ router.get("/discover", protect, async (req, res) => {
         } else {
           filter.$and = [membershipFilter];
         }
-
-        console.log("Membership filter applied:", normalizedMembership);
-      } else {
-        console.log(
-          "Invalid membership tier:",
-          normalizedMembership,
-          "- skipping filter"
-        );
       }
     }
 
     // Note: countries field was removed, so we skip country filter from Game model
 
-    console.log("=== FILTER ANALYSIS ===");
-    console.log("Query Params Used in Filter:", {
-      uiSection: uiSection || "NOT PROVIDED",
-      ageGroup: ageGroup || "NOT PROVIDED",
-      gender: gender || "NOT PROVIDED",
-      tier: tier || "NOT PROVIDED",
-      membership: membership || "NOT PROVIDED",
-    });
-    console.log("User Profile (Actual):", {
-      gender: userProfile.gender,
-      age: userProfile.age,
-      country: userProfile.country,
-    });
-    console.log("User Login Method:", {
-      provider: user.social?.provider || "local",
-      hasGoogleId: !!user.social?.googleId,
-      isGoogleUser: isGoogleUser,
-    });
-    console.log("⚠️ MISMATCH CHECK:");
-    if (gender && gender !== userProfile.gender) {
-      console.log(
-        `  ⚠️ Gender mismatch: Query="${gender}" vs User="${userProfile.gender}"`
-      );
-    }
-    if (ageGroup) {
-      const [minAge, maxAge] = ageGroup.split("-").map(Number);
-      if (userProfile.age < minAge || userProfile.age > maxAge) {
-        console.log(
-          `  ⚠️ Age mismatch: Query="${ageGroup}" vs User age="${userProfile.age}"`
-        );
-      }
-    }
-    console.log("Database Filter:", JSON.stringify(filter, null, 2));
-    console.log("User Profile:", JSON.stringify(userProfile, null, 2));
-    console.log(
-      "Matching Display Rule:",
-      matchingRule
-        ? {
-            ruleId: matchingRule._id,
-            ruleName: matchingRule.ruleName,
-            maxGames: maxGamesFromRule,
-          }
-        : "None"
-    );
-
-    // Check what games exist in database with different filters
-    console.log("=== DATABASE GAME COUNTS ===");
+    // Check what games exist in database with different filters (for internal analysis)
     const totalActiveGames = await Game.countDocuments({ isActive: true });
-    console.log(`Total active games: ${totalActiveGames}`);
 
     if (uiSection) {
       const uiSectionCount = await Game.countDocuments({
         isActive: true,
         uiSection,
       });
-      console.log(`Games with uiSection="${uiSection}": ${uiSectionCount}`);
     }
     if (ageGroup) {
       const ageGroupCount = await Game.countDocuments({
         isActive: true,
         ageGroup,
       });
-      console.log(`Games with ageGroup="${ageGroup}": ${ageGroupCount}`);
     }
     if (gender) {
       const genderCount = await Game.countDocuments({ isActive: true, gender });
-      console.log(`Games with gender="${gender}": ${genderCount}`);
     }
 
     // Additional debugging for Google users
     if (isGoogleUser) {
-      console.log("=== GOOGLE USER DEBUGGING ===");
-
       // Check games with null/undefined ageGroup
       const gamesWithNullAge = await Game.countDocuments({
         isActive: true,
@@ -921,11 +1021,6 @@ router.get("/discover", protect, async (req, res) => {
           { ageGroup: "" },
         ],
       });
-      console.log(
-        `Games with NULL/empty ageGroup (uiSection="${
-          uiSection || "any"
-        }"): ${gamesWithNullAge}`
-      );
 
       // Check games with "all" gender
       const gamesWithAllGender = await Game.countDocuments({
@@ -933,36 +1028,11 @@ router.get("/discover", protect, async (req, res) => {
         uiSection: uiSection || undefined,
         gender: "all",
       });
-      console.log(
-        `Games with gender="all" (uiSection="${
-          uiSection || "any"
-        }"): ${gamesWithAllGender}`
-      );
 
       // Check games matching the exact filter that will be used
       const filterForGoogle = { isActive: true };
       if (uiSection) filterForGoogle.uiSection = uiSection;
       const gamesMatchingFilter = await Game.find(filterForGoogle).lean();
-      console.log(
-        `Games matching Google user filter (isActive: true${
-          uiSection ? `, uiSection: "${uiSection}"` : ""
-        }): ${gamesMatchingFilter.length}`
-      );
-
-      if (gamesMatchingFilter.length > 0) {
-        console.log(
-          "All games matching filter:",
-          gamesMatchingFilter.map((g) => ({
-            _id: g._id,
-            title: g.title,
-            gameId: g.gameId,
-            isActive: g.isActive,
-            uiSection: g.uiSection,
-            ageGroup: g.ageGroup,
-            gender: g.gender,
-          }))
-        );
-      }
 
       // Check all active games with this uiSection (if provided)
       if (uiSection) {
@@ -970,22 +1040,7 @@ router.get("/discover", protect, async (req, res) => {
           isActive: true,
           uiSection: uiSection,
         }).lean();
-        console.log(
-          `All active games with uiSection="${uiSection}": ${allUiSectionGames.length}`
-        );
-        if (allUiSectionGames.length > 0) {
-          console.log(
-            "Games breakdown:",
-            allUiSectionGames.map((g) => ({
-              title: g.title,
-              ageGroup: g.ageGroup || "NULL",
-              gender: g.gender || "NULL",
-            }))
-          );
-        }
       }
-
-      console.log("=== END GOOGLE USER DEBUGGING ===");
     }
 
     // Check games matching user profile instead
@@ -1014,24 +1069,16 @@ router.get("/discover", protect, async (req, res) => {
 
       if (matchedAgeGroup) {
         userProfileFilter.ageGroup = matchedAgeGroup;
-        console.log(
-          `Matched ageGroup="${matchedAgeGroup}" for user age=${userProfile.age}`
-        );
       }
     }
 
     const userProfileGamesCount = await Game.countDocuments(userProfileFilter);
-    console.log(`Games matching user profile filter: ${userProfileGamesCount}`);
-    console.log("=== END FILTER ANALYSIS ===");
 
     const pageNum = Math.max(parseInt(page) || 1, 1);
     const pageSize = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
 
     // Get all matching games first (before pagination)
-    console.log("Querying games from database with filter...");
-    console.log("Final filter being used:", JSON.stringify(filter, null, 2));
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
-    console.log(`✅ Found ${allGames.length} games matching filter`);
 
     // Hide already downloaded/installed games from discovery listings
     // This ensures games the user has already downloaded are not shown again
@@ -1054,103 +1101,11 @@ router.get("/discover", protect, async (req, res) => {
           (g) => !downloadedGameIds.has(String(g.gameId))
         );
         const afterHideCount = allGames.length;
-
-        console.log(
-          `Applied downloaded-games exclusion: ${beforeHideCount} -> ${afterHideCount} games (hidden ${beforeHideCount - afterHideCount})`
-        );
       }
     }
 
-    if (userProfileGamesCount > 0 && allGames.length === 0) {
-      console.log(
-        "⚠️ WARNING: Games exist for user profile but not for query params!"
-      );
-      console.log(
-        "User Profile Filter:",
-        JSON.stringify(userProfileFilter, null, 2)
-      );
-    }
-
-    if (isGoogleUser) {
-      console.log("=== GOOGLE USER: GAMES FOUND ===");
-      console.log(`Total games found for Google user: ${allGames.length}`);
-      if (allGames.length > 0) {
-        console.log(
-          "All games details:",
-          allGames.map((g) => ({
-            _id: g._id,
-            gameId: g.gameId,
-            title: g.title,
-            isActive: g.isActive,
-            uiSection: g.uiSection,
-            gender: g.gender || "NULL",
-            ageGroup: g.ageGroup || "NULL",
-          }))
-        );
-      } else {
-        console.log("⚠️ WARNING: No games found for Google user!");
-        console.log("Filter used:", JSON.stringify(filter, null, 2));
-      }
-      console.log("=== END GOOGLE USER: GAMES FOUND ===");
-    }
-
-    if (allGames.length > 0) {
-      console.log(
-        "Sample games:",
-        allGames.slice(0, 3).map((g) => ({
-          _id: g._id,
-          gameId: g.gameId,
-          title: g.title,
-          isActive: g.isActive,
-          uiSection: g.uiSection,
-          gender: g.gender,
-          ageGroup: g.ageGroup,
-          rewards: g.rewards,
-          xpTier: g.xpTier,
-        }))
-      );
-    } else {
-      // If no games found, show what games exist with similar filters
-      console.log("=== DEBUGGING: No games found, checking alternatives ===");
-      const gamesWithoutGender = await Game.find({
-        isActive: true,
-        uiSection: uiSection || undefined,
-        ageGroup: ageGroup || undefined,
-      })
-        .limit(5)
-        .lean();
-      if (gamesWithoutGender.length > 0) {
-        console.log(
-          `Found ${gamesWithoutGender.length} games without gender filter:`,
-          gamesWithoutGender.map((g) => ({
-            gameId: g.gameId,
-            title: g.title,
-            gender: g.gender,
-            ageGroup: g.ageGroup,
-            uiSection: g.uiSection,
-          }))
-        );
-      }
-
-      const gamesWithUserGender = await Game.find({
-        isActive: true,
-        gender: userProfile.gender,
-        uiSection: uiSection || undefined,
-      })
-        .limit(5)
-        .lean();
-      if (gamesWithUserGender.length > 0) {
-        console.log(
-          `Found ${gamesWithUserGender.length} games with user's gender (${userProfile.gender}):`,
-          gamesWithUserGender.map((g) => ({
-            gameId: g.gameId,
-            title: g.title,
-            gender: g.gender,
-            ageGroup: g.ageGroup,
-            uiSection: g.uiSection,
-          }))
-        );
-      }
+    if (!(userProfileGamesCount > 0 && allGames.length === 0)) {
+      // If no games found, we previously logged debug information; now it's silent
     }
 
     // Apply display rule limit if rule matches AND uiSection is "Swipe"
@@ -1161,24 +1116,17 @@ router.get("/discover", protect, async (req, res) => {
       uiSection.toLowerCase() === "swipe" &&
       allGames.length > maxGamesFromRule
     ) {
-      console.log(
-        `Applying display rule limit (Swipe section only): ${allGames.length} -> ${maxGamesFromRule}`
-      );
       allGames = allGames.slice(0, maxGamesFromRule);
     } else if (
       maxGamesFromRule &&
       uiSection &&
       uiSection.toLowerCase() !== "swipe"
     ) {
-      console.log(
-        `Display rule limit NOT applied: uiSection is "${uiSection}" (only applies to Swipe section)`
-      );
+      // Display rule limit applies only to Swipe section
     }
 
     // Get user's XP tier from admin configuration (XPTier model)
-    console.log("=== FETCHING USER XP TIER FROM ADMIN CONFIG ===");
     const userXp = user.xp?.current || 0;
-    console.log("User XP:", userXp);
 
     // Fetch XP tier from admin configuration
     let userXpTierDoc = null;
@@ -1196,15 +1144,7 @@ router.get("/discover", protect, async (req, res) => {
         userXpTier =
           tierNameMap[userXpTierDoc.tierName] ||
           userXpTierDoc.tierName.toLowerCase();
-        console.log("✅ User XP Tier from Admin Config:", {
-          tierName: userXpTierDoc.tierName,
-          tierKey: userXpTier,
-          xpMin: userXpTierDoc.xpMin,
-          xpMax: userXpTierDoc.xpMax,
-          xpRange: userXpTierDoc.xpRange,
-        });
       } else {
-        console.log("⚠️ No XP tier found in admin config, using fallback");
         // Fallback to old method
         userXpTier = getUserXpTier(user);
       }
@@ -1212,18 +1152,12 @@ router.get("/discover", protect, async (req, res) => {
       console.error("Error fetching XP tier from admin config:", error);
       // Fallback to old method
       userXpTier = getUserXpTier(user);
-      console.log("Using fallback XP tier:", userXpTier);
     }
 
     // Get user's membership tier
     const userMembershipTier = getUserMembershipTier(user) || "free";
-    console.log("User Membership Tier:", userMembershipTier);
-    console.log("=== END FETCHING USER TIERS ===");
 
     // Filter games by XP tier and VIP tier requirements (before pagination)
-    console.log("=== APPLYING XP TIER AND MEMBERSHIP TIER VALIDATION ===");
-    console.log("User XP Tier:", userXpTier);
-    console.log("User Membership Tier:", userMembershipTier);
 
     const filteredGames = allGames.filter((g) => {
       let passesXpTier = true;
@@ -1251,29 +1185,8 @@ router.get("/discover", protect, async (req, res) => {
         );
 
         passesXpTier = gameTiersNormalized.includes(userTierNormalized);
-
-        if (!passesXpTier) {
-          console.log(
-            `❌ Game ${g.gameId} (${
-              g.title
-            }) filtered out: XP tier mismatch (required: ${g.xpTiers.join(
-              ", "
-            )}, user: ${userXpTier})`
-          );
-        } else {
-          console.log(
-            `✅ Game ${g.gameId} (${
-              g.title
-            }) passes XP tier check (user: ${userXpTier}, game allows: ${g.xpTiers.join(
-              ", "
-            )})`
-          );
-        }
       } else {
         // Game has no XP tier restrictions - available to all tiers
-        console.log(
-          `✅ Game ${g.gameId} (${g.title}) has no XP tier restrictions - available to all`
-        );
       }
 
       // Check VIP/membership tier requirement
@@ -1293,31 +1206,69 @@ router.get("/discover", protect, async (req, res) => {
         // User must have tier >= minTier and <= maxTier
         if (userTierIndex < minTierIndex || userTierIndex > maxTierIndex) {
           passesMembershipTier = false;
-          console.log(
-            `❌ Game ${g.gameId} (${g.title}) filtered out: Membership tier mismatch (required: ${minTier}-${maxTier}, user: ${userMembershipTier})`
-          );
-        } else {
-          console.log(
-            `✅ Game ${g.gameId} (${g.title}) passes membership tier check (user: ${userMembershipTier}, game allows: ${minTier}-${maxTier})`
-          );
         }
       } else {
         // Game has no membership tier restrictions - available to all tiers
-        console.log(
-          `✅ Game ${g.gameId} (${g.title}) has no membership tier restrictions - available to all`
-        );
       }
 
       return passesXpTier && passesMembershipTier;
     });
 
-    console.log(
-      `Games after XP/Membership tier filtering: ${filteredGames.length} (from ${allGames.length})`
-    );
-    console.log("=== END XP TIER AND MEMBERSHIP TIER VALIDATION ===");
+    // End XP/Membership tier validation
 
     // Update allGames with filtered results
     allGames = filteredGames;
+
+    // ===== REAL-TIME AVAILABILITY CHECKING =====
+    // Extract platform from query params or infer from user-agent
+    let platform = req.query.platform || "mobile";
+    const userAgent = req.headers["user-agent"] || "";
+    if (!req.query.platform) {
+      // Infer platform from user-agent if not provided
+      if (userAgent.toLowerCase().includes("iphone") || userAgent.toLowerCase().includes("ipad")) {
+        platform = "ios";
+      } else if (userAgent.toLowerCase().includes("android")) {
+        platform = "android";
+      }
+    }
+    
+    // Build user profile for API calls
+    const userProfileForAPI = {
+      platform: platform,
+      country: userProfile.country || "US",
+      age: userProfile.age,
+      gender: userProfile.gender,
+    };
+
+    // Check availability for all games in parallel (with concurrency limit to avoid overwhelming APIs)
+    const availabilityChecks = [];
+    const BATCH_SIZE = 10; // Process 10 games at a time
+    const totalBatches = Math.ceil(allGames.length / BATCH_SIZE);
+    
+    for (let i = 0; i < allGames.length; i += BATCH_SIZE) {
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const batch = allGames.slice(i, i + BATCH_SIZE);
+      const batchStartTime = Date.now();
+      const batchChecks = await Promise.all(
+        batch.map(async (game) => {
+          const isAvailable = await checkGameAvailability(game, userProfileForAPI, userId);
+          return { game, isAvailable };
+        })
+      );
+      const batchEndTime = Date.now();
+      const batchDuration = batchEndTime - batchStartTime;
+      // batchDuration kept for potential future metrics
+      availabilityChecks.push(...batchChecks);
+    }
+
+    // Filter to only include available games
+    const beforeAvailabilityCount = allGames.length;
+    const availableGames = availabilityChecks.filter(({ isAvailable }) => isAvailable);
+    const unavailableGames = availabilityChecks.filter(({ isAvailable }) => !isAvailable);
+    allGames = availableGames.map(({ game }) => game);
+    
+    const afterAvailabilityCount = allGames.length;
+    // ===== END REAL-TIME AVAILABILITY CHECKING =====
 
     // Apply pagination
     const total = allGames.length;
@@ -1325,25 +1276,9 @@ router.get("/discover", protect, async (req, res) => {
       (pageNum - 1) * pageSize,
       pageNum * pageSize
     );
-    console.log(
-      `Pagination: page ${pageNum}, size ${pageSize}, total ${total}, showing ${paginatedGames.length} games`
-    );
 
     if (isGoogleUser) {
-      console.log("=== GOOGLE USER: PAGINATION DEBUG ===");
-      console.log(`Before pagination: ${allGames.length} games`);
-      console.log(`After pagination: ${paginatedGames.length} games`);
-      console.log(`Page: ${pageNum}, Page Size: ${pageSize}`);
-      console.log(
-        `Games being returned:`,
-        paginatedGames.map((g) => ({
-          title: g.title,
-          gameId: g.gameId,
-          ageGroup: g.ageGroup || "NULL",
-          gender: g.gender || "NULL",
-        }))
-      );
-      console.log("=== END GOOGLE USER: PAGINATION DEBUG ===");
+      // Pagination behaviour for Google users (debug logging removed)
     }
 
     // Get user's first N games for bonus task eligibility
@@ -1364,32 +1299,17 @@ router.get("/discover", protect, async (req, res) => {
       .map((g) => String(g.gameId));
 
     // Get user-based task progression rule (applies to user, not specific game)
-    console.log("=== FETCHING TASK PROGRESSION RULE ===");
-    console.log("User Profile for Progression Rule:", {
-      xp: userProfile.xp,
-      gamesPlayed: userProfile.gamesPlayed,
-      membershipTier: userProfile.membershipTier,
-      age: userProfile.age,
-      gender: userProfile.gender,
-      country: userProfile.country,
-    });
+    // Fetching task progression rule
 
     const progressionRule = await TaskProgressionRule.findBestMatchForUser(
       userProfile
     );
 
     if (progressionRule) {
-      console.log("✅ Task Progression Rule Found:", {
-        ruleName: progressionRule.ruleName,
-        firstBatchSize: progressionRule.firstBatchSize,
-        nextBatchSize: progressionRule.nextBatchSize,
-        maxBatches: progressionRule.maxBatches,
-      });
+      // Task progression rule found
     } else {
-      console.log("⚠️ No Task Progression Rule found for user");
-      console.log("This means taskProgression will be null in response");
+      // No task progression rule – taskProgression will be null in response
     }
-    console.log("=== END FETCHING TASK PROGRESSION RULE ===");
 
     // Get user's task progression data (Map becomes object with lean())
     const userTaskProgression = user.taskProgression || {};
@@ -1491,14 +1411,12 @@ router.get("/discover", protect, async (req, res) => {
 
     const uiSections = await Game.distinct("uiSection");
 
-    console.log(`✅ Returning ${games.length} games to client`);
-    console.log("Response Summary:", {
-      totalGames: total,
-      returnedGames: games.length,
-      hasDisplayRule: !!matchingRule,
-      maxGamesFromRule: maxGamesFromRule,
+    // Set cache-control headers to prevent 304 Not Modified responses
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
-    console.log("=== GAME DISCOVER END ===");
 
     res.json({
       success: true,
@@ -3116,18 +3034,7 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
 
     await Promise.all([user.save(), transaction.save()]);
 
-    // Log successful transfer
-    console.log(
-      `[Coin Box Transfer] User ${userId} transferred ${coinBoxBalance} coins from game ${gameId}`,
-      {
-        userId,
-        gameId,
-        transferredAmount: coinBoxBalance,
-        previousBalance: previousWalletBalance,
-        newBalance: user.wallet.balance,
-        transactionId: transaction._id,
-      }
-    );
+    // Successful transfer (previously logged for debugging)
 
     res.json({
       success: true,

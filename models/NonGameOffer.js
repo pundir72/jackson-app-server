@@ -394,13 +394,15 @@ nonGameOfferSchema.methods.isEligibleForUser = function (userProfile) {
     }
   }
 
-  // Check country targeting
-  if (
-    this.targetAudience.countries &&
-    this.targetAudience.countries.length > 0
-  ) {
-    if (!this.targetAudience.countries.includes(userProfile.country)) {
-      return false;
+  // Check country targeting (skip for cashback so admin-configured cashback shows globally)
+  if (this.offerType !== "cashback") {
+    if (
+      this.targetAudience.countries &&
+      this.targetAudience.countries.length > 0
+    ) {
+      if (!this.targetAudience.countries.includes(userProfile.country)) {
+        return false;
+      }
     }
   }
 

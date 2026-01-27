@@ -4474,11 +4474,161 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         total: result.totalOffers,
         estimatedEarnings: result.estimatedEarnings,
       };
-      console.log("🟡 [ADMIN BACKEND ROUTE] Sending response to admin:", {
-        success: responseData.success,
-        total: responseData.total,
-        surveysCount: responseData.categorized?.surveys?.length || 0,
+      res.json(responseData);
+    } else if (sdk === "besitos") {
+      // Handle Besitos surveys
+      const besitosService = require("../services/besitos.service");
+
+      // Check if Besitos service is configured
+      const isConfigured = besitosService.isConfigured();
+      if (!isConfigured) {
+        return res.status(500).json({
+          success: false,
+          message: "Besitos API is not properly configured",
+          data: [],
+        });
+      }
+
+      // Fetch Besitos surveys using the dedicated surveys endpoint
+      let besitosResponse;
+      try {
+        // Build surveys query params (device, user_ip, etc.)
+        // Note: Besitos surveys API requires device to be: "mobile", "tablet", or "desktop"
+        const surveysParams = {};
+
+        // Map device types to Besitos format (mobile, tablet, desktop)
+        if (devices) {
+          const devicesArray = Array.isArray(devices) ? devices : [devices];
+          if (devicesArray.includes("ipad")) {
+            surveysParams.device = "tablet";
+          } else if (
+            devicesArray.includes("android") ||
+            devicesArray.includes("iphone") ||
+            devicesArray.includes("ios")
+          ) {
+            surveysParams.device = "mobile";
+          } else {
+            // Default to mobile if device array has unknown values
+            surveysParams.device = "mobile";
+          }
+        } else {
+          // Default to mobile if no device specified
+          surveysParams.device = "mobile";
+        }
+
+        // Get client IP address from request (same as used for games)
+        // Try multiple ways to get IP (proxy headers, direct connection, etc.)
+        const clientIp =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.headers["x-real-ip"] ||
+          req.connection?.remoteAddress ||
+          req.socket?.remoteAddress ||
+          req.ip ||
+          "127.0.0.1"; // Fallback to localhost if IP not available
+
+        surveysParams.user_ip = clientIp;
+
+        besitosResponse = await besitosService.getSurveys(
+          surveysParams,
+          "admin-preview"
+        );
+      } catch (error) {
+        console.error("Error fetching Besitos surveys:", error);
+        return res.status(error.status || 500).json({
+          success: false,
+          message: error.message || "Failed to fetch Besitos surveys",
+          data: [],
+        });
+      }
+
+      // Transform Besitos surveys to match expected format
+      // Besitos surveys endpoint returns an array directly (not wrapped in data object)
+      const besitosSurveys = Array.isArray(besitosResponse)
+        ? besitosResponse
+        : besitosResponse?.data || [];
+
+      // Since we're using the surveys endpoint, ALL items are surveys - no need to filter
+      let filteredOffers = besitosSurveys;
+
+      // Transform Besitos surveys to match BitLabs format
+      // Besitos surveys endpoint returns: { id, name, length, amount, amount_currency, cpi, url }
+      const transformedOffers = filteredOffers.map((survey) => {
+        // Convert length (in minutes) to estimatedTime
+        const estimatedTime = survey.length ? Math.round(survey.length) : 0;
+
+        // Convert amount to coins (assuming 1 dollar = 50 coins, adjust as needed)
+        const rewardCoins = survey.amount ? Math.round(survey.amount * 50) : 0;
+
+        // Calculate user reward (20% margin - user gets 80% of publisher value)
+        const userRewardCoins = survey.amount
+          ? Math.round(survey.amount * 0.8 * 50)
+          : 0;
+        const userRewardXP = Math.round(userRewardCoins * 0.5); // 50% of coins as XP
+
+        return {
+          id: survey.id?.toString() || "",
+          surveyId: survey.id?.toString() || "",
+          offerId: survey.id?.toString() || "",
+          title: survey.name || `Survey ${survey.id}` || "Untitled Survey",
+          description: `Complete this survey to earn $${survey.amount || 0}`,
+          icon: "", // Besitos surveys don't have icons in the response
+          banner: "",
+          reward: {
+            coins: rewardCoins,
+            currency: survey.amount_currency || "$",
+            xp: userRewardXP,
+          },
+          estimatedTime: estimatedTime, // length is in minutes
+          clickUrl: survey.url || "",
+          confirmationTime: "", // Not provided in Besitos surveys response
+          pendingTime: 0, // Not provided in Besitos surveys response
+          isAvailable: true, // All surveys from API are available
+          provider: "besitos",
+          requirements: "",
+          thingsToKnow: [],
+          category: "Survey",
+          // Besitos survey specific fields
+          value: survey.amount ? parseFloat(survey.amount) : 0, // Publisher reward value
+          cpi: survey.cpi ? parseFloat(survey.cpi) : 0, // USD payment to publisher
+          loi: estimatedTime, // Length of interview (minutes) - same as estimatedTime
+          cr: 0, // Conversion rate - not provided
+          rating: 0, // Rating - not provided
+          country: country || "", // Use country from query params
+          language: "", // Not provided
+          // User reward fields (calculated with 20% margin)
+          userRewardCoins: userRewardCoins,
+          userRewardXP: userRewardXP,
+          type: "survey",
+        };
       });
+
+      // Categorize offers
+      const categorized = {
+        surveys:
+          type === "survey" || type === "surveys" || type === "all"
+            ? transformedOffers
+            : [],
+        cashback: [],
+        shopping: [],
+        magicReceipts: [],
+        other: [],
+      };
+
+      const responseData = {
+        success: true,
+        data: transformedOffers,
+        categorized: categorized,
+        breakdown: {
+          surveys: categorized.surveys.length,
+          cashback: 0,
+          shopping: 0,
+          magicReceipts: 0,
+          other: 0,
+        },
+        total: transformedOffers.length,
+        estimatedEarnings: 0,
+      };
+
       res.json(responseData);
     } else if (sdk === "everflow") {
       // Everflow SDK support

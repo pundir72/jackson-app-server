@@ -315,6 +315,12 @@ async function getNonGameOffers(params = {}) {
       });
     }
 
+    // Only return offers that are currently available from Bitlabs
+    // Bitlabs sets is_available=false when an offer is exhausted / not available
+    filteredOffers = filteredOffers.filter(
+      (offer) => offer.isAvailable !== false
+    );
+
     // Calculate totals
     const totalOffers = filteredOffers.length;
     const estimatedEarnings = filteredOffers.reduce((sum, offer) => {
@@ -513,7 +519,12 @@ async function getSurveys(params = {}) {
       return normalized;
     });
 
-    const estimatedEarnings = normalizedSurveys.reduce(
+    // Only keep surveys that are currently available and have a valid click URL
+    const availableSurveys = normalizedSurveys.filter(
+      (s) => s.isAvailable !== false && !!s.clickUrl
+    );
+
+    const estimatedEarnings = availableSurveys.reduce(
       (sum, s) => sum + (s.reward?.coins || 0),
       0
     );
@@ -541,15 +552,15 @@ async function getSurveys(params = {}) {
 
     return {
       success: true,
-      surveys: normalizedSurveys,
+      surveys: availableSurveys,
       categorized: {
-        surveys: normalizedSurveys,
+        surveys: availableSurveys,
         magicReceipts: [],
         cashback: [],
         shopping: [],
         other: [],
       },
-      totalSurveys: normalizedSurveys.length,
+      totalSurveys: availableSurveys.length,
       estimatedEarnings,
     };
   } catch (error) {

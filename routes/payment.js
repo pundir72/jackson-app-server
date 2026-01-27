@@ -612,9 +612,29 @@ async function handlePaymentSucceeded(paymentIntent) {
       return;
     }
 
-    // Update subscription status
+    // Update subscription status for the subscription linked to this payment
     subscription.status = 'active';
     await subscription.save();
+
+    // If there are any other active subscriptions for this user, mark them as
+    // cancelled so that the newly-activated subscription effectively becomes
+    // the upgraded/current plan.
+    const otherActiveSubscriptions = await VIPSubscription.find({
+      userId,
+      status: 'active',
+      _id: { $ne: subscriptionId }
+    });
+
+    if (otherActiveSubscriptions && otherActiveSubscriptions.length > 0) {
+      const now = new Date();
+      for (const otherSub of otherActiveSubscriptions) {
+        otherSub.status = 'cancelled';
+        otherSub.cancellationDate = now;
+        otherSub.cancellationReason = 'Superseded by VIP upgrade';
+        otherSub.autoRenew = false;
+        await otherSub.save();
+      }
+    }
 
     // Update user VIP status
     const tierData = await VIPTier.getTierById(tier);

@@ -1,4 +1,4 @@
-require("./instrument");
+require("./otel");
 require("dotenv").config();
 const Sentry = require("@sentry/node");
 const express = require("express");
@@ -8,7 +8,6 @@ const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const config = require("./config/config");
-const winston = require("winston");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
@@ -18,6 +17,8 @@ const {
   serverRequestCounter,
   requestDurationHistogram,
 } = require("./metrics");
+const logger = require("./utils/logger");
+
 const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
@@ -43,17 +44,6 @@ if (redis) {
   console.log("Redis client not available - continuing without Redis");
 }
 
-// Initialize Winston logger
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.File({ filename: "error.log", level: "error" }),
-    new winston.transports.File({ filename: "combined.log" }),
-    new winston.transports.Console(),
-  ],
-});
-
 // Express app
 const app = express();
 
@@ -74,35 +64,6 @@ app.use("/uploads", (req, res, next) => {
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Basic liveness/readiness endpoints for monitoring
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok" });
-});
-
-app.get("/ready", (req, res) => {
-  const isDbReady = mongoose.connection.readyState === 1;
-  res.status(isDbReady ? 200 : 503).json({
-    status: isDbReady ? "ready" : "not_ready",
-    db: isDbReady ? "connected" : "disconnected",
-  });
-});
-
-// Rate limiting
-const apiLimiter = rateLimit({
-  windowMs: config.RATE_LIMIT_WINDOW_MS,
-  max: config.RATE_LIMIT_MAX_REQUESTS,
-});
-
-// Apply rate limiting to all routes
-// app.use(apiLimiter);
-
-// Initialize Passport
-app.use(passport.initialize());
-
-// Global Activity Tracking Middleware
-const { globalActivityTracker } = require("./middleware/globalActivityTracker");
-app.use(globalActivityTracker);
 
 // Structured request logging with trace correlation when available
 app.use((req, res, next) => {
@@ -139,6 +100,35 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Basic liveness/readiness endpoints for monitoring
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/ready", (req, res) => {
+  const isDbReady = mongoose.connection.readyState === 1;
+  res.status(isDbReady ? 200 : 503).json({
+    status: isDbReady ? "ready" : "not_ready",
+    db: isDbReady ? "connected" : "disconnected",
+  });
+});
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: config.RATE_LIMIT_WINDOW_MS,
+  max: config.RATE_LIMIT_MAX_REQUESTS,
+});
+
+// Apply rate limiting to all routes
+// app.use(apiLimiter);
+
+// Initialize Passport
+app.use(passport.initialize());
+
+// Global Activity Tracking Middleware
+const { globalActivityTracker } = require("./middleware/globalActivityTracker");
+app.use(globalActivityTracker);
 
 // MongoDB connection
 mongoose

@@ -7,6 +7,16 @@ receivers:
 processors:
   batch:
 
+connectors:
+  spanmetrics:
+    exemplars:
+      enabled: true
+    dimensions:
+      - name: http.method
+      - name: http.route
+      - name: http.status_code
+      - name: service.name
+
 exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
@@ -17,11 +27,11 @@ exporters:
 service:
   pipelines:
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, spanmetrics]
       processors: [batch]
       exporters: [prometheus]
 
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlphttp]
+      exporters: [otlphttp, spanmetrics]

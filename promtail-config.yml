@@ -16,6 +16,24 @@ scrape_configs:
         labels:
           job: jackson-app-backend
           __path__: /var/log/app/combined.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            message: message
+            trace_id: trace_id
+            span_id: span_id
+            status: status
+            method: method
+            path: path
+            duration_ms: duration_ms
+      - labels:
+          level:
+          trace_id:
+          span_id:
+          status:
+          method:
+          path:
   - job_name: app_errors
     static_configs:
       - targets:
@@ -24,3 +42,21 @@ scrape_configs:
           job: jackson-app-backend
           level: error
           __path__: /var/log/app/error.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            message: message
+            trace_id: trace_id
+            span_id: span_id
+            status: status
+            method: method
+            path: path
+            duration_ms: duration_ms
+      - labels:
+          level:
+          trace_id:
+          span_id:
+          status:
+          method:
+          path:

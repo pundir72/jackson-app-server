@@ -1,0 +1,34 @@
+{
+  "title": "API Performance",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["sre", "api"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Top Slow Endpoints (p95 ms)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le, http_route)))",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Count by Route (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(http_server_requests_total{http_status_code=~\"5..\"}[5m])) by (http_route)",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 10, "w": 24, "h": 8 }
+    }
+  ]
+}

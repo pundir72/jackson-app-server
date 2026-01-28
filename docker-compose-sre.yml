@@ -12,8 +12,7 @@ services:
     ports:
       - "4001:4001"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - ./logs:/var/log/app
     depends_on:
       - sre_redis
     networks:

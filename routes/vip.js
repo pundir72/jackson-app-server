@@ -284,10 +284,15 @@ router.post('/subscribe', protect, [
         
         // Check if user already has an active subscription
         const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
+        // If the user already has an active subscription, treat this as a no-op "subscribe" request.
+        // Frontend can use this response to show the current plan instead of an error.
         if (existingSubscription) {
-            return res.status(400).json({
-                success: false,
-                message: 'User already has an active VIP subscription'
+            return res.status(200).json({
+                success: true,
+                message: 'User already has an active VIP subscription',
+                data: {
+                    subscription: existingSubscription.getSummary()
+                }
             });
         }
         
@@ -406,12 +411,10 @@ router.post('/upgrade', protect, [
         
         // Check if user already has an active subscription
         const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
-        if (existingSubscription) {
-            return res.status(400).json({
-                success: false,
-                message: 'User already has an active VIP subscription'
-            });
-        }
+        // For upgrades we ALLOW the user to already have an active subscription.
+        // The new subscription (once paid) will take over and the old one can be
+        // treated as the previous plan. Frontend can still use `existingSubscription`
+        // to show the "current" tier before upgrade if needed.
         
         // Check if user already has a pending subscription (prevent duplicates)
         const existingPending = await VIPSubscription.findOne({

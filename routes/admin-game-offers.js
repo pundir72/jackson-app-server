@@ -5590,7 +5590,6 @@ router.post("/seed-games", adminAuth, async (req, res) => {
     };
 
     // Fetch all Besitos offers once
-    console.log(`Fetching Besitos offers for ${device}/${region}...`);
     let offersPayload;
     try {
       offersPayload = await besitosService.getOffers({
@@ -5613,8 +5612,6 @@ router.post("/seed-games", adminAuth, async (req, res) => {
         message: "No offers found from Besitos API",
       });
     }
-
-    console.log(`Found ${offers.length} Besitos offers`);
 
     // Build a normalized lookup map
     const offerMap = new Map();
@@ -5862,7 +5859,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
     };
 
     // Fetch all Bitlabs game offers once
-    console.log(`Fetching Bitlabs game offers for ${device}/${region}...`);
     let offers = [];
     try {
       // Build query parameters
@@ -5902,8 +5898,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
         message: "No game offers found from Bitlabs API",
       });
     }
-
-    console.log(`Found ${offers.length} Bitlabs game offers`);
 
     // Build a normalized lookup map by anchor/title
     const offerMap = new Map();
@@ -6091,8 +6085,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
         }
       }
     }
-
-    console.log("Bitlabs seed complete:", results);
 
     res.json({
       success: true,

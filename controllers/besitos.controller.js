@@ -255,14 +255,19 @@ exports.getUserData = async (req, res) => {
       for (const game of inProgressGames) {
         // Find matching game in our database
         const gameDoc = await Game.findOne({
-          gameId: game.id,
-          sdkProvider: "besitos",
+          sdkProvider: "Besitos",
+          $or: [
+            { gameId: game.id },
+            { "gameDetails.id": game.id },
+            { "gameDetails.offer_id": game.id },
+            { "metadata.externalId": game.id },
+          ],
         }).lean();
 
         // If game not found in database, skip progression (game needs to be synced first)
         if (!gameDoc) {
           console.log(
-            `⚠️ Game not found in database for besitos game ID: ${game.id}. Skipping progression.`
+            `⚠️ Game not found in database for besitos game ID: ${game.id}. Checked gameId/gameDetails.id/gameDetails.offer_id/metadata.externalId. Skipping progression.`
           );
           continue;
         }

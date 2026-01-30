@@ -13,18 +13,8 @@ const {
   getUserXpTier,
   getUserMembershipTier,
 } = require("../utils/taskProgression");
-const winston = require("winston");
 const mongoose = require("mongoose");
-
-// Create logger instance
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.File({ filename: "error.log", level: "error" }),
-    new winston.transports.File({ filename: "combined.log" }),
-  ],
-});
+const logger = require("../utils/logger");
 
 /**
  * Get available offers

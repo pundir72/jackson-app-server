@@ -234,12 +234,20 @@ exports.getUserData = async (req, res) => {
     // Handle both structures: besitosData.in_progress or besitosData.data.in_progress
     const inProgressGames =
       besitosData.in_progress || besitosData.data?.in_progress || [];
+    const inProgressIds = Array.isArray(inProgressGames)
+      ? inProgressGames.map((g) => g?.id).filter(Boolean)
+      : [];
     logger.info("Besitos user-data in-progress details", {
       targetUserId: userId,
-      inProgressCount: Array.isArray(inProgressGames)
-        ? inProgressGames.length
-        : 0,
+      inProgressCount: inProgressIds.length,
+      inProgressIds,
     });
+    if (inProgressIds.length > 0) {
+      logger.info("Besitos in-progress ID list", {
+        targetUserId: userId,
+        ids: inProgressIds,
+      });
+    }
 
     if (Array.isArray(inProgressGames) && inProgressGames.length > 0) {
       for (const game of inProgressGames) {

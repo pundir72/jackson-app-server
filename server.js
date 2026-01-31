@@ -166,6 +166,7 @@ mongoose
     const navigationRoutes = require("./routes/navigation");
     const gameOffersRoutes = require("./routes/game-offers");
     const userGameOffersRoutes = require("./routes/user-game-offers");
+    const welcomeBonusTasksRoutes = require("./routes/welcome-bonus-tasks");
     const payoutsRoutes = require("./routes/payouts");
     const fraudPreventionRoutes = require("./routes/fraud-prevention");
     const achievementRoutes = require("./routes/achievements");
@@ -253,6 +254,7 @@ mongoose
     app.use("/api/navigation", navigationRoutes);
     app.use("/api/game-offers", gameOffersRoutes);
     app.use("/api/user/game-offers", userGameOffersRoutes);
+    app.use("/api/welcome-bonus-tasks", welcomeBonusTasksRoutes);
     app.use("/api/payouts", payoutsRoutes);
     app.use("/api/fraud-prevention", fraudPreventionRoutes);
     app.use("/api/achievements", achievementRoutes);

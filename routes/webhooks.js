@@ -1064,11 +1064,7 @@ router.post("/bitlabs/completion", async (req, res) => {
   try {
     const { userId, surveyId, status, reward, metadata } = req.body;
 
-    console.log("BitLabs webhook received:", {
-      userId,
-      surveyId,
-      status,
-    });
+    // BitLabs webhook received
 
     // Validate required fields
     if (!userId || !surveyId || !status) {

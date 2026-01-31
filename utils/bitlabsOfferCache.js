@@ -35,14 +35,10 @@ class BitlabsOfferCache {
     // Try to get from cache first
     const cached = cache.get(cacheKey);
     if (cached) {
-      console.log(`Bitlabs offers retrieved from cache (key: ${cacheKey})`);
       return cached;
     }
 
     // Cache miss - fetch fresh data
-    console.log(
-      `Bitlabs offers cache miss, fetching fresh data (key: ${cacheKey})`
-    );
     return await this.refreshOffers(queryParams);
   }
 
@@ -53,7 +49,6 @@ class BitlabsOfferCache {
    */
   async refreshOffers(queryParams = {}) {
     if (this.isRefreshing) {
-      console.log("Bitlabs offer refresh already in progress, waiting...");
       // Wait a bit and try cache again
       await new Promise((resolve) => setTimeout(resolve, 1000));
       const { userId, ...restParams } = queryParams;
@@ -72,18 +67,11 @@ class BitlabsOfferCache {
         // Store in cache
         cache.set(cacheKey, result.data);
         this.lastRefreshTime = new Date();
-
-        console.log(
-          `Bitlabs offers refreshed and cached: ${result.data.length} offers (key: ${cacheKey})`
-        );
         return result.data;
       } else if (Array.isArray(result)) {
         // If service returns array directly
         cache.set(cacheKey, result);
         this.lastRefreshTime = new Date();
-        console.log(
-          `Bitlabs offers refreshed and cached: ${result.length} offers (key: ${cacheKey})`
-        );
         return result;
       } else {
         console.error(
@@ -122,17 +110,10 @@ class BitlabsOfferCache {
     // Set up periodic refresh
     const intervalMs = interval * 60 * 1000; // Convert minutes to milliseconds
     this.refreshInterval = setInterval(() => {
-      console.log(
-        `Periodic Bitlabs offer refresh triggered (every ${interval} minutes)`
-      );
       this.refreshOffers().catch((err) => {
         console.error("Error in periodic Bitlabs offer refresh:", err);
       });
     }, intervalMs);
-
-    console.log(
-      `Bitlabs offer cache periodic refresh started (every ${interval} minutes)`
-    );
   }
 
   /**
@@ -142,7 +123,6 @@ class BitlabsOfferCache {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
-      console.log("Bitlabs offer cache periodic refresh stopped");
     }
   }
 
@@ -152,7 +132,6 @@ class BitlabsOfferCache {
   clearCache() {
     cache.flushAll();
     this.lastRefreshTime = null;
-    console.log("Bitlabs offer cache cleared");
   }
 
   /**
@@ -203,8 +182,6 @@ class BitlabsOfferCache {
       { is_game: false, devices: ["android", "iphone"] }, // Mobile non-game offers
     ];
 
-    console.log("Pre-fetching Bitlabs offers for common queries...");
-
     for (const query of commonQueries) {
       try {
         await this.refreshOffers(query);
@@ -217,8 +194,6 @@ class BitlabsOfferCache {
         );
       }
     }
-
-    console.log("Bitlabs offers pre-fetch completed");
   }
 }
 

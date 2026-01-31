@@ -646,24 +646,6 @@ class BitlabsService {
         indexes: null,
       };
 
-      // 🔍 DEBUG: Log request details
-      console.log(
-        "\n🔴 [BITLABS API SERVICE] ========== SURVEY API REQUEST TO THIRD PARTY =========="
-      );
-      console.log("🔴 [BITLABS API SERVICE] 📡 Endpoint:", fullURL);
-      console.log("🔴 [BITLABS API SERVICE] 👤 User ID:", userIdentifier);
-      console.log(
-        "🔴 [BITLABS API SERVICE] 📋 Query Parameters Sent to Bitlabs:",
-        JSON.stringify(normalizedParams, null, 2)
-      );
-      console.log("🔴 [BITLABS API SERVICE] 🔑 Headers:", {
-        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
-        "X-User-Id": userIdentifier,
-      });
-      console.log(
-        "🔴 [BITLABS API SERVICE] ==================================================\n"
-      );
-
       let response;
       try {
         response = await this.client.get(endpoint, {
@@ -765,65 +747,6 @@ class BitlabsService {
         });
       }
 
-      // 🔍 DEBUG: Log raw Bitlabs API response structure for SURVEYS
-      if (rawSurveys.length > 0) {
-        console.log(
-          `\n🔍 ========== SURVEYS - RAW BITLABS API RESPONSE ==========`
-        );
-        console.log(`📊 Total Surveys Received: ${rawSurveys.length}`);
-
-        // Log first survey with full details
-        const firstSurvey = rawSurveys[0];
-        console.log(`\n📋 First Survey (Full Structure):`);
-        console.log(JSON.stringify(firstSurvey, null, 2));
-
-        // 🔍 DEBUG: Log value and cpi fields specifically
-        console.log(`\n💰 SURVEY REWARD FIELDS (First Survey):`);
-        console.log(
-          `   value: ${firstSurvey.value} (type: ${typeof firstSurvey.value})`
-        );
-        console.log(
-          `   cpi: ${firstSurvey.cpi} (type: ${typeof firstSurvey.cpi})`
-        );
-        console.log(`   id: ${firstSurvey.id}`);
-        console.log(
-          `   click_url: ${
-            firstSurvey.click_url || firstSurvey.clickUrl || "N/A"
-          }`
-        );
-        console.log(`   country: ${firstSurvey.country || "N/A"}`);
-        console.log(`   language: ${firstSurvey.language || "N/A"}`);
-        console.log(
-          `   loi: ${firstSurvey.loi || "N/A"} (Length of Interview in minutes)`
-        );
-        console.log(`   cr: ${firstSurvey.cr || "N/A"} (Conversion Rate)`);
-        console.log(`   rating: ${firstSurvey.rating || "N/A"}`);
-
-        // Log all surveys' value and cpi
-        console.log(`\n💰 ALL SURVEYS - VALUE & CPI FIELDS:`);
-        rawSurveys.forEach((survey, index) => {
-          console.log(`   Survey ${index + 1}:`);
-          console.log(`     id: ${survey.id || "N/A"}`);
-          console.log(
-            `     value: ${survey.value || "MISSING"} (publisher reward points)`
-          );
-          console.log(
-            `     cpi: ${survey.cpi || "MISSING"} (USD payment to publisher)`
-          );
-          console.log(`     country: ${survey.country || "N/A"}`);
-          console.log(`     loi: ${survey.loi || "N/A"} minutes`);
-        });
-
-        console.log(
-          `\n========================================================\n`
-        );
-      } else {
-        console.log(`\n⚠️ NO SURVEYS RECEIVED FROM BITLABS API`);
-        console.log(
-          `Response data structure:`,
-          JSON.stringify(response.data, null, 2)
-        );
-      }
 
       // Check for restriction_reason (CRITICAL: tells us why surveys might be empty)
       const restrictionReason =

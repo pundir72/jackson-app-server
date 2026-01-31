@@ -37,7 +37,8 @@ router.post('/test/session/authenticate', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('metadata').optional().isObject(),
   body('group').optional().isString(),
-  body('sessionId').optional().isString().withMessage('Session ID must be a string')
+  body('sessionId').optional().isString().withMessage('Session ID must be a string'),
+  body('session_id').optional().isString().withMessage('Session ID must be a string')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -49,8 +50,15 @@ router.post('/test/session/authenticate', [
       });
     }
 
-    const { accountId, email, metadata = {}, group, sessionId } = req.body;
-    const result = await verisoul.authenticateSession(accountId, email, metadata, group, sessionId);
+    const { accountId, email, metadata = {}, group, sessionId, session_id } = req.body;
+    
+    // Accept both sessionId (camelCase) and session_id (snake_case from SDK)
+    const finalSessionId = sessionId || session_id || null;
+    
+    // Provide default group if not specified (REQUIRED by Verisoul)
+    const defaultGroup = group || 'default';
+    
+    const result = await verisoul.authenticateSession(accountId, email, metadata, defaultGroup, finalSessionId);
 
     if (result.success) {
       res.json({
@@ -86,7 +94,8 @@ router.post('/session/authenticate', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('metadata').optional().isObject(),
   body('group').optional().isString(),
-  body('sessionId').optional().isString().withMessage('Session ID must be a string')
+  body('sessionId').optional().isString().withMessage('Session ID must be a string'),
+  body('session_id').optional().isString().withMessage('Session ID must be a string')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -98,8 +107,15 @@ router.post('/session/authenticate', [
       });
     }
 
-    const { accountId, email, metadata = {}, group, sessionId } = req.body;
-    const result = await verisoul.authenticateSession(accountId, email, metadata, group, sessionId);
+    const { accountId, email, metadata = {}, group, sessionId, session_id } = req.body;
+    
+    // Accept both sessionId (camelCase) and session_id (snake_case from SDK)
+    const finalSessionId = sessionId || session_id || null;
+    
+    // Provide default group if not specified (REQUIRED by Verisoul)
+    const defaultGroup = group || 'default';
+    
+    const result = await verisoul.authenticateSession(accountId, email, metadata, defaultGroup, finalSessionId);
 
     if (result.success) {
       res.json({

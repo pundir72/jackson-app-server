@@ -7,6 +7,7 @@ const StreakBonusConfig = require('../models/StreakBonusConfig');
 const BonusDay = require('../models/BonusDay');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 const XPTier = require('../models/XPTier');
+const besitosService = require('../services/besitos.service');
 
 // Cache for streak config (refresh every 5 minutes)
 let streakConfigCache = null;
@@ -240,6 +241,87 @@ router.get('/bonus-days', protect, async (req, res) => {
   }
 });
 
+// Helper function to check if user completed any game task today
+async function checkGameTaskCompletionToday(userId, today) {
+  try {
+    console.log('  [CHECK TASK] Checking if user completed any game task today...');
+    console.log('  [CHECK TASK] User ID:', userId);
+    console.log('  [CHECK TASK] Today:', today.toISOString().split('T')[0]);
+    
+    // Call besitos API to get user's games with tasks
+    const besitosResponse = await besitosService.getUserData(userId);
+    const besitosData = besitosResponse.data || besitosResponse;
+
+    // Get only downloaded games (in_progress and completed)
+    // Available games are not downloaded yet, so we don't check them
+    const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+    const completedGames = besitosData.completed || besitosData.data?.completed || [];
+    
+    // Only check games that user has downloaded
+    const downloadedGames = [...inProgressGames, ...completedGames];
+    
+    console.log('  [CHECK TASK] Downloaded games count:', downloadedGames.length);
+    console.log('  [CHECK TASK] In Progress games:', inProgressGames.length);
+    console.log('  [CHECK TASK] Completed games:', completedGames.length);
+
+    // Get today's date string in YYYY-MM-DD format for comparison
+    // This avoids timezone issues by comparing date strings instead of timestamps
+    const todayDateStr = today.toISOString().split('T')[0]; // "2026-01-30"
+    
+    console.log('  [CHECK TASK] Today date string (YYYY-MM-DD):', todayDateStr);
+
+    // Check if any task from any downloaded game was completed today
+    // Use completed_datetime from besitos API response to check if task was completed today
+    let gameIndex = 0;
+    for (const game of downloadedGames) {
+      gameIndex++;
+      if (game.goals && Array.isArray(game.goals)) {
+        console.log(`  [CHECK TASK] Game ${gameIndex} (${game.title || game.id}): ${game.goals.length} goals`);
+        let goalIndex = 0;
+        for (const goal of game.goals) {
+          goalIndex++;
+          // Check if task is completed
+          if (goal.completed === true && goal.completed_datetime) {
+            // Parse the completed_datetime (format: "2026-01-30 00:23:31")
+            try {
+              // Extract date part from completed_datetime (format: "2026-01-30 00:23:31")
+              // Split by space and take first part to get "2026-01-30"
+              const completedDateStr = goal.completed_datetime.split(' ')[0];
+              console.log(`    [CHECK TASK] Goal ${goalIndex} (${goal.text || goal.goal_id}): completed_datetime = ${goal.completed_datetime}, date part = ${completedDateStr}`);
+              
+              // Compare date strings directly (YYYY-MM-DD format)
+              // This avoids timezone conversion issues
+              if (completedDateStr === todayDateStr) {
+                console.log(`    [CHECK TASK] ✅ FOUND! Goal ${goalIndex} was completed TODAY (${completedDateStr} === ${todayDateStr})`);
+                return true;
+              } else {
+                console.log(`    [CHECK TASK] Goal ${goalIndex} was completed on ${completedDateStr}, not today (${todayDateStr})`);
+              }
+            } catch (error) {
+              // If date parsing fails, skip this goal
+              console.error(`    [CHECK TASK] Error parsing completed_datetime for goal ${goalIndex}:`, goal.completed_datetime, error);
+              continue;
+            }
+          } else {
+            if (goal.completed === true && !goal.completed_datetime) {
+              console.log(`    [CHECK TASK] Goal ${goalIndex} is completed but has no completed_datetime`);
+            }
+          }
+        }
+      } else {
+        console.log(`  [CHECK TASK] Game ${gameIndex} (${game.title || game.id}): No goals array`);
+      }
+    }
+
+    // No tasks completed today
+    console.log('  [CHECK TASK] ❌ No tasks completed today');
+    return false;
+  } catch (error) {
+    console.error("  [CHECK TASK] Error checking game task completion:", error);
+    return false;
+  }
+}
+
 // Get streak status
 router.get('/status', protect, async (req, res) => {
   try {
@@ -253,27 +335,153 @@ router.get('/status', protect, async (req, res) => {
       });
     }
 
-    // Check if streak needs to be updated BEFORE reading currentStreak
     const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
     const streak = user.streak || {};
     const lastUpdate = streak.lastUpdated ? new Date(streak.lastUpdated) : null;
-    const needsUpdate = !lastUpdate || !isSameDay(today, lastUpdate);
+    const lastUpdateStr = lastUpdate ? lastUpdate.toISOString().split('T')[0] : null;
     
-    if (needsUpdate) {
-      await updateStreakStatus(user, STREAK_CONFIG);
+    console.log('\n=== STREAK CALCULATION DEBUG START ===');
+    console.log('Today:', todayStr);
+    console.log('Last Update:', lastUpdateStr);
+    console.log('Current Streak (from DB):', streak.current || 0);
+    console.log('Completed Tasks (from DB):', streak.completedTasks || []);
+    
+    // NEW LOGIC: Check if user completed any game task today
+    const completedGameTaskToday = await checkGameTaskCompletionToday(req.user.userId, today);
+    console.log('Completed Game Task Today:', completedGameTaskToday);
+    
+    // Initialize streak if it doesn't exist
+    if (!streak.current && streak.current !== 0) {
+      streak.current = 0;
+      streak.completedTasks = [];
+      streak.lastUpdated = today;
+      console.log('Initialized new streak');
+    }
+    
+    // Ensure completedTasks is an array
+    if (!streak.completedTasks) streak.completedTasks = [];
+    
+    // Check if we need to update streak based on game task completion
+    const isNewDay = !lastUpdateStr || lastUpdateStr !== todayStr;
+    console.log('Is New Day:', isNewDay);
+    
+    // Get current streak value
+    const currentStreakValue = streak.current || 0;
+    console.log('Current Streak Value:', currentStreakValue);
+    
+    if (isNewDay) {
+      console.log('--- Processing NEW DAY ---');
+      // It's a new day - update streak based on task completion
+      let newStreakValue = currentStreakValue;
+      
+      if (completedGameTaskToday) {
+        console.log('User completed task today - INCREASING streak by 1');
+        // User completed a task today - increase streak by 1
+        newStreakValue = currentStreakValue + 1;
+        
+        // Add today to completedTasks if not already there
+        if (!streak.completedTasks.includes(todayStr)) {
+          streak.completedTasks.push(todayStr);
+          console.log('Added today to completedTasks');
+        } else {
+          console.log('Today already in completedTasks');
+        }
+        streak.lastUpdated = today;
+      } else {
+        console.log('User did NOT complete task today - DECREASING streak by 1');
+        // User didn't complete any task today - decrease streak by 1 (but not below 0)
+        newStreakValue = Math.max(0, currentStreakValue - 1);
+        
+        // Remove today from completedTasks if it was there
+        const beforeFilter = streak.completedTasks.length;
+        streak.completedTasks = streak.completedTasks.filter(date => date !== todayStr);
+        const afterFilter = streak.completedTasks.length;
+        console.log(`Filtered completedTasks: ${beforeFilter} -> ${afterFilter}`);
+        
+        streak.lastUpdated = today;
+        if (newStreakValue < currentStreakValue) {
+          streak.resetAt = today;
+          streak.resetReason = 'no_game_task_completed';
+        }
+      }
+      
+      // Update streak value
+      streak.current = newStreakValue;
+      console.log(`Streak updated: ${currentStreakValue} -> ${newStreakValue}`);
+      
+    } else {
+      console.log('--- Processing SAME DAY ---');
+      // Same day - update based on current completion status
+      if (completedGameTaskToday && !streak.completedTasks.includes(todayStr)) {
+        console.log('Task completed today but not recorded - adding today');
+        // Task completed today but not recorded - add it
+        // Don't change streak on same day, just record the completion
+        streak.completedTasks.push(todayStr);
+        streak.lastUpdated = today;
+      } else if (!completedGameTaskToday && streak.completedTasks.includes(todayStr)) {
+        console.log('Task was marked as completed but actually not - removing today');
+        // Task was marked as completed but actually not completed - remove it
+        // Don't change streak on same day, just remove the completion
+        streak.completedTasks = streak.completedTasks.filter(date => date !== todayStr);
+        streak.lastUpdated = today;
+      } else {
+        console.log('No changes needed for same day');
+      }
+    }
+    
+    console.log('Completed Tasks (final):', [...streak.completedTasks]);
+    console.log('Final Streak Value:', streak.current);
+    
+    // Only save if streak changed or if we need to update lastUpdated
+    const oldStreak = currentStreakValue;
+    const newStreak = streak.current;
+    console.log('Old Streak:', oldStreak, '| New Streak:', newStreak);
+    
+    if (newStreak !== oldStreak || isNewDay) {
+      console.log('Streak changed or new day - saving to database');
+      await user.save();
+      console.log('Saved to database');
+      
       // Re-fetch user to ensure we have the latest streak data after update
       const updatedUser = await User.findById(req.user.userId).select('xp streak country userSegment');
       if (updatedUser) {
         user.streak = updatedUser.streak;
         if (updatedUser.country) user.country = updatedUser.country;
         if (updatedUser.userSegment) user.userSegment = updatedUser.userSegment;
+        console.log('Re-fetched user from database');
       }
+    } else {
+      console.log('No changes - not saving to database');
     }
     
-    // Read currentStreak AFTER potential update to ensure we have the latest value
-    const currentStreak = (user.streak || {}).current || 0;
+    console.log('Final Streak Value:', streak.current);
+    console.log('=== STREAK CALCULATION DEBUG END ===\n');
+    
+    // OLD LOGIC - COMMENTED OUT: Check if streak needs to be updated BEFORE reading currentStreak
+    // const needsUpdate = !lastUpdate || !isSameDay(today, lastUpdate);
+    // if (needsUpdate) {
+    //   await updateStreakStatus(user, STREAK_CONFIG);
+    //   // Re-fetch user to ensure we have the latest streak data after update
+    //   const updatedUser = await User.findById(req.user.userId).select('xp streak country userSegment');
+    //   if (updatedUser) {
+    //     user.streak = updatedUser.streak;
+    //     if (updatedUser.country) user.country = updatedUser.country;
+    //     if (updatedUser.userSegment) user.userSegment = updatedUser.userSegment;
+    //   }
+    // }
+    
+    // Read currentStreak - use the updated value from streak object
+    const currentStreak = streak.current || 0;
+    console.log('=== FINAL VALUES BEFORE RESPONSE ===');
+    console.log('currentStreak (from streak.current):', currentStreak);
+    console.log('streak.completedTasks (final):', streak.completedTasks || []);
+    console.log('user.streak.current (from DB after save):', (user.streak || {}).current);
+    
     const lastMilestone = getLastMilestone(currentStreak, STREAK_CONFIG);
     const nextMilestone = getNextMilestone(currentStreak, STREAK_CONFIG);
+    console.log('lastMilestone:', lastMilestone);
+    console.log('nextMilestone:', nextMilestone);
 
     // Optionally include bonus days if requested
     let bonusDays = null;
@@ -308,8 +516,17 @@ router.get('/status', protect, async (req, res) => {
 
     // Get completed tasks to properly determine which days are actually completed
     const completedTasks = (user.streak || {}).completedTasks || [];
+    console.log('=== GENERATING RESPONSE ===');
+    console.log('completedTasks for streakTree:', completedTasks);
+    console.log('currentStreak for streakTree:', currentStreak);
     
-    res.json({
+    const streakTree = generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks);
+    console.log('Generated streakTree - checking first few days:');
+    streakTree.slice(0, 10).forEach(day => {
+      console.log(`  Day ${day.day}: isCompleted=${day.isCompleted}, isCurrent=${day.isCurrent}`);
+    });
+    
+    const responseData = {
       success: true,
       data: {
         currentStreak,
@@ -323,10 +540,18 @@ router.get('/status', protect, async (req, res) => {
           percentage: nextMilestone ? Math.round((currentStreak / nextMilestone.day) * 100) : 100
         },
         rewards: getAvailableRewards(currentStreak, STREAK_CONFIG),
-        streakTree: generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks),
+        streakTree: streakTree,
         ...(bonusDays && { bonusDays })
       }
-    });
+    };
+    
+    console.log('=== RESPONSE BEING SENT ===');
+    console.log('Response currentStreak:', responseData.data.currentStreak);
+    console.log('Response completedTasks count:', completedTasks.length);
+    console.log('Response streakTree days completed:', streakTree.filter(d => d.isCompleted).length);
+    console.log('=== END DEBUG ===\n');
+    
+    res.json(responseData);
   } catch (error) {
     console.error('Error getting streak status:', error);
     res.status(500).json({
@@ -819,39 +1044,40 @@ function getAvailableRewards(currentStreak, STREAK_CONFIG) {
 }
 
 function generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks = []) {
+  console.log('  [STREAK TREE] Generating streak tree...');
+  console.log('  [STREAK TREE] currentStreak:', currentStreak);
+  console.log('  [STREAK TREE] completedTasks:', completedTasks);
+  
   const tree = [];
   const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
   
-  // Sort completed tasks by date (most recent first) to map to streak days
-  const sortedCompletedTasks = [...completedTasks]
-    .map(dateStr => new Date(dateStr))
-    .sort((a, b) => b - a)
-    .slice(0, currentStreak); // Only take the most recent completed tasks up to currentStreak
+  // Convert completedTasks to Set for faster lookup
+  const completedSet = new Set(completedTasks);
+  console.log('  [STREAK TREE] Today:', todayStr);
+  console.log('  [STREAK TREE] Today in completedTasks?', completedSet.has(todayStr));
   
+  // Generate tree for all 30 days
+  // Each day represents: Day 1 = today, Day 2 = yesterday, Day N = N-1 days ago
   for (let day = 1; day <= STREAK_CONFIG.maxDays; day++) {
-    let isCompleted = false;
+    // Calculate which actual date this day represents
+    const daysAgo = day - 1; // Day 1 is 0 days ago (today), Day 2 is 1 day ago, etc.
+    const targetDate = new Date(today);
+    targetDate.setDate(targetDate.getDate() - daysAgo);
+    const targetDateStr = targetDate.toISOString().split('T')[0];
     
-    if (day <= currentStreak && sortedCompletedTasks.length > 0) {
-      // For days within the current streak, check if there's a corresponding completed task
-      // Day 1 = most recent completed day, Day N = N days ago
-      const daysAgo = currentStreak - day;
-      
-      // Check if there's a completed task that matches this day's position in the streak
-      // We check if the date is within the last N days
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() - daysAgo);
-      const targetDateStr = targetDate.toISOString().split('T')[0];
-      
-      // Only mark as completed if this specific date is in completedTasks
-      isCompleted = completedTasks.includes(targetDateStr);
-    } else {
-      // Days beyond current streak are not completed
-      isCompleted = false;
+    // Check if this specific date is in completedTasks
+    const isCompleted = completedSet.has(targetDateStr);
+    
+    if (day <= 10) {
+      console.log(`  [STREAK TREE] Day ${day}: daysAgo=${daysAgo}, targetDate=${targetDateStr}, isCompleted=${isCompleted}`);
     }
     
     const isMilestone = STREAK_CONFIG.milestones.includes(day);
-    
     const rewardConfig = isMilestone ? STREAK_CONFIG.rewards[day] : null;
+    
+    // isCurrent marks the next day the user needs to complete to increase streak
+    // It's the day after the current streak value
     tree.push({
       day,
       isCompleted,
@@ -862,11 +1088,129 @@ function generateStreakTree(currentStreak, STREAK_CONFIG, completedTasks = []) {
     });
   }
   
+  console.log('  [STREAK TREE] Generated tree with', tree.length, 'days');
+  console.log('  [STREAK TREE] Days marked as completed:', tree.filter(d => d.isCompleted).map(d => d.day));
+  
   return tree;
 }
 
 function isSameDay(date1, date2) {
   return date1.toISOString().split('T')[0] === date2.toISOString().split('T')[0];
+}
+
+/**
+ * Clean up completedTasks to only keep consecutive dates from today
+ * This removes old dates that are not part of the current streak
+ * @param {Array<string>} completedTasks - Array of date strings
+ * @param {Date} today - Today's date
+ * @returns {Array<string>} Cleaned array with only consecutive dates from today
+ */
+function cleanupCompletedTasks(completedTasks, today) {
+  console.log('  [CLEANUP] Starting cleanup...');
+  console.log('  [CLEANUP] Input completedTasks:', completedTasks);
+  
+  if (!completedTasks || completedTasks.length === 0) {
+    console.log('  [CLEANUP] No completed tasks - returning empty array');
+    return [];
+  }
+  
+  const todayStr = today.toISOString().split('T')[0];
+  const completedSet = new Set(completedTasks);
+  
+  console.log('  [CLEANUP] Today:', todayStr);
+  console.log('  [CLEANUP] Today in completedTasks?', completedSet.has(todayStr));
+  
+  // If today is not in the array, return empty (streak is broken)
+  if (!completedSet.has(todayStr)) {
+    console.log('  [CLEANUP] Today NOT in completedTasks - streak broken, returning empty array');
+    return [];
+  }
+  
+  // Build array of consecutive dates from today backwards
+  const consecutiveDates = [todayStr];
+  const checkDate = new Date(today);
+  checkDate.setDate(checkDate.getDate() - 1);
+  
+  console.log('  [CLEANUP] Building consecutive dates from today backwards...');
+  let iteration = 0;
+  while (true) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    
+    if (completedSet.has(dateStr)) {
+      consecutiveDates.push(dateStr);
+      console.log(`  [CLEANUP] Day ${iteration + 1} ago (${dateStr}): FOUND - added to consecutive dates`);
+      checkDate.setDate(checkDate.getDate() - 1);
+      iteration++;
+    } else {
+      console.log(`  [CLEANUP] Day ${iteration + 1} ago (${dateStr}): NOT FOUND - breaking streak`);
+      break;
+    }
+  }
+  
+  console.log('  [CLEANUP] Consecutive dates found:', consecutiveDates);
+  console.log('  [CLEANUP] Total consecutive days:', consecutiveDates.length);
+  return consecutiveDates;
+}
+
+/**
+ * Calculate consecutive streak from completed tasks array
+ * Counts backwards from today, checking for consecutive days
+ * IMPORTANT: Streak must start from TODAY - if today is not completed, streak is 0
+ * @param {Array<string>} completedTasks - Array of date strings (YYYY-MM-DD)
+ * @param {Date} today - Today's date
+ * @returns {number} Consecutive streak count
+ */
+function calculateConsecutiveStreak(completedTasks, today) {
+  console.log('  [CALCULATE] Starting streak calculation...');
+  console.log('  [CALCULATE] Input completedTasks:', completedTasks);
+  
+  if (!completedTasks || completedTasks.length === 0) {
+    console.log('  [CALCULATE] No completed tasks - returning 0');
+    return 0;
+  }
+  
+  // Convert to Set for faster lookup
+  const completedSet = new Set(completedTasks);
+  
+  // IMPORTANT: Streak must start from TODAY
+  // If today is not completed, streak is 0
+  const todayStr = today.toISOString().split('T')[0];
+  console.log('  [CALCULATE] Today:', todayStr);
+  console.log('  [CALCULATE] Today in completedTasks?', completedSet.has(todayStr));
+  
+  if (!completedSet.has(todayStr)) {
+    // Today is not completed, so streak is broken
+    console.log('  [CALCULATE] Today NOT completed - streak is 0');
+    return 0;
+  }
+  
+  // Count consecutive days backwards from today
+  let streak = 1; // Start with 1 since today is completed
+  const checkDate = new Date(today);
+  checkDate.setDate(checkDate.getDate() - 1); // Start checking from yesterday
+  
+  console.log('  [CALCULATE] Today is completed - starting with streak = 1');
+  console.log('  [CALCULATE] Counting backwards from yesterday...');
+  
+  // Start from yesterday and go backwards
+  let iteration = 0;
+  while (true) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    
+    if (completedSet.has(dateStr)) {
+      streak++;
+      console.log(`  [CALCULATE] Day ${iteration + 1} ago (${dateStr}): FOUND - streak now = ${streak}`);
+      // Go back one day
+      checkDate.setDate(checkDate.getDate() - 1);
+      iteration++;
+    } else {
+      console.log(`  [CALCULATE] Day ${iteration + 1} ago (${dateStr}): NOT FOUND - breaking streak`);
+      break;
+    }
+  }
+  
+  console.log('  [CALCULATE] Final calculated streak:', streak);
+  return streak;
 }
 
 // Export functions for use in other routes

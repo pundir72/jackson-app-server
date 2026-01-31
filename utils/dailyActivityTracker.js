@@ -13,6 +13,7 @@ const SpinWheelLog = require("../models/SpinWheelLog");
 const UserChallengeProgress = require("../models/UserChallengeProgress");
 const DailyRewardProgress = require("../models/DailyRewardProgress");
 const { getISOWeekKey } = require("../utils/dailyRewardHelpers");
+const besitosService = require("../services/besitos.service");
 
 // Cache for streak config (refresh every 5 minutes)
 let streakConfigCache = null;
@@ -325,14 +326,27 @@ async function recordStreakHistory(user, activity) {
 }
 
 /**
- * Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
+ * Check if user completed any game task today from any downloaded game
  * @param {string} userId - User ID
  * @param {Date} today - Today's date
- * @returns {Promise<boolean>} Whether user completed any challenge
+ * @returns {Promise<boolean>} Whether user completed any game task today
  */
-async function checkChallengeCompletionToday(userId, today) {
+async function checkGameTaskCompletionToday(userId, today) {
   try {
-    // Normalize today's date to UTC start and end of day
+    // Call besitos API to get user's games with tasks
+    const besitosResponse = await besitosService.getUserData(userId);
+    const besitosData = besitosResponse.data || besitosResponse;
+
+    // Get only downloaded games (in_progress and completed)
+    // Available games are not downloaded yet, so we don't check them
+    const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+    const completedGames = besitosData.completed || besitosData.data?.completed || [];
+    
+    // Only check games that user has downloaded
+    const downloadedGames = [...inProgressGames, ...completedGames];
+
+    // Normalize today's date to UTC start and end of day for comparison
+    const todayStr = today.toISOString().split('T')[0];
     const normalizedStart = new Date(
       Date.UTC(
         today.getUTCFullYear(),
@@ -356,54 +370,121 @@ async function checkChallengeCompletionToday(userId, today) {
       )
     );
 
-    // Check 1: Spinwheel completion
-    const spinWheelCompleted = await SpinWheelLog.findOne({
-      user: userId,
-      createdAt: { $gte: normalizedStart, $lte: normalizedEnd }
-    });
-
-    if (spinWheelCompleted) {
-      return true;
-    }
-
-    // Check 2: Daily Challenge completion
-    const challengeCompleted = await UserChallengeProgress.findOne({
-      userId: userId,
-      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
-      status: 'completed'
-    });
-
-    if (challengeCompleted) {
-      return true;
-    }
-
-    // Check 3: Daily Reward completion (check if today's reward is claimed)
-    // Calculate today's day index (0-6, Monday = 0)
-    const todayIdx = (today.getUTCDay() + 6) % 7; // Convert Sunday=0 to Monday=0
-    
-    // Calculate week key using the same helper function as daily rewards
-    const weekKey = getISOWeekKey(today);
-
-    const dailyRewardProgress = await DailyRewardProgress.findOne({
-      userId: userId,
-      weekKey: weekKey
-    });
-
-    if (dailyRewardProgress && dailyRewardProgress.days && dailyRewardProgress.days[todayIdx]) {
-      const todayReward = dailyRewardProgress.days[todayIdx];
-      if (todayReward.status === 'claimed') {
-        return true;
+    // Check if any task from any downloaded game was completed today
+    // Use completed_datetime from besitos API response to check if task was completed today
+    for (const game of downloadedGames) {
+      if (game.goals && Array.isArray(game.goals)) {
+        for (const goal of game.goals) {
+          // Check if task is completed
+          if (goal.completed === true && goal.completed_datetime) {
+            // Parse the completed_datetime (format: "2026-01-30 00:23:31")
+            try {
+              const completedDate = new Date(goal.completed_datetime);
+              
+              // Check if the completion date is within today's range
+              if (completedDate >= normalizedStart && completedDate <= normalizedEnd) {
+                return true;
+              }
+            } catch (error) {
+              // If date parsing fails, skip this goal
+              console.error("Error parsing completed_datetime:", goal.completed_datetime, error);
+              continue;
+            }
+          }
+        }
       }
     }
 
-    // None of the challenges were completed today
+    // No tasks completed today
     return false;
   } catch (error) {
-    console.error("Error checking challenge completion:", error);
+    console.error("Error checking game task completion:", error);
     // In case of error, assume no completion to be safe
     return false;
   }
 }
+
+/**
+ * OLD LOGIC - COMMENTED OUT: Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
+ * This logic is now replaced with game task completion logic
+ * @param {string} userId - User ID
+ * @param {Date} today - Today's date
+ * @returns {Promise<boolean>} Whether user completed any challenge
+ */
+// async function checkChallengeCompletionToday(userId, today) {
+//   try {
+//     // Normalize today's date to UTC start and end of day
+//     const normalizedStart = new Date(
+//       Date.UTC(
+//         today.getUTCFullYear(),
+//         today.getUTCMonth(),
+//         today.getUTCDate(),
+//         0,
+//         0,
+//         0,
+//         0
+//       )
+//     );
+//     const normalizedEnd = new Date(
+//       Date.UTC(
+//         today.getUTCFullYear(),
+//         today.getUTCMonth(),
+//         today.getUTCDate(),
+//         23,
+//         59,
+//         59,
+//         999
+//       )
+//     );
+
+//     // Check 1: Spinwheel completion
+//     const spinWheelCompleted = await SpinWheelLog.findOne({
+//       user: userId,
+//       createdAt: { $gte: normalizedStart, $lte: normalizedEnd }
+//     });
+
+//     if (spinWheelCompleted) {
+//       return true;
+//     }
+
+//     // Check 2: Daily Challenge completion
+//     const challengeCompleted = await UserChallengeProgress.findOne({
+//       userId: userId,
+//       challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
+//       status: 'completed'
+//     });
+
+//     if (challengeCompleted) {
+//       return true;
+//     }
+
+//     // Check 3: Daily Reward completion (check if today's reward is claimed)
+//     // Calculate today's day index (0-6, Monday = 0)
+//     const todayIdx = (today.getUTCDay() + 6) % 7; // Convert Sunday=0 to Monday=0
+//     
+//     // Calculate week key using the same helper function as daily rewards
+//     const weekKey = getISOWeekKey(today);
+
+//     const dailyRewardProgress = await DailyRewardProgress.findOne({
+//       userId: userId,
+//       weekKey: weekKey
+//     });
+
+//     if (dailyRewardProgress && dailyRewardProgress.days && dailyRewardProgress.days[todayIdx]) {
+//       const todayReward = dailyRewardProgress.days[todayIdx];
+//       if (todayReward.status === 'claimed') {
+//         return true;
+//       }
+//     }
+
+//     // None of the challenges were completed today
+//     return false;
+//   } catch (error) {
+//     console.error("Error checking challenge completion:", error);
+//     // In case of error, assume no completion to be safe
+//     return false;
+//   }
+// }
 
 /**
  * Get user activity statistics
@@ -429,28 +510,44 @@ async function getUserActivityStats(userId) {
     const todayStr = getDateString(today);
     const isActiveToday = activity.activeDates.includes(todayStr);
 
-    // Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
-    const completedChallengeToday = await checkChallengeCompletionToday(userId, today);
+    // Check if user completed any game task today from any downloaded game
+    const completedGameTaskToday = await checkGameTaskCompletionToday(userId, today);
+    
+    // OLD LOGIC - COMMENTED OUT: Check if user completed any challenge today (spinwheel, daily challenge, or daily reward)
+    // const completedChallengeToday = await checkChallengeCompletionToday(userId, today);
 
     // Clean up any invalid streak history entries
     cleanupStreakHistory(activity);
 
-    // If user didn't complete any challenge today, subtract 1 day from streak
+    // NEW LOGIC: If user didn't complete any game task today, subtract 1 day from streak
     // (but not below 0)
     let adjustedStreak = activity.currentStreak || 0;
     let needsSave = false;
 
-    if (!completedChallengeToday && adjustedStreak > 0) {
+    if (!completedGameTaskToday && adjustedStreak > 0) {
       adjustedStreak = Math.max(0, adjustedStreak - 1);
       
       // Update the user's streak if it changed
       if (adjustedStreak !== activity.currentStreak) {
         activity.currentStreak = adjustedStreak;
         activity.lastStreakReset = today;
-        activity.resetReason = "no_challenge_completed";
+        activity.resetReason = "no_game_task_completed";
         needsSave = true;
       }
     }
+    
+    // OLD LOGIC - COMMENTED OUT: If user didn't complete any challenge today, subtract 1 day from streak
+    // if (!completedChallengeToday && adjustedStreak > 0) {
+    //   adjustedStreak = Math.max(0, adjustedStreak - 1);
+    //   
+    //   // Update the user's streak if it changed
+    //   if (adjustedStreak !== activity.currentStreak) {
+    //     activity.currentStreak = adjustedStreak;
+    //     activity.lastStreakReset = today;
+    //     activity.resetReason = "no_challenge_completed";
+    //     needsSave = true;
+    //   }
+    // }
 
     // Save if any changes were made
     if (needsSave) {
@@ -466,7 +563,8 @@ async function getUserActivityStats(userId) {
       isActiveToday: isActiveToday,
       lastStreakReset: activity.lastStreakReset,
       resetReason: activity.resetReason,
-      challengeCompletedToday: completedChallengeToday,
+      gameTaskCompletedToday: completedGameTaskToday,
+      // OLD FIELD - COMMENTED OUT: challengeCompletedToday: completedChallengeToday,
     };
   } catch (error) {
     console.error("Error getting user activity stats:", error);

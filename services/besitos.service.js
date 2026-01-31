@@ -12,7 +12,6 @@ class BesitosService {
     this.baseURL = config.BESITOS_BASE_URL;
     this.partnerId = config.BESITOS_PARTNER_ID;
     this.token = config.BESITOS_API_TOKEN;
-    console.log(this.baseURL, this.partnerId, this.token);
     // Create axios instance with default config
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -69,17 +68,6 @@ class BesitosService {
    * @returns {Promise<Object>} Offers data
    */
   async getOffers(queryParams = {}) {
-    console.log(
-      "🟢 [BESITOS SERVICE] getOffers called with params:",
-      queryParams
-    );
-    console.log("🟢 [BESITOS SERVICE] Service config:", {
-      baseURL: this.baseURL,
-      partnerId: this.partnerId,
-      hasToken: !!this.token,
-      isConfigured: this.isConfigured(),
-    });
-
     if (!this.isConfigured()) {
       console.error("🟢 [BESITOS SERVICE] Service not configured!");
       throw {
@@ -91,27 +79,8 @@ class BesitosService {
 
     try {
       const endpoint = `/data/partner/offers/${this.partnerId}`;
-      const fullURL = `${this.baseURL}${endpoint}`;
-      console.log("🟢 [BESITOS SERVICE] Making request to:", fullURL);
-      console.log("🟢 [BESITOS SERVICE] Request params:", queryParams);
 
       const response = await this.client.get(endpoint, { params: queryParams });
-
-      console.log("🟢 [BESITOS SERVICE] Response received:", {
-        status: response.status,
-        statusText: response.statusText,
-        dataType: typeof response.data,
-        isArray: Array.isArray(response.data),
-        hasData: !!response.data?.data,
-        dataKeys:
-          response.data && typeof response.data === "object"
-            ? Object.keys(response.data)
-            : "N/A",
-        dataLength: Array.isArray(response.data)
-          ? response.data.length
-          : response.data?.data?.length || 0,
-        sampleData: JSON.stringify(response.data).substring(0, 1000),
-      });
 
       return response.data;
     } catch (error) {

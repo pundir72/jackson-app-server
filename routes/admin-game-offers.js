@@ -3664,34 +3664,8 @@ router.post(
         });
       }
 
-      // Validate order values don't exceed maxBonusTasksPerGame
-      if (bonusTasks.length > 0) {
-        const maxOrder = Math.max(...bonusTasks.map((bt) => bt.order || 0));
-        if (maxOrder > maxTasksPerGame) {
-          return res.status(400).json({
-            success: false,
-            message: `Task order cannot exceed ${maxTasksPerGame}`,
-          });
-        }
-      }
-
-      // Validate that order values are unique and sequential
-      const orders = bonusTasks.map((bt) => bt.order).sort((a, b) => a - b);
-      const expectedOrders = Array.from(
-        { length: bonusTasks.length },
-        (_, i) => i + 1
-      );
-      const hasSequentialOrders = orders.every(
-        (order, index) => order === expectedOrders[index]
-      );
-
-      if (!hasSequentialOrders) {
-        return res.status(400).json({
-          success: false,
-          message: "Bonus tasks must have sequential order starting from 1",
-          error: "INVALID_TASK_ORDER",
-        });
-      }
+      // Note: Order will be automatically assigned based on game task order
+      // No need to validate order values from request - they will be reassigned
 
       // Validate no duplicate task IDs
       const taskIdsForDuplicateCheck = bonusTasks.map((bt) => bt.taskId);
@@ -3713,7 +3687,9 @@ router.post(
         _id: { $in: taskIds },
         gameId: gameId,
         isActive: true, // Only allow active tasks
-      });
+      })
+      .sort({ order: 1, createdAt: 1 }) // Sort by order, then by creation date
+      .lean();
 
       if (existingTasks.length !== taskIds.length) {
         return res.status(400).json({
@@ -3723,6 +3699,38 @@ router.post(
           error: "INVALID_TASK_IDS",
         });
       }
+
+      // Get all game tasks sorted by order to determine sequential order
+      const allGameTasks = await GameTask.find({
+        gameId: gameId,
+        isActive: true,
+      })
+      .sort({ order: 1, createdAt: 1 })
+      .select("_id order")
+      .lean();
+
+      // Create a map of taskId to its order in the game
+      const taskOrderMap = {};
+      allGameTasks.forEach((task, index) => {
+        taskOrderMap[task._id.toString()] = task.order || (index + 1);
+      });
+
+      // Sort bonus tasks by their order in the game's task list
+      const sortedBonusTasks = [...bonusTasks].sort((a, b) => {
+        const orderA = taskOrderMap[a.taskId.toString()] || 999;
+        const orderB = taskOrderMap[b.taskId.toString()] || 999;
+        return orderA - orderB;
+      });
+
+      // Assign sequential order (1, 2, 3...) based on game task order
+      const bonusTasksData = sortedBonusTasks.map((bt, index) => ({
+        taskId: bt.taskId,
+        order: index + 1, // Sequential order: 1, 2, 3, ...
+        unlockCondition:
+          bt.unlockCondition ||
+          "Unlock this Bonus Task after Minimum Event Threshold is met.",
+        isEnabled: true,
+      }));
 
       // Find or create active rule
       let rule = await WelcomeBonusTimer.findOne({ isActive: true });
@@ -3741,15 +3749,6 @@ router.post(
       const existingGameIndex = rule.gameBonusTasks.findIndex(
         (config) => config.gameId.toString() === gameId
       );
-
-      const bonusTasksData = bonusTasks.map((bt) => ({
-        taskId: bt.taskId,
-        order: bt.order,
-        unlockCondition:
-          bt.unlockCondition ||
-          "Unlock this Bonus Task after Minimum Event Threshold is met.",
-        isEnabled: true,
-      }));
 
       if (existingGameIndex >= 0) {
         // Update existing configuration
@@ -5590,7 +5589,6 @@ router.post("/seed-games", adminAuth, async (req, res) => {
     };
 
     // Fetch all Besitos offers once
-    console.log(`Fetching Besitos offers for ${device}/${region}...`);
     let offersPayload;
     try {
       offersPayload = await besitosService.getOffers({
@@ -5613,8 +5611,6 @@ router.post("/seed-games", adminAuth, async (req, res) => {
         message: "No offers found from Besitos API",
       });
     }
-
-    console.log(`Found ${offers.length} Besitos offers`);
 
     // Build a normalized lookup map
     const offerMap = new Map();
@@ -5862,7 +5858,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
     };
 
     // Fetch all Bitlabs game offers once
-    console.log(`Fetching Bitlabs game offers for ${device}/${region}...`);
     let offers = [];
     try {
       // Build query parameters
@@ -5902,8 +5897,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
         message: "No game offers found from Bitlabs API",
       });
     }
-
-    console.log(`Found ${offers.length} Bitlabs game offers`);
 
     // Build a normalized lookup map by anchor/title
     const offerMap = new Map();
@@ -6091,8 +6084,6 @@ router.post("/seed-games-bitlabs", adminAuth, async (req, res) => {
         }
       }
     }
-
-    console.log("Bitlabs seed complete:", results);
 
     res.json({
       success: true,

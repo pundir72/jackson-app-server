@@ -471,6 +471,13 @@ async function getAdminConfiguredOffers(
                   metadata: {
                     ...configuredOffer.metadata,
                     ...matchingFreshOffer, // Merge fresh Bitlabs data into metadata
+                    // Always expose the latest, user-specific click URL in metadata.externalUrl
+                    // so frontend can safely use it as the redirect URL.
+                    externalUrl:
+                      (matchingFreshOffer.click_url ||
+                        matchingFreshOffer.clickUrl ||
+                        configuredOffer.metadata?.externalUrl ||
+                        ""),
                   },
                   expiryDate: configuredOffer.expiryDate || null,
                   createdAt: configuredOffer.createdAt || null,
@@ -1230,7 +1237,6 @@ router.get("/", protect, async (req, res) => {
       !isCashbackRequest
     ) {
       // Try Bitlabs first
-      console.log("🔵 [MAIN ROUTE] Falling back to BitLab API...");
       const result = await bitlabsNonGames.getNonGameOffers({
         userId: user._id.toString(),
         userProfile: {
@@ -1246,41 +1252,6 @@ router.get("/", protect, async (req, res) => {
         category,
       });
 
-      // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-      console.log(
-        "\n🔵 [BITLABS API] ========== RAW API RESPONSE (ALL OFFERS) =========="
-      );
-      console.log("🔵 [BITLABS API] Type Filter:", type);
-      console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-      console.log("🔵 [BITLABS API] Success:", result?.success);
-      console.log(
-        "🔵 [BITLABS API] Full Response:",
-        JSON.stringify(result, null, 2)
-      );
-      if (result?.categorized) {
-        console.log(
-          "🔵 [BITLABS API] Surveys Count:",
-          result.categorized.surveys?.length || 0
-        );
-        console.log(
-          "🔵 [BITLABS API] Cashback Count:",
-          result.categorized.cashback?.length || 0
-        );
-        console.log(
-          "🔵 [BITLABS API] Magic Receipts Count:",
-          result.categorized.magicReceipts?.length || 0
-        );
-        console.log(
-          "🔵 [BITLABS API] Shopping Count:",
-          result.categorized.shopping?.length || 0
-        );
-      }
-      if (result?.offers) {
-        console.log("🔵 [BITLABS API] Total Offers:", result.offers.length);
-      }
-      console.log(
-        "🔵 [BITLABS API] ===========================================\n"
-      );
 
       if (result.success) {
         offers = result.offers || [];
@@ -1599,69 +1570,6 @@ router.get("/surveys", protect, async (req, res) => {
                 category,
               });
 
-              // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-              console.log(
-                "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SURVEYS) =========="
-              );
-              console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-              console.log("🔵 [BITLABS API] Success:", bitlabsResult?.success);
-              console.log(
-                "🔵 [BITLABS API] Full Response:",
-                JSON.stringify(bitlabsResult, null, 2)
-              );
-              if (bitlabsResult?.surveys) {
-                console.log(
-                  "🔵 [BITLABS API] Surveys Array Length:",
-                  bitlabsResult.surveys.length
-                );
-                if (bitlabsResult.surveys.length > 0) {
-                  console.log(
-                    "🔵 [BITLABS API] First Survey ID:",
-                    bitlabsResult.surveys[0]?.id || "N/A"
-                  );
-                  console.log(
-                    "🔵 [BITLABS API] First Survey Value:",
-                    bitlabsResult.surveys[0]?.value || "N/A"
-                  );
-                }
-              }
-              if (bitlabsResult?.categorized?.surveys) {
-                console.log(
-                  "🔵 [BITLABS API] Categorized Surveys Count:",
-                  bitlabsResult.categorized.surveys.length
-                );
-              }
-              console.log(
-                "🔵 [BITLABS API] ===========================================\n"
-              );
-
-              console.log(
-                `\n🟡 [USER BACKEND] ========== BITLABS API RESPONSE ==========`
-              );
-              console.log(
-                `🟡 [USER BACKEND] Bitlabs API Success: ${bitlabsResult.success}`
-              );
-              console.log(
-                `🟡 [USER BACKEND] Total surveys from Bitlabs: ${
-                  bitlabsResult.categorized?.surveys?.length || 0
-                }`
-              );
-              if (bitlabsResult.categorized?.surveys) {
-                bitlabsResult.categorized.surveys.forEach((survey, index) => {
-                  console.log(
-                    `🟡 [USER BACKEND] Bitlabs Survey ${index + 1}:`,
-                    {
-                      id: survey.id,
-                      surveyId: survey.surveyId,
-                      title: survey.title,
-                      clickUrl: survey.clickUrl ? "✅ Has URL" : "❌ No URL",
-                    }
-                  );
-                });
-              }
-              console.log(
-                `🟡 [USER BACKEND] ===========================================\n`
-              );
 
               // Match admin-configured surveys with fresh Bitlabs response
               // INDUSTRIAL-LEVEL: Each user gets fresh click URLs with their X-User-Id
@@ -2068,35 +1976,6 @@ router.get("/magic-receipts", protect, async (req, res) => {
         category,
       });
 
-      // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-      console.log(
-        "\n🔵 [BITLABS API] ========== RAW API RESPONSE (MAGIC RECEIPTS) =========="
-      );
-      console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-      console.log("🔵 [BITLABS API] Success:", result?.success);
-      console.log(
-        "🔵 [BITLABS API] Full Response:",
-        JSON.stringify(result, null, 2)
-      );
-      if (result?.categorized?.magicReceipts) {
-        console.log(
-          "🔵 [BITLABS API] Magic Receipts Count:",
-          result.categorized.magicReceipts.length
-        );
-        if (result.categorized.magicReceipts.length > 0) {
-          console.log(
-            "🔵 [BITLABS API] First Magic Receipt ID:",
-            result.categorized.magicReceipts[0]?.id || "N/A"
-          );
-          console.log(
-            "🔵 [BITLABS API] First Magic Receipt Value:",
-            result.categorized.magicReceipts[0]?.value || "N/A"
-          );
-        }
-      }
-      console.log(
-        "🔵 [BITLABS API] ===========================================\n"
-      );
 
       if (result.success && result.categorized?.magicReceipts) {
         // Preserve exact Bitlabs API structure for magic receipts
@@ -2495,35 +2374,6 @@ router.get("/shopping", protect, async (req, res) => {
         category,
       });
 
-      // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-      console.log(
-        "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SHOPPING) =========="
-      );
-      console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-      console.log("🔵 [BITLABS API] Success:", result?.success);
-      console.log(
-        "🔵 [BITLABS API] Full Response:",
-        JSON.stringify(result, null, 2)
-      );
-      if (result?.categorized?.shopping) {
-        console.log(
-          "🔵 [BITLABS API] Shopping Count:",
-          result.categorized.shopping.length
-        );
-        if (result.categorized.shopping.length > 0) {
-          console.log(
-            "🔵 [BITLABS API] First Shopping ID:",
-            result.categorized.shopping[0]?.id || "N/A"
-          );
-          console.log(
-            "🔵 [BITLABS API] First Shopping Value:",
-            result.categorized.shopping[0]?.value || "N/A"
-          );
-        }
-      }
-      console.log(
-        "🔵 [BITLABS API] ===========================================\n"
-      );
 
       if (result.success && result.categorized?.shopping) {
         // Preserve exact Bitlabs API structure for shopping
@@ -3076,13 +2926,6 @@ router.post("/callback/bitlabs", async (req, res) => {
         value,
         reward,
       });
-      console.log("🟡 [CALLBACK] ℹ️ Survey was rejected by Bitlabs");
-      console.log(
-        "🟡 [CALLBACK] ℹ️ No reward will be awarded (expected behavior)"
-      );
-      console.log(
-        "🟡 [CALLBACK] ===========================================\n"
-      );
     } else {
       // 🔵 DEBUG: Log unknown status
       console.log("\n🟠 [CALLBACK] ========== UNKNOWN STATUS ==========");

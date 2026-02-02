@@ -2574,11 +2574,15 @@ router.post("/complete", protect, async (req, res) => {
 
       // Check for Bonus Day rewards (separate from streak milestones)
       try {
+        // CRITICAL FIX: Get completed tasks to verify all required days are completed
+        const completedTasks = user.streak?.completedTasks || [];
+        
         // Get user profile for eligibility check
         const userProfile = {
           currentStreak: newStreak,
           country: user.country || null,
           userSegment: user.userSegment || "all",
+          completedTasks: completedTasks, // CRITICAL: Pass completed tasks for verification
         };
 
         // Find bonus day for this streak milestone
@@ -2588,6 +2592,8 @@ router.post("/complete", protect, async (req, res) => {
           "conditions.minStreak": { $lte: newStreak },
         });
 
+        // CRITICAL FIX: Only award bonus if all required days are completed
+        // isEligibleForUser now checks requiresCompletion and verifies all days are completed
         if (bonusDay && bonusDay.isEligibleForUser(userProfile)) {
           // Check if bonus day reward was already claimed (track in user's metadata or transactions)
           const existingBonusDayTransaction = await Transaction.findOne({

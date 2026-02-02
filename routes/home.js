@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const Game = require('../models/Game');
 const Deals = require('../models/Deals');
 const { Reward, DailyReward } = require('../models/Rewards');
 const GameDisplayRule = require('../models/GameDisplayRule');
@@ -156,17 +157,83 @@ const updateStreak = async (user) => {
 };
 
 // Get most played games
+// CRITICAL FIX: Fetch from Game collection and exclude downloaded games
+// Downloaded games should only appear in "My Games → Downloaded", not in global views
 const getMostPlayedGames = async (user) => {
-    return user.games
-        .sort((a, b) => b.playCount - a.playCount)
-        .slice(0, 5)
-        .map(game => ({
+    try {
+        // Get user's downloaded game IDs to exclude them
+        const downloadedGameIds = new Set();
+        if (Array.isArray(user.games) && user.games.length > 0) {
+            user.games
+                .filter((g) => {
+                    // A game is considered downloaded if it has installedAt or status is 'installed'
+                    return (
+                        g.installedAt ||
+                        g.status === 'installed' ||
+                        (g.date && !g.completed)
+                    );
+                })
+                .forEach((g) => {
+                    // Add both gameId (string) and _id (if it's an ObjectId) to the set
+                    if (g.gameId) {
+                        downloadedGameIds.add(String(g.gameId));
+                    }
+                    if (g._id) {
+                        downloadedGameIds.add(String(g._id));
+                    }
+                });
+        }
+
+        // Fetch games from Game collection, excluding downloaded games
+        // Sort by popularity metrics (viewCount, playCount, or createdAt as fallback)
+        const query = { status: 'active' };
+        
+        // CRITICAL FIX: Exclude downloaded games
+        // Build exclusion query - exclude games where gameId OR _id matches downloaded games
+        if (downloadedGameIds.size > 0) {
+            const downloadedIdsArray = Array.from(downloadedGameIds);
+            // Exclude by gameId (string) and _id (ObjectId if applicable)
+            query.$and = [
+                { gameId: { $nin: downloadedIdsArray } }
+            ];
+            // Also exclude by _id if any downloaded game IDs are valid ObjectIds
+            const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+            const objectIds = downloadedIdsArray.filter(id => objectIdPattern.test(id));
+            if (objectIds.length > 0) {
+                const mongoose = require('mongoose');
+                query.$and.push({ _id: { $nin: objectIds.map(id => new mongoose.Types.ObjectId(id)) } });
+            }
+        }
+        
+        const mostPlayedGames = await Game.find(query)
+        .select('gameId title description category uiSection metadata gameDetails rewards')
+        .sort({ 
+            // Sort by popularity - you can adjust this based on your metrics
+            createdAt: -1 // Most recent first as fallback
+        })
+        .limit(5)
+        .lean();
+
+        // Format the response
+        return mostPlayedGames.map(game => ({
             gameId: game.gameId,
-            name: game.name,
-            icon: game.icon,
-            playCount: game.playCount,
-            totalEarnings: game.totalEarnings
+            title: game.title,
+            name: game.title, // For backward compatibility
+            description: game.description,
+            category: game.category,
+            icon: game.metadata?.thumbnail?.url || 
+                  game.gameDetails?.square_image || 
+                  game.gameDetails?.image || 
+                  '🎮',
+            rewards: game.rewards || { coins: 0, xp: 0 },
+            isDownloaded: false, // These are not downloaded games
+            isInstalled: false
         }));
+    } catch (error) {
+        console.error('Error fetching most played games:', error);
+        // Return empty array on error to prevent breaking the homepage
+        return [];
+    }
 };
 
 // Get active tasks

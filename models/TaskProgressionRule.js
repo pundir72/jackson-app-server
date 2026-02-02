@@ -192,12 +192,12 @@ taskProgressionRuleSchema.statics.findBestMatchForUser = async function (
           break;
 
         case "returning_user":
-          if (gamesPlayed >= 3) {
+          if (gamesPlayed > 0) {
             matchDetails.push("✅ returning_user: PASSED");
           } else {
             matches = false;
             matchDetails.push(
-              `❌ returning_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: >= 3)`
+              `❌ returning_user: FAILED (gamesPlayed: ${gamesPlayed}, expected: > 0)`
             );
           }
           break;

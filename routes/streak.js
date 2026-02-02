@@ -151,16 +151,81 @@ router.get('/bonus-days', protect, async (req, res) => {
     // Get all active bonus days (show all, not just eligible ones)
     const allBonusDays = await BonusDay.findActive();
     
+    // Get completed tasks to verify actual completion (not just streak count)
+    const completedTasks = user.streak?.completedTasks || [];
+    const completedTasksSet = new Set(completedTasks);
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // CRITICAL FIX: Helper function to check if all required days are completed
+    const areAllRequiredDaysCompleted = (bonusDay) => {
+      // If requiresCompletion is false, skip the check
+      if (bonusDay.conditions.requiresCompletion === false) {
+        return currentStreak >= bonusDay.conditions.minStreak;
+      }
+      
+      // Verify today is completed (streak must start from today)
+      if (!completedTasksSet.has(todayStr)) {
+        return false;
+      }
+      
+      // Count consecutive completed days backwards from today
+      let consecutiveCount = 0;
+      const checkDate = new Date(today);
+      for (let i = 0; i < bonusDay.conditions.minStreak; i++) {
+        const dateStr = checkDate.toISOString().split('T')[0];
+        if (completedTasksSet.has(dateStr)) {
+          consecutiveCount++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          // Gap found - not all required days are completed
+          return false;
+        }
+      }
+      
+      // Verify we have at least minStreak consecutive days
+      return consecutiveCount >= bonusDay.conditions.minStreak;
+    };
+    
     // Map all bonus days with status and tier-multiplied rewards
     // Note: We show ALL bonus days so users can see upcoming rewards
     const bonusDaysWithStatus = allBonusDays.map(bonusDay => {
-        // Check if user has reached this bonus day
-        const isReached = currentStreak >= bonusDay.conditions.minStreak;
-        const isUpcoming = currentStreak < bonusDay.conditions.minStreak;
+        // CRITICAL FIX: Check if user has reached this bonus day
+        // For requiresCompletion=true, verify all required days are actually completed
+        // For requiresCompletion=false, just check streak count
+        const isReached = areAllRequiredDaysCompleted(bonusDay);
+        const isUpcoming = !isReached;
         const daysRemaining = Math.max(0, bonusDay.conditions.minStreak - currentStreak);
         
-        // Check if user is eligible for this bonus day (for claiming purposes)
-        const isEligible = bonusDay.isEligibleForUser(userProfile);
+        // CRITICAL FIX: Check if user is eligible for this bonus day (for claiming purposes)
+        // Pass completedTasks to userProfile so isEligibleForUser can verify completion
+        const userProfileWithCompletedTasks = {
+          ...userProfile,
+          completedTasks: completedTasks
+        };
+        const isEligible = bonusDay.isEligibleForUser(userProfileWithCompletedTasks);
+        
+        // CRITICAL FIX: Calculate progress percentage based on completed days, not just streak
+        let progressPercentage = 0;
+        if (bonusDay.conditions.requiresCompletion !== false) {
+          // Count how many of the required days are completed
+          let completedRequiredDays = 0;
+          const checkDate = new Date(today);
+          for (let i = 0; i < bonusDay.conditions.minStreak; i++) {
+            const dateStr = checkDate.toISOString().split('T')[0];
+            if (completedTasksSet.has(dateStr)) {
+              completedRequiredDays++;
+              checkDate.setDate(checkDate.getDate() - 1);
+            } else {
+              // Stop counting if we hit a gap (consecutive requirement)
+              break;
+            }
+          }
+          progressPercentage = Math.min(100, Math.round((completedRequiredDays / bonusDay.conditions.minStreak) * 100));
+        } else {
+          // If requiresCompletion is false, use streak-based progress
+          progressPercentage = Math.min(100, Math.round((currentStreak / bonusDay.conditions.minStreak) * 100));
+        }
 
         // Calculate tier-multiplied values for XP rewards
         const primaryIsXP = bonusDay.primaryReward.type === 'xp';
@@ -202,12 +267,27 @@ router.get('/bonus-days', protect, async (req, res) => {
         // Determine primary reward type for display
         const rewardType = bonusDay.primaryReward.type;
 
+        // CRITICAL FIX: Add resetRule information with clear explanations
+        // This clarifies what "Reset on miss" means and how it affects streak/bonus logic
+        const resetRule = bonusDay.resetRule || {};
+        const resetRuleInfo = {
+          onMiss: resetRule.onMiss !== undefined ? resetRule.onMiss : true, // Default: true
+          gracePeriod: resetRule.gracePeriod || 0, // Days to wait before reset (0-7)
+          fallbackAction: resetRule.fallbackAction || 'reset_streak', // Action when missed
+          // Clear explanation for frontend display
+          explanation: getResetRuleExplanation(resetRule)
+        };
+
         return {
           dayNumber: bonusDay.dayNumber,
           coins: totalCoins, // Total coins from all rewards (0 if no coins)
           xp: totalXP, // Total XP after tier multiplier (0 if no XP)
-          isReached: isReached, // Whether user has reached this milestone
-          rewardType: rewardType // Primary reward type (coins, xp, giftcard, etc.)
+          isReached: isReached, // Whether user has reached this milestone (all required days completed)
+          isEligible: isEligible, // Whether user is eligible to claim (includes completion check)
+          progressPercentage: progressPercentage, // Progress percentage based on completed days
+          daysRemaining: daysRemaining, // Days remaining to reach milestone
+          rewardType: rewardType, // Primary reward type (coins, xp, giftcard, etc.)
+          resetRule: resetRuleInfo // Reset rule information with explanations
         };
       })
       .sort((a, b) => a.dayNumber - b.dayNumber); // Sort by day number
@@ -217,7 +297,12 @@ router.get('/bonus-days', protect, async (req, res) => {
     const upcomingBonusDays = bonusDaysWithStatus.filter(bd => !bd.isReached);
     
     // Count eligible bonus days (for reference - users can see all but only claim eligible ones)
-    const eligibleBonusDays = allBonusDays.filter(bd => bd.isEligibleForUser(userProfile));
+    // CRITICAL FIX: Pass completedTasks to userProfile for proper eligibility check
+    const userProfileForEligibility = {
+      ...userProfile,
+      completedTasks: completedTasks
+    };
+    const eligibleBonusDays = allBonusDays.filter(bd => bd.isEligibleForUser(userProfileForEligibility));
 
     res.json({
       success: true,
@@ -240,6 +325,63 @@ router.get('/bonus-days', protect, async (req, res) => {
     });
   }
 });
+
+// CRITICAL FIX: Helper function to generate clear explanation for reset rule
+// This clarifies what "Reset on miss" means and how it affects streak/bonus logic
+function getResetRuleExplanation(resetRule) {
+  const onMiss = resetRule?.onMiss !== undefined ? resetRule.onMiss : true;
+  const gracePeriod = resetRule?.gracePeriod || 0;
+  const fallbackAction = resetRule?.fallbackAction || 'reset_streak';
+
+  if (!onMiss) {
+    return {
+      title: "No Reset on Miss",
+      description: "Your streak will not be reset if you miss a day. You can continue from where you left off.",
+      impact: "Missing a day does not affect your streak or bonus eligibility."
+    };
+  }
+
+  // Build explanation based on grace period and fallback action
+  let description = "";
+  let impact = "";
+
+  if (gracePeriod > 0) {
+    description = `If you miss a day, you have ${gracePeriod} day${gracePeriod > 1 ? 's' : ''} grace period before your streak resets.`;
+    impact = `Missing ${gracePeriod + 1} consecutive day${gracePeriod + 1 > 1 ? 's' : ''} will reset your streak.`;
+  } else {
+    description = "If you miss a day, your streak will be reset immediately.";
+    impact = "Missing even one day will reset your streak to 0.";
+  }
+
+  // Add fallback action explanation
+  switch (fallbackAction) {
+    case 'pause_streak':
+      description += " Your streak will be paused (not reset) when you miss a day.";
+      impact += " Your streak count will remain but won't increase until you complete a day again.";
+      break;
+    case 'give_alternate':
+      description += " You'll receive an alternate reward if you miss a day.";
+      impact += " Missing a day will reset your streak but you'll still get a reward.";
+      break;
+    case 'no_action':
+      description += " No action will be taken if you miss a day.";
+      impact += " Your streak will remain unchanged even if you miss a day.";
+      break;
+    case 'reset_streak':
+    default:
+      description += " Your streak will be reset to 0 if you miss a day.";
+      impact += " You'll need to start over from day 1 to reach this bonus again.";
+      break;
+  }
+
+  return {
+    title: "Reset on Miss",
+    description: description,
+    impact: impact,
+    gracePeriodDays: gracePeriod,
+    action: fallbackAction
+  };
+}
 
 // Helper function to check if user completed any game task today
 async function checkGameTaskCompletionToday(userId, today) {
@@ -487,24 +629,72 @@ router.get('/status', protect, async (req, res) => {
     let bonusDays = null;
     if (req.query.includeBonusDays === 'true') {
       try {
+        // CRITICAL FIX: Get completed tasks to verify actual completion
+        const completedTasks = streak.completedTasks || [];
+        const completedTasksSet = new Set(completedTasks);
+        const todayStr = today.toISOString().split('T')[0];
+        
+        // CRITICAL FIX: Helper function to check if all required days are completed
+        const areAllRequiredDaysCompleted = (bonusDay) => {
+          // If requiresCompletion is false, skip the check
+          if (bonusDay.conditions.requiresCompletion === false) {
+            return currentStreak >= bonusDay.conditions.minStreak;
+          }
+          
+          // Verify today is completed (streak must start from today)
+          if (!completedTasksSet.has(todayStr)) {
+            return false;
+          }
+          
+          // Count consecutive completed days backwards from today
+          let consecutiveCount = 0;
+          const checkDate = new Date(today);
+          for (let i = 0; i < bonusDay.conditions.minStreak; i++) {
+            const dateStr = checkDate.toISOString().split('T')[0];
+            if (completedTasksSet.has(dateStr)) {
+              consecutiveCount++;
+              checkDate.setDate(checkDate.getDate() - 1);
+            } else {
+              // Gap found - not all required days are completed
+              return false;
+            }
+          }
+          
+          // Verify we have at least minStreak consecutive days
+          return consecutiveCount >= bonusDay.conditions.minStreak;
+        };
+        
         const userProfile = {
           currentStreak: currentStreak,
           country: user.country || null,
-          userSegment: user.userSegment || 'all'
+          userSegment: user.userSegment || 'all',
+          completedTasks: completedTasks // CRITICAL FIX: Pass completedTasks for verification
         };
         
         const allBonusDays = await BonusDay.findActive();
         const eligibleBonusDays = allBonusDays
           .filter(bonusDay => bonusDay.isEligibleForUser(userProfile))
-          .map(bonusDay => ({
-            dayNumber: bonusDay.dayNumber,
-            title: bonusDay.title,
-            description: bonusDay.description,
-            primaryReward: bonusDay.primaryReward,
-            alternateReward: bonusDay.alternateReward,
-            isReached: currentStreak >= bonusDay.conditions.minStreak,
-            daysRemaining: Math.max(0, bonusDay.conditions.minStreak - currentStreak)
-          }))
+          .map(bonusDay => {
+            // CRITICAL FIX: Add resetRule information with clear explanations
+            const resetRule = bonusDay.resetRule || {};
+            const resetRuleInfo = {
+              onMiss: resetRule.onMiss !== undefined ? resetRule.onMiss : true,
+              gracePeriod: resetRule.gracePeriod || 0,
+              fallbackAction: resetRule.fallbackAction || 'reset_streak',
+              explanation: getResetRuleExplanation(resetRule)
+            };
+            
+            return {
+              dayNumber: bonusDay.dayNumber,
+              title: bonusDay.title,
+              description: bonusDay.description,
+              primaryReward: bonusDay.primaryReward,
+              alternateReward: bonusDay.alternateReward,
+              isReached: areAllRequiredDaysCompleted(bonusDay), // CRITICAL FIX: Use completion check, not just streak count
+              daysRemaining: Math.max(0, bonusDay.conditions.minStreak - currentStreak),
+              resetRule: resetRuleInfo // Add reset rule information
+            };
+          })
           .sort((a, b) => a.dayNumber - b.dayNumber);
         
         bonusDays = eligibleBonusDays;

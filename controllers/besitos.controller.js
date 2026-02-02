@@ -13,18 +13,8 @@ const {
   getUserXpTier,
   getUserMembershipTier,
 } = require("../utils/taskProgression");
-const winston = require("winston");
 const mongoose = require("mongoose");
-
-// Create logger instance
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.File({ filename: "error.log", level: "error" }),
-    new winston.transports.File({ filename: "combined.log" }),
-  ],
-});
+const logger = require("../utils/logger");
 
 /**
  * Get available offers
@@ -88,7 +78,7 @@ exports.getUserData = async (req, res) => {
     //     });
     // }
 
-    logger.info("Fetching Besitos user data", {
+    logger.info("Besitos user-data request received", {
       requesterId: req.user?.id,
       targetUserId: userId,
     });
@@ -99,6 +89,25 @@ exports.getUserData = async (req, res) => {
     // Handle different response structures from Besitos API
     // Response might be: { data: {...} } or directly the data object
     const besitosData = besitosResponse.data || besitosResponse;
+    logger.info("Besitos user-data response summary", {
+      targetUserId: userId,
+      responseKeys:
+        besitosResponse && typeof besitosResponse === "object"
+          ? Object.keys(besitosResponse)
+          : "non_object_response",
+      dataKeys:
+        besitosData && typeof besitosData === "object"
+          ? Object.keys(besitosData)
+          : "non_object_data",
+      inProgressCount:
+        besitosData?.in_progress?.length ||
+        besitosData?.data?.in_progress?.length ||
+        0,
+      completedCount:
+        besitosData?.completed?.length ||
+        besitosData?.data?.completed?.length ||
+        0,
+    });
 
     // Get user from database to apply progression rules
     const user = await User.findById(userId)
@@ -107,12 +116,22 @@ exports.getUserData = async (req, res) => {
 
     if (!user) {
       // If user not found in our DB, return besitos data as-is
+      logger.warn("Besitos user-data: user not found in local DB", {
+        targetUserId: userId,
+      });
       return res.json({
         success: true,
         data: besitosData,
         timestamp: new Date().toISOString(),
       });
     }
+    logger.info("Besitos user-data local DB summary", {
+      targetUserId: userId,
+      localGamesCount: user.games?.length || 0,
+      localTasksCount: user.tasks?.length || 0,
+      localXp: user.xp?.current || 0,
+      localVipTier: user.vip?.tier || user.vip?.level || "free",
+    });
 
     // Build user profile for progression rule matching
     const gamesDownloaded = user.games?.length || 0;
@@ -215,19 +234,38 @@ exports.getUserData = async (req, res) => {
     // Handle both structures: besitosData.in_progress or besitosData.data.in_progress
     const inProgressGames =
       besitosData.in_progress || besitosData.data?.in_progress || [];
+    const inProgressIds = Array.isArray(inProgressGames)
+      ? inProgressGames.map((g) => g?.id).filter(Boolean)
+      : [];
+    logger.info("Besitos user-data in-progress details", {
+      targetUserId: userId,
+      inProgressCount: inProgressIds.length,
+      inProgressIds,
+    });
+    if (inProgressIds.length > 0) {
+      logger.info("Besitos in-progress ID list", {
+        targetUserId: userId,
+        ids: inProgressIds,
+      });
+    }
 
     if (Array.isArray(inProgressGames) && inProgressGames.length > 0) {
       for (const game of inProgressGames) {
         // Find matching game in our database
         const gameDoc = await Game.findOne({
-          gameId: game.id,
-          sdkProvider: "besitos",
+          sdkProvider: "Besitos",
+          $or: [
+            { gameId: game.id },
+            { "gameDetails.id": game.id },
+            { "gameDetails.offer_id": game.id },
+            { "metadata.externalId": game.id },
+          ],
         }).lean();
 
         // If game not found in database, skip progression (game needs to be synced first)
         if (!gameDoc) {
           console.log(
-            `⚠️ Game not found in database for besitos game ID: ${game.id}. Skipping progression.`
+            `⚠️ Game not found in database for besitos game ID: ${game.id}. Checked gameId/gameDetails.id/gameDetails.offer_id/metadata.externalId. Skipping progression.`
           );
           continue;
         }

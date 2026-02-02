@@ -1111,6 +1111,12 @@ const userSchema = new mongoose.Schema({
     // Daily progress reset tracking
     lastProgressReset: Date,
 
+    // Ad Reward Tracking
+    adRewardTracking: {
+        lastAdRewardAt: Date,
+        totalAdRewardsClaimed: { type: Number, default: 0 }
+    },
+
     // Ad-free purchase system
     adFreeUntil: {
         type: Date,

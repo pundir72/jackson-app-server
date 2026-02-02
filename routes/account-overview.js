@@ -203,5 +203,232 @@ router.put('/goals', protect, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/account-overview/ad-reward/cooldown
+ * Get ad reward cooldown period and next available reward time
+ * Returns: cooldown period (4 hours), next reward time, reward amount (50 coins)
+ */
+router.get('/ad-reward/cooldown', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const user = await User.findById(userId).select('adRewardTracking wallet');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Configuration: 4 hour cooldown, 50 coins reward
+    const COOLDOWN_HOURS = 4;
+    const REWARD_COINS = 50;
+    const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
+
+    // Get last ad reward time from user metadata
+    // Store in user.adRewardTracking.lastAdRewardAt or use metadata
+    const lastAdRewardAt = user.adRewardTracking?.lastAdRewardAt || null;
+    const now = new Date();
+    
+    let nextRewardAt = null;
+    let isAvailable = false;
+    let timeRemaining = 0;
+
+    if (lastAdRewardAt) {
+      const lastRewardTime = new Date(lastAdRewardAt);
+      const timeSinceLastReward = now.getTime() - lastRewardTime.getTime();
+      
+      if (timeSinceLastReward >= COOLDOWN_MS) {
+        // Cooldown has passed
+        isAvailable = true;
+        nextRewardAt = now; // Available now
+      } else {
+        // Still in cooldown
+        timeRemaining = COOLDOWN_MS - timeSinceLastReward;
+        nextRewardAt = new Date(lastRewardTime.getTime() + COOLDOWN_MS);
+      }
+    } else {
+      // Never claimed before - available immediately
+      isAvailable = true;
+      nextRewardAt = now;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        cooldownHours: COOLDOWN_HOURS,
+        rewardCoins: REWARD_COINS,
+        isAvailable,
+        nextRewardAt: nextRewardAt.toISOString(),
+        timeRemainingMs: timeRemaining,
+        timeRemainingFormatted: formatTimeRemaining(timeRemaining),
+        lastRewardAt: lastAdRewardAt ? new Date(lastAdRewardAt).toISOString() : null
+      }
+    });
+  } catch (error) {
+    console.error('Error getting ad reward cooldown:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get ad reward cooldown'
+    });
+  }
+});
+
+/**
+ * POST /api/account-overview/ad-reward/claim
+ * Claim ad reward after watching ads
+ * Body: { userId, rewardAmount, ads (payload) }
+ * Creates transaction log and updates daily coin earn tracking
+ */
+router.post('/ad-reward/claim', protect, async (req, res) => {
+  try {
+    const { userId, rewardAmount, ads } = req.body;
+    
+    // Validate input
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    // Verify userId matches authenticated user
+    if (userId !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized: userId does not match authenticated user'
+      });
+    }
+
+    // Configuration: 4 hour cooldown, 50 coins reward
+    const COOLDOWN_HOURS = 4;
+    const REWARD_COINS = 50;
+    const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
+
+    // Get user
+    const user = await User.findById(userId).select('wallet adRewardTracking');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Check cooldown
+    const lastAdRewardAt = user.adRewardTracking?.lastAdRewardAt || null;
+    const now = new Date();
+    
+    if (lastAdRewardAt) {
+      const lastRewardTime = new Date(lastAdRewardAt);
+      const timeSinceLastReward = now.getTime() - lastRewardTime.getTime();
+      
+      if (timeSinceLastReward < COOLDOWN_MS) {
+        const timeRemaining = COOLDOWN_MS - timeSinceLastReward;
+        return res.status(429).json({
+          success: false,
+          error: 'Ad reward is on cooldown',
+          cooldown: {
+            hours: COOLDOWN_HOURS,
+            timeRemainingMs: timeRemaining,
+            timeRemainingFormatted: formatTimeRemaining(timeRemaining),
+            nextRewardAt: new Date(lastRewardTime.getTime() + COOLDOWN_MS).toISOString()
+          }
+        });
+      }
+    }
+
+    // Use provided rewardAmount or default to 50 coins
+    const coinsToReward = rewardAmount && rewardAmount > 0 ? rewardAmount : REWARD_COINS;
+
+    // Initialize wallet if needed
+    if (!user.wallet) {
+      user.wallet = { balance: 0, lastUpdated: now };
+    }
+
+    // Credit coins to user
+    user.wallet.balance = (user.wallet.balance || 0) + coinsToReward;
+    user.wallet.lastUpdated = now;
+
+    // Update ad reward tracking
+    if (!user.adRewardTracking) {
+      user.adRewardTracking = {};
+    }
+    user.adRewardTracking.lastAdRewardAt = now;
+    user.adRewardTracking.totalAdRewardsClaimed = (user.adRewardTracking.totalAdRewardsClaimed || 0) + 1;
+
+    // Create transaction log
+    const transaction = new Transaction({
+      user: userId,
+      type: 'credit',
+      balanceType: 'coins',
+      amount: coinsToReward,
+      description: `Ad Reward - ${coinsToReward} coins`,
+      status: 'completed',
+      referenceId: `AD-REWARD-${userId}-${Date.now()}`,
+      metadata: {
+        source: 'ad_reward',
+        rewardAmount: coinsToReward,
+        ads: ads || null, // Store ads payload if provided
+        cooldownHours: COOLDOWN_HOURS,
+        claimedAt: now.toISOString()
+      }
+    });
+
+    // Save user and transaction
+    await Promise.all([user.save(), transaction.save()]);
+
+    // Get updated account overview to return fresh progress data
+    const accountOverview = await accountOverviewService.getAccountOverview(userId);
+
+    res.json({
+      success: true,
+      message: 'Ad reward claimed successfully',
+      data: {
+        coinsRewarded: coinsToReward,
+        newBalance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          referenceId: transaction.referenceId,
+          status: transaction.status
+        },
+        cooldown: {
+          hours: COOLDOWN_HOURS,
+          nextRewardAt: new Date(now.getTime() + COOLDOWN_MS).toISOString()
+        },
+        // Return updated account overview progress
+        accountOverview: {
+          progress: accountOverview.progress,
+          totalEarnings: accountOverview.totalEarnings
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error claiming ad reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to claim ad reward',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Helper function to format time remaining
+ */
+function formatTimeRemaining(ms) {
+  if (ms <= 0) return '0 minutes';
+  
+  const hours = Math.floor(ms / (60 * 60 * 1000));
+  const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  
+  if (hours > 0 && minutes > 0) {
+    return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} minute${minutes > 1 ? 's' : ''}`;
+  } else if (hours > 0) {
+    return `${hours} hour${hours > 1 ? 's' : ''}`;
+  } else {
+    return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+  }
+}
 
 module.exports = router;

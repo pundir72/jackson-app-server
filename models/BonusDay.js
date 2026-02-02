@@ -272,6 +272,57 @@ bonusDaySchema.methods.isEligibleForUser = function(userProfile) {
     return false;
   }
   
+  // CRITICAL FIX: Check requiresCompletion flag
+  // If requiresCompletion is true (default), verify that all required days (1 to minStreak) are actually completed
+  if (this.conditions.requiresCompletion !== false) {
+    // Get completed tasks array from userProfile
+    const completedTasks = userProfile.completedTasks || [];
+    const completedTasksSet = new Set(completedTasks);
+    
+    // Calculate the date range for required days
+    // We need to check if all days from day 1 to minStreak are completed
+    // Since we can't know the exact dates without user's account creation date,
+    // we check if the number of completed consecutive days matches minStreak
+    // The streak calculation already ensures consecutive days, so we verify:
+    // 1. Current streak >= minStreak (already checked above)
+    // 2. All days in the consecutive streak are actually completed (checked via completedTasks)
+    
+    // For bonus day at day N, we need to verify that the user has completed
+    // all days from (currentStreak - minStreak + 1) to currentStreak
+    // But since streak is consecutive from today backwards, we just need to verify
+    // that the streak count matches the number of completed tasks in the consecutive range
+    
+    // The safest check: Verify that today is completed (streak starts from today)
+    // and that we have at least minStreak consecutive completed days
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // If today is not completed, bonus day is not eligible
+    if (!completedTasksSet.has(todayStr)) {
+      return false;
+    }
+    
+    // Verify we have at least minStreak consecutive completed days ending today
+    // Count backwards from today to verify consecutive completion
+    let consecutiveCount = 0;
+    const checkDate = new Date(today);
+    for (let i = 0; i < this.conditions.minStreak; i++) {
+      const dateStr = checkDate.toISOString().split('T')[0];
+      if (completedTasksSet.has(dateStr)) {
+        consecutiveCount++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        // Gap found - not all required days are completed
+        return false;
+      }
+    }
+    
+    // Verify we have at least minStreak consecutive days
+    if (consecutiveCount < this.conditions.minStreak) {
+      return false;
+    }
+  }
+  
   return true;
 };
 

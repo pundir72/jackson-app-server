@@ -51,6 +51,28 @@ const calculateWeekNumber = (progress, dateUtc = new Date()) => {
   return Math.max(1, weekNumber);
 };
 
+/**
+ * Get the weekly multiplier for a given week number
+ * 
+ * YEAR TRANSITION BEHAVIOR:
+ * This function handles week numbers that continue across year boundaries.
+ * For weeks beyond the configured multipliers, it uses the highest configured multiplier as fallback.
+ * 
+ * Multiplier Resolution:
+ * - Week 1: 1.0x (base rewards, no multiplier)
+ * - Week 2: Uses week2 multiplier
+ * - Week 3: Uses week3 multiplier (or week2 if week3 not set)
+ * - Week 4: Uses week4 multiplier (or week3/week2 if not set)
+ * - Week 5+: Uses additionalWeeks config if available, otherwise falls back to highest configured multiplier
+ * 
+ * Year Transition Example:
+ * - User in Week 52 (Dec 2024) → Uses configured multiplier for week 52
+ * - User in Week 53 (Jan 2025) → Uses highest configured multiplier (no reset to week 1)
+ * 
+ * @param {Object} config - DailyRewardConfigV2 object
+ * @param {number} weekNumber - Current week number (continues across years)
+ * @returns {number} Multiplier value (1.0 or higher)
+ */
 const getWeekMultiplier = (config, weekNumber) => {
   if (!config || !config.weeklyMultiplier || !config.weeklyMultiplier.enabled) {
     return 1.0;
@@ -88,6 +110,7 @@ const getWeekMultiplier = (config, weekNumber) => {
     return week4 || week3 || week2 || 1.0;
   }
 
+  // For weeks beyond configured range (including year transitions), use highest configured multiplier
   return week4 || week3 || week2 || 1.0;
 };
 
@@ -120,6 +143,32 @@ const getUserFirstWeek = async (userId, DailyRewardProgress) => {
   }
 };
 
+/**
+ * Calculate the user's current week number for Daily Rewards
+ * 
+ * YEAR TRANSITION BEHAVIOR:
+ * The weekly multiplier continues indefinitely across year boundaries. Week numbers are calculated
+ * based on the number of weeks since the user's first week, NOT based on calendar years.
+ * 
+ * Example:
+ * - User starts on Dec 1, 2024 (Week 1)
+ * - Dec 8, 2024 = Week 2
+ * - Dec 29, 2024 = Week 5
+ * - Jan 1, 2025 = Week 5 (continues from previous year, no reset)
+ * - Jan 8, 2025 = Week 6 (continues progression)
+ * 
+ * IMPORTANT: Week numbers do NOT reset on January 1st. The multiplier progression continues
+ * based on the user's first week start date, regardless of calendar year changes.
+ * 
+ * For weeks beyond the configured multipliers (week2, week3, week4, additionalWeeks):
+ * - The system uses the highest configured multiplier as a fallback
+ * - This ensures consistent rewards even after many weeks of participation
+ * 
+ * @param {string} userId - User ID
+ * @param {Date} currentDate - Current date to calculate week number for
+ * @param {Object} DailyRewardProgress - DailyRewardProgress model
+ * @returns {Promise<number>} Week number (1-based, continues indefinitely across years)
+ */
 const calculateUserWeekNumber = async (
   userId,
   currentDate,
@@ -131,12 +180,49 @@ const calculateUserWeekNumber = async (
     return 1;
   }
 
+  // Calculate days since user's first week (continues across year boundaries)
   const daysSinceFirstWeek = Math.floor(
     (currentDate - firstWeekStart) / (24 * 60 * 60 * 1000)
   );
   const weekNumber = Math.floor(daysSinceFirstWeek / 7) + 1;
 
   return Math.max(1, weekNumber);
+};
+
+/**
+ * Calculate year transition metadata for weekly multiplier
+ * @param {Date} firstWeekStart - User's first week start date
+ * @param {Date} currentDate - Current date
+ * @param {number} weekNumber - Current week number
+ * @returns {Object} Year transition metadata
+ */
+const calculateYearTransitionMetadata = (firstWeekStart, currentDate, weekNumber) => {
+  if (!firstWeekStart) {
+    return {
+      hasYearTransition: false,
+      firstWeekYear: null,
+      currentYear: currentDate.getUTCFullYear(),
+      yearsSinceFirstWeek: 0,
+      message: "Week number calculation starts from user's first week. Multipliers continue across year boundaries without reset.",
+    };
+  }
+
+  const firstWeekYear = firstWeekStart.getUTCFullYear();
+  const currentYear = currentDate.getUTCFullYear();
+  const yearsSinceFirstWeek = currentYear - firstWeekYear;
+  const hasYearTransition = yearsSinceFirstWeek > 0;
+
+  return {
+    hasYearTransition,
+    firstWeekYear,
+    currentYear,
+    yearsSinceFirstWeek,
+    firstWeekStart: firstWeekStart.toISOString(),
+    weekNumber,
+    message: hasYearTransition
+      ? `Weekly multiplier continues across year boundaries. You're in Week ${weekNumber} (started in ${firstWeekYear}, currently in ${currentYear}). Multiplier progression does NOT reset on January 1st.`
+      : `You're in Week ${weekNumber}. Weekly multiplier progression continues indefinitely and does not reset on year boundaries.`,
+  };
 };
 
 module.exports = {
@@ -149,4 +235,5 @@ module.exports = {
   applyMultiplier,
   getUserFirstWeek,
   calculateUserWeekNumber,
+  calculateYearTransitionMetadata,
 };

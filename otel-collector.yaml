@@ -1,0 +1,37 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+connectors:
+  spanmetrics:
+    exemplars:
+      enabled: true
+    dimensions:
+      - name: http.method
+      - name: http.route
+      - name: http.status_code
+      - name: service.name
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+  otlphttp:
+    endpoint: "http://tempo:4318"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [batch]
+      exporters: [prometheus]
+
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp, spanmetrics]

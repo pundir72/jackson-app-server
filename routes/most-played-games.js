@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
+const Game = require('../models/Game');
 
 // Game configuration
 const GAME_CONFIG = {
@@ -186,38 +187,85 @@ router.post('/:gameId/play', protect, async (req, res) => {
 });
 
 // Helper functions
+// CRITICAL FIX: Fetch from Game collection and exclude downloaded games
+// Downloaded games should only appear in "My Games → Downloaded", not in global views
 async function getMostPlayedGames(user) {
-  // Sort user's games by play count and recent activity
-  const userGames = user.games || [];
-  const sortedGames = userGames
-    .sort((a, b) => {
-      // Sort by play count first, then by last played
-      if (b.playCount !== a.playCount) {
-        return (b.playCount || 0) - (a.playCount || 0);
+  try {
+    // Get user's downloaded game IDs to exclude them
+    const downloadedGameIds = new Set();
+    if (Array.isArray(user.games) && user.games.length > 0) {
+      user.games
+        .filter((g) => {
+          // A game is considered downloaded if it has installedAt or status is 'installed'
+          return (
+            g.installedAt ||
+            g.status === 'installed' ||
+            (g.date && !g.completed)
+          );
+        })
+        .forEach((g) => {
+          // Add both gameId (string) and _id (if it's an ObjectId) to the set
+          if (g.gameId) {
+            downloadedGameIds.add(String(g.gameId));
+          }
+          if (g._id) {
+            downloadedGameIds.add(String(g._id));
+          }
+        });
+    }
+
+    // Fetch games from Game collection, excluding downloaded games
+    // Sort by popularity metrics (viewCount, playCount, or createdAt as fallback)
+    const query = { status: 'active' };
+    
+    // CRITICAL FIX: Exclude downloaded games
+    // Build exclusion query - exclude games where gameId OR _id matches downloaded games
+    if (downloadedGameIds.size > 0) {
+      const downloadedIdsArray = Array.from(downloadedGameIds);
+      // Exclude by gameId (string) and _id (ObjectId if applicable)
+      query.$and = [
+        { gameId: { $nin: downloadedIdsArray } }
+      ];
+      // Also exclude by _id if any downloaded game IDs are valid ObjectIds
+      const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+      const objectIds = downloadedIdsArray.filter(id => objectIdPattern.test(id));
+      if (objectIds.length > 0) {
+        const mongoose = require('mongoose');
+        query.$and.push({ _id: { $nin: objectIds.map(id => new mongoose.Types.ObjectId(id)) } });
       }
-      return new Date(b.lastPlayed || 0) - new Date(a.lastPlayed || 0);
+    }
+    
+    const mostPlayedGames = await Game.find(query)
+    .select('gameId title description category uiSection metadata gameDetails rewards')
+    .sort({ 
+      // Sort by popularity - you can adjust this based on your metrics
+      createdAt: -1 // Most recent first as fallback
     })
-    .slice(0, 5); // Top 5 most played
+    .limit(5)
+    .lean();
 
-  // Generate game data for each played game
-  const mostPlayedGames = sortedGames.map(game => {
-    const gameData = getGameData(game.gameId);
-    return {
-      ...gameData,
-      playCount: game.playCount || 0,
-      lastPlayed: game.lastPlayed,
-      isInstalled: true,
-      progress: game.completed ? 100 : Math.min((game.lastLevel || 1) * 10, 100)
-    };
-  });
-
-  // If user has less than 5 games, fill with recommendations
-  if (mostPlayedGames.length < 5) {
-    const recommendedGames = getRecommendedGames(user, 5 - mostPlayedGames.length);
-    mostPlayedGames.push(...recommendedGames);
+    // Format the response
+    return mostPlayedGames.map(game => ({
+      gameId: game.gameId,
+      title: game.title,
+      name: game.title, // For backward compatibility
+      description: game.description,
+      category: game.category,
+      icon: game.metadata?.thumbnail?.url || 
+            game.gameDetails?.square_image || 
+            game.gameDetails?.image || 
+            '🎮',
+      rewards: game.rewards || { coins: 0, xp: 0 },
+      isDownloaded: false, // These are not downloaded games
+      isInstalled: false,
+      playCount: 0, // Not from user's games, so no play count
+      progress: 0
+    }));
+  } catch (error) {
+    console.error('Error fetching most played games:', error);
+    // Return empty array on error to prevent breaking the carousel
+    return [];
   }
-
-  return mostPlayedGames;
 }
 
 async function getGamesByCategory(category, userTier, user) {

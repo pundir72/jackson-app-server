@@ -1,0 +1,58 @@
+{
+  "title": "SRE SLO & Error Budget",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["sre", "slo"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Error Ratio (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[5m])) / sum(rate(http_server_requests_total[5m]))",
+          "legendFormat": "error_ratio"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn Rate (5m / SLO 99.9%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[5m])) / sum(rate(http_server_requests_total[5m]))) / 0.001",
+          "legendFormat": "burn_rate_5m"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn Rate (1h / SLO 99.9%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[1h])) / sum(rate(http_server_requests_total[1h]))) / 0.001",
+          "legendFormat": "burn_rate_1h"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Budget Remaining (%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "100 - ((sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[5m])) / sum(rate(http_server_requests_total[5m]))) / 0.001) * 100",
+          "legendFormat": "remaining"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 }
+    }
+  ]
+}

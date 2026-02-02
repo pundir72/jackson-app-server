@@ -1,0 +1,134 @@
+{
+  "title": "SRE Demo Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "10s",
+  "tags": ["sre", "demo"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Inbound Request Rate (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_total[1m]))",
+          "legendFormat": "rps"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Inbound Error Rate (%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[5m])) / sum(rate(http_server_requests_total[5m]))) * 100",
+          "legendFormat": "5xx %"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Inbound Latency (p50/p95/p99 ms)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Connections (Mongo)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "db_client_connections_usage",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbound Request Rate (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_client_duration_milliseconds_count[1m]))",
+          "legendFormat": "outbound"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Container CPU (sre_app)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=\"sre_app\"}[1m]))",
+          "legendFormat": "cpu_cores"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Memory (sre_app)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "container_memory_usage_bytes{container_label_com_docker_compose_service=\"sre_app\"}",
+          "legendFormat": "memory_bytes"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }
+    },
+    {
+      "type": "logs",
+      "title": "Recent HTTP Requests (Logs)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"jackson-app-backend\"} |= \"http_request\""
+        }
+      ],
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 }
+    },
+    {
+      "type": "logs",
+      "title": "Errors (Logs)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"jackson-app-backend\", level=\"error\"}"
+        }
+      ],
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 8 }
+    }
+  ]
+}

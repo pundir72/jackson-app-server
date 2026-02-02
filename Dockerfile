@@ -20,6 +20,9 @@ RUN npm install --timeout=300000 --retry=3
 # Install node-cache
 RUN npm install node-cache
 
+# Create log directory for file transports
+RUN mkdir -p /var/log/app
+
 # Copy application code
 COPY . .
 

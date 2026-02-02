@@ -1,0 +1,42 @@
+{
+  "title": "Logs Explorer",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["sre", "logs"],
+  "panels": [
+    {
+      "type": "logs",
+      "title": "Application Logs (service + trace_id)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{service_name=\"jackson-app-backend\"}"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 }
+    },
+    {
+      "type": "logs",
+      "title": "Errors (trace_id linked)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{service_name=\"jackson-app-backend\", level=\"error\"}"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "gridPos": { "x": 0, "y": 10, "w": 24, "h": 10 }
+    }
+  ]
+}

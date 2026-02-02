@@ -374,6 +374,14 @@ router.get(
       .optional()
       .isInt({ min: 0, max: 11 })
       .withMessage("Month must be between 0 and 11"),
+    query("startDate")
+      .optional()
+      .isISO8601()
+      .withMessage("Start date must be valid ISO 8601 date"),
+    query("endDate")
+      .optional()
+      .isISO8601()
+      .withMessage("End date must be valid ISO 8601 date"),
     query("type")
       .optional()
       .isIn([
@@ -420,14 +428,46 @@ router.get(
         });
       }
 
-      const { year, month, type, status, country, minAge, maxAge, gender } = req.query;
+      const { year, month, startDate, endDate, type, status, country, minAge, maxAge, gender } = req.query;
       const currentDate = new Date();
-      const targetYear = year ? parseInt(year) : currentDate.getFullYear();
-      const targetMonth = month ? parseInt(month) : currentDate.getMonth();
+      
+      // CRITICAL FIX: Support custom date range (startDate/endDate) or fallback to year/month
+      let dateStart, dateEnd;
+      if (startDate || endDate) {
+        // Custom date range provided
+        dateStart = startDate ? new Date(startDate) : new Date(2020, 0, 1);
+        dateEnd = endDate ? new Date(endDate) : new Date(2030, 11, 31);
+        // Set time boundaries for date range
+        if (startDate) {
+          dateStart.setHours(0, 0, 0, 0);
+        }
+        if (endDate) {
+          dateEnd.setHours(23, 59, 59, 999);
+        }
+      } else {
+        // Use year/month (default behavior)
+        const targetYear = year ? parseInt(year) : currentDate.getFullYear();
+        const targetMonth = month ? parseInt(month) : currentDate.getMonth();
+        dateStart = new Date(targetYear, targetMonth, 1);
+        dateEnd = new Date(targetYear, targetMonth + 1, 0);
+        dateEnd.setHours(23, 59, 59, 999);
+      }
 
       let filters = {};
-      if (type) filters.type = type;
-      if (status) filters.status = status;
+      
+      // CRITICAL FIX: Type filter (including survey)
+      if (type) {
+        filters.type = type;
+      }
+      
+      // CRITICAL FIX: Status filter with dynamic expired handling
+      // Note: Expired status is calculated dynamically based on scheduling.endTime
+      // We'll handle expired filtering in post-processing to ensure accuracy
+      if (status && status !== "expired") {
+        // For non-expired statuses, filter normally
+        filters.status = status;
+      }
+      // For "expired" status, we'll filter in post-processing to handle dynamic expiration
       if (country) {
         // Only match challenges that explicitly have the country in their countries array
         filters.$and = filters.$and || [];
@@ -499,11 +539,61 @@ router.get(
         );
       }
 
-      const challenges = await DailyChallenge.getCalendarView(
-        targetYear,
-        targetMonth,
-        filters
-      );
+      // CRITICAL FIX: Use custom date range or year/month for query
+      let challenges;
+      if (startDate || endDate) {
+        // Use custom date range with findByDateRange
+        challenges = await DailyChallenge.findByDateRange(
+          dateStart,
+          dateEnd,
+          filters
+        );
+      } else {
+        // Use getCalendarView with year/month
+        const targetYear = year ? parseInt(year) : currentDate.getFullYear();
+        const targetMonth = month ? parseInt(month) : currentDate.getMonth();
+        challenges = await DailyChallenge.getCalendarView(
+          targetYear,
+          targetMonth,
+          filters
+        );
+      }
+      
+      // CRITICAL FIX: Post-process to handle dynamic expired status calculation
+      // This ensures challenges are correctly filtered even if status hasn't been updated in DB
+      if (status === "expired") {
+        const now = new Date();
+        challenges = challenges.filter((challenge) => {
+          // A challenge is expired if scheduling.endTime < now, regardless of stored status
+          // (unless it's already marked as completed or draft, which are not expired)
+          if (challenge.status === "completed" || challenge.status === "draft") {
+            return false; // Completed and draft are not expired
+          }
+          // CRITICAL FIX: Check if challenge is expired based on endTime
+          // Include challenges that are dynamically expired (endTime < now)
+          // Also include challenges that have stored status of "expired" (for consistency)
+          const isDynamicallyExpired = challenge.scheduling?.endTime && 
+                                       new Date(challenge.scheduling.endTime) < now;
+          const hasStoredExpiredStatus = challenge.status === "expired";
+          
+          // Return true if challenge is expired (either dynamically or stored as expired)
+          return isDynamicallyExpired || hasStoredExpiredStatus;
+        });
+      } else if (status && status !== "completed" && status !== "draft") {
+        // For non-expired statuses (live, scheduled), exclude dynamically expired challenges
+        const now = new Date();
+        challenges = challenges.filter((challenge) => {
+          // Exclude challenges that are actually expired (endTime < now)
+          // unless they're already marked as completed or draft
+          if (challenge.scheduling?.endTime && 
+              new Date(challenge.scheduling.endTime) < now && 
+              challenge.status !== "completed" && 
+              challenge.status !== "draft") {
+            return false; // Filter out dynamically expired challenges
+          }
+          return true;
+        });
+      }
 
       // Group challenges by date for calendar display
       const calendarData = {};
@@ -518,8 +608,10 @@ router.get(
       res.json({
         success: true,
         data: {
-          year: targetYear,
-          month: targetMonth,
+          year: startDate || endDate ? undefined : (year ? parseInt(year) : currentDate.getFullYear()),
+          month: startDate || endDate ? undefined : (month ? parseInt(month) : currentDate.getMonth()),
+          startDate: startDate ? dateStart.toISOString() : undefined,
+          endDate: endDate ? dateEnd.toISOString() : undefined,
           calendarData,
           totalChallenges: challenges.length,
         },
@@ -1332,25 +1424,60 @@ router.put(
 
       const dayNumber = parseInt(req.params.dayNumber);
       
-      // Check if bonus day already exists
-      const existingBonusDay = await BonusDay.findOne({ dayNumber });
+      // CRITICAL FIX: Find ALL bonus days with this dayNumber (including inactive ones)
+      // This prevents duplicates when editing
+      const existingBonusDays = await BonusDay.find({ dayNumber });
       
+      // CRITICAL FIX: If there are existing bonus days, deactivate or delete them to prevent duplicates
+      // We'll keep the first one and update it, deactivate/delete the rest
+      if (existingBonusDays.length > 0) {
+        // Sort by creation date to keep the oldest one
+        existingBonusDays.sort((a, b) => a.createdAt - b.createdAt);
+        const primaryBonusDay = existingBonusDays[0];
+        const duplicateBonusDays = existingBonusDays.slice(1);
+        
+        // Deactivate or delete duplicate entries
+        if (duplicateBonusDays.length > 0) {
+          // Option 1: Delete duplicates (recommended for data consistency)
+          await BonusDay.deleteMany({ 
+            _id: { $in: duplicateBonusDays.map(bd => bd._id) } 
+          });
+          console.log(`Deleted ${duplicateBonusDays.length} duplicate bonus day(s) for day ${dayNumber}`);
+        }
+        
+        // Update the primary bonus day
+        const updateData = {
+          ...req.body,
+          dayNumber,
+          updatedBy: req.user.userId,
+          // CRITICAL FIX: Ensure isActive is set (default to true if not provided)
+          isActive: req.body.isActive !== undefined ? req.body.isActive : true,
+        };
+        
+        const bonusDay = await BonusDay.findByIdAndUpdate(
+          primaryBonusDay._id,
+          updateData,
+          { new: true, runValidators: true }
+        );
+        
+        return res.json({
+          success: true,
+          message: "Bonus day configuration saved successfully",
+          data: bonusDay,
+        });
+      }
+      
+      // No existing bonus day - create new one
       const updateData = {
         ...req.body,
         dayNumber,
+        createdBy: req.user.userId,
         updatedBy: req.user.userId,
+        // CRITICAL FIX: Ensure isActive is set (default to true if not provided)
+        isActive: req.body.isActive !== undefined ? req.body.isActive : true,
       };
-      
-      // Set createdBy if it's a new document (required field)
-      if (!existingBonusDay) {
-        updateData.createdBy = req.user.userId;
-      }
 
-      const bonusDay = await BonusDay.findOneAndUpdate(
-        { dayNumber },
-        updateData,
-        { new: true, upsert: true, runValidators: true }
-      );
+      const bonusDay = await BonusDay.create(updateData);
 
       res.json({
         success: true,
@@ -1380,11 +1507,18 @@ router.delete("/bonus-days/:id", adminAuth, async (req, res) => {
       });
     }
 
-    await BonusDay.findByIdAndDelete(req.params.id);
+    // CRITICAL FIX: Delete ALL bonus days with the same dayNumber to prevent duplicates
+    // This ensures that if there are multiple entries (due to previous bugs), all are removed
+    const dayNumber = bonusDay.dayNumber;
+    const deleteResult = await BonusDay.deleteMany({ dayNumber });
 
     res.json({
       success: true,
-      message: "Bonus day deleted successfully",
+      message: `Bonus day deleted successfully (removed ${deleteResult.deletedCount} entry/entries)`,
+      data: {
+        dayNumber: dayNumber,
+        deletedCount: deleteResult.deletedCount
+      }
     });
   } catch (error) {
     console.error("Error deleting bonus day:", error);

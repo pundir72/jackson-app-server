@@ -235,6 +235,23 @@ router.post(
           weeklyMultiplier.additionalWeeks &&
           Array.isArray(weeklyMultiplier.additionalWeeks)
         ) {
+          // CRITICAL FIX: Check for duplicate weekNumbers within the current request
+          // This prevents duplicate weekNumbers in the same submission
+          // But allows re-adding after deletion (since we only check current request, not existing config)
+          const weekNumbers = weeklyMultiplier.additionalWeeks
+            .map((w) => w && w.weekNumber ? parseInt(w.weekNumber) : null)
+            .filter((num) => num !== null);
+          
+          const uniqueWeekNumbers = [...new Set(weekNumbers)];
+          if (weekNumbers.length !== uniqueWeekNumbers.length) {
+            const duplicates = weekNumbers.filter((num, index) => weekNumbers.indexOf(num) !== index);
+            return res.status(400).json({
+              success: false,
+              error: `Duplicate week numbers are not allowed in additional weeks. Found duplicate: Week ${duplicates[0]}`,
+            });
+          }
+
+          // Validate each week entry
           for (const week of weeklyMultiplier.additionalWeeks) {
             if (!week.weekNumber || week.weekNumber < 5) {
               return res.status(400).json({
@@ -266,14 +283,29 @@ router.post(
         formattedWeeklyMultiplier.enabled &&
         formattedWeeklyMultiplier.additionalWeeks
       ) {
+        // Filter out invalid entries and ensure proper formatting
+        const validWeeks = formattedWeeklyMultiplier.additionalWeeks
+          .filter((w) => w && w.weekNumber && w.multiplier)
+          .map((w) => ({
+            weekNumber: parseInt(w.weekNumber) || w.weekNumber,
+            multiplier: parseFloat(w.multiplier) || w.multiplier,
+          }));
+
+        // CRITICAL FIX: Remove duplicates after formatting (safety check)
+        // This ensures no duplicate weekNumbers even if validation above missed something
+        const seenWeekNumbers = new Set();
+        const uniqueWeeks = validWeeks.filter((w) => {
+          if (seenWeekNumbers.has(w.weekNumber)) {
+            console.warn(`Duplicate weekNumber ${w.weekNumber} detected after formatting, removing duplicate`);
+            return false;
+          }
+          seenWeekNumbers.add(w.weekNumber);
+          return true;
+        });
+
         formattedWeeklyMultiplier = {
           ...formattedWeeklyMultiplier,
-          additionalWeeks: formattedWeeklyMultiplier.additionalWeeks
-            .filter((w) => w && w.weekNumber && w.multiplier) // Filter out invalid entries
-            .map((w) => ({
-              weekNumber: parseInt(w.weekNumber) || w.weekNumber,
-              multiplier: parseFloat(w.multiplier) || w.multiplier,
-            })),
+          additionalWeeks: uniqueWeeks,
         };
         console.log(
           "Formatted weeklyMultiplier with additionalWeeks:",

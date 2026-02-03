@@ -192,12 +192,17 @@ router.get('/user/history/magic-receipts/:receiptOfferId?', protect, async (req,
  * @route   GET /api/bitlabs/user-history/:userId
  * @desc    Get user offer history
  * @access  Private
+ * @note    Returns EXACT same response structure and ALL fields as direct Bitlabs API
+ *          (https://api.bitlabs.ai/v1/client/user/history/offers) for frontend compatibility
  */
 router.get('/user-history/:userId', protect, async (req, res) => {
   try {
     const { userId } = req.params;
     const result = await bitlabsService.getUserOfferHistory(userId);
-    res.json(result);
+    // Return raw Bitlabs response with ALL fields preserved (exact same as direct API)
+    // result.data contains the complete Bitlabs response with all original fields
+    const bitlabsResponse = result.data || result;
+    res.json(bitlabsResponse);
   } catch (error) {
     res.status(error.status || 500).json({
       success: false,
@@ -210,12 +215,17 @@ router.get('/user-history/:userId', protect, async (req, res) => {
  * @route   GET /api/bitlabs/user-history/:userId/:offerId
  * @desc    Get user offer history for specific offer
  * @access  Private
+ * @note    Returns EXACT same response structure and ALL fields as direct Bitlabs API
+ *          (https://api.bitlabs.ai/v1/client/user/history/offers/{offerId}) for frontend compatibility
  */
 router.get('/user-history/:userId/:offerId', protect, async (req, res) => {
   try {
     const { userId, offerId } = req.params;
     const result = await bitlabsService.getUserOfferHistory(userId, offerId);
-    res.json(result);
+    // Return raw Bitlabs response with ALL fields preserved (exact same as direct API)
+    // result.data contains the complete Bitlabs response with all original fields
+    const bitlabsResponse = result.data || result;
+    res.json(bitlabsResponse);
   } catch (error) {
     res.status(error.status || 500).json({
       success: false,

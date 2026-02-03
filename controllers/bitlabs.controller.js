@@ -219,7 +219,32 @@ exports.getUserOfferHistory = async (req, res) => {
 
     // Fetch raw Bitlabs data
     const bitlabsResult = await bitlabsService.getUserOfferHistory(userId, offerId);
-    const bitlabsData = bitlabsResult?.data || bitlabsResult;
+    
+    // Debug logging
+    console.log("🔵 [BITLABS CONTROLLER] Raw Bitlabs result:", {
+      hasData: !!bitlabsResult?.data,
+      hasId: !!bitlabsResult?.id,
+      isArray: Array.isArray(bitlabsResult),
+      isArrayData: Array.isArray(bitlabsResult?.data),
+      keys: bitlabsResult ? Object.keys(bitlabsResult) : [],
+      offerId: offerId,
+    });
+    
+    // Extract the actual offer data from Bitlabs response
+    // Bitlabs returns: { data: {...}, status: "success", trace_id: "..." }
+    // Or directly: { id: ..., ... } for single offer
+    let bitlabsData = bitlabsResult?.data || bitlabsResult;
+    
+    // If bitlabsData is still wrapped, try to extract it
+    if (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.data) {
+      bitlabsData = bitlabsData.data;
+    }
+    
+    console.log("🔵 [BITLABS CONTROLLER] Extracted bitlabsData:", {
+      hasId: !!bitlabsData?.id,
+      isArray: Array.isArray(bitlabsData),
+      keys: bitlabsData ? Object.keys(bitlabsData) : [],
+    });
 
     // Get user from database to apply progression rules
     const user = await User.findById(userId)
@@ -386,20 +411,80 @@ exports.getUserOfferHistory = async (req, res) => {
     let offers = [];
     if (offerId) {
       // Single offer - wrap in array for processing
-      if (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.id) {
-        offers = [bitlabsData];
+      // Check multiple possible structures
+      if (bitlabsData && typeof bitlabsData === 'object') {
+        if (bitlabsData.id) {
+          // Direct offer object with id
+          offers = [bitlabsData];
+        } else if (bitlabsData.data && bitlabsData.data.id) {
+          // Nested in data property
+          offers = [bitlabsData.data];
+        } else if (Object.keys(bitlabsData).length > 0) {
+          // Might be an offer object without explicit id check - include it anyway
+          // Bitlabs offers should have at least some properties
+          console.log("⚠️ [BITLABS CONTROLLER] Single offer without explicit id, but has properties:", Object.keys(bitlabsData));
+          offers = [bitlabsData];
+        }
       }
+      console.log("🔵 [BITLABS CONTROLLER] Single offer extraction result:", {
+        offersCount: offers.length,
+        hasOffer: offers.length > 0,
+        offerId: offers[0]?.id,
+      });
     } else {
       // Multiple offers - could be array or object with data array
       if (Array.isArray(bitlabsData)) {
         offers = bitlabsData;
       } else if (bitlabsData && Array.isArray(bitlabsData.data)) {
         offers = bitlabsData.data;
+      } else if (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.offers) {
+        // Some APIs return { offers: [...] }
+        offers = Array.isArray(bitlabsData.offers) ? bitlabsData.offers : [];
       }
+      console.log("🔵 [BITLABS CONTROLLER] Multiple offers extraction result:", {
+        offersCount: offers.length,
+      });
     }
+    
+    console.log("🔵 [BITLABS CONTROLLER] Final offers array:", {
+      count: offers.length,
+      firstOfferId: offers[0]?.id,
+      firstOfferKeys: offers[0] ? Object.keys(offers[0]) : [],
+    });
+
+    // Track offers that need to be processed without game matching
+    const offersWithoutGame = [];
+
+    console.log("🔵 [BITLABS CONTROLLER] Starting to process offers:", {
+      totalOffers: offers.length,
+    });
 
     for (const offer of offers) {
-      if (!offer || !offer.id) continue;
+      if (!offer) {
+        console.log("⚠️ [BITLABS CONTROLLER] Skipping null/undefined offer");
+        continue;
+      }
+      
+      // Check for id field - Bitlabs might use 'id' or 'offer_id'
+      const offerIdValue = offer.id || offer.offer_id || offer._id;
+      if (!offerIdValue) {
+        console.log("⚠️ [BITLABS CONTROLLER] Skipping offer without id:", {
+          keys: Object.keys(offer),
+          offer: JSON.stringify(offer).substring(0, 200),
+        });
+        continue;
+      }
+      
+      // Normalize the id for consistency
+      if (!offer.id) {
+        offer.id = offerIdValue;
+      }
+
+      console.log("🔵 [BITLABS CONTROLLER] Processing offer:", {
+        offerId: offer.id,
+        hasEvents: !!offer.events,
+        eventsCount: offer.events?.length || 0,
+      });
 
       // Find matching game in our database
       const gameDoc = await Game.findOne({
@@ -411,12 +496,19 @@ exports.getUserOfferHistory = async (req, res) => {
           { "metadata.externalId": offer.id.toString() },
         ],
       }).lean();
+      
+      console.log("🔵 [BITLABS CONTROLLER] Game lookup result:", {
+        offerId: offer.id,
+        gameFound: !!gameDoc,
+        gameId: gameDoc?._id?.toString(),
+      });
 
-      // If game not found in database, skip progression
+      // If game not found in database, mark for later processing without progression rules
       if (!gameDoc) {
         console.log(
-          `⚠️ Game not found in database for bitlabs offer ID: ${offer.id}. Skipping progression.`
+          `⚠️ Game not found in database for bitlabs offer ID: ${offer.id}. Will include without progression rules.`
         );
+        offersWithoutGame.push(offer);
         continue;
       }
 
@@ -802,13 +894,73 @@ exports.getUserOfferHistory = async (req, res) => {
     // Add user XP tier to response
     const userXpTier = getUserXpTier(user);
 
+    // Process offers without matching games (add basic structure, no progression rules)
+    for (const offer of offersWithoutGame) {
+      if (!offer || !offer.id) continue;
+
+      // Add basic progression structure (no rules applied)
+      const payableEvents = offer.events?.filter((e) => e.payable === true) || [];
+      const completedEvents = payableEvents.filter(
+        (e) => e.status === "completed" || e.approved_conversions > 0
+      );
+
+      // Add basic taskProgression structure
+      offer.taskProgression = {
+        hasProgressionRule: false,
+        ruleId: null,
+        ruleName: null,
+        appliedMilestones: null,
+        firstBatchSize: null,
+        nextBatchSize: null,
+        maxBatches: null,
+        completedTasks: completedEvents.length,
+        thresholdReached: false,
+        rewardTransferred: false,
+        coinBoxBalance: 0,
+        canTransfer: false,
+        canUnlockNextTasks: false,
+      };
+
+      // Add basic bonusTasks structure
+      offer.bonusTasks = {
+        hasBonusTasks: false,
+        isEligible: false,
+        bonusTasks: [],
+        message: "Game not found in database - progression rules unavailable",
+      };
+
+      // Add basic progression to events (all unlocked since no rules)
+      if (offer.events && Array.isArray(offer.events)) {
+        offer.events = offer.events.map((event) => {
+          if (!event.payable) return event;
+          return {
+            ...event,
+            progression: {
+              isUnlocked: true,
+              isLocked: false,
+              unlockReason: "No progression rules applied",
+              batchNumber: null,
+            },
+          };
+        });
+      }
+
+    }
+
+    // Combine all processed offers (with and without game matching)
+    // Offers with game matching are already in the offers array (modified in place)
+    // Offers without game matching are in offersWithoutGame (now processed)
+    // Filter out offers that are in offersWithoutGame from the original offers array
+    const offersWithGame = offers.filter(o => o && o.id && !offersWithoutGame.includes(o));
+    const allProcessedOffers = [...offersWithGame, ...offersWithoutGame];
+
     // Transform Bitlabs offers to match Besitos structure: in_progress, available, completed
     // Organize offers by completion status (same as Besitos)
     const inProgressOffers = [];
     const availableOffers = [];
     const completedOffers = [];
 
-    for (const offer of offers) {
+    for (const offer of allProcessedOffers) {
       if (!offer || !offer.id) continue;
 
       // Check if offer is completed (all payable events completed)

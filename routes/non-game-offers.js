@@ -1822,24 +1822,53 @@ router.get("/surveys", protect, async (req, res) => {
         "🔵 [BITLABS API] ===========================================\n"
       );
 
-      if (result.success && result.categorized?.surveys) {
-        surveys = result.categorized.surveys.map((s) => ({
-          ...s,
-          source: "bitlab_direct",
-        }));
-        source = "bitlab_direct";
-        console.log(
-          `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
-        );
+      // Handle both response structures: result.categorized.surveys and result.surveys
+      if (result.success) {
+        const surveysFromResult = result.categorized?.surveys || result.surveys || [];
+        if (surveysFromResult.length > 0) {
+          surveys = surveysFromResult.map((s) => ({
+            ...s,
+            source: "bitlab_direct",
+          }));
+          source = "bitlab_direct";
+          console.log(
+            `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
+          );
+        } else {
+          console.warn(
+            "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="
+          );
+          console.warn("⚠️ [USER BACKEND] Result Success:", result.success);
+          console.warn("⚠️ [USER BACKEND] User Profile:", {
+            country: userProfile.country,
+            platform: userProfile.platform,
+            userId: user._id.toString(),
+          });
+          console.warn(
+            "⚠️ [USER BACKEND] Possible reasons:",
+            "- Bitlabs API not configured properly",
+            "- User country not supported",
+            "- No surveys available for this user profile",
+            "- API token missing or invalid"
+          );
+          console.warn(
+            "⚠️ [USER BACKEND] ==================================================\n"
+          );
+        }
       } else {
         console.error(
           "\n🔴 [USER BACKEND] ========== FALLBACK SURVEY FETCH FAILED =========="
         );
         console.error("🔴 [USER BACKEND] ❌ Result Success:", result.success);
         console.error("🔴 [USER BACKEND] ❌ Result Error:", result.error);
+        console.error("🔴 [USER BACKEND] ❌ User Profile:", {
+          country: userProfile.country,
+          platform: userProfile.platform,
+          userId: user._id.toString(),
+        });
         console.error(
           "🔴 [USER BACKEND] ❌ Surveys Count:",
-          result.categorized?.surveys?.length || 0
+          result.categorized?.surveys?.length || result.surveys?.length || 0
         );
         console.error(
           "🔴 [USER BACKEND] ==================================================\n"

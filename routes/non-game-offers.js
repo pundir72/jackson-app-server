@@ -211,14 +211,17 @@ async function getAdminConfiguredOffers(
     // This ensures click URLs are user-specific and properly tracked
     if (eligibleOffers.length > 0 && userId) {
       try {
+        // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+        // Bitlabs will detect the production server's IP as VPN and return empty results
+        // Only send user profile data, not server IP or userAgent
         const userProfileForAPI = {
           ...userProfile,
           platform: "mobile",
           osVersion: "iOS 15.0",
           appVersion: "1.0.0",
           deviceModel: "iPhone 13",
-          userAgent: req?.headers?.["user-agent"],
-          ip: req?.ip || req?.connection?.remoteAddress,
+          // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+          // Bitlabs will use the X-User-Id header for user tracking instead
         };
 
         // Cashback offers are often US-targeted; ensure country is US when fetching from Bitlabs
@@ -1556,6 +1559,9 @@ router.get("/surveys", protect, async (req, res) => {
             // INDUSTRIAL-LEVEL: Fetch fresh surveys from Bitlabs with user's X-User-Id
             // This ensures click URLs are user-specific and properly tracked
             try {
+              // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+              // Bitlabs will detect the production server's IP as VPN and return empty results
+              // Only send user profile data, not server IP or userAgent
               const bitlabsResult = await bitlabsNonGames.getSurveys({
                 userId: user._id.toString(), // ← User's ID for proper tracking
                 userProfile: {
@@ -1564,8 +1570,8 @@ router.get("/surveys", protect, async (req, res) => {
                   osVersion: "iOS 15.0",
                   appVersion: "1.0.0",
                   deviceModel: "iPhone 13",
-                  userAgent: req.headers["user-agent"],
-                  ip: req.ip || req.connection.remoteAddress,
+                  // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+                  // Bitlabs will use the X-User-Id header for user tracking instead
                 },
                 category,
               });
@@ -1799,6 +1805,9 @@ router.get("/surveys", protect, async (req, res) => {
 
     // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
     if (surveys.length === 0 || useAdminConfig === "false") {
+      // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+      // Bitlabs will detect the production server's IP as VPN and return empty results
+      // Only send user profile data, not server IP
       const result = await bitlabsNonGames.getSurveys({
         userId: user._id.toString(),
         userProfile: {
@@ -1807,8 +1816,8 @@ router.get("/surveys", protect, async (req, res) => {
           osVersion: "iOS 15.0",
           appVersion: "1.0.0",
           deviceModel: "iPhone 13",
-          userAgent: req.headers["user-agent"],
-          ip: req.ip || req.connection.remoteAddress,
+          // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+          // Bitlabs will use the X-User-Id header for user tracking instead
         },
         category,
       });

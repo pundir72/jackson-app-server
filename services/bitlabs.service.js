@@ -1501,10 +1501,8 @@ class BitlabsService {
         params: {},
       });
 
-      return {
-        success: true,
-        data: response.data,
-      };
+      // Return full Bitlabs response structure (data, status, trace_id) for frontend compatibility
+      return response.data;
     } catch (error) {
       console.error("Bitlabs getUserOfferHistory error:", error);
       throw error;

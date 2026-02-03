@@ -119,8 +119,12 @@ exports.getUserData = async (req, res) => {
       logger.warn("Besitos user-data: user not found in local DB", {
         targetUserId: userId,
       });
-      // Return same structure as Bitlabs API (raw data, no wrapper) for frontend compatibility
-      return res.json(besitosData);
+      // Return same structure as Bitlabs API: { data: {...}, status: "success", trace_id: "..." }
+      return res.json({
+        data: besitosData,
+        status: "success",
+        trace_id: `besitos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      });
     }
     logger.info("Besitos user-data local DB summary", {
       targetUserId: userId,
@@ -770,9 +774,13 @@ exports.getUserData = async (req, res) => {
       responseData.taskProgressionRule = null;
     }
 
-    // Return same structure as Bitlabs API (raw data, no wrapper) for frontend compatibility
+    // Return same structure as Bitlabs API: { data: {...}, status: "success", trace_id: "..." }
     // Frontend can use same code for both Besitos and Bitlabs responses
-    res.json(responseData);
+    res.json({
+      data: responseData,
+      status: "success",
+      trace_id: `besitos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    });
   } catch (error) {
     logger.error("Error fetching Besitos user data", {
       error: error.message,

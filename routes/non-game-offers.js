@@ -211,14 +211,17 @@ async function getAdminConfiguredOffers(
     // This ensures click URLs are user-specific and properly tracked
     if (eligibleOffers.length > 0 && userId) {
       try {
+        // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+        // Bitlabs will detect the production server's IP as VPN and return empty results
+        // Only send user profile data, not server IP or userAgent
         const userProfileForAPI = {
           ...userProfile,
           platform: "mobile",
           osVersion: "iOS 15.0",
           appVersion: "1.0.0",
           deviceModel: "iPhone 13",
-          userAgent: req?.headers?.["user-agent"],
-          ip: req?.ip || req?.connection?.remoteAddress,
+          // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+          // Bitlabs will use the X-User-Id header for user tracking instead
         };
 
         // Cashback offers are often US-targeted; ensure country is US when fetching from Bitlabs
@@ -1556,6 +1559,9 @@ router.get("/surveys", protect, async (req, res) => {
             // INDUSTRIAL-LEVEL: Fetch fresh surveys from Bitlabs with user's X-User-Id
             // This ensures click URLs are user-specific and properly tracked
             try {
+              // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+              // Bitlabs will detect the production server's IP as VPN and return empty results
+              // Only send user profile data, not server IP or userAgent
               const bitlabsResult = await bitlabsNonGames.getSurveys({
                 userId: user._id.toString(), // ← User's ID for proper tracking
                 userProfile: {
@@ -1564,8 +1570,8 @@ router.get("/surveys", protect, async (req, res) => {
                   osVersion: "iOS 15.0",
                   appVersion: "1.0.0",
                   deviceModel: "iPhone 13",
-                  userAgent: req.headers["user-agent"],
-                  ip: req.ip || req.connection.remoteAddress,
+                  // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+                  // Bitlabs will use the X-User-Id header for user tracking instead
                 },
                 category,
               });
@@ -1678,46 +1684,73 @@ router.get("/surveys", protect, async (req, res) => {
                 `🟣 [USER BACKEND] ===========================================\n`
               );
 
-              // Only return surveys that have fresh click URLs
-              const availableSurveys = surveysWithFreshUrls.filter(
-                (s) => s.clickUrl !== null
-              );
-
-              console.log(
-                `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
-              );
-              console.log(
-                `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
-              );
-              console.log(
-                `✅ [USER BACKEND] Filtered out (no click URL): ${
-                  surveysWithFreshUrls.length - availableSurveys.length
-                }`
-              );
-              availableSurveys.forEach((survey, index) => {
-                console.log(
-                  `✅ [USER BACKEND] Available Survey ${index + 1}:`,
-                  {
-                    id: survey.id,
-                    title: survey.title,
-                    clickUrl: survey.clickUrl ? "✅" : "❌",
-                  }
+              // Check if VPN restriction was detected
+              const hasVpnRestriction = bitlabsResult.restrictionReason?.using_vpn === true;
+              
+              // If VPN is detected, return all admin-configured surveys even without fresh URLs
+              // This allows users to see surveys even when server IP is flagged as VPN
+              if (hasVpnRestriction) {
+                console.warn(
+                  `\n⚠️ [USER BACKEND] ========== VPN RESTRICTION DETECTED ==========`
                 );
-              });
-              console.log(
-                `✅ [USER BACKEND] ===========================================\n`
-              );
-
-              if (availableSurveys.length > 0) {
-                surveys = availableSurveys;
+                console.warn(
+                  `⚠️ [USER BACKEND] Bitlabs detected VPN on server IP. Returning admin-configured surveys without fresh URLs.`
+                );
+                console.warn(
+                  `⚠️ [USER BACKEND] Surveys will be marked as unavailable but still shown to users.`
+                );
+                console.warn(
+                  `⚠️ [USER BACKEND] ==================================================\n`
+                );
+                
+                // Return all surveys (including those without click URLs) when VPN is detected
+                surveys = surveysWithFreshUrls;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys (VPN restriction active)`
                 );
               } else {
-                console.log(
-                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                // Normal behavior: Only return surveys that have fresh click URLs
+                const availableSurveys = surveysWithFreshUrls.filter(
+                  (s) => s.clickUrl !== null
                 );
+
+                console.log(
+                  `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+                );
+                console.log(
+                  `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
+                );
+                console.log(
+                  `✅ [USER BACKEND] Filtered out (no click URL): ${
+                    surveysWithFreshUrls.length - availableSurveys.length
+                  }`
+                );
+                availableSurveys.forEach((survey, index) => {
+                  console.log(
+                    `✅ [USER BACKEND] Available Survey ${index + 1}:`,
+                    {
+                      id: survey.id,
+                      title: survey.title,
+                      clickUrl: survey.clickUrl ? "✅" : "❌",
+                    }
+                  );
+                });
+                console.log(
+                  `✅ [USER BACKEND] ===========================================\n`
+                );
+
+                if (availableSurveys.length > 0) {
+                  surveys = availableSurveys;
+                  source = "admin_configured";
+                  console.log(
+                    `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                  );
+                } else {
+                  console.log(
+                    `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                  );
+                }
               }
             } catch (bitlabsError) {
               // 🔴 ENHANCED ERROR LOGGING: Log full error details
@@ -1772,6 +1805,9 @@ router.get("/surveys", protect, async (req, res) => {
 
     // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
     if (surveys.length === 0 || useAdminConfig === "false") {
+      // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+      // Bitlabs will detect the production server's IP as VPN and return empty results
+      // Only send user profile data, not server IP
       const result = await bitlabsNonGames.getSurveys({
         userId: user._id.toString(),
         userProfile: {
@@ -1780,8 +1816,8 @@ router.get("/surveys", protect, async (req, res) => {
           osVersion: "iOS 15.0",
           appVersion: "1.0.0",
           deviceModel: "iPhone 13",
-          userAgent: req.headers["user-agent"],
-          ip: req.ip || req.connection.remoteAddress,
+          // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+          // Bitlabs will use the X-User-Id header for user tracking instead
         },
         category,
       });
@@ -1822,24 +1858,53 @@ router.get("/surveys", protect, async (req, res) => {
         "🔵 [BITLABS API] ===========================================\n"
       );
 
-      if (result.success && result.categorized?.surveys) {
-        surveys = result.categorized.surveys.map((s) => ({
-          ...s,
-          source: "bitlab_direct",
-        }));
-        source = "bitlab_direct";
-        console.log(
-          `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
-        );
+      // Handle both response structures: result.categorized.surveys and result.surveys
+      if (result.success) {
+        const surveysFromResult = result.categorized?.surveys || result.surveys || [];
+        if (surveysFromResult.length > 0) {
+          surveys = surveysFromResult.map((s) => ({
+            ...s,
+            source: "bitlab_direct",
+          }));
+          source = "bitlab_direct";
+          console.log(
+            `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
+          );
+        } else {
+          console.warn(
+            "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="
+          );
+          console.warn("⚠️ [USER BACKEND] Result Success:", result.success);
+          console.warn("⚠️ [USER BACKEND] User Profile:", {
+            country: userProfile.country,
+            platform: userProfile.platform,
+            userId: user._id.toString(),
+          });
+          console.warn(
+            "⚠️ [USER BACKEND] Possible reasons:",
+            "- Bitlabs API not configured properly",
+            "- User country not supported",
+            "- No surveys available for this user profile",
+            "- API token missing or invalid"
+          );
+          console.warn(
+            "⚠️ [USER BACKEND] ==================================================\n"
+          );
+        }
       } else {
         console.error(
           "\n🔴 [USER BACKEND] ========== FALLBACK SURVEY FETCH FAILED =========="
         );
         console.error("🔴 [USER BACKEND] ❌ Result Success:", result.success);
         console.error("🔴 [USER BACKEND] ❌ Result Error:", result.error);
+        console.error("🔴 [USER BACKEND] ❌ User Profile:", {
+          country: userProfile.country,
+          platform: userProfile.platform,
+          userId: user._id.toString(),
+        });
         console.error(
           "🔴 [USER BACKEND] ❌ Surveys Count:",
-          result.categorized?.surveys?.length || 0
+          result.categorized?.surveys?.length || result.surveys?.length || 0
         );
         console.error(
           "🔴 [USER BACKEND] ==================================================\n"

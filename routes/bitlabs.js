@@ -190,39 +190,21 @@ router.get('/user/history/magic-receipts/:receiptOfferId?', protect, async (req,
 
 /**
  * @route   GET /api/bitlabs/user-history/:userId
- * @desc    Get user offer history
+ * @desc    Get user offer history with admin-configured progression rules
  * @access  Private
+ * @note    Applies same admin-configured rules as Besitos user-data endpoint
+ *          Returns same structure: { data: {...}, status: "success", trace_id: "..." }
  */
-router.get('/user-history/:userId', protect, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const result = await bitlabsService.getUserOfferHistory(userId);
-    res.json(result);
-  } catch (error) {
-    res.status(error.status || 500).json({
-      success: false,
-      error: error.message || 'Failed to fetch user history'
-    });
-  }
-});
+router.get('/user-history/:userId', protect, bitlabsController.getUserOfferHistory);
 
 /**
  * @route   GET /api/bitlabs/user-history/:userId/:offerId
- * @desc    Get user offer history for specific offer
+ * @desc    Get user offer history for specific offer with admin-configured progression rules
  * @access  Private
+ * @note    Applies same admin-configured rules as Besitos user-data endpoint
+ *          Returns same structure: { data: {...}, status: "success", trace_id: "..." }
  */
-router.get('/user-history/:userId/:offerId', protect, async (req, res) => {
-  try {
-    const { userId, offerId } = req.params;
-    const result = await bitlabsService.getUserOfferHistory(userId, offerId);
-    res.json(result);
-  } catch (error) {
-    res.status(error.status || 500).json({
-      success: false,
-      error: error.message || 'Failed to fetch user offer history'
-    });
-  }
-});
+router.get('/user-history/:userId/:offerId', protect, bitlabsController.getUserOfferHistory);
 
 /**
  * @route   GET /api/bitlabs/user-maid/:userId

@@ -30,7 +30,7 @@ class BitlabsOfferCache {
   async getOffers(queryParams = {}) {
     // Extract userId from queryParams if present
     const { userId, ...restParams } = queryParams;
-    const cacheKey = this.getCacheKey(restParams); // Cache key without userId
+    const cacheKey = this.getCacheKey(restParams, userId); // Include userId in cache key for personalization
 
     // Try to get from cache first
     const cached = cache.get(cacheKey);
@@ -52,13 +52,13 @@ class BitlabsOfferCache {
       // Wait a bit and try cache again
       await new Promise((resolve) => setTimeout(resolve, 1000));
       const { userId, ...restParams } = queryParams;
-      const cacheKey = this.getCacheKey(restParams);
+      const cacheKey = this.getCacheKey(restParams, userId);
       return cache.get(cacheKey) || [];
     }
 
     this.isRefreshing = true;
     const { userId, ...restParams } = queryParams;
-    const cacheKey = this.getCacheKey(restParams); // Cache key without userId
+    const cacheKey = this.getCacheKey(restParams, userId); // Include userId in cache key
 
     try {
       const result = await bitlabsService.getOffers(restParams, userId);
@@ -151,14 +151,16 @@ class BitlabsOfferCache {
   /**
    * Generate cache key from query parameters
    * @param {Object} queryParams - Query parameters
+   * @param {string} userId - Optional user ID for personalization
    * @returns {string} Cache key
    */
-  getCacheKey(queryParams) {
+  getCacheKey(queryParams, userId = null) {
     const sortedParams = Object.keys(queryParams)
       .sort()
       .map((key) => `${key}:${queryParams[key]}`)
       .join("|");
-    return `bitlabs_offers_${sortedParams || "default"}`;
+    const userPart = userId ? `|userId:${userId}` : "";
+    return `bitlabs_offers_${sortedParams || "default"}${userPart}`;
   }
 
   /**

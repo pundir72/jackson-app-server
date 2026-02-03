@@ -1678,46 +1678,73 @@ router.get("/surveys", protect, async (req, res) => {
                 `🟣 [USER BACKEND] ===========================================\n`
               );
 
-              // Only return surveys that have fresh click URLs
-              const availableSurveys = surveysWithFreshUrls.filter(
-                (s) => s.clickUrl !== null
-              );
-
-              console.log(
-                `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
-              );
-              console.log(
-                `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
-              );
-              console.log(
-                `✅ [USER BACKEND] Filtered out (no click URL): ${
-                  surveysWithFreshUrls.length - availableSurveys.length
-                }`
-              );
-              availableSurveys.forEach((survey, index) => {
-                console.log(
-                  `✅ [USER BACKEND] Available Survey ${index + 1}:`,
-                  {
-                    id: survey.id,
-                    title: survey.title,
-                    clickUrl: survey.clickUrl ? "✅" : "❌",
-                  }
+              // Check if VPN restriction was detected
+              const hasVpnRestriction = bitlabsResult.restrictionReason?.using_vpn === true;
+              
+              // If VPN is detected, return all admin-configured surveys even without fresh URLs
+              // This allows users to see surveys even when server IP is flagged as VPN
+              if (hasVpnRestriction) {
+                console.warn(
+                  `\n⚠️ [USER BACKEND] ========== VPN RESTRICTION DETECTED ==========`
                 );
-              });
-              console.log(
-                `✅ [USER BACKEND] ===========================================\n`
-              );
-
-              if (availableSurveys.length > 0) {
-                surveys = availableSurveys;
+                console.warn(
+                  `⚠️ [USER BACKEND] Bitlabs detected VPN on server IP. Returning admin-configured surveys without fresh URLs.`
+                );
+                console.warn(
+                  `⚠️ [USER BACKEND] Surveys will be marked as unavailable but still shown to users.`
+                );
+                console.warn(
+                  `⚠️ [USER BACKEND] ==================================================\n`
+                );
+                
+                // Return all surveys (including those without click URLs) when VPN is detected
+                surveys = surveysWithFreshUrls;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys (VPN restriction active)`
                 );
               } else {
-                console.log(
-                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                // Normal behavior: Only return surveys that have fresh click URLs
+                const availableSurveys = surveysWithFreshUrls.filter(
+                  (s) => s.clickUrl !== null
                 );
+
+                console.log(
+                  `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+                );
+                console.log(
+                  `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
+                );
+                console.log(
+                  `✅ [USER BACKEND] Filtered out (no click URL): ${
+                    surveysWithFreshUrls.length - availableSurveys.length
+                  }`
+                );
+                availableSurveys.forEach((survey, index) => {
+                  console.log(
+                    `✅ [USER BACKEND] Available Survey ${index + 1}:`,
+                    {
+                      id: survey.id,
+                      title: survey.title,
+                      clickUrl: survey.clickUrl ? "✅" : "❌",
+                    }
+                  );
+                });
+                console.log(
+                  `✅ [USER BACKEND] ===========================================\n`
+                );
+
+                if (availableSurveys.length > 0) {
+                  surveys = availableSurveys;
+                  source = "admin_configured";
+                  console.log(
+                    `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                  );
+                } else {
+                  console.log(
+                    `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                  );
+                }
               }
             } catch (bitlabsError) {
               // 🔴 ENHANCED ERROR LOGGING: Log full error details

@@ -562,6 +562,7 @@ async function getSurveys(params = {}) {
       },
       totalSurveys: availableSurveys.length,
       estimatedEarnings,
+      restrictionReason: result.restrictionReason || null, // Pass through VPN/restriction info
     };
   } catch (error) {
     // 🔴 ENHANCED ERROR LOGGING: Log full error details

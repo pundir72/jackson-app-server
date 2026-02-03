@@ -128,8 +128,11 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
       const gameIdToFind = game.gameId?.toString().trim();
 
       if (!gameIdToFind) {
+        console.log(`[BITLABS] No gameId found for game ${game._id}, skipping`);
         return false;
       }
+
+      console.log(`[BITLABS] Checking availability for game ${gameIdToFind}, userId: ${userId}`);
 
       try {
         // Convert platform to devices array for Bitlabs
@@ -146,11 +149,15 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         const queryParams = {
           is_game: true,
           devices: devices.length > 0 ? devices : undefined,
+          userId: userId,  // Add userId for personalized offers
         };
+
+        console.log(`[BITLABS] Fetching offers with params:`, queryParams);
 
         const offers = await bitlabsOfferCache.getOffers(queryParams);
 
         if (!Array.isArray(offers) || offers.length === 0) {
+          console.log(`[BITLABS] No offers returned for game ${gameIdToFind}`);
           return false;
         }
 
@@ -175,8 +182,13 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
 
         const matchingOffer = offers.find(matchesGameId);
 
-        // Only available if Bitlabs still returns this offer
-        return !!matchingOffer;
+        if (matchingOffer) {
+          console.log(`[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${matchingOffer.click_url}`);
+          return { available: true, clickUrl: matchingOffer.click_url };
+        } else {
+          console.log(`[BITLABS] No matching offer found for game ${gameIdToFind}`);
+          return false;
+        }
       } catch (error) {
         console.error(
           `   ❌ [BITLABS] Error checking Bitlabs availability for game ${game.gameId}:`,
@@ -1251,8 +1263,10 @@ router.get("/discover", protect, async (req, res) => {
       const batchStartTime = Date.now();
       const batchChecks = await Promise.all(
         batch.map(async (game) => {
-          const isAvailable = await checkGameAvailability(game, userProfileForAPI, userId);
-          return { game, isAvailable };
+          const availabilityResult = await checkGameAvailability(game, userProfileForAPI, userId);
+          const isAvailable = availabilityResult && (availabilityResult.available === true || availabilityResult === true);
+          const clickUrl = availabilityResult && availabilityResult.clickUrl ? availabilityResult.clickUrl : null;
+          return { game, isAvailable, clickUrl };
         })
       );
       const batchEndTime = Date.now();
@@ -1265,7 +1279,7 @@ router.get("/discover", protect, async (req, res) => {
     const beforeAvailabilityCount = allGames.length;
     const availableGames = availabilityChecks.filter(({ isAvailable }) => isAvailable);
     const unavailableGames = availabilityChecks.filter(({ isAvailable }) => !isAvailable);
-    allGames = availableGames.map(({ game }) => game);
+    allGames = availableGames.map(({ game, clickUrl }) => ({ ...game, clickUrl }));
     
     const afterAvailabilityCount = allGames.length;
     // ===== END REAL-TIME AVAILABILITY CHECKING =====
@@ -1366,6 +1380,7 @@ router.get("/discover", protect, async (req, res) => {
           gender: g.gender,
           ageGroup: g.ageGroup,
           rewards: g.rewards,
+          clickUrl: g.clickUrl || null,  // Include clickUrl for downloads
           icon:
             g.metadata?.thumbnail?.url ||
             g.gameDetails?.square_image ||

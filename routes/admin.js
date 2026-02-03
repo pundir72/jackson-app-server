@@ -2468,6 +2468,8 @@ router.get(
       // ==================== A. GLOBAL KPI CARDS - PARALLELIZED ====================
 
       // OPTIMIZED: Run all independent queries in parallel
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
 
@@ -2483,10 +2485,10 @@ router.get(
         // Total Registered Users
         User.countDocuments(userFilter),
 
-        // Active Users Today (last 24 hours)
+        // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
         User.countDocuments({
           ...userFilter,
-          'dailyActivity.lastActiveDate': { $gte: yesterday },
+          'dailyActivity.activeDates': todayStr,
         }),
 
         // Total Rewards Issued (Coins) - OPTIMIZED: Use aggregation with user filter
@@ -2536,8 +2538,12 @@ router.get(
           }
         })(),
 
-        // Total Redemptions (Currency) - OPTIMIZED
+        // Total Redemptions (Currency) - OPTIMIZED (BUG-040 fix: Include PayoutRequest data)
         (async () => {
+          const PayoutRequest = require('../models/PayoutRequest')
+          
+          // Get redemptions from Transaction collection
+          let transactionRedemptions = 0
           const matchStage = { ...transactionFilter }
           if (userFilterForTransactions) {
             const pipeline = [
@@ -2568,7 +2574,7 @@ router.get(
               },
             ]
             const result = await Transaction.aggregate(pipeline)
-            return result[0]?.total || 0
+            transactionRedemptions = result[0]?.total || 0
           } else {
             matchStage.type = 'redemption'
             matchStage.status = 'completed'
@@ -2576,8 +2582,55 @@ router.get(
               { $match: matchStage },
               { $group: { _id: null, total: { $sum: '$amount' } } },
             ])
-            return result[0]?.total || 0
+            transactionRedemptions = result[0]?.total || 0
           }
+
+          // Get redemptions from PayoutRequest collection (Tremendous payouts)
+          let payoutRequestRedemptions = 0
+          try {
+            // Build date filter for PayoutRequest
+            const payoutDateFilter = {}
+            if (transactionFilter.createdAt) {
+              payoutDateFilter.createdAt = transactionFilter.createdAt
+            }
+
+            // Build user filter for PayoutRequest
+            let payoutUserFilter = {}
+            if (userFilterForTransactions) {
+              // Get user IDs that match the filter
+              const matchingUsers = await User.find(userFilterForTransactions).select('_id').lean()
+              const matchingUserIds = matchingUsers.map(u => u._id)
+              if (matchingUserIds.length > 0) {
+                payoutUserFilter.userId = { $in: matchingUserIds }
+              } else {
+                // No matching users, return 0
+                return transactionRedemptions
+              }
+            }
+
+            // Query PayoutRequest for completed/approved redemptions
+            const payoutQuery = {
+              status: { $in: ['completed', 'approved'] },
+              ...payoutUserFilter,
+              ...payoutDateFilter,
+            }
+            
+            const payoutResult = await PayoutRequest.aggregate([
+              { $match: payoutQuery },
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: '$coinsDeducted' },
+                },
+              },
+            ])
+            payoutRequestRedemptions = payoutResult[0]?.total || 0
+          } catch (error) {
+            console.error('Error calculating PayoutRequest redemptions:', error)
+            // Continue with transaction redemptions only
+          }
+
+          return transactionRedemptions + payoutRequestRedemptions
         })(),
 
         // Avg. XP/User
@@ -3265,6 +3318,8 @@ router.get(
         userFilterForTransactions = userFilter
       }
 
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
 
@@ -3276,9 +3331,10 @@ router.get(
         xpStats,
       ] = await Promise.all([
         User.countDocuments(userFilter),
+        // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
         User.countDocuments({
           ...userFilter,
-          'dailyActivity.lastActiveDate': { $gte: yesterday },
+          'dailyActivity.activeDates': todayStr,
         }),
         (async () => {
           const matchStage = { ...transactionFilter }
@@ -3324,7 +3380,12 @@ router.get(
             return result[0]?.total || 0
           }
         })(),
+        // Total Redemptions (Currency) - Include PayoutRequest data (BUG-040 fix)
         (async () => {
+          const PayoutRequest = require('../models/PayoutRequest')
+          
+          // Get redemptions from Transaction collection
+          let transactionRedemptions = 0
           const matchStage = { ...transactionFilter }
           if (userFilterForTransactions) {
             const pipeline = [
@@ -3355,7 +3416,7 @@ router.get(
               },
             ]
             const result = await Transaction.aggregate(pipeline)
-            return result[0]?.total || 0
+            transactionRedemptions = result[0]?.total || 0
           } else {
             matchStage.type = 'redemption'
             matchStage.status = 'completed'
@@ -3363,8 +3424,55 @@ router.get(
               { $match: matchStage },
               { $group: { _id: null, total: { $sum: '$amount' } } },
             ])
-            return result[0]?.total || 0
+            transactionRedemptions = result[0]?.total || 0
           }
+
+          // Get redemptions from PayoutRequest collection (Tremendous payouts)
+          let payoutRequestRedemptions = 0
+          try {
+            // Build date filter for PayoutRequest
+            const payoutDateFilter = {}
+            if (transactionFilter.createdAt) {
+              payoutDateFilter.createdAt = transactionFilter.createdAt
+            }
+
+            // Build user filter for PayoutRequest
+            let payoutUserFilter = {}
+            if (userFilterForTransactions) {
+              // Get user IDs that match the filter
+              const matchingUsers = await User.find(userFilterForTransactions).select('_id').lean()
+              const matchingUserIds = matchingUsers.map(u => u._id)
+              if (matchingUserIds.length > 0) {
+                payoutUserFilter.userId = { $in: matchingUserIds }
+              } else {
+                // No matching users, return transaction redemptions only
+                return transactionRedemptions
+              }
+            }
+
+            // Query PayoutRequest for completed/approved redemptions
+            const payoutQuery = {
+              status: { $in: ['completed', 'approved'] },
+              ...payoutUserFilter,
+              ...payoutDateFilter,
+            }
+            
+            const payoutResult = await PayoutRequest.aggregate([
+              { $match: payoutQuery },
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: '$coinsDeducted' },
+                },
+              },
+            ])
+            payoutRequestRedemptions = payoutResult[0]?.total || 0
+          } catch (error) {
+            console.error('Error calculating PayoutRequest redemptions:', error)
+            // Continue with transaction redemptions only
+          }
+
+          return transactionRedemptions + payoutRequestRedemptions
         })(),
         User.aggregate([
           { $match: userFilter },

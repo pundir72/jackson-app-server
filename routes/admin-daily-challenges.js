@@ -882,7 +882,7 @@ router.post(
               downloadUrl: external.url || "",
             };
           } else {
-            // Create fallback gameDetails with the provided challenge data
+            // Create fallback gameDetails with provided challenge data
             challengeData.gameDetails = {
               id: challengeData.gameId || "",
               name: challengeData.title || "",
@@ -897,6 +897,120 @@ router.post(
         } catch (error) {
           console.warn(
             "Failed to fetch gameDetails from Besitos:",
+            error.message
+          );
+          // Create fallback gameDetails if API call fails
+          challengeData.gameDetails = {
+            id: challengeData.gameId || "",
+            name: challengeData.title || "",
+            description: challengeData.description || "",
+            image: "",
+            square_image: "",
+            large_image: "",
+            category: "",
+            downloadUrl: "",
+          };
+        }
+      } else if (req.body.gameId && req.body.sdkProvider === "bitlabs") {
+        // Add Bitlabs game details fetching for admin
+        try {
+          const bitlabsController = require("../controllers/bitlabs.controller");
+          // Create a mock request object for bitlabs controller
+          const mockReq = {
+            query: { is_game: "true" },
+          };
+
+          // Create a mock response object to capture the data
+          const captureGame = () => {
+            let payload = null;
+            let code = 200;
+            return {
+              res: {
+                status(c) {
+                  code = c;
+                  return this;
+                },
+                json(obj) {
+                  payload = obj;
+                  return this;
+                },
+              },
+              get() {
+                return payload || { success: false, data: [] };
+              },
+            };
+          };
+
+          const cap = captureGame();
+          await bitlabsController.getOffers(mockReq, cap.res);
+          const ext = cap.get();
+
+          if (
+            ext &&
+            ext.success === true &&
+            Array.isArray(ext.data) &&
+            ext.data.length > 0
+          ) {
+            // Find the specific game by ID
+            const external = ext.data.find(offer => 
+              offer.id?.toString() === req.body.gameId.toString() || 
+              offer.offerId?.toString() === req.body.gameId.toString()
+            );
+
+            if (external) {
+              // Map external details into gameDetails snapshot (same as Game model)
+              // Handle bitlab specific fields for image and download URLs
+              const imageUrl = external.creatives?.icon || 
+                           external.creatives?.images?.["275x275"] || 
+                           external.creatives?.images?.["400x400"] ||
+                           external.icon_url || "";
+              
+              const downloadUrl = external.click_url || 
+                               external.deepLink || 
+                               external.clickUrl || "";
+              
+              challengeData.gameDetails = {
+                id: external.id || external.offerId || "",
+                name: external.title || external.anchor || external.product_name || challengeData.title,
+                description: external.description || challengeData.description,
+                image: imageUrl,
+                square_image: external.creatives?.images?.["275x275"] || imageUrl,
+                large_image: external.creatives?.images?.["400x400"] || external.creatives?.images?.["600x300"] || imageUrl,
+                category: Array.isArray(external.categories) && external.categories[0]
+                  ? external.categories[0]
+                  : external.category || "",
+                downloadUrl: downloadUrl,
+              };
+            } else {
+              console.warn(`Game with ID ${req.body.gameId} not found in Bitlabs offers`);
+              // Create fallback gameDetails with provided challenge data
+              challengeData.gameDetails = {
+                id: challengeData.gameId || "",
+                name: challengeData.title || "",
+                description: challengeData.description || "",
+                image: "",
+                square_image: "",
+                large_image: "",
+                category: "",
+                downloadUrl: "",
+              };
+            }
+          } else {
+            // Create fallback gameDetails with provided challenge data
+            challengeData.gameDetails = {
+              id: challengeData.gameId || "",
+              name: challengeData.title || "",
+              description: challengeData.description || "",
+              image: "",
+              square_image: "",
+              large_image: "",
+              category: "",
+              downloadUrl: "",
+            };
+          }
+        } catch (error) {
+          console.warn(
+            "Failed to fetch gameDetails from Bitlabs:",
             error.message
           );
           // Create fallback gameDetails if API call fails
@@ -1161,7 +1275,7 @@ router.put(
             query: { offer_id: req.body.gameId },
           };
 
-          // Create a mock response object to capture the data
+          // Create a mock response object to capture data
           const captureGame = () => {
             let payload = null;
             let code = 200;
@@ -1211,7 +1325,7 @@ router.put(
               downloadUrl: external.url || "",
             };
           } else {
-            // Create fallback gameDetails with the provided challenge data
+            // Create fallback gameDetails with provided challenge data
             updateData.gameDetails = {
               id: updateData.gameId || "",
               name: updateData.title || "",
@@ -1226,6 +1340,120 @@ router.put(
         } catch (error) {
           console.warn(
             "Failed to fetch gameDetails from Besitos:",
+            error.message
+          );
+          // Create fallback gameDetails if API call fails
+          updateData.gameDetails = {
+            id: updateData.gameId || "",
+            name: updateData.title || "",
+            description: updateData.description || "",
+            image: "",
+            square_image: "",
+            large_image: "",
+            category: "",
+            downloadUrl: "",
+          };
+        }
+      } else if (req.body.gameId && req.body.sdkProvider === "bitlabs") {
+        // Add Bitlabs game details fetching for admin update
+        try {
+          const bitlabsController = require("../controllers/bitlabs.controller");
+          // Create a mock request object for bitlabs controller
+          const mockReq = {
+            query: { is_game: "true" },
+          };
+
+          // Create a mock response object to capture data
+          const captureGame = () => {
+            let payload = null;
+            let code = 200;
+            return {
+              res: {
+                status(c) {
+                  code = c;
+                  return this;
+                },
+                json(obj) {
+                  payload = obj;
+                  return this;
+                },
+              },
+              get() {
+                return payload || { success: false, data: [] };
+              },
+            };
+          };
+
+          const cap = captureGame();
+          await bitlabsController.getOffers(mockReq, cap.res);
+          const ext = cap.get();
+
+          if (
+            ext &&
+            ext.success === true &&
+            Array.isArray(ext.data) &&
+            ext.data.length > 0
+          ) {
+            // Find the specific game by ID
+            const external = ext.data.find(offer => 
+              offer.id?.toString() === req.body.gameId.toString() || 
+              offer.offerId?.toString() === req.body.gameId.toString()
+            );
+
+            if (external) {
+              // Map external details into gameDetails snapshot (same as Game model)
+              // Handle bitlab specific fields for image and download URLs
+              const imageUrl = external.creatives?.icon || 
+                           external.creatives?.images?.["275x275"] || 
+                           external.creatives?.images?.["400x400"] ||
+                           external.icon_url || "";
+              
+              const downloadUrl = external.click_url || 
+                               external.deepLink || 
+                               external.clickUrl || "";
+              
+              updateData.gameDetails = {
+                id: external.id || external.offerId || "",
+                name: external.title || external.anchor || external.product_name || updateData.title,
+                description: external.description || updateData.description,
+                image: imageUrl,
+                square_image: external.creatives?.images?.["275x275"] || imageUrl,
+                large_image: external.creatives?.images?.["400x400"] || external.creatives?.images?.["600x300"] || imageUrl,
+                category: Array.isArray(external.categories) && external.categories[0]
+                  ? external.categories[0]
+                  : external.category || "",
+                downloadUrl: downloadUrl,
+              };
+            } else {
+              console.warn(`Game with ID ${req.body.gameId} not found in Bitlabs offers`);
+              // Create fallback gameDetails with provided challenge data
+              updateData.gameDetails = {
+                id: updateData.gameId || "",
+                name: updateData.title || "",
+                description: updateData.description || "",
+                image: "",
+                square_image: "",
+                large_image: "",
+                category: "",
+                downloadUrl: "",
+              };
+            }
+          } else {
+            // Create fallback gameDetails with provided challenge data
+            updateData.gameDetails = {
+              id: updateData.gameId || "",
+              name: updateData.title || "",
+              description: updateData.description || "",
+              image: "",
+              square_image: "",
+              large_image: "",
+              category: "",
+              downloadUrl: "",
+            };
+          }
+        } catch (error) {
+          console.warn(
+            "Failed to fetch gameDetails from Bitlabs:",
             error.message
           );
           // Create fallback gameDetails if API call fails

@@ -474,6 +474,97 @@ router.post("/create", protect, async (req, res) => {
           downloadUrl: "",
         };
       }
+    } else if (gameId && sdkProvider === "bitlabs") {
+      // Add Bitlabs game details fetching
+      try {
+        const bitlabsController = require("../controllers/bitlabs.controller");
+        const mockReq = { query: { is_game: "true" } };
+        const captureGame = () => {
+          let payload = null;
+          return {
+            res: {
+              json: (data) => {
+                payload = data;
+              },
+              status: (code) => ({
+                json: (data) => {
+                  payload = { ...data, statusCode: code };
+                },
+              }),
+            },
+            get: () => payload,
+          };
+        };
+        const cap = captureGame();
+        await bitlabsController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+
+        if (
+          ext &&
+          ext.success === true &&
+          Array.isArray(ext.data) &&
+          ext.data.length > 0
+        ) {
+          // Find the specific game by ID
+          const external = ext.data.find(offer => 
+            offer.id?.toString() === gameId.toString() || 
+            offer.offerId?.toString() === gameId.toString()
+          );
+
+          if (external) {
+            challengeData.gameDetails = {
+              id: external.id || external.offerId || "",
+              name: external.title || external.anchor || external.product_name || challengeData.title,
+              description: external.description || challengeData.description,
+              image: external.image || external.large_image || "",
+              square_image: external.square_image || "",
+              large_image: external.large_image || external.image || "",
+              category: Array.isArray(external.categories) && external.categories[0]
+                ? external.categories[0]
+                : external.category || "",
+              downloadUrl: external.url || external.downloadUrl || "",
+            };
+          } else {
+            console.warn(`Game with ID ${gameId} not found in Bitlabs offers`);
+            challengeData.gameDetails = {
+              id: challengeData.gameId || "",
+              name: challengeData.title || "",
+              description: challengeData.description || "",
+              image: "",
+              square_image: "",
+              large_image: "",
+              category: "",
+              downloadUrl: "",
+            };
+          }
+        } else {
+          challengeData.gameDetails = {
+            id: challengeData.gameId || "",
+            name: challengeData.title || "",
+            description: challengeData.description || "",
+            image: "",
+            square_image: "",
+            large_image: "",
+            category: "",
+            downloadUrl: "",
+          };
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to fetch gameDetails from Bitlabs:",
+          error.message
+        );
+        challengeData.gameDetails = {
+          id: challengeData.gameId || "",
+          name: challengeData.title || "",
+          description: challengeData.description || "",
+          image: "",
+          square_image: "",
+          large_image: "",
+          category: "",
+          downloadUrl: "",
+        };
+      }
     }
 
     const challenge = await DailyChallenge.create(challengeData);
@@ -780,13 +871,30 @@ router.get("/today", protect, async (req, res) => {
         gameName = challenge.assignedGame.gameId.title;
       } else if (challenge.gameId && challenge.gameDetails?.name) {
         // Challenge has gameId and gameDetails
+        let deepLink = challenge.gameDetails.downloadUrl;
+        
+        // Add user ID to deepLink for bitlabs games (matches discover route behavior)
+        if (challenge.sdkProvider === "bitlabs" && deepLink) {
+          // Replace user ID placeholder or add user ID to URL
+          deepLink = deepLink
+            .replace(/users\/[^\/]+/, `users/${userId}`)
+            .replace(/user_id=[^&]+/, `user_id=${userId}`)
+            .replace(/aff_id=[^&]+/, `aff_id=${userId}`);
+            
+          // If no user ID placeholder exists, add it as a parameter
+          if (!deepLink.includes(`users/${userId}`) && !deepLink.includes(`user_id=${userId}`)) {
+            const separator = deepLink.includes('?') ? '&' : '?';
+            deepLink += `${separator}user_id=${userId}`;
+          }
+        }
+        
         activeGame = {
           id: challenge.gameId,
           name: challenge.gameDetails.name,
           gameId: challenge.gameId,
           iconUrl:
             challenge.gameDetails.image || challenge.gameDetails.square_image,
-          deepLink: challenge.gameDetails.downloadUrl,
+          deepLink: deepLink,
           isRequired: false,
           isSelected: false,
         };
@@ -1284,6 +1392,97 @@ router.put("/:id", protect, async (req, res) => {
       } catch (error) {
         console.warn(
           "Failed to fetch gameDetails from Besitos:",
+          error.message
+        );
+        updateData.gameDetails = {
+          id: updateData.gameId || "",
+          name: updateData.title || "",
+          description: updateData.description || "",
+          image: "",
+          square_image: "",
+          large_image: "",
+          category: "",
+          downloadUrl: "",
+        };
+      }
+    } else if (updateData.gameId && updateData.sdkProvider === "bitlabs") {
+      // Add Bitlabs game details fetching for update
+      try {
+        const bitlabsController = require("../controllers/bitlabs.controller");
+        const mockReq = { query: { is_game: "true" } };
+        const captureGame = () => {
+          let payload = null;
+          return {
+            res: {
+              json: (data) => {
+                payload = data;
+              },
+              status: (code) => ({
+                json: (data) => {
+                  payload = { ...data, statusCode: code };
+                },
+              }),
+            },
+            get: () => payload,
+          };
+        };
+        const cap = captureGame();
+        await bitlabsController.getOffers(mockReq, cap.res);
+        const ext = cap.get();
+
+        if (
+          ext &&
+          ext.success === true &&
+          Array.isArray(ext.data) &&
+          ext.data.length > 0
+        ) {
+          // Find the specific game by ID
+          const external = ext.data.find(offer => 
+            offer.id?.toString() === updateData.gameId.toString() || 
+            offer.offerId?.toString() === updateData.gameId.toString()
+          );
+
+          if (external) {
+            updateData.gameDetails = {
+              id: external.id || external.offerId || "",
+              name: external.title || external.anchor || external.product_name || updateData.title,
+              description: external.description || updateData.description,
+              image: external.image || external.large_image || "",
+              square_image: external.square_image || "",
+              large_image: external.large_image || external.image || "",
+              category: Array.isArray(external.categories) && external.categories[0]
+                ? external.categories[0]
+                : external.category || "",
+              downloadUrl: external.url || external.downloadUrl || "",
+            };
+          } else {
+            console.warn(`Game with ID ${updateData.gameId} not found in Bitlabs offers`);
+            updateData.gameDetails = {
+              id: updateData.gameId || "",
+              name: updateData.title || "",
+              description: updateData.description || "",
+              image: "",
+              square_image: "",
+              large_image: "",
+              category: "",
+              downloadUrl: "",
+            };
+          }
+        } else {
+          updateData.gameDetails = {
+            id: updateData.gameId || "",
+            name: updateData.title || "",
+            description: updateData.description || "",
+            image: "",
+            square_image: "",
+            large_image: "",
+            category: "",
+            downloadUrl: "",
+          };
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to fetch gameDetails from Bitlabs:",
           error.message
         );
         updateData.gameDetails = {

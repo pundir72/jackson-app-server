@@ -232,6 +232,53 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
+    // CRITICAL FIX: Sync games from Besitos API to user.games array
+    try {
+      const besitosService = require("../services/besitos.service");
+      if (besitosService.isConfigured()) {
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        if (allBesitosGames.length > 0) {
+          console.log(`[GAME-LIST] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
+          
+          if (!user.games) user.games = [];
+          
+          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          let syncedCount = 0;
+          
+          for (const besitosGame of allBesitosGames) {
+            const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!gameId || gameId === 'undefined') continue;
+            
+            if (!existingGameIds.has(gameId)) {
+              user.games.push({
+                gameId: gameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              });
+              syncedCount++;
+            }
+          }
+          
+          if (syncedCount > 0 || user.isModified('games')) {
+            await user.save();
+            console.log(`[GAME-LIST] ✅ Synced ${syncedCount} new games. Total: ${user.games.length}`);
+          }
+        }
+      }
+    } catch (syncError) {
+      console.error('[GAME-LIST] Error syncing games from Besitos:', syncError.message);
+    }
+
     const gamesArr = Array.isArray(user.games) ? user.games.slice() : [];
     gamesArr.sort(
       (a, b) =>

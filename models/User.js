@@ -509,6 +509,9 @@ const userSchema = new mongoose.Schema({
         gameId: {
             type: String
         },
+        offerId: {
+            type: String
+        },
         score: {
             type: Number
         },
@@ -518,6 +521,18 @@ const userSchema = new mongoose.Schema({
         },
         date: {
             type: Date
+        },
+        // Game installation tracking
+        installedAt: {
+            type: Date
+        },
+        status: {
+            type: String,
+            enum: ['installed', 'downloaded', 'in_progress', 'completed'],
+            default: 'installed'
+        },
+        trackingId: {
+            type: String
         },
         // Enhanced game tracking for My Games screen
         firstPlayed: {

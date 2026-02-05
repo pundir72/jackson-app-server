@@ -1797,6 +1797,227 @@ router.get("/surveys", protect, async (req, res) => {
             }
           }
         }
+
+        // ========== BESITOS SURVEYS HANDLING ==========
+        // Check for Besitos SDK and get admin-configured Besitos surveys
+        const besitosSDK = await SurveySDK.findOne({
+          name: { $regex: /besitos/i },
+        });
+
+        if (besitosSDK) {
+          console.log(
+            `\n🔵 [USER BACKEND] ========== BESITOS SDK FOUND ==========`
+          );
+          console.log(
+            `🔵 [USER BACKEND] Besitos SDK ID: ${besitosSDK._id}`
+          );
+
+          // Get admin-configured Besitos surveys
+          const besitosConfiguredOffers = await SurveyOffer.find({
+            sdkId: besitosSDK._id,
+            offerType: "survey",
+            status: "live",
+          });
+
+          console.log(
+            `🔵 [USER BACKEND] Total Besitos configured surveys: ${besitosConfiguredOffers.length}`
+          );
+
+          if (besitosConfiguredOffers.length > 0) {
+            // Filter by user eligibility
+            const besitosEligibleOffers = besitosConfiguredOffers.filter(
+              (offer) => offer.isEligibleForUser(userProfile)
+            );
+
+            console.log(
+              `🟢 [USER BACKEND] Besitos eligible surveys: ${besitosEligibleOffers.length}`
+            );
+
+            if (besitosEligibleOffers.length > 0) {
+              try {
+                const besitosService = require("../services/besitos.service");
+
+                // Check if Besitos service is configured
+                if (besitosService.isConfigured()) {
+                  // Extract user's IP address (REQUIRED by Besitos API)
+                  const clientIp =
+                    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+                    req.headers["x-real-ip"] ||
+                    req.headers["cf-connecting-ip"] || // Cloudflare
+                    req.connection?.remoteAddress ||
+                    req.socket?.remoteAddress ||
+                    req.ip ||
+                    "127.0.0.1";
+
+                  // Map platform to device (REQUIRED by Besitos API)
+                  let device = "mobile"; // default
+                  const platform = req.query.platform?.toLowerCase() || "mobile";
+                  if (platform === "web") {
+                    device = "desktop";
+                  } else if (platform === "android" || platform === "ios") {
+                    device = "mobile";
+                  }
+
+                  // Build query params for Besitos API
+                  const besitosQueryParams = {
+                    device: device, // REQUIRED
+                    user_ip: clientIp, // REQUIRED - User's actual IP
+                  };
+
+                  // Add optional parameters
+                  const userGender = getUserGender(user);
+                  if (userGender === "male") {
+                    besitosQueryParams.gender = "m";
+                  } else if (userGender === "female") {
+                    besitosQueryParams.gender = "f";
+                  }
+
+                  if (user.dateOfBirth) {
+                    const dob = new Date(user.dateOfBirth);
+                    besitosQueryParams.dob = dob.toISOString().split("T")[0];
+                  }
+
+                  if (user.location?.current?.postalCode) {
+                    besitosQueryParams.postal_code = user.location.current.postalCode;
+                  }
+
+                  console.log(
+                    `🔵 [USER BACKEND] Fetching Besitos surveys with params:`,
+                    {
+                      device: besitosQueryParams.device,
+                      user_ip: besitosQueryParams.user_ip,
+                      gender: besitosQueryParams.gender || "not provided",
+                      dob: besitosQueryParams.dob || "not provided",
+                    }
+                  );
+
+                  // Get fresh surveys from Besitos API
+                  const besitosResponse = await besitosService.getSurveysWall(
+                    user._id.toString(),
+                    besitosQueryParams
+                  );
+
+                  // Besitos returns array of surveys
+                  const besitosSurveysArray = Array.isArray(besitosResponse)
+                    ? besitosResponse
+                    : besitosResponse?.data || [];
+
+                  console.log(
+                    `🔵 [USER BACKEND] Besitos API returned ${besitosSurveysArray.length} surveys`
+                  );
+
+                  // Match admin-configured surveys with fresh Besitos response
+                  const besitosSurveysWithUrls = besitosEligibleOffers
+                    .map((offer) => {
+                      // Find matching survey in Besitos response by externalId
+                      const matchingSurvey = besitosSurveysArray.find(
+                        (s) =>
+                          s.id?.toString() === offer.externalId ||
+                          s.id === offer.externalId
+                      );
+
+                      if (matchingSurvey && matchingSurvey.url) {
+                        // Convert Besitos survey format to our format
+                        const estimatedTime = matchingSurvey.length
+                          ? Math.round(matchingSurvey.length)
+                          : offer.estimatedTime || 5;
+
+                        // Convert amount to coins (assuming 1 dollar = 50 coins)
+                        const rewardCoins = matchingSurvey.amount
+                          ? Math.round(matchingSurvey.amount * 50)
+                          : offer.coinReward;
+
+                        return {
+                          id: offer.externalId,
+                          surveyId: offer.externalId,
+                          title: offer.title || matchingSurvey.name,
+                          description:
+                            offer.description ||
+                            `Complete this survey to earn $${matchingSurvey.amount || 0}`,
+                          category: offer.category || {
+                            name: "Survey",
+                            name_internal: "Survey",
+                          },
+                          icon: offer.metadata?.thumbnail || "",
+                          banner: offer.metadata?.thumbnail || "",
+                          reward: {
+                            coins: rewardCoins,
+                            currency: "points",
+                            xp: Math.round(rewardCoins * 0.5),
+                          },
+                          estimatedTime: estimatedTime,
+                          clickUrl: matchingSurvey.url, // Fresh URL from Besitos
+                          surveyUrl: matchingSurvey.url,
+                          isAvailable: true,
+                          provider: "besitos",
+                          source: "admin_configured",
+                          // Besitos specific fields
+                          value: matchingSurvey.amount
+                            ? parseFloat(matchingSurvey.amount)
+                            : 0,
+                          cpi: matchingSurvey.cpi
+                            ? parseFloat(matchingSurvey.cpi)
+                            : 0,
+                          amount_currency:
+                            matchingSurvey.amount_currency || "$",
+                        };
+                      } else {
+                        // Survey not available from Besitos
+                        return {
+                          id: offer.externalId,
+                          surveyId: offer.externalId,
+                          title: offer.title,
+                          description: offer.description,
+                          category: offer.category,
+                          icon: offer.metadata?.thumbnail,
+                          banner: offer.metadata?.thumbnail,
+                          reward: {
+                            coins: offer.coinReward,
+                            currency: "points",
+                            xp: Math.round(offer.coinReward * 0.5),
+                          },
+                          estimatedTime: offer.estimatedTime,
+                          clickUrl: null,
+                          surveyUrl: null,
+                          isAvailable: false,
+                          provider: "besitos",
+                          source: "admin_configured",
+                          message: "Survey temporarily unavailable",
+                        };
+                      }
+                    })
+                    .filter((o) => o !== null);
+
+                  // Add Besitos surveys to the main surveys array
+                  const availableBesitosSurveys = besitosSurveysWithUrls.filter(
+                    (s) => s.clickUrl !== null
+                  );
+
+                  if (availableBesitosSurveys.length > 0) {
+                    surveys = [...surveys, ...availableBesitosSurveys];
+                    console.log(
+                      `✅ [USER BACKEND] Added ${availableBesitosSurveys.length} Besitos surveys to results`
+                    );
+                  } else {
+                    console.log(
+                      `⚠️ [USER BACKEND] No Besitos surveys available with fresh URLs`
+                    );
+                  }
+                } else {
+                  console.warn(
+                    `⚠️ [USER BACKEND] Besitos service not configured`
+                  );
+                }
+              } catch (besitosError) {
+                console.error(
+                  "🔴 [USER BACKEND] Error fetching Besitos surveys:",
+                  besitosError.message
+                );
+                // Continue without Besitos surveys
+              }
+            }
+          }
+        }
       } catch (configError) {
         console.error("Error fetching admin-configured offers:", configError);
         // Fall through to BitLab API

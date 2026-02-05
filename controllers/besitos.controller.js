@@ -849,32 +849,122 @@ exports.getConversions = async (req, res) => {
 };
 
 /**
+ * Helper function to get user age
+ */
+function getUserAge(user) {
+  if (user.dateOfBirth) {
+    const today = new Date();
+    const birthDate = new Date(user.dateOfBirth);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birthDate.getDate())
+    ) {
+      age--;
+    }
+    if (age !== null) return age;
+  }
+  if (user.onboarding?.ageRange) {
+    const ageRange = user.onboarding.ageRange;
+    if (ageRange.includes("-")) {
+      const [min, max] = ageRange.split("-").map(Number);
+      return Math.floor((min + max) / 2);
+    }
+  }
+  return 25; // Default fallback
+}
+
+/**
+ * Helper function to get user gender
+ */
+function getUserGender(user) {
+  const gender = user.onboarding?.gender || "other";
+  return String(gender).toLowerCase();
+}
+
+/**
  * Get surveys wall for user
  * @route GET /api/besitos/surveys/:userId
  * @param {string} userId - User ID
- * @query {string} platform - Platform filter
+ * @query {string} platform - Platform filter (android, ios, web) - Maps to device (mobile, tablet, desktop)
  * @access Private (requires authentication)
  */
 exports.getSurveysWall = async (req, res) => {
   try {
     const { userId } = req.params;
-    const queryParams = req.query;
 
-    // Validate that user can only access their own surveys (unless admin)
-    // if (req.user.id !== userId && req.user.role !== 'admin') {
-    //     return res.status(403).json({
-    //         success: false,
-    //         error: {
-    //             message: 'Unauthorized to access this user surveys',
-    //             code: 'FORBIDDEN'
-    //         }
-    //     });
-    // }
+    // Get user from database to extract profile data
+    const user = await User.findById(userId).select(
+      "onboarding location dateOfBirth"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: "User not found",
+          code: "USER_NOT_FOUND",
+        },
+      });
+    }
+
+    // Extract user's IP address from request (REQUIRED by Besitos API)
+    // This is the user's actual IP, not server IP (request comes from user's device)
+    const clientIp =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.headers["x-real-ip"] ||
+      req.headers["cf-connecting-ip"] || // Cloudflare
+      req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "127.0.0.1"; // Fallback
+
+    // Map platform to device (REQUIRED by Besitos API)
+    // platform: android/ios/web → device: mobile/tablet/desktop
+    let device = "mobile"; // default
+    const platform = req.query.platform?.toLowerCase();
+    if (platform === "web") {
+      device = "desktop";
+    } else if (platform === "android" || platform === "ios") {
+      device = "mobile";
+    }
+    // TODO: Add tablet detection if needed (e.g., platform === "ipad")
+
+    // Build query params for Besitos API (according to official documentation)
+    const queryParams = {
+      device: device, // REQUIRED: mobile, tablet, or desktop
+      user_ip: clientIp, // REQUIRED: User's IP address
+    };
+
+    // Add optional parameters if available (improves survey targeting)
+    const userGender = getUserGender(user);
+    if (userGender === "male") {
+      queryParams.gender = "m";
+    } else if (userGender === "female") {
+      queryParams.gender = "f";
+    }
+
+    if (user.dateOfBirth) {
+      // Convert date of birth to YYYY-MM-DD format (Besitos requirement)
+      const dob = new Date(user.dateOfBirth);
+      queryParams.dob = dob.toISOString().split("T")[0];
+    }
+
+    if (user.location?.current?.postalCode) {
+      queryParams.postal_code = user.location.current.postalCode;
+    }
 
     logger.info("Fetching Besitos surveys wall", {
       requesterId: req.user?.id,
       targetUserId: userId,
-      queryParams,
+      queryParams: {
+        device: queryParams.device,
+        user_ip: queryParams.user_ip,
+        gender: queryParams.gender || "not provided",
+        dob: queryParams.dob || "not provided",
+        postal_code: queryParams.postal_code || "not provided",
+      },
     });
 
     const data = await besitosService.getSurveysWall(userId, queryParams);
@@ -888,6 +978,7 @@ exports.getSurveysWall = async (req, res) => {
     logger.error("Error fetching Besitos surveys wall", {
       error: error.message,
       userId: req.params.userId,
+      errorDetails: error.response?.data || error,
     });
 
     res.status(error.status || 500).json({
@@ -895,6 +986,7 @@ exports.getSurveysWall = async (req, res) => {
       error: {
         message: error.message || "Failed to fetch surveys",
         code: "BESITOS_SURVEYS_ERROR",
+        details: error.response?.data || null,
       },
     });
   }

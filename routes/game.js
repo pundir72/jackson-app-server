@@ -822,7 +822,8 @@ router.get("/discover", protect, async (req, res) => {
 
     const userId = req.user.userId;
 
-    const user = await User.findById(userId).lean();
+    // CRITICAL: Explicitly select games field to ensure it's included
+    const user = await User.findById(userId).select('games').lean();
 
     if (!user) {
       return res.status(401).json({
@@ -830,6 +831,26 @@ router.get("/discover", protect, async (req, res) => {
         message: "User not found",
       });
     }
+    
+    // Debug: Log user games status - ALWAYS LOG THIS
+    console.log(`\n[DISCOVER] ========== USER GAMES STATUS ==========`);
+    console.log(`[DISCOVER] User ID: ${userId}`);
+    console.log(`[DISCOVER] Has games field: ${'games' in user}`);
+    console.log(`[DISCOVER] Games is array: ${Array.isArray(user.games)}`);
+    console.log(`[DISCOVER] Games length: ${user.games?.length || 0}`);
+    if (user.games && user.games.length > 0) {
+      console.log(`[DISCOVER] First 3 games sample:`, user.games.slice(0, 3).map(g => ({
+        gameId: g.gameId,
+        offerId: g.offerId,
+        installedAt: g.installedAt,
+        status: g.status,
+        date: g.date,
+        completed: g.completed
+      })));
+    } else {
+      console.log(`[DISCOVER] ⚠️ User has NO games in games array!`);
+    }
+    console.log(`[DISCOVER] =========================================\n`);
 
     // Calculate user profile for display rules
     const gamesDownloaded =
@@ -1244,10 +1265,12 @@ router.get("/discover", protect, async (req, res) => {
         console.log(`[DISCOVER] Downloaded gameIds set size: ${downloadedGameIds.size}`);
         console.log(`[DISCOVER] Downloaded ObjectIds set size: ${downloadedGameObjectIds.size}`);
       } else {
-        console.log(`[DISCOVER] No downloaded games to filter (user.games might be empty or no installed games)`);
+        console.log(`[DISCOVER] ⚠️ No downloaded games to filter (user.games might be empty or no installed games)`);
       }
     } else {
-      console.log(`[DISCOVER] User has no games array or it's empty`);
+      console.log(`[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`);
+      console.log(`[DISCOVER] This means ALL games will be shown, even if they're downloaded!`);
+      console.log(`[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`);
     }
 
     if (!(userProfileGamesCount > 0 && allGames.length === 0)) {

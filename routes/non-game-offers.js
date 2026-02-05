@@ -1458,6 +1458,7 @@ router.get("/surveys", protect, async (req, res) => {
       limit = 20,
       useAdminConfig = "true",
       includeBesitos = "false", // optional flag to always include Besitos along with Bitlabs
+      forceLocalIp = "false", // optional flag: when true, use 127.0.0.1 as user_ip for Besitos (for debugging / VPN issues)
     } = req.query;
     const user = await User.findById(req.user.userId).select(
       "xp vip profile location preferences onboarding"
@@ -1498,6 +1499,9 @@ router.get("/surveys", protect, async (req, res) => {
     // 4. Return surveys with fresh, user-specific click URLs
     //
     // Reference: BITLABS_INDUSTRIAL_SOLUTION.md
+    const includeBesitosFlag = String(includeBesitos).toLowerCase() === "true";
+    const forceLocalIpFlag = String(forceLocalIp).toLowerCase() === "true";
+
     if (useAdminConfig === "true") {
       try {
         const SurveySDK = require("../models/SurveySDK");
@@ -1840,15 +1844,23 @@ router.get("/surveys", protect, async (req, res) => {
 
                 // Check if Besitos service is configured
                 if (besitosService.isConfigured()) {
-                  // Extract user's IP address (REQUIRED by Besitos API)
-                  const clientIp =
-                    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-                    req.headers["x-real-ip"] ||
-                    req.headers["cf-connecting-ip"] || // Cloudflare
-                    req.connection?.remoteAddress ||
-                    req.socket?.remoteAddress ||
-                    req.ip ||
-                    "127.0.0.1";
+                // Extract user's IP address (REQUIRED by Besitos API)
+                let clientIp =
+                  req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+                  req.headers["x-real-ip"] ||
+                  req.headers["cf-connecting-ip"] || // Cloudflare / proxies
+                  req.ip ||
+                  req.connection?.remoteAddress ||
+                  req.socket?.remoteAddress ||
+                  "127.0.0.1";
+
+                // Optional debug: force localhost IP to avoid VPN detection (similar to admin preview)
+                if (forceLocalIpFlag) {
+                  console.warn(
+                    "⚠️ [USER BACKEND] forceLocalIp=true - overriding user_ip to 127.0.0.1 for Besitos"
+                  );
+                  clientIp = "127.0.0.1";
+                }
 
                   // Map platform to device (REQUIRED by Besitos API)
                   let device = "mobile"; // default
@@ -2137,8 +2149,7 @@ router.get("/surveys", protect, async (req, res) => {
     // Step 3: Besitos direct API
     // - If surveys are empty → pure Besitos fallback (same behavior as admin route)
     // - If includeBesitos=true → merge Besitos + Bitlabs results (both providers)
-    const shouldIncludeBesitos =
-      String(includeBesitos).toLowerCase() === "true" || surveys.length === 0;
+    const shouldIncludeBesitos = includeBesitosFlag || surveys.length === 0;
 
     if (shouldIncludeBesitos) {
       try {
@@ -2164,14 +2175,22 @@ router.get("/surveys", protect, async (req, res) => {
           }
 
           // Extract user's IP address (user IP, not server IP)
-          const clientIp =
+          let clientIp =
             req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
             req.headers["x-real-ip"] ||
             req.headers["cf-connecting-ip"] ||
+            req.ip ||
             req.connection?.remoteAddress ||
             req.socket?.remoteAddress ||
-            req.ip ||
             "127.0.0.1";
+
+          // Optional debug: force localhost IP to avoid VPN detection (similar to admin preview)
+          if (forceLocalIpFlag) {
+            console.warn(
+              "⚠️ [USER BACKEND] forceLocalIp=true - overriding user_ip to 127.0.0.1 for Besitos fallback"
+            );
+            clientIp = "127.0.0.1";
+          }
 
           // Map platform to device (android/ios → mobile, web → desktop)
           let device = "mobile";

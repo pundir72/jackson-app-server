@@ -98,6 +98,7 @@ module.exports = {
   BITLABS_API_TOKEN: process.env.BITLABS_API_TOKEN,
   BITLABS_SECRET_KEY: process.env.BITLABS_SECRET_KEY,
   BITLABS_SERVER_TO_SERVER_KEY: process.env.BITLABS_SERVER_TO_SERVER_KEY,
+  BITLABS_WHITELISTED_IP: process.env.BITLABS_WHITELISTED_IP || "127.0.0.1", // Whitelisted server IP to pass via client_ip parameter (defaults to localhost like Besitos)
   BITLABS_REFRESH_INTERVAL_MINUTES:
     parseInt(process.env.BITLABS_REFRESH_INTERVAL_MINUTES) || 5,
 

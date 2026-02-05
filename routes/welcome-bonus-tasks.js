@@ -116,56 +116,36 @@ router.get("/", protect, async (req, res) => {
 
     const maxGamesWithBonus = bonusRule.maxGamesWithBonusTasks || 3;
 
-    // Build eligible game IDs from user's games
-    let eligibleGameIdsForBonus = sortedGames
-      .slice(0, maxGamesWithBonus)
-      .map((g) => String(g.gameId));
+    // Build eligible game IDs from bonus configuration gameGameId (real game IDs)
+    const configuredGameIds = bonusRule.gameBonusTasks
+      .filter(config => config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0)
+      .map(config => config.gameId?.gameId)
+      .filter(gameGameId => gameGameId); // Remove null/undefined
 
-    // If user.games is empty, match downloaded games to DB and use those as eligible
-    // This ensures we show bonus tasks even if user.games isn't populated
-    if (eligibleGameIdsForBonus.length === 0) {
-      console.log(
-        `[Welcome Bonus Tasks] ⚠️ User.games is empty. Matching downloaded games to DB for eligibility...`,
-      );
-      const matchedGameIds = [];
+    console.log(
+      `[Welcome Bonus Tasks] Configured real game IDs from admin:`,
+      configuredGameIds,
+    );
 
-      for (const downloadedGame of downloadedGames.slice(
-        0,
-        maxGamesWithBonus,
-      )) {
-        const gameDoc = await Game.findOne({
-          gameId: downloadedGame.id,
-          sdkProvider: "besitos",
-        })
-          .select("_id")
-          .lean();
-
-        if (gameDoc) {
-          matchedGameIds.push(gameDoc._id.toString());
-          console.log(
-            `[Welcome Bonus Tasks] Matched: ${downloadedGame.id} -> ${gameDoc._id.toString()}`,
-          );
+    // Build a map of configs for quick lookup
+    const configMap = {};
+    bonusRule.gameBonusTasks.forEach(config => {
+      if (config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0) {
+        const gameGameId = config.gameId?.gameId;
+        if (gameGameId) {
+          configMap[gameGameId] = config;
         }
       }
-
-      if (matchedGameIds.length > 0) {
-        console.log(
-          `[Welcome Bonus Tasks] Found ${matchedGameIds.length} eligible games by matching downloaded games to DB`,
-        );
-        eligibleGameIdsForBonus = matchedGameIds;
-      }
-    }
+    });
 
     console.log(
-      `[Welcome Bonus Tasks] Eligible games for bonus (first ${maxGamesWithBonus}):`,
-      eligibleGameIdsForBonus,
+      `[Welcome Bonus Tasks] Built config map with ${Object.keys(configMap).length} games`,
     );
     console.log(
-      `[Welcome Bonus Tasks] Sorted games (first ${maxGamesWithBonus}):`,
-      sortedGames.slice(0, maxGamesWithBonus).map((g) => ({
-        gameId: String(g.gameId),
+      `[Welcome Bonus Tasks] Downloaded games matching bonus config:`,
+      downloadedGames.filter(g => configuredGameIds.includes(g.id)).map(g => ({
+        gameGameId: g.id,
         title: g.title || "N/A",
-        installedAt: g.installedAt || g.date || g.firstPlayed,
       })),
     );
 
@@ -247,38 +227,34 @@ router.get("/", protect, async (req, res) => {
         );
       }
 
-      // Check eligibility: If userGames is empty, show all games with bonus configs (up to maxGamesWithBonus)
-      // If userGames exists, only show games in first N
+      // Check eligibility: Only show games that match bonus config gameGameId
       let isEligibleForBonus = false;
 
-      if (userGames.length === 0) {
-        // When userGames is empty, show games with bonus configs (limited by maxGamesWithBonus)
+      // Check if this downloaded game ID exists in configured game IDs (real game IDs)
+      if (configuredGameIds.includes(downloadedGame.id)) {
         isEligibleForBonus = true;
         console.log(
-          `[Welcome Bonus Tasks] UserGames empty - showing games with bonus configs (current: ${gamesWithBonusTasks.length}/${maxGamesWithBonus})`,
+          `[Welcome Bonus Tasks] ✅ Game ${downloadedGame.title} (${downloadedGame.id}) matches bonus config`,
         );
-      } else if (gameIdString) {
-        // Check if this game is in the eligible list from userGames (only if game exists in DB)
-        isEligibleForBonus = eligibleGameIdsForBonus.some((id) => {
-          if (id === gameIdString) return true;
-          if (
-            mongoose.Types.ObjectId.isValid(id) &&
-            mongoose.Types.ObjectId.isValid(gameIdString)
-          ) {
-            return id === gameIdString;
-          }
-          return false;
-        });
+      } else {
         console.log(
-          `[Welcome Bonus Tasks] Is eligible for bonus: ${isEligibleForBonus} (Game DB ID: ${gameIdString}, Eligible IDs: [${eligibleGameIdsForBonus.join(", ")}])`,
+          `[Welcome Bonus Tasks] ⚠️ Game ${downloadedGame.title} (${downloadedGame.id}) not in bonus config`,
         );
       }
 
       if (!isEligibleForBonus) {
         console.log(
-          `[Welcome Bonus Tasks] ⚠️ Game ${downloadedGame.title} not eligible (not in first ${maxGamesWithBonus} games)`,
+          `[Welcome Bonus Tasks] ⚠️ Game ${downloadedGame.title} not eligible (no bonus config found)`,
         );
         continue;
+      }
+
+      // Limit to maxGamesWithBonus
+      if (gamesWithBonusTasks.length >= maxGamesWithBonus) {
+        console.log(
+          `[Welcome Bonus Tasks] Reached max games limit (${maxGamesWithBonus}), stopping`,
+        );
+        break;
       }
 
       // Limit to maxGamesWithBonus
@@ -324,7 +300,12 @@ router.get("/", protect, async (req, res) => {
         );
       });
 
-      const userInternalEvents = userGame?.playCount || 0;
+      // Count completed goals for event threshold
+      const completedGoalsCount = (downloadedGame.goals && Array.isArray(downloadedGame.goals))
+        ? downloadedGame.goals.filter(goal => goal.completed === true).length
+        : 0;
+      
+      const userInternalEvents = completedGoalsCount; // Use completed goals count as events
       const minimumEventThreshold = gameBonusConfig.minimumEventThreshold;
       const completionDeadlineHours =
         gameBonusConfig.completionDeadlineHours || 24;
@@ -347,7 +328,11 @@ router.get("/", protect, async (req, res) => {
           .sort((a, b) => new Date(a.completed_datetime) - new Date(b.completed_datetime));
 
         if (completedGoals.length > 0) {
-          sharedDeadlineStartTime = new Date(completedGoals[0].completed_datetime);
+          // Handle different datetime formats - keep original format for response
+          const datetimeStr = completedGoals[0].completed_datetime;
+          sharedDeadlineStartTime = datetimeStr.includes(' ') 
+            ? new Date(datetimeStr.replace(' ', 'T') + 'Z') // Convert "2026-02-04 03:57:20" to ISO format
+            : new Date(datetimeStr);
           console.log(`[Welcome Bonus] Timer started at: ${sharedDeadlineStartTime}`);
         } else {
           console.log(`[Welcome Bonus] No goals completed yet. Timer pending.`);
@@ -358,6 +343,19 @@ router.get("/", protect, async (req, res) => {
       const gameDeadline = sharedDeadlineStartTime
         ? new Date(sharedDeadlineStartTime.getTime() + hoursAllowed * 60 * 60 * 1000)
         : null;
+
+      // Helper function to format datetime in "YYYY-MM-DD HH:MM:SS" format
+      const formatDateTime = (date) => {
+        if (!date) return null;
+        const d = new Date(date);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const seconds = String(d.getSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      };
 
       const now = new Date();
       // --- END PART 1 ---
@@ -487,15 +485,22 @@ router.get("/", protect, async (req, res) => {
           let unlockTime = userTask?.unlockedAt || null;
 
           if (index === 0) {
-            // Task 1: Unlocks immediately (check if already unlocked or unlock now)
-            if (!unlockTime) {
-              // First time viewing - unlock it
-              isUnlocked = true;
-              unlockTime = new Date();
-              unlockReason = "Unlocks immediately";
-            } else {
+            // Task 1: Unlocks only when event threshold is met
+            const eventThresholdMet = userInternalEvents >= minimumEventThreshold;
+            
+            if (unlockTime) {
+              // Already unlocked
               isUnlocked = true;
               unlockReason = "Unlocked";
+            } else if (eventThresholdMet) {
+              // Threshold met - unlock now
+              isUnlocked = true;
+              unlockTime = new Date();
+              unlockReason = "Event threshold met";
+            } else {
+              // Threshold not met - keep locked
+              isUnlocked = false;
+              unlockReason = `Complete ${minimumEventThreshold} events first (current: ${userInternalEvents})`;
             }
           } else {
             // Task 2 and 3: Require previous task completion AND event threshold
@@ -575,9 +580,12 @@ router.get("/", protect, async (req, res) => {
             }
           }
 
-          // USE THE SHARED DEADLINE HERE
-          // A task is expired if now > deadline OR if it was completed AFTER the deadline
-          const isExpired = gameDeadline ? (completedAt ? new Date(completedAt) > gameDeadline : now > gameDeadline) : false;
+            // USE THE SHARED DEADLINE HERE
+            // A task is expired if now > deadline OR if it was completed AFTER the deadline
+            const isExpired = gameDeadline ? (completedAt ? new Date(completedAt) > gameDeadline : now > gameDeadline) : false;
+
+            // Format completedAt in original format
+            const formattedCompletedAt = completedAt ? formatDateTime(completedAt) : null;
 
           // Reward eligibility is per-game, not per-task
           // We'll check if ALL tasks are completed after processing all tasks
@@ -598,15 +606,17 @@ router.get("/", protect, async (req, res) => {
               "Unlock this Bonus Task after Minimum Event Threshold is met.",
             isUnlocked: isUnlocked,
             isCompleted: isCompleted,
-            completedAt: completedAt,
+            completedAt: formattedCompletedAt,
             isExpired: isExpired,
             unlockReason: unlockReason,
-            unlockTime: unlockTime,
+            unlockTime: unlockTime ? formatDateTime(unlockTime) : null,
             completionDeadlineHours: completionDeadlineHours,
-            completionDeadline: gameDeadline,
+            completionDeadline: formatDateTime(gameDeadline),
             timeRemaining: gameDeadline ? Math.max(0, gameDeadline.getTime() - now.getTime()) : null,
             minimumEventThreshold: minimumEventThreshold,
             userInternalEvents: userInternalEvents,
+            // Format unlockTime
+            unlockTime: unlockTime ? formatDateTime(unlockTime) : null,
             // Reward information
             rewardEligible: rewardEligible,
             rewardAwarded: rewardAwarded,
@@ -759,6 +769,20 @@ router.get("/", protect, async (req, res) => {
         );
       }
 
+      // Check if game should be filtered out
+      // Filter condition: game is expired AND has no incomplete tasks (no tasks or all tasks completed)
+      const isExpiredGame = gameDeadline ? now > gameDeadline : false;
+      const hasIncompleteTasks = formattedBonusTasks.some(task => !task.isCompleted);
+      const hasNoTasks = formattedBonusTasks.length === 0;
+      
+      // Skip this game if expired (regardless of task status)
+      if (isExpiredGame) {
+        console.log(
+          `[Welcome Bonus Tasks] 🚫 Filtering out expired game: ${downloadedGame.title}`
+        );
+        continue;
+      }
+
       // Add game with bonus tasks
       gamesWithBonusTasks.push({
         gameId: gameIdString,
@@ -771,15 +795,15 @@ router.get("/", protect, async (req, res) => {
         minimumEventThreshold: minimumEventThreshold,
         completionDeadlineHours: completionDeadlineHours,
         taskLogic: "sequential",
-        // ADD THESE TO THE TOP LEVEL
-        completionDeadline: gameDeadline,
-        isExpired: gameDeadline ? now > gameDeadline : false,
-        timerStartedAt: sharedDeadlineStartTime,
+        // ADD THESE TO THE TOP LEVEL - format datetimes
+        completionDeadline: formatDateTime(gameDeadline),
+        isExpired: isExpiredGame,
+        timerStartedAt: formatDateTime(sharedDeadlineStartTime),
         bonusTasks: formattedBonusTasks,
         userProgress: {
           internalEvents: userInternalEvents,
           eventThresholdMet: userInternalEvents >= minimumEventThreshold,
-          gameDownloadTime: gameDownloadTime,
+          gameDownloadTime: formatDateTime(gameDownloadTime),
         },
         maxGamesWithBonusTasks: maxGamesWithBonus,
         userDownloadOrder:
@@ -823,7 +847,7 @@ router.get("/", protect, async (req, res) => {
             downloadedGameIds: downloadedGames.map((g) => g.id),
             userGamesCount: userGames.length,
             userGameIds: userGames.map((g) => String(g.gameId)),
-            eligibleGameIds: eligibleGameIdsForBonus,
+            configuredGameIds: configuredGameIds,
             bonusConfigCount: bonusRule?.gameBonusTasks?.length || 0,
             bonusConfigGameIds:
               bonusRule?.gameBonusTasks?.map((c) =>

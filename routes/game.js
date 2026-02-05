@@ -1126,12 +1126,17 @@ router.get("/discover", protect, async (req, res) => {
       });
       
       // Step 2: Lookup Game documents to get their _id and ensure we have all identifiers
+      // CRITICAL: For Bitlabs/Besitos games, gameId might be stored in gameDetails.id
       if (downloadedGameIds.size > 0) {
         const gameIdArray = Array.from(downloadedGameIds);
-        // Try to find games by gameId
+        // Try to find games by gameId OR gameDetails.id (for Bitlabs/Besitos games)
         const gameDocs = await Game.find({
-          gameId: { $in: gameIdArray }
-        }).select('_id gameId').lean();
+          $or: [
+            { gameId: { $in: gameIdArray } },
+            { 'gameDetails.id': { $in: gameIdArray } },
+            { 'metadata.externalId': { $in: gameIdArray } }
+          ]
+        }).select('_id gameId gameDetails metadata').lean();
         
         console.log(`[DISCOVER] Found ${gameDocs.length} Game documents matching downloaded gameIds`);
         
@@ -1146,6 +1151,18 @@ router.get("/discover", protect, async (req, res) => {
             downloadedGameIds.add(gameIdStr.toLowerCase());
             downloadedGameIds.add(gameIdStr);
           }
+          // CRITICAL: Also add gameDetails.id (for Bitlabs/Besitos games)
+          if (doc.gameDetails?.id) {
+            const externalIdStr = String(doc.gameDetails.id).trim();
+            downloadedGameIds.add(externalIdStr.toLowerCase());
+            downloadedGameIds.add(externalIdStr);
+          }
+          // Also check metadata.externalId
+          if (doc.metadata?.externalId) {
+            const externalIdStr = String(doc.metadata.externalId).trim();
+            downloadedGameIds.add(externalIdStr.toLowerCase());
+            downloadedGameIds.add(externalIdStr);
+          }
         });
         
         // Also check if any downloaded gameIds are actually ObjectIds pointing to Game._id
@@ -1154,7 +1171,7 @@ router.get("/discover", protect, async (req, res) => {
         if (potentialObjectIds.length > 0) {
           const gameDocsByObjectId = await Game.find({
             _id: { $in: potentialObjectIds.map(id => new mongoose.Types.ObjectId(id)) }
-          }).select('_id gameId').lean();
+          }).select('_id gameId gameDetails metadata').lean();
           
           gameDocsByObjectId.forEach((doc) => {
             if (doc._id) {
@@ -1164,6 +1181,17 @@ router.get("/discover", protect, async (req, res) => {
               const gameIdStr = String(doc.gameId).trim();
               downloadedGameIds.add(gameIdStr.toLowerCase());
               downloadedGameIds.add(gameIdStr);
+            }
+            // Also add gameDetails.id
+            if (doc.gameDetails?.id) {
+              const externalIdStr = String(doc.gameDetails.id).trim();
+              downloadedGameIds.add(externalIdStr.toLowerCase());
+              downloadedGameIds.add(externalIdStr);
+            }
+            if (doc.metadata?.externalId) {
+              const externalIdStr = String(doc.metadata.externalId).trim();
+              downloadedGameIds.add(externalIdStr.toLowerCase());
+              downloadedGameIds.add(externalIdStr);
             }
           });
         }
@@ -1181,6 +1209,21 @@ router.get("/discover", protect, async (req, res) => {
                          downloadedGameIds.has(gameIdStr);
           }
           
+          // CRITICAL: Also check gameDetails.id (for Bitlabs/Besitos games)
+          // When games come from Bitlabs, the id (e.g., 1671214) is stored in gameDetails.id
+          if (!gameIdMatch && g.gameDetails?.id) {
+            const externalIdStr = String(g.gameDetails.id).trim();
+            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(externalIdStr);
+          }
+          
+          // Also check metadata.externalId
+          if (!gameIdMatch && g.metadata?.externalId) {
+            const externalIdStr = String(g.metadata.externalId).trim();
+            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(externalIdStr);
+          }
+          
           // Check by _id
           let objectIdMatch = false;
           if (g._id) {
@@ -1191,7 +1234,7 @@ router.get("/discover", protect, async (req, res) => {
           const shouldExclude = gameIdMatch || objectIdMatch;
           
           if (shouldExclude) {
-            console.log(`[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, _id=${g._id}`);
+            console.log(`[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, gameDetails.id=${g.gameDetails?.id}, _id=${g._id}`);
           }
           
           return !shouldExclude;

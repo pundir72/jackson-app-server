@@ -546,6 +546,53 @@ router.post("/install", protect, async (req, res) => {
     
     console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
 
+    // CRITICAL: Sync from Besitos API after installation to ensure we have latest data
+    // This handles cases where user downloads directly from Besitos without calling our install endpoint
+    try {
+      const besitosService = require("../services/besitos.service");
+      if (besitosService.isConfigured()) {
+        console.log(`[GAME-INSTALL] 🔄 Syncing games from Besitos after installation...`);
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        if (allBesitosGames.length > 0) {
+          if (!user.games) user.games = [];
+          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          let syncedCount = 0;
+          
+          for (const besitosGame of allBesitosGames) {
+            const besitosGameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!besitosGameId || besitosGameId === 'undefined' || besitosGameId === 'null') continue;
+            
+            if (!existingGameIds.has(besitosGameId)) {
+              user.games.push({
+                gameId: besitosGameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              });
+              syncedCount++;
+            }
+          }
+          
+          if (syncedCount > 0) {
+            await user.save();
+            console.log(`[GAME-INSTALL] ✅ Synced ${syncedCount} additional games from Besitos. Total: ${user.games.length}`);
+          }
+        }
+      }
+    } catch (syncError) {
+      console.error('[GAME-INSTALL] ⚠️ Error syncing from Besitos (non-critical):', syncError.message);
+      // Don't fail the install if sync fails
+    }
+
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {
       const { invalidateUserCaches } = require("../utils/optimizedProfile");

@@ -310,6 +310,7 @@ router.get('/week', protect, async (req, res) => {
           return {
             ...day.toObject(),
             active: false,
+            status: day.status === 'claimed' ? 'claimed' : 'locked', // If no config, mark as locked (except already claimed)
             rewardType: 'Both',
             rewardCoins: 0,
             rewardXp: 0,
@@ -317,6 +318,13 @@ router.get('/week', protect, async (req, res) => {
             timerLabel: 'Next reward in',
             claimableOnLoginOnly: false
           };
+        }
+        
+        // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+        const isDayActive = dayConfig.active !== false;
+        let dayStatus = day.status;
+        if (!isDayActive && day.status !== 'claimed') {
+          dayStatus = 'locked'; // Disable claiming for inactive days
         }
         
         // Get base reward values from admin config
@@ -342,7 +350,8 @@ router.get('/week', protect, async (req, res) => {
         
         return {
           ...day.toObject(),
-          active: dayConfig.active !== false,
+          status: dayStatus, // Use overridden status
+          active: isDayActive,
           rewardType: rewardType,
           rewardCoins: finalCoins,
           rewardXp: finalXP,
@@ -436,9 +445,18 @@ router.get('/week', protect, async (req, res) => {
       
       const enrichedDays = currentProgress.days.map(day => {
         const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+        
+        // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+        const isDayActive = dayConfig?.active !== false;
+        let dayStatus = day.status;
+        if (!isDayActive && day.status !== 'claimed') {
+          dayStatus = 'locked'; // Disable claiming for inactive days
+        }
+        
         return {
           ...day.toObject(),
-          active: dayConfig?.active !== false,
+          status: dayStatus, // Use overridden status
+          active: isDayActive,
           rewardType: dayConfig?.rewardType || 'Both',
           claimButtonLabel: dayConfig?.claimButtonLabel || 'CLAIM NOW',
           timerLabel: dayConfig?.timerLabel || 'Next reward in',
@@ -522,6 +540,7 @@ router.get('/week', protect, async (req, res) => {
         return {
           ...day.toObject(),
           active: false,
+          status: day.status === 'claimed' ? 'claimed' : 'locked', // If no config, mark as locked (except already claimed)
           rewardType: 'Both',
           rewardCoins: 0,
           rewardXp: 0,
@@ -529,6 +548,13 @@ router.get('/week', protect, async (req, res) => {
           timerLabel: 'Next reward in',
           claimableOnLoginOnly: false
         };
+      }
+      
+      // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+      const isDayActive = dayConfig.active !== false;
+      let dayStatus = day.status;
+      if (!isDayActive && day.status !== 'claimed') {
+        dayStatus = 'locked'; // Disable claiming for inactive days
       }
       
       // Get base reward values from admin config
@@ -554,7 +580,8 @@ router.get('/week', protect, async (req, res) => {
       
       return {
         ...day.toObject(),
-        active: dayConfig.active !== false,
+        status: dayStatus, // Use overridden status
+        active: isDayActive,
         rewardType: rewardType,
         rewardCoins: finalCoins,
         rewardXp: finalXP,

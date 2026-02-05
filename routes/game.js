@@ -1094,12 +1094,8 @@ router.get("/discover", protect, async (req, res) => {
 
     // Hide already downloaded/installed games from discovery listings
     // This ensures games the user has already downloaded are not shown again
+    // CRITICAL FIX: This must happen BEFORE any other filtering to ensure downloaded games are excluded
     if (Array.isArray(user.games) && user.games.length > 0) {
-      // CRITICAL FIX: Collect both gameId and _id from downloaded games
-      // Some games might be stored with gameId as string, others with _id as ObjectId
-      const downloadedGameIds = new Set();
-      const downloadedGameObjectIds = new Set();
-      
       // Get all downloaded game IDs from user.games
       const downloadedGames = user.games.filter((g) => {
         return (
@@ -1109,65 +1105,106 @@ router.get("/discover", protect, async (req, res) => {
         );
       });
       
-      // Collect gameIds from user.games
+      console.log(`[DISCOVER] User has ${downloadedGames.length} downloaded games out of ${user.games.length} total games`);
+      
+      // Collect all possible identifiers for downloaded games
+      const downloadedGameIds = new Set(); // For gameId (string) comparisons
+      const downloadedGameObjectIds = new Set(); // For _id (ObjectId) comparisons
+      
+      // Step 1: Collect gameIds directly from user.games
       downloadedGames.forEach((g) => {
         if (g.gameId) {
-          // Normalize gameId (trim and lowercase for comparison)
-          const normalizedId = String(g.gameId).trim().toLowerCase();
-          downloadedGameIds.add(normalizedId);
-          // Also add original (case-sensitive) version
-          downloadedGameIds.add(String(g.gameId).trim());
+          const gameIdStr = String(g.gameId).trim();
+          // Add both normalized (lowercase) and original versions
+          downloadedGameIds.add(gameIdStr.toLowerCase());
+          downloadedGameIds.add(gameIdStr);
         }
-        // Also add _id if it exists (might be ObjectId or string)
         if (g._id) {
-          const idString = g._id.toString ? g._id.toString() : String(g._id);
-          downloadedGameObjectIds.add(idString);
+          const idStr = g._id.toString ? g._id.toString() : String(g._id);
+          downloadedGameObjectIds.add(idStr);
         }
       });
       
-      // CRITICAL: Also lookup Game documents by gameId to get their _id
-      // This handles cases where user.games[].gameId might be the Game's _id
+      // Step 2: Lookup Game documents to get their _id and ensure we have all identifiers
       if (downloadedGameIds.size > 0) {
+        const gameIdArray = Array.from(downloadedGameIds);
+        // Try to find games by gameId
         const gameDocs = await Game.find({
-          $or: [
-            { gameId: { $in: Array.from(downloadedGameIds) } },
-            { _id: { $in: Array.from(downloadedGameIds).filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id)) } }
-          ]
+          gameId: { $in: gameIdArray }
         }).select('_id gameId').lean();
         
+        console.log(`[DISCOVER] Found ${gameDocs.length} Game documents matching downloaded gameIds`);
+        
         gameDocs.forEach((doc) => {
-          // Add Game's _id to the exclusion set
+          // Add Game's _id to exclusion set
           if (doc._id) {
             downloadedGameObjectIds.add(String(doc._id));
           }
-          // Add Game's gameId (normalized)
+          // Ensure Game's gameId is in the exclusion set
           if (doc.gameId) {
-            downloadedGameIds.add(String(doc.gameId).trim().toLowerCase());
-            downloadedGameIds.add(String(doc.gameId).trim());
+            const gameIdStr = String(doc.gameId).trim();
+            downloadedGameIds.add(gameIdStr.toLowerCase());
+            downloadedGameIds.add(gameIdStr);
           }
         });
+        
+        // Also check if any downloaded gameIds are actually ObjectIds pointing to Game._id
+        const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+        const potentialObjectIds = gameIdArray.filter(id => objectIdPattern.test(id));
+        if (potentialObjectIds.length > 0) {
+          const gameDocsByObjectId = await Game.find({
+            _id: { $in: potentialObjectIds.map(id => new mongoose.Types.ObjectId(id)) }
+          }).select('_id gameId').lean();
+          
+          gameDocsByObjectId.forEach((doc) => {
+            if (doc._id) {
+              downloadedGameObjectIds.add(String(doc._id));
+            }
+            if (doc.gameId) {
+              const gameIdStr = String(doc.gameId).trim();
+              downloadedGameIds.add(gameIdStr.toLowerCase());
+              downloadedGameIds.add(gameIdStr);
+            }
+          });
+        }
       }
 
+      // Step 3: Filter out downloaded games
       if (downloadedGameIds.size > 0 || downloadedGameObjectIds.size > 0) {
         const beforeHideCount = allGames.length;
         allGames = allGames.filter((g) => {
-          // Check by gameId (normalized comparison)
-          const gameIdNormalized = g.gameId ? String(g.gameId).trim().toLowerCase() : null;
-          const gameIdOriginal = g.gameId ? String(g.gameId).trim() : null;
-          const gameIdMatch = (gameIdNormalized && downloadedGameIds.has(gameIdNormalized)) ||
-                             (gameIdOriginal && downloadedGameIds.has(gameIdOriginal));
+          // Check by gameId (both normalized and original)
+          let gameIdMatch = false;
+          if (g.gameId) {
+            const gameIdStr = String(g.gameId).trim();
+            gameIdMatch = downloadedGameIds.has(gameIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(gameIdStr);
+          }
           
-          // Check by _id (ObjectId converted to string)
-          const objectIdMatch = g._id && downloadedGameObjectIds.has(String(g._id));
+          // Check by _id
+          let objectIdMatch = false;
+          if (g._id) {
+            objectIdMatch = downloadedGameObjectIds.has(String(g._id));
+          }
           
           // Exclude if either matches
-          return !gameIdMatch && !objectIdMatch;
+          const shouldExclude = gameIdMatch || objectIdMatch;
+          
+          if (shouldExclude) {
+            console.log(`[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, _id=${g._id}`);
+          }
+          
+          return !shouldExclude;
         });
         const afterHideCount = allGames.length;
         console.log(`[DISCOVER] Filtered downloaded games: ${beforeHideCount} -> ${afterHideCount} (excluded ${beforeHideCount - afterHideCount})`);
-        console.log(`[DISCOVER] Downloaded gameIds: ${Array.from(downloadedGameIds).slice(0, 5).join(', ')}...`);
-        console.log(`[DISCOVER] Downloaded ObjectIds: ${Array.from(downloadedGameObjectIds).slice(0, 5).join(', ')}...`);
+        console.log(`[DISCOVER] Downloaded gameIds set size: ${downloadedGameIds.size}`);
+        console.log(`[DISCOVER] Downloaded ObjectIds set size: ${downloadedGameObjectIds.size}`);
+      } else {
+        console.log(`[DISCOVER] No downloaded games to filter (user.games might be empty or no installed games)`);
       }
+    } else {
+      console.log(`[DISCOVER] User has no games array or it's empty`);
     }
 
     if (!(userProfileGamesCount > 0 && allGames.length === 0)) {

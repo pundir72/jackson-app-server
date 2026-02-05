@@ -236,27 +236,42 @@ router.get("/", protect, async (req, res) => {
     try {
       const besitosService = require("../services/besitos.service");
       if (besitosService.isConfigured()) {
+        console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
         const besitosResponse = await besitosService.getUserData(user._id.toString());
+        console.log(`[GAME-LIST] Besitos response structure:`, {
+          hasData: !!besitosResponse.data,
+          hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
+          hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
+          responseKeys: Object.keys(besitosResponse)
+        });
+        
         const besitosData = besitosResponse.data || besitosResponse;
         
         const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames = besitosData.completed || besitosData.data?.completed || [];
         const allBesitosGames = [...inProgressGames, ...completedGames];
         
+        console.log(`[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
+        
         if (allBesitosGames.length > 0) {
+          console.log(`[GAME-LIST] Sample game structure:`, allBesitosGames[0]);
           console.log(`[GAME-LIST] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
           
           if (!user.games) user.games = [];
           
           const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
-          let syncedCount = 0;
+          console.log(`[GAME-LIST] Current user.games count: ${user.games.length}, existing IDs:`, Array.from(existingGameIds));
           
+          let syncedCount = 0;
           for (const besitosGame of allBesitosGames) {
             const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
-            if (!gameId || gameId === 'undefined') continue;
+            if (!gameId || gameId === 'undefined' || gameId === 'null') {
+              console.log(`[GAME-LIST] ⚠️ Skipping game with invalid ID:`, besitosGame);
+              continue;
+            }
             
             if (!existingGameIds.has(gameId)) {
-              user.games.push({
+              const newGame = {
                 gameId: gameId,
                 offerId: besitosGame.offer_id || besitosGame.id || null,
                 installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
@@ -264,19 +279,32 @@ router.get("/", protect, async (req, res) => {
                 completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
                 completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
                 date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
-              });
+              };
+              user.games.push(newGame);
               syncedCount++;
+              console.log(`[GAME-LIST] ➕ Added game: ${gameId} (${newGame.status})`);
             }
           }
           
           if (syncedCount > 0 || user.isModified('games')) {
             await user.save();
             console.log(`[GAME-LIST] ✅ Synced ${syncedCount} new games. Total: ${user.games.length}`);
+          } else {
+            console.log(`[GAME-LIST] ℹ️ No new games to sync (all games already in user.games)`);
           }
+        } else {
+          console.log(`[GAME-LIST] ⚠️ No games found in Besitos response`);
         }
+      } else {
+        console.log(`[GAME-LIST] ⚠️ Besitos service not configured`);
       }
     } catch (syncError) {
-      console.error('[GAME-LIST] Error syncing games from Besitos:', syncError.message);
+      console.error('[GAME-LIST] ❌ Error syncing games from Besitos:', {
+        message: syncError.message,
+        stack: syncError.stack,
+        status: syncError.status,
+        data: syncError.data
+      });
     }
 
     const gamesArr = Array.isArray(user.games) ? user.games.slice() : [];

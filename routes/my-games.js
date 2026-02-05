@@ -36,14 +36,25 @@ router.get('/', protect, async (req, res) => {
     try {
       const besitosService = require('../services/besitos.service');
       if (besitosService.isConfigured()) {
+        console.log(`[MY-GAMES] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
         const besitosResponse = await besitosService.getUserData(user._id.toString());
+        console.log(`[MY-GAMES] Besitos response structure:`, {
+          hasData: !!besitosResponse.data,
+          hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
+          hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
+          responseKeys: Object.keys(besitosResponse)
+        });
+        
         const besitosData = besitosResponse.data || besitosResponse;
         
         const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames = besitosData.completed || besitosData.data?.completed || [];
         const allBesitosGames = [...inProgressGames, ...completedGames];
         
+        console.log(`[MY-GAMES] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
+        
         if (allBesitosGames.length > 0) {
+          console.log(`[MY-GAMES] Sample game structure:`, allBesitosGames[0]);
           console.log(`[MY-GAMES] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
           
           // Ensure games array exists
@@ -55,16 +66,20 @@ router.get('/', protect, async (req, res) => {
           const existingGameIds = new Set(
             (user.games || []).map(g => String(g.gameId))
           );
+          console.log(`[MY-GAMES] Current user.games count: ${user.games.length}, existing IDs:`, Array.from(existingGameIds));
           
           // Sync games from Besitos
           let syncedCount = 0;
           for (const besitosGame of allBesitosGames) {
             const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
-            if (!gameId || gameId === 'undefined') continue;
+            if (!gameId || gameId === 'undefined' || gameId === 'null') {
+              console.log(`[MY-GAMES] ⚠️ Skipping game with invalid ID:`, besitosGame);
+              continue;
+            }
             
             if (!existingGameIds.has(gameId)) {
               // Add new game to user.games
-              user.games.push({
+              const newGame = {
                 gameId: gameId,
                 offerId: besitosGame.offer_id || besitosGame.id || null,
                 installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
@@ -72,8 +87,10 @@ router.get('/', protect, async (req, res) => {
                 completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
                 completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
                 date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
-              });
+              };
+              user.games.push(newGame);
               syncedCount++;
+              console.log(`[MY-GAMES] ➕ Added game: ${gameId} (${newGame.status})`);
             } else {
               // Update existing game status if needed
               const existingGameIndex = user.games.findIndex(g => String(g.gameId) === gameId);
@@ -83,6 +100,7 @@ router.get('/', protect, async (req, res) => {
                   user.games[existingGameIndex].completed = true;
                   user.games[existingGameIndex].status = 'completed';
                   user.games[existingGameIndex].completedAt = new Date();
+                  console.log(`[MY-GAMES] 🔄 Updated game status to completed: ${gameId}`);
                 }
               }
             }
@@ -91,11 +109,22 @@ router.get('/', protect, async (req, res) => {
           if (syncedCount > 0 || user.isModified('games')) {
             await user.save();
             console.log(`[MY-GAMES] ✅ Synced ${syncedCount} new games to user.games array. Total games: ${user.games.length}`);
+          } else {
+            console.log(`[MY-GAMES] ℹ️ No new games to sync (all games already in user.games)`);
           }
+        } else {
+          console.log(`[MY-GAMES] ⚠️ No games found in Besitos response`);
         }
+      } else {
+        console.log(`[MY-GAMES] ⚠️ Besitos service not configured`);
       }
     } catch (syncError) {
-      console.error('[MY-GAMES] Error syncing games from Besitos:', syncError.message);
+      console.error('[MY-GAMES] ❌ Error syncing games from Besitos:', {
+        message: syncError.message,
+        stack: syncError.stack,
+        status: syncError.status,
+        data: syncError.data
+      });
       // Don't fail the request if sync fails
     }
 
@@ -152,6 +181,81 @@ router.get('/', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get My Games data'
+    });
+  }
+});
+
+/**
+ * POST /api/my-games/sync
+ * Manually sync games from Besitos to user.games array
+ */
+router.post('/sync', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('games');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const besitosService = require('../services/besitos.service');
+    if (!besitosService.isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Besitos service not configured'
+      });
+    }
+
+    console.log(`[MY-GAMES-SYNC] 🔄 Manual sync requested for user: ${user._id.toString()}`);
+    const besitosResponse = await besitosService.getUserData(user._id.toString());
+    const besitosData = besitosResponse.data || besitosResponse;
+    
+    const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+    const completedGames = besitosData.completed || besitosData.data?.completed || [];
+    const allBesitosGames = [...inProgressGames, ...completedGames];
+    
+    if (!user.games) user.games = [];
+    const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+    
+    let syncedCount = 0;
+    for (const besitosGame of allBesitosGames) {
+      const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+      if (!gameId || gameId === 'undefined' || gameId === 'null') continue;
+      
+      if (!existingGameIds.has(gameId)) {
+        user.games.push({
+          gameId: gameId,
+          offerId: besitosGame.offer_id || besitosGame.id || null,
+          installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+          status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
+          completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
+          completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
+          date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+        });
+        syncedCount++;
+      }
+    }
+    
+    if (syncedCount > 0 || user.isModified('games')) {
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      data: {
+        synced: syncedCount,
+        total: user.games.length,
+        inProgress: inProgressGames.length,
+        completed: completedGames.length
+      }
+    });
+  } catch (error) {
+    console.error('[MY-GAMES-SYNC] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to sync games'
     });
   }
 });

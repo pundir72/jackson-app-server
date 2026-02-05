@@ -446,8 +446,8 @@ router.get(
         }
       } else {
         // Use year/month (default behavior)
-        const targetYear = year ? parseInt(year) : currentDate.getFullYear();
-        const targetMonth = month ? parseInt(month) : currentDate.getMonth();
+      const targetYear = year ? parseInt(year) : currentDate.getFullYear();
+      const targetMonth = month ? parseInt(month) : currentDate.getMonth();
         dateStart = new Date(targetYear, targetMonth, 1);
         dateEnd = new Date(targetYear, targetMonth + 1, 0);
         dateEnd.setHours(23, 59, 59, 999);
@@ -553,10 +553,10 @@ router.get(
         const targetYear = year ? parseInt(year) : currentDate.getFullYear();
         const targetMonth = month ? parseInt(month) : currentDate.getMonth();
         challenges = await DailyChallenge.getCalendarView(
-          targetYear,
-          targetMonth,
-          filters
-        );
+        targetYear,
+        targetMonth,
+        filters
+      );
       }
       
       // CRITICAL FIX: Post-process to handle dynamic expired status calculation
@@ -1446,17 +1446,17 @@ router.put(
         }
         
         // Update the primary bonus day
-        const updateData = {
-          ...req.body,
-          dayNumber,
-          updatedBy: req.user.userId,
+      const updateData = {
+        ...req.body,
+        dayNumber,
+        updatedBy: req.user.userId,
           // CRITICAL FIX: Ensure isActive is set (default to true if not provided)
           isActive: req.body.isActive !== undefined ? req.body.isActive : true,
         };
-        
+
         const bonusDay = await BonusDay.findByIdAndUpdate(
           primaryBonusDay._id,
-          updateData,
+        updateData,
           { new: true, runValidators: true }
         );
         

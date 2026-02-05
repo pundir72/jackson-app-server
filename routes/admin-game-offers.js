@@ -4515,28 +4515,48 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
           surveysParams.device = "mobile";
         }
 
-        // Get client IP address from request (same as used for games)
-        // Try multiple ways to get IP (proxy headers, direct connection, etc.)
-        const clientIp =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.headers["x-real-ip"] ||
-          req.connection?.remoteAddress ||
-          req.socket?.remoteAddress ||
-          req.ip ||
-          "127.0.0.1"; // Fallback to localhost if IP not available
+        // CRITICAL: Do NOT send server IP to Besitos for admin preview - it causes VPN detection
+        // Besitos will detect the production server's IP as VPN and return empty results
+        // For admin preview, use localhost IP or omit user_ip if allowed
+        // Note: According to Besitos docs, user_ip is required, so we use localhost for admin preview
+        surveysParams.user_ip = "127.0.0.1"; // Use localhost for admin preview to avoid VPN detection
 
-        surveysParams.user_ip = clientIp;
+        console.log("🔵 [BESITOS ADMIN] Fetching surveys for admin preview with params:", {
+          device: surveysParams.device,
+          user_ip: surveysParams.user_ip,
+          note: "Using localhost IP for admin preview to avoid VPN detection"
+        });
 
         besitosResponse = await besitosService.getSurveys(
           surveysParams,
           "admin-preview"
         );
+
+        console.log("🔵 [BESITOS ADMIN] Survey response received:", {
+          isArray: Array.isArray(besitosResponse),
+          count: Array.isArray(besitosResponse) ? besitosResponse.length : 0,
+          hasData: !!besitosResponse?.data,
+          responseType: typeof besitosResponse
+        });
+
+        // Log if response is empty (possible VPN detection)
+        if ((Array.isArray(besitosResponse) && besitosResponse.length === 0) ||
+            (besitosResponse?.data && Array.isArray(besitosResponse.data) && besitosResponse.data.length === 0)) {
+          console.warn("⚠️ [BESITOS ADMIN] Empty survey response - possible VPN detection or no surveys available");
+          console.warn("⚠️ [BESITOS ADMIN] If this persists, contact Besitos support to whitelist server IP");
+        }
       } catch (error) {
-        console.error("Error fetching Besitos surveys:", error);
+        console.error("❌ [BESITOS ADMIN] Error fetching Besitos surveys:", {
+          message: error.message,
+          status: error.status,
+          response: error.response?.data,
+          note: "If VPN detection, contact Besitos support to whitelist server IP"
+        });
         return res.status(error.status || 500).json({
           success: false,
           message: error.message || "Failed to fetch Besitos surveys",
           data: [],
+          error: error.response?.data || null
         });
       }
 

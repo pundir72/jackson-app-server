@@ -685,11 +685,11 @@ router.get('/status', protect, async (req, res) => {
             };
             
             return {
-              dayNumber: bonusDay.dayNumber,
-              title: bonusDay.title,
-              description: bonusDay.description,
-              primaryReward: bonusDay.primaryReward,
-              alternateReward: bonusDay.alternateReward,
+            dayNumber: bonusDay.dayNumber,
+            title: bonusDay.title,
+            description: bonusDay.description,
+            primaryReward: bonusDay.primaryReward,
+            alternateReward: bonusDay.alternateReward,
               isReached: areAllRequiredDaysCompleted(bonusDay), // CRITICAL FIX: Use completion check, not just streak count
               daysRemaining: Math.max(0, bonusDay.conditions.minStreak - currentStreak),
               resetRule: resetRuleInfo // Add reset rule information

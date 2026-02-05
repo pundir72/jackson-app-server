@@ -28,7 +28,7 @@ async function getXpRangeFromTier(tier) {
     if (!tierDocAnyStatus.status) {
       throw new Error(`TIER_INACTIVE: Tier "${tier}" exists but is inactive. Please activate the tier in XP Tier V2 settings before creating decay rules.`)
     }
-    
+
     // Tier exists and is active - return XP range data
     return {
       xpRange: tierDocAnyStatus.xpRange,
@@ -249,11 +249,11 @@ router.post('/xp-decay-v2', async (req, res) => {
           suggestion: `Please activate the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings.`,
         })
       } else {
-        return res.status(400).json({
-          success: false,
+      return res.status(400).json({
+        success: false,
           error: `Failed to fetch XP range for tier "${normalizedTierValue}". ${error.message}`,
           errorCode: 'TIER_FETCH_ERROR',
-        })
+      })
       }
     }
 
@@ -352,13 +352,13 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     // Only validate if tierValue is being updated (not undefined)
     if (tierValue !== undefined) {
       // Check for empty, null, or whitespace-only values
-      if (
+    if (
         !normalizedTierValue || 
         normalizedTierValue === '' || 
         (typeof normalizedTierValue === 'string' && normalizedTierValue.trim() === '')
-      ) {
-        return res.status(400).json({
-          success: false,
+    ) {
+      return res.status(400).json({
+        success: false,
           error: 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
           errorCode: 'TIER_REQUIRED',
           field: 'tier',
@@ -375,7 +375,7 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
           field: 'tier',
           receivedValue: normalizedTierValue,
           allowedValues: ['Junior', 'Middle', 'Senior'],
-        })
+      })
       }
     }
 
@@ -462,11 +462,11 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
             suggestion: `Please activate the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings.`,
           })
         } else {
-          return res.status(400).json({
-            success: false,
+        return res.status(400).json({
+          success: false,
             error: `Failed to fetch XP range for tier "${normalizedTierValue}". ${error.message}`,
             errorCode: 'TIER_FETCH_ERROR',
-          })
+        })
         }
       }
     }

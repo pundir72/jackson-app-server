@@ -1711,45 +1711,45 @@ router.get("/surveys", protect, async (req, res) => {
                 );
               } else {
                 // Normal behavior: Only return surveys that have fresh click URLs
-                const availableSurveys = surveysWithFreshUrls.filter(
-                  (s) => s.clickUrl !== null
-                );
+              const availableSurveys = surveysWithFreshUrls.filter(
+                (s) => s.clickUrl !== null
+              );
 
+              console.log(
+                `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+              );
+              console.log(
+                `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
+              );
+              console.log(
+                `✅ [USER BACKEND] Filtered out (no click URL): ${
+                  surveysWithFreshUrls.length - availableSurveys.length
+                }`
+              );
+              availableSurveys.forEach((survey, index) => {
                 console.log(
-                  `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+                  `✅ [USER BACKEND] Available Survey ${index + 1}:`,
+                  {
+                    id: survey.id,
+                    title: survey.title,
+                    clickUrl: survey.clickUrl ? "✅" : "❌",
+                  }
                 );
-                console.log(
-                  `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
-                );
-                console.log(
-                  `✅ [USER BACKEND] Filtered out (no click URL): ${
-                    surveysWithFreshUrls.length - availableSurveys.length
-                  }`
-                );
-                availableSurveys.forEach((survey, index) => {
-                  console.log(
-                    `✅ [USER BACKEND] Available Survey ${index + 1}:`,
-                    {
-                      id: survey.id,
-                      title: survey.title,
-                      clickUrl: survey.clickUrl ? "✅" : "❌",
-                    }
-                  );
-                });
-                console.log(
-                  `✅ [USER BACKEND] ===========================================\n`
-                );
+              });
+              console.log(
+                `✅ [USER BACKEND] ===========================================\n`
+              );
 
-                if (availableSurveys.length > 0) {
-                  surveys = availableSurveys;
-                  source = "admin_configured";
-                  console.log(
-                    `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
-                  );
-                } else {
-                  console.log(
-                    `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
-                  );
+              if (availableSurveys.length > 0) {
+                surveys = availableSurveys;
+                source = "admin_configured";
+                console.log(
+                  `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                );
+              } else {
+                console.log(
+                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                );
                 }
               }
             } catch (bitlabsError) {
@@ -1863,13 +1863,13 @@ router.get("/surveys", protect, async (req, res) => {
         const surveysFromResult = result.categorized?.surveys || result.surveys || [];
         if (surveysFromResult.length > 0) {
           surveys = surveysFromResult.map((s) => ({
-            ...s,
-            source: "bitlab_direct",
-          }));
-          source = "bitlab_direct";
-          console.log(
-            `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
-          );
+          ...s,
+          source: "bitlab_direct",
+        }));
+        source = "bitlab_direct";
+        console.log(
+          `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
+        );
         } else {
           console.warn(
             "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="

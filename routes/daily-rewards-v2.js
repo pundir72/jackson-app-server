@@ -206,7 +206,7 @@ function calculateMidWeekJoinMetadata(weekStart, weekEnd, userCreatedAt) {
   const weekContainsUserCreation = weekStart <= userCreatedAt && weekEnd >= userCreatedAt;
   
   if (!weekContainsUserCreation) {
-    return {
+  return {
       isMidWeekJoin: false,
       userCreatedDayIndex: null,
       userCreatedDayNumber: null,
@@ -703,9 +703,9 @@ router.post('/claim', protect, async (req, res) => {
         }
       } else {
         // If downgradeOnMiss is false, big reward is always eligible (regardless of week number or mid-week join)
-        bigReward = cfg.bigReward;
-        progress.bigRewardEligible = true;
-        progress.bigRewardGranted = true;
+          bigReward = cfg.bigReward;
+          progress.bigRewardEligible = true;
+          progress.bigRewardGranted = true;
       }
 
       if (bigReward) {
@@ -740,16 +740,16 @@ router.post('/claim', protect, async (req, res) => {
       }
       if (rewardType === 'XP' || rewardType === 'Both') {
         baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
-      }
+        }
     }
 
     // Apply weekly multiplier if enabled and week > 1
     let finalCoins = baseCoins;
     let finalXP = baseXP;
-    if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
       finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
       finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
-    }
+        }
 
     // CRITICAL FIX: For day 7, coins and XP are already calculated correctly above
     // (baseCoins/baseXP contain big reward values if eligible, or day 6 values if not)

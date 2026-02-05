@@ -416,7 +416,13 @@ router.put("/complete", protect, async (req, res) => {
 router.post("/install", protect, async (req, res) => {
   try {
     const { gameId, offerId } = req.body;
+    
+    console.log(`[GAME-INSTALL] ========== INSTALL REQUEST (game.js) ==========`);
+    console.log(`[GAME-INSTALL] User ID: ${req.user.userId}`);
+    console.log(`[GAME-INSTALL] Request body:`, { gameId, offerId });
+    
     if (!gameId) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: gameId is missing!`);
       return res
         .status(400)
         .json({ success: false, message: "gameId is required" });
@@ -424,10 +430,17 @@ router.post("/install", protect, async (req, res) => {
 
     const user = await User.findById(req.user.userId).select("games");
     if (!user) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: User not found!`);
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    
+    console.log(`[GAME-INSTALL] User found. Current games array:`, {
+      hasGames: !!user.games,
+      isArray: Array.isArray(user.games),
+      length: user.games?.length || 0
+    });
 
     const idx = Array.isArray(user.games)
       ? user.games.findIndex((g) => String(g.gameId) === String(gameId))
@@ -446,7 +459,17 @@ router.post("/install", protect, async (req, res) => {
       });
     }
 
+    console.log(`[GAME-INSTALL] Saving game to user.games:`, {
+      userId: user._id.toString(),
+      gameId: gameId,
+      offerId: offerId,
+      gamesArrayLength: user.games.length,
+      savedGame: user.games[user.games.length - 1]
+    });
+
     await user.save();
+    
+    console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
 
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {

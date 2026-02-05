@@ -161,21 +161,42 @@ router.get("/offers", protect, async (req, res) => {
 router.post("/install", protect, async (req, res) => {
   try {
     const { offerId, gameId, provider = "besitos" } = req.body;
+    
+    console.log(`[GAME-INSTALL] ========== INSTALL REQUEST ==========`);
+    console.log(`[GAME-INSTALL] User ID: ${req.user.userId}`);
+    console.log(`[GAME-INSTALL] Request body:`, { offerId, gameId, provider });
+    
+    if (!gameId) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: gameId is missing!`);
+      return res.status(400).json({
+        success: false,
+        error: "gameId is required",
+      });
+    }
+    
     // CRITICAL: Must select 'games' field to update it
     const user = await User.findById(req.user.userId).select(
       "games profile location"
     );
 
     if (!user) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: User not found!`);
       return res.status(404).json({
         success: false,
         error: "User not found",
       });
     }
 
+    console.log(`[GAME-INSTALL] User found. Current games array:`, {
+      hasGames: !!user.games,
+      isArray: Array.isArray(user.games),
+      length: user.games?.length || 0
+    });
+
     // Ensure games array exists
     if (!user.games) {
       user.games = [];
+      console.log(`[GAME-INSTALL] Initialized empty games array`);
     }
 
     let trackingResult;
@@ -218,7 +239,7 @@ router.post("/install", protect, async (req, res) => {
     }
 
     // Update user's games array
-    const existingGameIndex = user.games.findIndex((g) => g.gameId === gameId);
+    const existingGameIndex = user.games.findIndex((g) => String(g.gameId) === String(gameId));
     if (existingGameIndex >= 0) {
       user.games[existingGameIndex].installedAt = new Date();
       user.games[existingGameIndex].trackingId = trackingResult.trackingId;
@@ -234,7 +255,17 @@ router.post("/install", protect, async (req, res) => {
       });
     }
 
+    console.log(`[GAME-INSTALL] Saving game to user.games:`, {
+      userId: user._id.toString(),
+      gameId: gameId,
+      offerId: offerId,
+      gamesArrayLength: user.games.length,
+      savedGame: user.games[user.games.length - 1]
+    });
+
     await user.save();
+    
+    console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
 
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {

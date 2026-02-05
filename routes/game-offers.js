@@ -14,7 +14,7 @@ router.get("/offers", protect, async (req, res) => {
   try {
     const { category, page = 1, limit = 20, provider = "all" } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences games"
     );
 
     if (!user) {
@@ -22,6 +22,27 @@ router.get("/offers", protect, async (req, res) => {
         success: false,
         error: "User not found",
       });
+    }
+
+    // CRITICAL FIX: Get user's downloaded game IDs to exclude them
+    // Downloaded games should only appear in "My Games → Downloaded", not in game offers listings
+    const downloadedGameIds = new Set();
+    if (Array.isArray(user.games) && user.games.length > 0) {
+      user.games
+        .filter((g) => {
+          // A game is considered downloaded if it has installedAt or status is 'installed'
+          return (
+            g.installedAt ||
+            g.status === "installed" ||
+            (g.date && !g.completed)
+          );
+        })
+        .forEach((g) => {
+          // Add gameId to the set (can be string or ObjectId)
+          if (g.gameId) {
+            downloadedGameIds.add(String(g.gameId));
+          }
+        });
     }
 
     const allOffers = [];
@@ -88,8 +109,18 @@ router.get("/offers", protect, async (req, res) => {
       }
     }
 
+    // CRITICAL FIX: Filter out downloaded games from offers
+    // Downloaded games should only appear in "My Games → Downloaded", not in game offers listings
+    let offers = allOffers.filter((offer) => {
+      // Exclude offers that match downloaded game IDs
+      const offerGameId = offer.gameId || offer.id || offer.offerId;
+      if (offerGameId) {
+        return !downloadedGameIds.has(String(offerGameId));
+      }
+      return true; // Keep offers without gameId (shouldn't happen, but safe fallback)
+    });
+
     // Filter by category if specified
-    let offers = allOffers;
     if (category && category !== "all") {
       offers = offers.filter(
         (offer) => offer.category === category || offer.genre === category

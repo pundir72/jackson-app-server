@@ -3,6 +3,7 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const UserChallengeProgress = require('../models/UserChallengeProgress');
 const GameMessage = require('../models/GameMessage');
 const BoosterReward = require('../models/BoosterReward');
 const AIChat = require('../models/AIChat');
@@ -533,19 +534,25 @@ async function getAccountOverviewData(user) {
   
   const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
   
-  // Get games played today (including games with progress > 0)
+  // Get games played today - CRITICAL FIX: Use lastPlayed for real-time updates
+  // lastPlayed is updated immediately when a game is played, ensuring real-time progress tracking
   const gamesPlayedToday = user.games?.filter(game => {
-    const gameDate = new Date(game.lastPlayed || game.completedAt);
+    // Use lastPlayed as primary source (updated in real-time when game is played)
+    const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
     const isToday = gameDate >= today && gameDate < tomorrow;
-    const hasProgress = game.completed || (game.progress && game.progress > 0);
+    // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
+    // or has progress/completed status
+    const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
     return isToday && hasProgress;
   }).length || 0;
   
-  // Get challenges completed today
-  const challengesCompletedToday = user.challenges?.filter(challenge => {
-    const challengeDate = new Date(challenge.completedAt || challenge.date);
-    return challengeDate >= today && challengeDate < tomorrow && challenge.completed;
-  }).length || 0;
+  // Get challenges completed today - CRITICAL FIX: Query UserChallengeProgress model for real-time updates
+  // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
+  const challengesCompletedToday = await UserChallengeProgress.countDocuments({
+    userId: user._id,
+    status: 'completed',
+    completedAt: { $gte: today, $lt: tomorrow }
+  });
   
   return {
     totalEarnings: {

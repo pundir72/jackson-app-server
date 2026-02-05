@@ -1537,13 +1537,85 @@ router.get("/surveys", protect, async (req, res) => {
             `🔵 [USER BACKEND] ===========================================\n`
           );
 
-          // Filter by user eligibility
-          const eligibleOffers = configuredOffers.filter((offer) =>
-            offer.isEligibleForUser(userProfile)
+          // Filter by user eligibility with detailed logging
+          console.log(
+            `\n🔍 [USER BACKEND] ========== ELIGIBILITY CHECK ==========`
           );
+          console.log(`🔍 [USER BACKEND] User Profile:`, {
+            age: userProfile.age,
+            gender: userProfile.gender,
+            country: userProfile.country,
+            xp: userProfile.xp,
+            deviceType: userProfile.deviceType,
+            hasGoogleId: userProfile.hasGoogleId,
+          });
+
+          const eligibleOffers = [];
+          const ineligibleOffers = [];
+
+          configuredOffers.forEach((offer, index) => {
+            const isEligible = offer.isEligibleForUser(userProfile);
+            if (isEligible) {
+              eligibleOffers.push(offer);
+            } else {
+              // Log why this offer is not eligible
+              const reasons = [];
+              
+              // Check age requirements
+              if (offer.requirements?.minAge && userProfile.age < offer.requirements.minAge) {
+                reasons.push(`age too low (${userProfile.age} < ${offer.requirements.minAge})`);
+              }
+              if (offer.requirements?.maxAge && userProfile.age > offer.requirements.maxAge) {
+                reasons.push(`age too high (${userProfile.age} > ${offer.requirements.maxAge})`);
+              }
+              
+              // Check XP requirements
+              if (offer.targetAudience?.minXP && userProfile.xp < offer.targetAudience.minXP) {
+                reasons.push(`XP too low (${userProfile.xp} < ${offer.targetAudience.minXP})`);
+              }
+              if (offer.targetAudience?.maxXP && userProfile.xp > offer.targetAudience.maxXP) {
+                reasons.push(`XP too high (${userProfile.xp} > ${offer.targetAudience.maxXP})`);
+              }
+              
+              // Check age group targeting
+              if (offer.targetAudience?.age && offer.targetAudience.age.length > 0 && !userProfile.hasGoogleId) {
+                const userAgeGroup = offer.getAgeGroup(userProfile.age);
+                if (!offer.targetAudience.age.includes(userAgeGroup)) {
+                  reasons.push(`age group mismatch (user: ${userAgeGroup}, required: ${offer.targetAudience.age.join(', ')})`);
+                }
+              }
+              
+              // Check gender targeting
+              if (offer.targetAudience?.gender && offer.targetAudience.gender.length > 0 && !userProfile.hasGoogleId) {
+                if (!offer.targetAudience.gender.includes(userProfile.gender)) {
+                  reasons.push(`gender mismatch (user: ${userProfile.gender}, required: ${offer.targetAudience.gender.join(', ')})`);
+                }
+              }
+              
+              // Check country targeting
+              if (offer.targetAudience?.countries && offer.targetAudience.countries.length > 0) {
+                if (!offer.targetAudience.countries.includes(userProfile.country)) {
+                  reasons.push(`country mismatch (user: ${userProfile.country}, required: ${offer.targetAudience.countries.join(', ')})`);
+                }
+              }
+              
+              // Check device type
+              if (offer.requirements?.deviceType && offer.requirements.deviceType.length > 0) {
+                if (!offer.requirements.deviceType.includes(userProfile.deviceType)) {
+                  reasons.push(`device mismatch (user: ${userProfile.deviceType}, required: ${offer.requirements.deviceType.join(', ')})`);
+                }
+              }
+
+              ineligibleOffers.push({
+                externalId: offer.externalId,
+                title: offer.title,
+                reasons: reasons.length > 0 ? reasons : ["unknown reason"],
+              });
+            }
+          });
 
           console.log(
-            `\n🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`
+            `🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`
           );
           console.log(
             `🟢 [USER BACKEND] Total eligible surveys: ${eligibleOffers.length} (after filtering)`
@@ -1554,6 +1626,29 @@ router.get("/surveys", protect, async (req, res) => {
               title: offer.title,
             });
           });
+          
+          if (ineligibleOffers.length > 0) {
+            console.log(
+              `\n🔴 [USER BACKEND] ========== INELIGIBLE SURVEYS ==========`
+            );
+            console.log(
+              `🔴 [USER BACKEND] Total ineligible surveys: ${ineligibleOffers.length}`
+            );
+            ineligibleOffers.slice(0, 5).forEach((offer, index) => {
+              console.log(`🔴 [USER BACKEND] Ineligible Survey ${index + 1}:`, {
+                externalId: offer.externalId,
+                title: offer.title,
+                reasons: offer.reasons,
+              });
+            });
+            if (ineligibleOffers.length > 5) {
+              console.log(`🔴 [USER BACKEND] ... and ${ineligibleOffers.length - 5} more`);
+            }
+            console.log(
+              `🔴 [USER BACKEND] ===========================================\n`
+            );
+          }
+          
           console.log(
             `🟢 [USER BACKEND] ===========================================\n`
           );

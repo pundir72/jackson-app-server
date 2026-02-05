@@ -1095,24 +1095,78 @@ router.get("/discover", protect, async (req, res) => {
     // Hide already downloaded/installed games from discovery listings
     // This ensures games the user has already downloaded are not shown again
     if (Array.isArray(user.games) && user.games.length > 0) {
-      const downloadedGameIds = new Set(
-        user.games
-          .filter((g) => {
-            return (
-              g.installedAt ||
-              g.status === "installed" ||
-              (g.date && !g.completed)
-            );
-          })
-          .map((g) => String(g.gameId))
-      );
-
-      if (downloadedGameIds.size > 0) {
-        const beforeHideCount = allGames.length;
-        allGames = allGames.filter(
-          (g) => !downloadedGameIds.has(String(g.gameId))
+      // CRITICAL FIX: Collect both gameId and _id from downloaded games
+      // Some games might be stored with gameId as string, others with _id as ObjectId
+      const downloadedGameIds = new Set();
+      const downloadedGameObjectIds = new Set();
+      
+      // Get all downloaded game IDs from user.games
+      const downloadedGames = user.games.filter((g) => {
+        return (
+          g.installedAt ||
+          g.status === "installed" ||
+          (g.date && !g.completed)
         );
+      });
+      
+      // Collect gameIds from user.games
+      downloadedGames.forEach((g) => {
+        if (g.gameId) {
+          // Normalize gameId (trim and lowercase for comparison)
+          const normalizedId = String(g.gameId).trim().toLowerCase();
+          downloadedGameIds.add(normalizedId);
+          // Also add original (case-sensitive) version
+          downloadedGameIds.add(String(g.gameId).trim());
+        }
+        // Also add _id if it exists (might be ObjectId or string)
+        if (g._id) {
+          const idString = g._id.toString ? g._id.toString() : String(g._id);
+          downloadedGameObjectIds.add(idString);
+        }
+      });
+      
+      // CRITICAL: Also lookup Game documents by gameId to get their _id
+      // This handles cases where user.games[].gameId might be the Game's _id
+      if (downloadedGameIds.size > 0) {
+        const gameDocs = await Game.find({
+          $or: [
+            { gameId: { $in: Array.from(downloadedGameIds) } },
+            { _id: { $in: Array.from(downloadedGameIds).filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id)) } }
+          ]
+        }).select('_id gameId').lean();
+        
+        gameDocs.forEach((doc) => {
+          // Add Game's _id to the exclusion set
+          if (doc._id) {
+            downloadedGameObjectIds.add(String(doc._id));
+          }
+          // Add Game's gameId (normalized)
+          if (doc.gameId) {
+            downloadedGameIds.add(String(doc.gameId).trim().toLowerCase());
+            downloadedGameIds.add(String(doc.gameId).trim());
+          }
+        });
+      }
+
+      if (downloadedGameIds.size > 0 || downloadedGameObjectIds.size > 0) {
+        const beforeHideCount = allGames.length;
+        allGames = allGames.filter((g) => {
+          // Check by gameId (normalized comparison)
+          const gameIdNormalized = g.gameId ? String(g.gameId).trim().toLowerCase() : null;
+          const gameIdOriginal = g.gameId ? String(g.gameId).trim() : null;
+          const gameIdMatch = (gameIdNormalized && downloadedGameIds.has(gameIdNormalized)) ||
+                             (gameIdOriginal && downloadedGameIds.has(gameIdOriginal));
+          
+          // Check by _id (ObjectId converted to string)
+          const objectIdMatch = g._id && downloadedGameObjectIds.has(String(g._id));
+          
+          // Exclude if either matches
+          return !gameIdMatch && !objectIdMatch;
+        });
         const afterHideCount = allGames.length;
+        console.log(`[DISCOVER] Filtered downloaded games: ${beforeHideCount} -> ${afterHideCount} (excluded ${beforeHideCount - afterHideCount})`);
+        console.log(`[DISCOVER] Downloaded gameIds: ${Array.from(downloadedGameIds).slice(0, 5).join(', ')}...`);
+        console.log(`[DISCOVER] Downloaded ObjectIds: ${Array.from(downloadedGameObjectIds).slice(0, 5).join(', ')}...`);
       }
     }
 

@@ -4603,11 +4603,6 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         estimatedEarnings: result.estimatedEarnings || 0,
       };
       
-      // Add warning if no data
-      if (responseData.total === 0) {
-        responseData.warning = "No offers returned from Bitlabs API. This might be due to: 1) Bitlabs API limitation with static-inventory user ID, 2) No surveys available for the specified country/device, 3) VPN detection. Check server logs for details.";
-      }
-      
       res.json(responseData);
     } else if (sdk === "besitos") {
       // Handle Besitos surveys

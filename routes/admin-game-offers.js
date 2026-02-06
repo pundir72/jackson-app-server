@@ -4522,29 +4522,35 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
       }
 
       // Get offers - also pass devices directly for general offers API
+      // CRITICAL: For admin endpoints, use null userId to let Bitlabs service use "static-inventory"
+      // This is consistent with games endpoint behavior
       const utilityParams = {
-        userId: "admin-preview",
+        userId: null, // Use null to let service default to "static-inventory" (same as games)
         userProfile: userProfile,
         type: type || "all",
         category: "all",
         devices: queryParams.devices, // Pass devices for shopping/magic receipts
       };
-      // console.log(
-      //   "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
-      //   utilityParams
-      // );
+      
+      console.log("🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:", {
+        userId: utilityParams.userId,
+        type: utilityParams.type,
+        country: userProfile.country,
+        platform: userProfile.platform,
+        devices: queryParams.devices,
+      });
 
       const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
 
-      // console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
-      //   success: result.success,
-      //   totalOffers: result.totalOffers || 0,
-      //   surveysCount: result.categorized?.surveys?.length || 0,
-      //   cashbackCount: result.categorized?.cashback?.length || 0,
-      //   shoppingCount: result.categorized?.shopping?.length || 0,
-      //   magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
-      //   error: result.error,
-      // });
+      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
+        success: result.success,
+        totalOffers: result.totalOffers || 0,
+        surveysCount: result.categorized?.surveys?.length || 0,
+        cashbackCount: result.categorized?.cashback?.length || 0,
+        shoppingCount: result.categorized?.shopping?.length || 0,
+        magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
+        error: result.error,
+      });
 
       if (!result.success) {
         console.error(
@@ -4555,17 +4561,53 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
           success: false,
           message: result.error || "Failed to fetch non-game offers",
           data: [],
+          error: result.error,
         });
+      }
+
+      // Check if result is empty and log details
+      if (!result.offers || result.offers.length === 0) {
+        console.warn("⚠️ [ADMIN BACKEND ROUTE] No offers returned from Bitlabs API");
+        console.warn("⚠️ [ADMIN BACKEND ROUTE] Result details:", {
+          success: result.success,
+          totalOffers: result.totalOffers,
+          categorized: result.categorized ? {
+            surveys: result.categorized.surveys?.length || 0,
+            cashback: result.categorized.cashback?.length || 0,
+            shopping: result.categorized.shopping?.length || 0,
+            magicReceipts: result.categorized.magicReceipts?.length || 0,
+          } : null,
+          error: result.error,
+        });
+        console.warn("⚠️ [ADMIN BACKEND ROUTE] This might be a Bitlabs API limitation with static-inventory user ID");
       }
 
       const responseData = {
         success: true,
-        data: result.offers,
-        categorized: result.categorized,
-        breakdown: result.breakdown,
-        total: result.totalOffers,
-        estimatedEarnings: result.estimatedEarnings,
+        data: result.offers || [],
+        categorized: result.categorized || {
+          surveys: [],
+          cashback: [],
+          shopping: [],
+          magicReceipts: [],
+          other: [],
+        },
+        breakdown: result.breakdown || {
+          surveys: 0,
+          cashback: 0,
+          shopping: 0,
+          magicReceipts: 0,
+          other: 0,
+        },
+        total: result.totalOffers || 0,
+        estimatedEarnings: result.estimatedEarnings || 0,
       };
+      
+      // Add warning if no data
+      if (responseData.total === 0) {
+        responseData.warning = "No offers returned from Bitlabs API. This might be due to: 1) Bitlabs API limitation with static-inventory user ID, 2) No surveys available for the specified country/device, 3) VPN detection. Check server logs for details.";
+      }
+      
       res.json(responseData);
     } else if (sdk === "besitos") {
       // Handle Besitos surveys

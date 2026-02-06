@@ -763,6 +763,16 @@ class BitlabsService {
       const endpoint = "/v2/client/surveys";
       const fullURL = `${this.baseURL}${endpoint}`;
       const userIdentifier = userId || queryParams.userId || "static-inventory";
+      
+      // Detect if this is an admin request (no real userId provided)
+      const isAdminRequest = !userId && !queryParams.userId;
+
+      // Log request details for debugging
+      console.log("\n🔵 [BITLABS SURVEYS] ========== GET SURVEYS REQUEST ==========");
+      console.log("🔵 [BITLABS SURVEYS] Endpoint:", endpoint);
+      console.log("🔵 [BITLABS SURVEYS] Full URL:", fullURL);
+      console.log("🔵 [BITLABS SURVEYS] User ID:", userIdentifier);
+      console.log("🔵 [BITLABS SURVEYS] Is Admin Request:", isAdminRequest);
 
       // Normalize parameters
       const { userId: _, platform, sdk, country, ...restParams } = queryParams;
@@ -796,11 +806,14 @@ class BitlabsService {
         }
       }
 
-      // CRITICAL: Explicitly pass client_ip to avoid VPN detection
-      // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
-      // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
-      const whitelistedIp = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
-      normalizedParams.client_ip = whitelistedIp;
+      // CRITICAL: Do NOT pass client_ip for surveys endpoint
+      // Bitlabs API returns 403 if client_ip is used without special permission
+      // Error: "Using 'client_' params is not allowed. Contact support to unlock them."
+      // Only pass client_ip if explicitly configured AND not an admin request
+      // For now, we skip client_ip to avoid 403 errors
+      // if (!isAdminRequest && config.BITLABS_WHITELISTED_IP) {
+      //   normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP;
+      // }
 
       const headers = {
         "X-Api-Token": this.apiToken,
@@ -812,6 +825,13 @@ class BitlabsService {
       const paramsSerializer = {
         indexes: null,
       };
+      
+      console.log("🔵 [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 [BITLABS SURVEYS] Headers:", {
+        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+        "X-User-Id": userIdentifier,
+      });
+      console.log("🔵 [BITLABS SURVEYS] ==================================================\n");
 
       let response;
       try {
@@ -821,24 +841,30 @@ class BitlabsService {
           paramsSerializer: paramsSerializer,
         });
 
-        // 🔴 DEBUG: Log raw response from Bitlabs
+        // Log raw response from Bitlabs
         console.log(
-          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API RESPONSE FROM THIRD PARTY =========="
+          "\n🔵 [BITLABS SURVEYS] ========== RAW API RESPONSE =========="
         );
         console.log(
-          "🔴 [BITLABS API SERVICE] 📊 Response Status:",
+          "🔵 [BITLABS SURVEYS] Response Status:",
           response.status
         );
         console.log(
-          "🔴 [BITLABS API SERVICE] 📦 Response Data Keys:",
+          "🔵 [BITLABS SURVEYS] Response Data Type:",
+          typeof response.data
+        );
+        console.log(
+          "🔵 [BITLABS SURVEYS] Response Data Keys:",
           response.data ? Object.keys(response.data) : "NO DATA"
         );
+        if (response.data) {
+          console.log(
+            "🔵 [BITLABS SURVEYS] Response Structure (first 2000 chars):",
+            JSON.stringify(response.data, null, 2).substring(0, 2000)
+          );
+        }
         console.log(
-          "🔴 [BITLABS API SERVICE] 📋 Full Response Structure:",
-          JSON.stringify(response.data, null, 2)
-        );
-        console.log(
-          "🔴 [BITLABS API SERVICE] ==================================================\n"
+          "🔵 [BITLABS SURVEYS] ==================================================\n"
         );
       } catch (error) {
         // 🔴 ENHANCED ERROR LOGGING: Log full error details for 403 errors

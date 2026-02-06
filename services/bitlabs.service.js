@@ -806,13 +806,16 @@ class BitlabsService {
         }
       }
 
-      // CRITICAL: Do NOT pass client_ip for surveys endpoint
-      // Bitlabs API returns 403 if client_ip is used without special permission
-      // Error: "Using 'client_' params is not allowed. Contact support to unlock them."
-      // Only pass client_ip if explicitly configured AND not an admin request
-      // For now, we skip client_ip to avoid 403 errors
-      // if (!isAdminRequest && config.BITLABS_WHITELISTED_IP) {
+      // CRITICAL: client_ip parameter handling
+      // Bitlabs API may return 403 if client_ip is used without special permission
+      // However, on live server it might be required or previously working
+      // Only pass client_ip if explicitly configured (BITLABS_WHITELISTED_IP)
+      // Default to 127.0.0.1 if not configured (same as before)
+      // if (config.BITLABS_WHITELISTED_IP) {
       //   normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP;
+      // } else {
+      //   // Use localhost IP as default (same as before when it was working)
+      //   normalizedParams.client_ip = "127.0.0.1";
       // }
 
       const headers = {

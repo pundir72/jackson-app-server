@@ -19,9 +19,9 @@ async function resetDailyProgress() {
       },
       {
         $set: {
-          milestone_gamesPlayed_claimed: false,
+          // CRITICAL: Only reset coins milestone (daily-based)
+          // Games and challenges use continuous counters (reset only after milestone completion)
           milestone_coinsEarned_claimed: false,
-          milestone_challengesCompleted_claimed: false,
           lastProgressReset: today
         }
       }
@@ -46,14 +46,14 @@ async function checkUserProgressReset(userId) {
     today.setHours(0, 0, 0, 0);
     
     // Check if progress needs to be reset for this user
+    // CRITICAL: Only reset coins milestone (daily-based)
+    // Games and challenges use continuous counters (reset only after milestone completion)
     if (!user.lastProgressReset || user.lastProgressReset < today) {
-      user.milestone_gamesPlayed_claimed = false;
       user.milestone_coinsEarned_claimed = false;
-      user.milestone_challengesCompleted_claimed = false;
       user.lastProgressReset = today;
       
       await user.save();
-      console.log(`Progress reset completed for user ${userId}`);
+      console.log(`[DAILY-RESET] Coins milestone reset for user ${userId} (games/challenges use continuous counters)`);
     }
   } catch (error) {
     console.error('Error checking user progress reset:', error);

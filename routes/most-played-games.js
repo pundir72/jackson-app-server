@@ -147,13 +147,18 @@ router.post('/:gameId/play', protect, async (req, res) => {
     // Update game play tracking
     const gameIndex = user.games.findIndex(g => g.gameId === gameId);
     const now = new Date();
+    let isNewPlay = false;
     
     if (gameIndex >= 0) {
+      // Check if this is a new play (lastPlayed is being updated)
+      const previousLastPlayed = user.games[gameIndex].lastPlayed;
       // Update existing game
       user.games[gameIndex].lastPlayed = now;
       user.games[gameIndex].playCount = (user.games[gameIndex].playCount || 0) + 1;
       user.games[gameIndex].totalDuration = (user.games[gameIndex].totalDuration || 0) + (duration || 0);
       user.games[gameIndex].lastLevel = level || user.games[gameIndex].lastLevel;
+      // Consider it a new play if lastPlayed changed significantly (more than 1 minute ago)
+      isNewPlay = !previousLastPlayed || (now - new Date(previousLastPlayed)) > 60000;
     } else {
       // Add new game
       user.games.push({
@@ -165,9 +170,17 @@ router.post('/:gameId/play', protect, async (req, res) => {
         lastLevel: level || 1,
         completed: false
       });
+      isNewPlay = true; // First time playing this game
     }
     
     await user.save();
+
+    // CRITICAL: Increment continuous games played counter (not daily-based)
+    // Counter resets only after milestone completion
+    if (isNewPlay) {
+      const accountOverviewService = require('../utils/accountOverview');
+      await accountOverviewService.incrementGamesPlayedCounter(user._id);
+    }
     
     res.json({
       success: true,

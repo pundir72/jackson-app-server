@@ -1126,6 +1126,15 @@ const userSchema = new mongoose.Schema({
     // Daily progress reset tracking
     lastProgressReset: Date,
 
+    // Continuous progress tracking (resets only after milestone completion, not daily)
+    // Games and challenges use continuous counters, coins remain daily-based
+    continuousProgress: {
+        gamesPlayed: { type: Number, default: 0 }, // Current count toward milestone
+        challengesCompleted: { type: Number, default: 0 }, // Current count toward milestone
+        lastGamesReset: Date, // When games counter was last reset (after milestone)
+        lastChallengesReset: Date // When challenges counter was last reset (after milestone)
+    },
+
     // Ad Reward Tracking
     adRewardTracking: {
         lastAdRewardAt: Date,

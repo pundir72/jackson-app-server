@@ -1122,6 +1122,10 @@ router.post("/bitlabs/completion", async (req, res) => {
           xp: challenge.xpReward,
         });
 
+        // CRITICAL: Increment continuous challenges completed counter (not daily-based)
+        const accountOverviewService = require('../utils/accountOverview');
+        await accountOverviewService.incrementChallengesCompletedCounter(userId);
+
         // Credit user (apply tier multiplier to XP)
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
         const baseXp2 = challenge.xpReward;
@@ -1949,6 +1953,10 @@ router.post("/everflow/postback", async (req, res) => {
           xp: challenge.xpReward,
         });
 
+        // CRITICAL: Increment continuous challenges completed counter (not daily-based)
+        const accountOverviewService = require('../utils/accountOverview');
+        await accountOverviewService.incrementChallengesCompletedCounter(user._id);
+
         // Credit user rewards
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
         const baseXp = challenge.xpReward;
@@ -2265,6 +2273,10 @@ async function processEverflowPostback(postbackData, req, res) {
           coins: challenge.coinReward,
           xp: challenge.xpReward,
         });
+
+        // CRITICAL: Increment continuous challenges completed counter (not daily-based)
+        const accountOverviewService = require('../utils/accountOverview');
+        await accountOverviewService.incrementChallengesCompletedCounter(user._id);
 
         user.wallet.balance = (user.wallet.balance || 0) + challenge.coinReward;
         const baseXp = challenge.xpReward;

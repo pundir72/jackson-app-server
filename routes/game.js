@@ -232,6 +232,81 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
+    // CRITICAL FIX: Sync games from Besitos API to user.games array
+    try {
+      const besitosService = require("../services/besitos.service");
+      if (besitosService.isConfigured()) {
+        console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        console.log(`[GAME-LIST] Besitos response structure:`, {
+          hasData: !!besitosResponse.data,
+          hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
+          hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
+          responseKeys: Object.keys(besitosResponse)
+        });
+        
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        console.log(`[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
+        
+        if (allBesitosGames.length > 0) {
+          console.log(`[GAME-LIST] Sample game structure:`, allBesitosGames[0]);
+          console.log(`[GAME-LIST] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
+          
+          if (!user.games) user.games = [];
+          
+          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          console.log(`[GAME-LIST] Current user.games count: ${user.games.length}, existing IDs:`, Array.from(existingGameIds));
+          
+          let syncedCount = 0;
+          for (const besitosGame of allBesitosGames) {
+            const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!gameId || gameId === 'undefined' || gameId === 'null') {
+              console.log(`[GAME-LIST] ⚠️ Skipping game with invalid ID:`, besitosGame);
+              continue;
+            }
+            
+            if (!existingGameIds.has(gameId)) {
+              const newGame = {
+                gameId: gameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              };
+              user.games.push(newGame);
+              syncedCount++;
+              console.log(`[GAME-LIST] ➕ Added game: ${gameId} (${newGame.status})`);
+            }
+          }
+          
+          if (syncedCount > 0 || user.isModified('games')) {
+            await user.save();
+            console.log(`[GAME-LIST] ✅ Synced ${syncedCount} new games. Total: ${user.games.length}`);
+          } else {
+            console.log(`[GAME-LIST] ℹ️ No new games to sync (all games already in user.games)`);
+          }
+        } else {
+          console.log(`[GAME-LIST] ⚠️ No games found in Besitos response`);
+        }
+      } else {
+        console.log(`[GAME-LIST] ⚠️ Besitos service not configured`);
+      }
+    } catch (syncError) {
+      console.error('[GAME-LIST] ❌ Error syncing games from Besitos:', {
+        message: syncError.message,
+        stack: syncError.stack,
+        status: syncError.status,
+        data: syncError.data
+      });
+    }
+
     const gamesArr = Array.isArray(user.games) ? user.games.slice() : [];
     gamesArr.sort(
       (a, b) =>
@@ -416,7 +491,13 @@ router.put("/complete", protect, async (req, res) => {
 router.post("/install", protect, async (req, res) => {
   try {
     const { gameId, offerId } = req.body;
+    
+    console.log(`[GAME-INSTALL] ========== INSTALL REQUEST (game.js) ==========`);
+    console.log(`[GAME-INSTALL] User ID: ${req.user.userId}`);
+    console.log(`[GAME-INSTALL] Request body:`, { gameId, offerId });
+    
     if (!gameId) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: gameId is missing!`);
       return res
         .status(400)
         .json({ success: false, message: "gameId is required" });
@@ -424,10 +505,17 @@ router.post("/install", protect, async (req, res) => {
 
     const user = await User.findById(req.user.userId).select("games");
     if (!user) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: User not found!`);
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    
+    console.log(`[GAME-INSTALL] User found. Current games array:`, {
+      hasGames: !!user.games,
+      isArray: Array.isArray(user.games),
+      length: user.games?.length || 0
+    });
 
     const idx = Array.isArray(user.games)
       ? user.games.findIndex((g) => String(g.gameId) === String(gameId))
@@ -446,7 +534,64 @@ router.post("/install", protect, async (req, res) => {
       });
     }
 
+    console.log(`[GAME-INSTALL] Saving game to user.games:`, {
+      userId: user._id.toString(),
+      gameId: gameId,
+      offerId: offerId,
+      gamesArrayLength: user.games.length,
+      savedGame: user.games[user.games.length - 1]
+    });
+
     await user.save();
+    
+    console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
+
+    // CRITICAL: Sync from Besitos API after installation to ensure we have latest data
+    // This handles cases where user downloads directly from Besitos without calling our install endpoint
+    try {
+      const besitosService = require("../services/besitos.service");
+      if (besitosService.isConfigured()) {
+        console.log(`[GAME-INSTALL] 🔄 Syncing games from Besitos after installation...`);
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        if (allBesitosGames.length > 0) {
+          if (!user.games) user.games = [];
+          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          let syncedCount = 0;
+          
+          for (const besitosGame of allBesitosGames) {
+            const besitosGameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!besitosGameId || besitosGameId === 'undefined' || besitosGameId === 'null') continue;
+            
+            if (!existingGameIds.has(besitosGameId)) {
+              user.games.push({
+                gameId: besitosGameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              });
+              syncedCount++;
+            }
+          }
+          
+          if (syncedCount > 0) {
+            await user.save();
+            console.log(`[GAME-INSTALL] ✅ Synced ${syncedCount} additional games from Besitos. Total: ${user.games.length}`);
+          }
+        }
+      }
+    } catch (syncError) {
+      console.error('[GAME-INSTALL] ⚠️ Error syncing from Besitos (non-critical):', syncError.message);
+      // Don't fail the install if sync fails
+    }
 
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {
@@ -822,7 +967,8 @@ router.get("/discover", protect, async (req, res) => {
 
     const userId = req.user.userId;
 
-    const user = await User.findById(userId).lean();
+    // CRITICAL: Explicitly select games field to ensure it's included
+    const user = await User.findById(userId).select('games').lean();
 
     if (!user) {
       return res.status(401).json({
@@ -830,6 +976,26 @@ router.get("/discover", protect, async (req, res) => {
         message: "User not found",
       });
     }
+    
+    // Debug: Log user games status - ALWAYS LOG THIS
+    console.log(`\n[DISCOVER] ========== USER GAMES STATUS ==========`);
+    console.log(`[DISCOVER] User ID: ${userId}`);
+    console.log(`[DISCOVER] Has games field: ${'games' in user}`);
+    console.log(`[DISCOVER] Games is array: ${Array.isArray(user.games)}`);
+    console.log(`[DISCOVER] Games length: ${user.games?.length || 0}`);
+    if (user.games && user.games.length > 0) {
+      console.log(`[DISCOVER] First 3 games sample:`, user.games.slice(0, 3).map(g => ({
+        gameId: g.gameId,
+        offerId: g.offerId,
+        installedAt: g.installedAt,
+        status: g.status,
+        date: g.date,
+        completed: g.completed
+      })));
+    } else {
+      console.log(`[DISCOVER] ⚠️ User has NO games in games array!`);
+    }
+    console.log(`[DISCOVER] =========================================\n`);
 
     // Calculate user profile for display rules
     const gamesDownloaded =
@@ -1094,26 +1260,162 @@ router.get("/discover", protect, async (req, res) => {
 
     // Hide already downloaded/installed games from discovery listings
     // This ensures games the user has already downloaded are not shown again
+    // CRITICAL FIX: This must happen BEFORE any other filtering to ensure downloaded games are excluded
     if (Array.isArray(user.games) && user.games.length > 0) {
-      const downloadedGameIds = new Set(
-        user.games
-          .filter((g) => {
-            return (
-              g.installedAt ||
-              g.status === "installed" ||
-              (g.date && !g.completed)
-            );
-          })
-          .map((g) => String(g.gameId))
-      );
-
-      if (downloadedGameIds.size > 0) {
-        const beforeHideCount = allGames.length;
-        allGames = allGames.filter(
-          (g) => !downloadedGameIds.has(String(g.gameId))
+      // Get all downloaded game IDs from user.games
+      const downloadedGames = user.games.filter((g) => {
+        return (
+          g.installedAt ||
+          g.status === "installed" ||
+          (g.date && !g.completed)
         );
-        const afterHideCount = allGames.length;
+      });
+      
+      console.log(`[DISCOVER] User has ${downloadedGames.length} downloaded games out of ${user.games.length} total games`);
+      
+      // Collect all possible identifiers for downloaded games
+      const downloadedGameIds = new Set(); // For gameId (string) comparisons
+      const downloadedGameObjectIds = new Set(); // For _id (ObjectId) comparisons
+      
+      // Step 1: Collect gameIds directly from user.games
+      downloadedGames.forEach((g) => {
+        if (g.gameId) {
+          const gameIdStr = String(g.gameId).trim();
+          // Add both normalized (lowercase) and original versions
+          downloadedGameIds.add(gameIdStr.toLowerCase());
+          downloadedGameIds.add(gameIdStr);
+        }
+        if (g._id) {
+          const idStr = g._id.toString ? g._id.toString() : String(g._id);
+          downloadedGameObjectIds.add(idStr);
+        }
+      });
+      
+      // Step 2: Lookup Game documents to get their _id and ensure we have all identifiers
+      // CRITICAL: For Bitlabs/Besitos games, gameId might be stored in gameDetails.id
+      if (downloadedGameIds.size > 0) {
+        const gameIdArray = Array.from(downloadedGameIds);
+        // Try to find games by gameId OR gameDetails.id (for Bitlabs/Besitos games)
+        const gameDocs = await Game.find({
+          $or: [
+            { gameId: { $in: gameIdArray } },
+            { 'gameDetails.id': { $in: gameIdArray } },
+            { 'metadata.externalId': { $in: gameIdArray } }
+          ]
+        }).select('_id gameId gameDetails metadata').lean();
+        
+        console.log(`[DISCOVER] Found ${gameDocs.length} Game documents matching downloaded gameIds`);
+        
+        gameDocs.forEach((doc) => {
+          // Add Game's _id to exclusion set
+          if (doc._id) {
+            downloadedGameObjectIds.add(String(doc._id));
+          }
+          // Ensure Game's gameId is in the exclusion set
+          if (doc.gameId) {
+            const gameIdStr = String(doc.gameId).trim();
+            downloadedGameIds.add(gameIdStr.toLowerCase());
+            downloadedGameIds.add(gameIdStr);
+          }
+          // CRITICAL: Also add gameDetails.id (for Bitlabs/Besitos games)
+          if (doc.gameDetails?.id) {
+            const externalIdStr = String(doc.gameDetails.id).trim();
+            downloadedGameIds.add(externalIdStr.toLowerCase());
+            downloadedGameIds.add(externalIdStr);
+          }
+          // Also check metadata.externalId
+          if (doc.metadata?.externalId) {
+            const externalIdStr = String(doc.metadata.externalId).trim();
+            downloadedGameIds.add(externalIdStr.toLowerCase());
+            downloadedGameIds.add(externalIdStr);
+          }
+        });
+        
+        // Also check if any downloaded gameIds are actually ObjectIds pointing to Game._id
+        const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+        const potentialObjectIds = gameIdArray.filter(id => objectIdPattern.test(id));
+        if (potentialObjectIds.length > 0) {
+          const gameDocsByObjectId = await Game.find({
+            _id: { $in: potentialObjectIds.map(id => new mongoose.Types.ObjectId(id)) }
+          }).select('_id gameId gameDetails metadata').lean();
+          
+          gameDocsByObjectId.forEach((doc) => {
+            if (doc._id) {
+              downloadedGameObjectIds.add(String(doc._id));
+            }
+            if (doc.gameId) {
+              const gameIdStr = String(doc.gameId).trim();
+              downloadedGameIds.add(gameIdStr.toLowerCase());
+              downloadedGameIds.add(gameIdStr);
+            }
+            // Also add gameDetails.id
+            if (doc.gameDetails?.id) {
+              const externalIdStr = String(doc.gameDetails.id).trim();
+              downloadedGameIds.add(externalIdStr.toLowerCase());
+              downloadedGameIds.add(externalIdStr);
+            }
+            if (doc.metadata?.externalId) {
+              const externalIdStr = String(doc.metadata.externalId).trim();
+              downloadedGameIds.add(externalIdStr.toLowerCase());
+              downloadedGameIds.add(externalIdStr);
+            }
+          });
+        }
       }
+
+      // Step 3: Filter out downloaded games
+      if (downloadedGameIds.size > 0 || downloadedGameObjectIds.size > 0) {
+        const beforeHideCount = allGames.length;
+        allGames = allGames.filter((g) => {
+          // Check by gameId (both normalized and original)
+          let gameIdMatch = false;
+          if (g.gameId) {
+            const gameIdStr = String(g.gameId).trim();
+            gameIdMatch = downloadedGameIds.has(gameIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(gameIdStr);
+          }
+          
+          // CRITICAL: Also check gameDetails.id (for Bitlabs/Besitos games)
+          // When games come from Bitlabs, the id (e.g., 1671214) is stored in gameDetails.id
+          if (!gameIdMatch && g.gameDetails?.id) {
+            const externalIdStr = String(g.gameDetails.id).trim();
+            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(externalIdStr);
+          }
+          
+          // Also check metadata.externalId
+          if (!gameIdMatch && g.metadata?.externalId) {
+            const externalIdStr = String(g.metadata.externalId).trim();
+            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
+                         downloadedGameIds.has(externalIdStr);
+          }
+          
+          // Check by _id
+          let objectIdMatch = false;
+          if (g._id) {
+            objectIdMatch = downloadedGameObjectIds.has(String(g._id));
+          }
+          
+          // Exclude if either matches
+          const shouldExclude = gameIdMatch || objectIdMatch;
+          
+          if (shouldExclude) {
+            console.log(`[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, gameDetails.id=${g.gameDetails?.id}, _id=${g._id}`);
+          }
+          
+          return !shouldExclude;
+        });
+        const afterHideCount = allGames.length;
+        console.log(`[DISCOVER] Filtered downloaded games: ${beforeHideCount} -> ${afterHideCount} (excluded ${beforeHideCount - afterHideCount})`);
+        console.log(`[DISCOVER] Downloaded gameIds set size: ${downloadedGameIds.size}`);
+        console.log(`[DISCOVER] Downloaded ObjectIds set size: ${downloadedGameObjectIds.size}`);
+      } else {
+        console.log(`[DISCOVER] ⚠️ No downloaded games to filter (user.games might be empty or no installed games)`);
+      }
+    } else {
+      console.log(`[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`);
+      console.log(`[DISCOVER] This means ALL games will be shown, even if they're downloaded!`);
+      console.log(`[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`);
     }
 
     if (!(userProfileGamesCount > 0 && allGames.length === 0)) {

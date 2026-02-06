@@ -506,8 +506,15 @@ router.get("/week", protect, async (req, res) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
         // Use admin config V2 values only - check if day is active
         if (!dayConfig || !dayConfig.active) {
+          // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+          let dayStatus = day.status;
+          if (day.status !== 'claimed') {
+            dayStatus = 'locked'; // Disable claiming for inactive days
+          }
           return {
             ...day.toObject(),
+            status: dayStatus, // Use overridden status
+            active: false,
             rewardCoins: 0,
             rewardXp: 0,
           };
@@ -694,8 +701,15 @@ router.get("/week", protect, async (req, res) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
         // Use admin config values only - if not found, config is invalid
         if (!dayConfig || !dayConfig.active) {
+          // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+          let dayStatus = day.status;
+          if (day.status !== 'claimed') {
+            dayStatus = 'locked'; // Disable claiming for inactive days
+          }
           return {
             ...day.toObject(),
+            status: dayStatus, // Use overridden status
+            active: false,
             rewardCoins: 0,
             rewardXp: 0,
           };
@@ -932,8 +946,15 @@ router.get("/week", protect, async (req, res) => {
 
       // Use admin config V2 values only - check if day is active
       if (!dayConfig || !dayConfig.active) {
+        // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+        let dayStatus = day.status;
+        if (day.status !== 'claimed') {
+          dayStatus = 'locked'; // Disable claiming for inactive days
+        }
         return {
           ...day.toObject(),
+          status: dayStatus, // Use overridden status
+          active: false,
           rewardCoins: 0,
           rewardXp: 0,
         };

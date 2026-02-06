@@ -14,7 +14,7 @@ router.get("/offers", protect, async (req, res) => {
   try {
     const { category, page = 1, limit = 20, provider = "all" } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences"
+      "xp vip profile location preferences games"
     );
 
     if (!user) {
@@ -22,6 +22,27 @@ router.get("/offers", protect, async (req, res) => {
         success: false,
         error: "User not found",
       });
+    }
+
+    // CRITICAL FIX: Get user's downloaded game IDs to exclude them
+    // Downloaded games should only appear in "My Games → Downloaded", not in game offers listings
+    const downloadedGameIds = new Set();
+    if (Array.isArray(user.games) && user.games.length > 0) {
+      user.games
+        .filter((g) => {
+          // A game is considered downloaded if it has installedAt or status is 'installed'
+          return (
+            g.installedAt ||
+            g.status === "installed" ||
+            (g.date && !g.completed)
+          );
+        })
+        .forEach((g) => {
+          // Add gameId to the set (can be string or ObjectId)
+          if (g.gameId) {
+            downloadedGameIds.add(String(g.gameId));
+          }
+        });
     }
 
     const allOffers = [];
@@ -88,8 +109,18 @@ router.get("/offers", protect, async (req, res) => {
       }
     }
 
+    // CRITICAL FIX: Filter out downloaded games from offers
+    // Downloaded games should only appear in "My Games → Downloaded", not in game offers listings
+    let offers = allOffers.filter((offer) => {
+      // Exclude offers that match downloaded game IDs
+      const offerGameId = offer.gameId || offer.id || offer.offerId;
+      if (offerGameId) {
+        return !downloadedGameIds.has(String(offerGameId));
+      }
+      return true; // Keep offers without gameId (shouldn't happen, but safe fallback)
+    });
+
     // Filter by category if specified
-    let offers = allOffers;
     if (category && category !== "all") {
       offers = offers.filter(
         (offer) => offer.category === category || offer.genre === category
@@ -130,21 +161,42 @@ router.get("/offers", protect, async (req, res) => {
 router.post("/install", protect, async (req, res) => {
   try {
     const { offerId, gameId, provider = "besitos" } = req.body;
+    
+    console.log(`[GAME-INSTALL] ========== INSTALL REQUEST ==========`);
+    console.log(`[GAME-INSTALL] User ID: ${req.user.userId}`);
+    console.log(`[GAME-INSTALL] Request body:`, { offerId, gameId, provider });
+    
+    if (!gameId) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: gameId is missing!`);
+      return res.status(400).json({
+        success: false,
+        error: "gameId is required",
+      });
+    }
+    
     // CRITICAL: Must select 'games' field to update it
     const user = await User.findById(req.user.userId).select(
       "games profile location"
     );
 
     if (!user) {
+      console.log(`[GAME-INSTALL] ❌ ERROR: User not found!`);
       return res.status(404).json({
         success: false,
         error: "User not found",
       });
     }
 
+    console.log(`[GAME-INSTALL] User found. Current games array:`, {
+      hasGames: !!user.games,
+      isArray: Array.isArray(user.games),
+      length: user.games?.length || 0
+    });
+
     // Ensure games array exists
     if (!user.games) {
       user.games = [];
+      console.log(`[GAME-INSTALL] Initialized empty games array`);
     }
 
     let trackingResult;
@@ -187,7 +239,7 @@ router.post("/install", protect, async (req, res) => {
     }
 
     // Update user's games array
-    const existingGameIndex = user.games.findIndex((g) => g.gameId === gameId);
+    const existingGameIndex = user.games.findIndex((g) => String(g.gameId) === String(gameId));
     if (existingGameIndex >= 0) {
       user.games[existingGameIndex].installedAt = new Date();
       user.games[existingGameIndex].trackingId = trackingResult.trackingId;
@@ -203,7 +255,64 @@ router.post("/install", protect, async (req, res) => {
       });
     }
 
+    console.log(`[GAME-INSTALL] Saving game to user.games:`, {
+      userId: user._id.toString(),
+      gameId: gameId,
+      offerId: offerId,
+      gamesArrayLength: user.games.length,
+      savedGame: user.games[user.games.length - 1]
+    });
+
     await user.save();
+    
+    console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
+
+    // CRITICAL: Sync from Besitos API after installation to ensure we have latest data
+    // This handles cases where user downloads directly from Besitos without calling our install endpoint
+    try {
+      const besitosService = require("../services/besitos.service");
+      if (besitosService.isConfigured()) {
+        console.log(`[GAME-INSTALL] 🔄 Syncing games from Besitos after installation...`);
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        if (allBesitosGames.length > 0) {
+          if (!user.games) user.games = [];
+          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          let syncedCount = 0;
+          
+          for (const besitosGame of allBesitosGames) {
+            const besitosGameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!besitosGameId || besitosGameId === 'undefined' || besitosGameId === 'null') continue;
+            
+            if (!existingGameIds.has(besitosGameId)) {
+              user.games.push({
+                gameId: besitosGameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              });
+              syncedCount++;
+            }
+          }
+          
+          if (syncedCount > 0) {
+            await user.save();
+            console.log(`[GAME-INSTALL] ✅ Synced ${syncedCount} additional games from Besitos. Total: ${user.games.length}`);
+          }
+        }
+      }
+    } catch (syncError) {
+      console.error('[GAME-INSTALL] ⚠️ Error syncing from Besitos (non-critical):', syncError.message);
+      // Don't fail the install if sync fails
+    }
 
     // Invalidate profile cache so GET /api/profile reflects latest games
     try {

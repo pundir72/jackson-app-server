@@ -66,9 +66,32 @@ router.get('/games', protect, async (req, res) => {
     const params = { platform, country, category, limit };
     // Clean undefined
     Object.keys(params).forEach(k => (params[k] === undefined || params[k] === '') && delete params[k]);
+    
+    // CRITICAL FIX: Get user's downloaded game IDs to exclude them
+    // Downloaded games should only appear in "My Games → Downloaded", not in race game selection
+    const user = await User.findById(req.user.userId).select('games');
+    const downloadedGameIds = new Set();
+    if (user && Array.isArray(user.games) && user.games.length > 0) {
+      user.games
+        .filter((g) => {
+          // A game is considered downloaded if it has installedAt or status is 'installed'
+          return (
+            g.installedAt ||
+            g.status === 'installed' ||
+            (g.date && !g.completed)
+          );
+        })
+        .forEach((g) => {
+          // Add gameId to the set (can be string or ObjectId)
+          if (g.gameId) {
+            downloadedGameIds.add(String(g.gameId));
+          }
+        });
+    }
+    
     const offers = await BesitosService.getOffers(params);
     // Normalize to race game card structure
-    const games = (offers || []).map(o => ({
+    let games = (offers || []).map(o => ({
       id: o.offer_id || o.id || o.game_id || o.slug,
       title: o.title || o.name,
       icon: o.icon || o.icon_url || o.image || o.thumbnail,
@@ -78,6 +101,16 @@ router.get('/games', protect, async (req, res) => {
       provider: 'besitos',
       deepLink: o.deeplink || o.deep_link || null
     }));
+    
+    // CRITICAL FIX: Filter out downloaded games from race game selection
+    if (downloadedGameIds.size > 0) {
+      games = games.filter(game => {
+        // Exclude games that match downloaded game IDs
+        const gameId = game.id || game.game_id;
+        return !downloadedGameIds.has(String(gameId));
+      });
+    }
+    
     res.json({ success: true, data: { games, total: games.length } });
   } catch (error) {
     console.error('Error fetching race games from Besitos:', error);

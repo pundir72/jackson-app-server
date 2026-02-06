@@ -3,6 +3,7 @@ const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const UserChallengeProgress = require('../models/UserChallengeProgress');
 const GameMessage = require('../models/GameMessage');
 const BoosterReward = require('../models/BoosterReward');
 const AIChat = require('../models/AIChat');
@@ -28,6 +29,103 @@ router.get('/', protect, async (req, res) => {
         success: false,
         error: 'User not found'
       });
+    }
+
+    // CRITICAL FIX: Sync games from Besitos API to user.games array
+    // This ensures downloaded games are saved to database
+    try {
+      const besitosService = require('../services/besitos.service');
+      if (besitosService.isConfigured()) {
+        console.log(`[MY-GAMES] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
+        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        console.log(`[MY-GAMES] Besitos response structure:`, {
+          hasData: !!besitosResponse.data,
+          hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
+          hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
+          responseKeys: Object.keys(besitosResponse)
+        });
+        
+        const besitosData = besitosResponse.data || besitosResponse;
+        
+        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+        const allBesitosGames = [...inProgressGames, ...completedGames];
+        
+        console.log(`[MY-GAMES] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
+        
+        if (allBesitosGames.length > 0) {
+          console.log(`[MY-GAMES] Sample game structure:`, allBesitosGames[0]);
+          console.log(`[MY-GAMES] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
+          
+          // Ensure games array exists
+          if (!user.games) {
+            user.games = [];
+          }
+          
+          // Create a Set of existing gameIds for quick lookup
+          const existingGameIds = new Set(
+            (user.games || []).map(g => String(g.gameId))
+          );
+          console.log(`[MY-GAMES] Current user.games count: ${user.games.length}, existing IDs:`, Array.from(existingGameIds));
+          
+          // Sync games from Besitos
+          let syncedCount = 0;
+          for (const besitosGame of allBesitosGames) {
+            const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+            if (!gameId || gameId === 'undefined' || gameId === 'null') {
+              console.log(`[MY-GAMES] ⚠️ Skipping game with invalid ID:`, besitosGame);
+              continue;
+            }
+            
+            if (!existingGameIds.has(gameId)) {
+              // Add new game to user.games
+              const newGame = {
+                gameId: gameId,
+                offerId: besitosGame.offer_id || besitosGame.id || null,
+                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
+                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
+                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
+                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+              };
+              user.games.push(newGame);
+              syncedCount++;
+              console.log(`[MY-GAMES] ➕ Added game: ${gameId} (${newGame.status})`);
+            } else {
+              // Update existing game status if needed
+              const existingGameIndex = user.games.findIndex(g => String(g.gameId) === gameId);
+              if (existingGameIndex >= 0) {
+                const isCompleted = completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId);
+                if (isCompleted && !user.games[existingGameIndex].completed) {
+                  user.games[existingGameIndex].completed = true;
+                  user.games[existingGameIndex].status = 'completed';
+                  user.games[existingGameIndex].completedAt = new Date();
+                  console.log(`[MY-GAMES] 🔄 Updated game status to completed: ${gameId}`);
+                }
+              }
+            }
+          }
+          
+          if (syncedCount > 0 || user.isModified('games')) {
+            await user.save();
+            console.log(`[MY-GAMES] ✅ Synced ${syncedCount} new games to user.games array. Total games: ${user.games.length}`);
+          } else {
+            console.log(`[MY-GAMES] ℹ️ No new games to sync (all games already in user.games)`);
+          }
+        } else {
+          console.log(`[MY-GAMES] ⚠️ No games found in Besitos response`);
+        }
+      } else {
+        console.log(`[MY-GAMES] ⚠️ Besitos service not configured`);
+      }
+    } catch (syncError) {
+      console.error('[MY-GAMES] ❌ Error syncing games from Besitos:', {
+        message: syncError.message,
+        stack: syncError.stack,
+        status: syncError.status,
+        data: syncError.data
+      });
+      // Don't fail the request if sync fails
     }
 
     // Get user's games with dynamic data
@@ -83,6 +181,81 @@ router.get('/', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get My Games data'
+    });
+  }
+});
+
+/**
+ * POST /api/my-games/sync
+ * Manually sync games from Besitos to user.games array
+ */
+router.post('/sync', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('games');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const besitosService = require('../services/besitos.service');
+    if (!besitosService.isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Besitos service not configured'
+      });
+    }
+
+    console.log(`[MY-GAMES-SYNC] 🔄 Manual sync requested for user: ${user._id.toString()}`);
+    const besitosResponse = await besitosService.getUserData(user._id.toString());
+    const besitosData = besitosResponse.data || besitosResponse;
+    
+    const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
+    const completedGames = besitosData.completed || besitosData.data?.completed || [];
+    const allBesitosGames = [...inProgressGames, ...completedGames];
+    
+    if (!user.games) user.games = [];
+    const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+    
+    let syncedCount = 0;
+    for (const besitosGame of allBesitosGames) {
+      const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
+      if (!gameId || gameId === 'undefined' || gameId === 'null') continue;
+      
+      if (!existingGameIds.has(gameId)) {
+        user.games.push({
+          gameId: gameId,
+          offerId: besitosGame.offer_id || besitosGame.id || null,
+          installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
+          status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
+          completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
+          completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
+          date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+        });
+        syncedCount++;
+      }
+    }
+    
+    if (syncedCount > 0 || user.isModified('games')) {
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      data: {
+        synced: syncedCount,
+        total: user.games.length,
+        inProgress: inProgressGames.length,
+        completed: completedGames.length
+      }
+    });
+  } catch (error) {
+    console.error('[MY-GAMES-SYNC] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to sync games'
     });
   }
 });
@@ -533,19 +706,25 @@ async function getAccountOverviewData(user) {
   
   const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
   
-  // Get games played today (including games with progress > 0)
+  // Get games played today - CRITICAL FIX: Use lastPlayed for real-time updates
+  // lastPlayed is updated immediately when a game is played, ensuring real-time progress tracking
   const gamesPlayedToday = user.games?.filter(game => {
-    const gameDate = new Date(game.lastPlayed || game.completedAt);
+    // Use lastPlayed as primary source (updated in real-time when game is played)
+    const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
     const isToday = gameDate >= today && gameDate < tomorrow;
-    const hasProgress = game.completed || (game.progress && game.progress > 0);
+    // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
+    // or has progress/completed status
+    const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
     return isToday && hasProgress;
   }).length || 0;
   
-  // Get challenges completed today
-  const challengesCompletedToday = user.challenges?.filter(challenge => {
-    const challengeDate = new Date(challenge.completedAt || challenge.date);
-    return challengeDate >= today && challengeDate < tomorrow && challenge.completed;
-  }).length || 0;
+  // Get challenges completed today - CRITICAL FIX: Query UserChallengeProgress model for real-time updates
+  // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
+  const challengesCompletedToday = await UserChallengeProgress.countDocuments({
+    userId: user._id,
+    status: 'completed',
+    completedAt: { $gte: today, $lt: tomorrow }
+  });
   
   return {
     totalEarnings: {

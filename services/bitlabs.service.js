@@ -150,6 +150,12 @@ class BitlabsService {
         normalizedParams.is_game = true;
       }
 
+      // CRITICAL: Explicitly pass client_ip to avoid VPN detection
+      // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
+      // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
+      const whitelistedIp = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
+      normalizedParams.client_ip = whitelistedIp;
+
       // Note: Bitlabs API accepts these query parameters:
       // - devices: array of strings ('iphone', 'ipad', 'android')
       // - is_game: boolean | null (true = only games, false = only non-games, null = all)
@@ -635,6 +641,12 @@ class BitlabsService {
         }
       }
 
+      // CRITICAL: Explicitly pass client_ip to avoid VPN detection
+      // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
+      // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
+      const whitelistedIp = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
+      normalizedParams.client_ip = whitelistedIp;
+
       const headers = {
         "X-Api-Token": this.apiToken,
         "X-User-Id": userIdentifier,
@@ -980,6 +992,11 @@ class BitlabsService {
     }
     // Don't add default devices for cashback - let BitLabs return all available offers
     // If offers are still empty, they might be filtered by country, user demographics, etc.
+
+    // CRITICAL: Explicitly pass client_ip to avoid VPN detection
+    // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
+    const whitelistedIp = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
+    normalizedParams.client_ip = whitelistedIp;
 
     try {
       const headers = {

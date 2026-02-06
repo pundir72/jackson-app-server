@@ -18,22 +18,52 @@ router.use(adminAuth)
 async function getXpRangeFromTier(tier) {
   try {
     // CRITICAL FIX: First check if tier exists (regardless of status)
-    const tierDocAnyStatus = await XPTierV2.findOne({ tier })
+    // Use case-insensitive search and trim whitespace
+    const normalizedTier = tier && typeof tier === 'string' ? tier.trim() : tier;
+    
+    // CRITICAL FIX: First try exact match (case-sensitive) for performance
+    let tierDocAnyStatus = await XPTierV2.findOne({ tier: normalizedTier });
+    
+    // If exact match fails, try case-insensitive search
+    if (!tierDocAnyStatus) {
+      tierDocAnyStatus = await XPTierV2.findOne({ 
+        tier: { $regex: new RegExp(`^${normalizedTier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      });
+    }
     
     if (!tierDocAnyStatus) {
-      throw new Error(`TIER_NOT_FOUND: Tier "${tier}" does not exist. Please create the tier first in XP Tier V2 settings.`)
+      // CRITICAL FIX: Provide list of available tiers for better UX
+      const allTiers = await XPTierV2.find({}).select('tier status').lean();
+      const availableTiers = allTiers.map(t => t.tier).join(', ');
+      throw new Error(`TIER_NOT_FOUND: Tier "${normalizedTier}" does not exist. Available tiers: ${availableTiers || 'None found. Please create tiers in XP Tier V2 settings first.'}`)
     }
     
-    // CRITICAL FIX: Check if tier is active
+    // CRITICAL FIX: Use the actual tier name from database (case-corrected)
+    const actualTierName = tierDocAnyStatus.tier;
+    
+    // CRITICAL FIX: Allow creating decay rules even if tier is inactive (with warning)
+    // Admin can activate tier later, but decay rule should be creatable
     if (!tierDocAnyStatus.status) {
-      throw new Error(`TIER_INACTIVE: Tier "${tier}" exists but is inactive. Please activate the tier in XP Tier V2 settings before creating decay rules.`)
+      console.warn(`⚠️ Warning: Tier "${actualTierName}" is inactive. Decay rule will be created but won't apply until tier is activated.`)
     }
-    
-    // Tier exists and is active - return XP range data
+
+    // Tier exists - return XP range data (regardless of status)
+    // CRITICAL FIX: Ensure xpRange is properly formatted (handle null xpMax for Senior tier)
+    let formattedXpRange = tierDocAnyStatus.xpRange;
+    if (!formattedXpRange) {
+      if (tierDocAnyStatus.xpMax === null || tierDocAnyStatus.xpMax === undefined) {
+        formattedXpRange = `${tierDocAnyStatus.xpMin}+`;
+      } else {
+        formattedXpRange = `${tierDocAnyStatus.xpMin} - ${tierDocAnyStatus.xpMax}`;
+      }
+    }
+
     return {
-      xpRange: tierDocAnyStatus.xpRange,
+      xpRange: formattedXpRange,
       xpMin: tierDocAnyStatus.xpMin,
       xpMax: tierDocAnyStatus.xpMax,
+      tierStatus: tierDocAnyStatus.status, // Include status for reference
+      actualTierName: actualTierName, // Return actual tier name from DB (case-corrected)
     }
   } catch (error) {
     console.error('Error fetching XP range from tier:', error)
@@ -123,13 +153,52 @@ router.post('/xp-decay-v2', async (req, res) => {
       notificationMessage,
     } = req.body
 
-    // CRITICAL FIX: Normalize tier value and validate early
+    // CRITICAL FIX: Validate tier FIRST, before any other processing
     // Handle both 'tier' and 'tierName' field names from frontend
-    const tierValue = (tier || tierName)
-    // CRITICAL FIX: Check for empty string, whitespace-only, null, undefined
-    const normalizedTierValue = tierValue && typeof tierValue === 'string' 
-      ? tierValue.trim() 
-      : tierValue
+    const tierValue = (tier !== undefined && tier !== null) ? tier : (tierName !== undefined && tierName !== null ? tierName : undefined)
+    
+    // CRITICAL FIX: Comprehensive validation - check ALL possible empty cases
+    // Check if tier is missing, null, undefined, empty string, or whitespace-only
+    let normalizedTierValue = undefined;
+    if (tierValue !== undefined && tierValue !== null) {
+      if (typeof tierValue === 'string') {
+        normalizedTierValue = tierValue.trim();
+      } else {
+        normalizedTierValue = tierValue;
+      }
+    }
+    
+    // CRITICAL FIX: Validate tier is provided and not empty (MUST be first validation)
+    if (
+      tierValue === undefined ||
+      tierValue === null ||
+      normalizedTierValue === undefined ||
+      normalizedTierValue === null ||
+      normalizedTierValue === '' ||
+      (typeof normalizedTierValue === 'string' && normalizedTierValue.trim() === '')
+    ) {
+      console.log('[XP-DECAY-VALIDATION] Tier validation failed:', {
+        tier,
+        tierName,
+        tierValue,
+        normalizedTierValue,
+        tierType: typeof tierValue,
+        tierNameType: typeof tierName
+      });
+      
+      return res.status(400).json({
+        success: false,
+        error: 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
+        errorCode: 'TIER_REQUIRED',
+        field: 'tier',
+        receivedValues: {
+          tier: tier,
+          tierName: tierName,
+          tierValue: tierValue
+        },
+        suggestion: 'Please select one of the available XP tiers (Junior, Middle, or Senior) from the dropdown.',
+      })
+    }
 
     const xpDeductionValue =
       xpDeduction !== undefined ? xpDeduction : xpDeductionAmount
@@ -143,33 +212,21 @@ router.post('/xp-decay-v2', async (req, res) => {
       inactiveDurationValue = match ? parseInt(match[1]) : 1
     }
 
-    // CRITICAL FIX: Comprehensive validation for tier field
-    // Check for missing, empty, null, undefined, or whitespace-only values
-    if (
-      !normalizedTierValue || 
-      normalizedTierValue === '' || 
-      (typeof normalizedTierValue === 'string' && normalizedTierValue.trim() === '')
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
-        errorCode: 'TIER_REQUIRED',
-        field: 'tier',
-        suggestion: 'Please select one of the available XP tiers (Junior, Middle, or Senior) from the dropdown.',
-      })
-    }
-
-    // CRITICAL FIX: Validate tier value is one of the allowed values
-    if (!['Junior', 'Middle', 'Senior'].includes(normalizedTierValue)) {
+    // CRITICAL FIX: Validate tier value is one of the allowed values (case-insensitive check)
+    const allowedTiers = ['Junior', 'Middle', 'Senior'];
+    const tierMatch = allowedTiers.find(t => t.toLowerCase() === normalizedTierValue.toLowerCase());
+    if (!tierMatch) {
       return res.status(400).json({
         success: false,
         error: `Invalid XP Tier "${normalizedTierValue}". Must be one of: Junior, Middle, or Senior`,
         errorCode: 'TIER_INVALID',
         field: 'tier',
         receivedValue: normalizedTierValue,
-        allowedValues: ['Junior', 'Middle', 'Senior'],
+        allowedValues: allowedTiers,
       })
     }
+    // CRITICAL FIX: Use the correct case from allowedTiers (normalize to proper case)
+    const correctCaseTier = tierMatch; // This will be used below
 
     if (!decayRuleType || !['Fixed', 'Stepwise'].includes(decayRuleType)) {
       return res.status(400).json({
@@ -212,8 +269,14 @@ router.post('/xp-decay-v2', async (req, res) => {
     }
 
     // Check for duplicate tier (only 1 entry per tier allowed)
-    // CRITICAL FIX: Use normalized tier value
-    const existingSetting = await XPDecaySettingV2.findOne({ tier: normalizedTierValue })
+    // CRITICAL FIX: Use correct case tier value for consistency
+    const existingSetting = await XPDecaySettingV2.findOne({ 
+      $or: [
+        { tier: correctCaseTier },
+        { tier: normalizedTierValue },
+        { tier: { $regex: new RegExp(`^${correctCaseTier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+      ]
+    })
     if (existingSetting) {
       // If duplicate found, return the existing setting for editing
       return res.status(400).json({
@@ -228,10 +291,18 @@ router.post('/xp-decay-v2', async (req, res) => {
     }
 
     // Auto-populate XP Range from XPTierV2
-    // CRITICAL FIX: Use normalized tier value
+    // CRITICAL FIX: Use correct case tier value
     let xpRangeData
     try {
-      xpRangeData = await getXpRangeFromTier(normalizedTierValue)
+      xpRangeData = await getXpRangeFromTier(correctCaseTier)
+      
+      // CRITICAL FIX: Use actual tier name from database (case-corrected)
+      const finalTierName = xpRangeData.actualTierName || correctCaseTier;
+      
+      // CRITICAL FIX: Warn if tier is inactive but allow creation
+      if (xpRangeData.tierStatus === false) {
+        console.warn(`⚠️ Creating decay rule for inactive tier "${finalTierName}". Rule will not apply until tier is activated.`)
+      }
     } catch (error) {
       // CRITICAL FIX: Provide clear error messages based on error type
       if (error.message.includes('TIER_NOT_FOUND')) {
@@ -239,26 +310,22 @@ router.post('/xp-decay-v2', async (req, res) => {
           success: false,
           error: error.message.replace('TIER_NOT_FOUND: ', ''),
           errorCode: 'TIER_NOT_FOUND',
-          suggestion: `Please create the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings first.`,
-        })
-      } else if (error.message.includes('TIER_INACTIVE')) {
-        return res.status(400).json({
-          success: false,
-          error: error.message.replace('TIER_INACTIVE: ', ''),
-          errorCode: 'TIER_INACTIVE',
-          suggestion: `Please activate the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings.`,
+          suggestion: `Please create the "${correctCaseTier}" tier in Admin → Rewards → XP Tier V2 settings first.`,
         })
       } else {
-        return res.status(400).json({
-          success: false,
-          error: `Failed to fetch XP range for tier "${normalizedTierValue}". ${error.message}`,
+      return res.status(400).json({
+        success: false,
+          error: `Failed to fetch XP range for tier "${correctCaseTier}". ${error.message}`,
           errorCode: 'TIER_FETCH_ERROR',
-        })
+      })
       }
     }
 
+    // CRITICAL FIX: Use actual tier name from database (case-corrected)
+    const finalTierName = xpRangeData.actualTierName || correctCaseTier;
+
     const newSetting = new XPDecaySettingV2({
-      tier: normalizedTierValue,
+      tier: finalTierName,
       xpRange: xpRangeData.xpRange,
       xpMin: xpRangeData.xpMin,
       xpMax: xpRangeData.xpMax,
@@ -283,6 +350,33 @@ router.post('/xp-decay-v2', async (req, res) => {
     })
   } catch (error) {
     console.error('Error creating XP Decay Setting V2:', error)
+
+    // CRITICAL FIX: Handle validation errors from model pre-save hook
+    if (error.name === 'ValidationError' || error.errors) {
+      const validationErrors = error.errors || {};
+      const tierError = validationErrors.tier;
+      
+      if (tierError) {
+        return res.status(400).json({
+          success: false,
+          error: tierError.message || 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
+          errorCode: 'TIER_REQUIRED',
+          field: 'tier',
+          suggestion: 'Please select one of the available XP tiers (Junior, Middle, or Senior) from the dropdown.',
+        })
+      }
+      
+      // Handle other validation errors
+      const firstError = Object.values(validationErrors)[0];
+      if (firstError) {
+        return res.status(400).json({
+          success: false,
+          error: firstError.message || 'Validation error',
+          errorCode: 'VALIDATION_ERROR',
+          details: validationErrors,
+        })
+      }
+    }
 
     // Handle duplicate key error
     if (error.code === 11000) {
@@ -350,33 +444,55 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
 
     // CRITICAL FIX: Comprehensive validation for tier field when updating
     // Only validate if tierValue is being updated (not undefined)
+    let correctCaseTier = undefined; // Initialize for use outside if block
     if (tierValue !== undefined) {
-      // Check for empty, null, or whitespace-only values
+      // CRITICAL FIX: Comprehensive validation - check ALL possible empty cases
       if (
-        !normalizedTierValue || 
-        normalizedTierValue === '' || 
+        tierValue === undefined ||
+        tierValue === null ||
+        normalizedTierValue === undefined ||
+        normalizedTierValue === null ||
+        normalizedTierValue === '' ||
         (typeof normalizedTierValue === 'string' && normalizedTierValue.trim() === '')
       ) {
+        console.log('[XP-DECAY-VALIDATION] Tier validation failed (UPDATE):', {
+          tier,
+          tierName,
+          tierValue,
+          normalizedTierValue,
+          tierType: typeof tierValue,
+          tierNameType: typeof tierName
+        });
+        
         return res.status(400).json({
           success: false,
           error: 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
           errorCode: 'TIER_REQUIRED',
           field: 'tier',
+          receivedValues: {
+            tier: tier,
+            tierName: tierName,
+            tierValue: tierValue
+          },
           suggestion: 'Please select one of the available XP tiers (Junior, Middle, or Senior) from the dropdown.',
         })
       }
 
-      // Validate tier value is one of the allowed values
-      if (!['Junior', 'Middle', 'Senior'].includes(normalizedTierValue)) {
+      // CRITICAL FIX: Validate tier value is one of the allowed values (case-insensitive check)
+      const allowedTiers = ['Junior', 'Middle', 'Senior'];
+      const tierMatch = allowedTiers.find(t => t.toLowerCase() === normalizedTierValue.toLowerCase());
+      if (!tierMatch) {
         return res.status(400).json({
           success: false,
           error: `Invalid XP Tier "${normalizedTierValue}". Must be one of: Junior, Middle, or Senior`,
           errorCode: 'TIER_INVALID',
           field: 'tier',
           receivedValue: normalizedTierValue,
-          allowedValues: ['Junior', 'Middle', 'Senior'],
+          allowedValues: allowedTiers,
         })
       }
+      // CRITICAL FIX: Use the correct case from allowedTiers (normalize to proper case)
+      correctCaseTier = tierMatch; // Store for use below
     }
 
     if (
@@ -420,10 +536,13 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     }
 
     // Check for duplicate tier if tier is being changed
-    // CRITICAL FIX: Use normalized tier value
-    if (tierValue !== undefined && normalizedTierValue !== setting.tier) {
+    // CRITICAL FIX: Use correct case tier value for consistency
+    if (tierValue !== undefined && correctCaseTier && correctCaseTier !== setting.tier) {
       const existingSetting = await XPDecaySettingV2.findOne({
-        tier: normalizedTierValue,
+        $or: [
+          { tier: correctCaseTier },
+          { tier: { $regex: new RegExp(`^${correctCaseTier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+        ],
         _id: { $ne: req.params.id },
       })
       if (existingSetting) {
@@ -436,15 +555,26 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     }
 
     // Update fields
-    // CRITICAL FIX: Use normalized tier value
+    // CRITICAL FIX: Use correct case tier value
     if (tierValue !== undefined) {
-      setting.tier = normalizedTierValue
+      // CRITICAL FIX: Use correct case tier from validation above
+      const finalTierName = correctCaseTier || normalizedTierValue;
+      setting.tier = finalTierName
       // Auto-update XP Range when tier changes
       try {
-        const xpRangeData = await getXpRangeFromTier(normalizedTierValue)
+        const xpRangeData = await getXpRangeFromTier(finalTierName)
         setting.xpRange = xpRangeData.xpRange
         setting.xpMin = xpRangeData.xpMin
         setting.xpMax = xpRangeData.xpMax
+        
+        // CRITICAL FIX: Use actual tier name from database (case-corrected)
+        const actualTierName = xpRangeData.actualTierName || finalTierName;
+        setting.tier = actualTierName; // Ensure we use the exact case from DB
+        
+        // CRITICAL FIX: Warn if tier is inactive but allow update
+        if (xpRangeData.tierStatus === false) {
+          console.warn(`⚠️ Updating decay rule for inactive tier "${actualTierName}". Rule will not apply until tier is activated.`)
+        }
       } catch (error) {
         // CRITICAL FIX: Provide clear error messages based on error type
         if (error.message.includes('TIER_NOT_FOUND')) {
@@ -452,21 +582,14 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
             success: false,
             error: error.message.replace('TIER_NOT_FOUND: ', ''),
             errorCode: 'TIER_NOT_FOUND',
-            suggestion: `Please create the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings first.`,
-          })
-        } else if (error.message.includes('TIER_INACTIVE')) {
-          return res.status(400).json({
-            success: false,
-            error: error.message.replace('TIER_INACTIVE: ', ''),
-            errorCode: 'TIER_INACTIVE',
-            suggestion: `Please activate the "${normalizedTierValue}" tier in Admin → Rewards → XP Tier V2 settings.`,
+            suggestion: `Please create the "${finalTierName}" tier in Admin → Rewards → XP Tier V2 settings first.`,
           })
         } else {
-          return res.status(400).json({
-            success: false,
-            error: `Failed to fetch XP range for tier "${normalizedTierValue}". ${error.message}`,
+        return res.status(400).json({
+          success: false,
+            error: `Failed to fetch XP range for tier "${finalTierName}". ${error.message}`,
             errorCode: 'TIER_FETCH_ERROR',
-          })
+        })
         }
       }
     }
@@ -490,6 +613,33 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     })
   } catch (error) {
     console.error('Error updating XP Decay Setting V2:', error)
+
+    // CRITICAL FIX: Handle validation errors from model pre-save hook
+    if (error.name === 'ValidationError' || error.errors) {
+      const validationErrors = error.errors || {};
+      const tierError = validationErrors.tier;
+      
+      if (tierError) {
+        return res.status(400).json({
+          success: false,
+          error: tierError.message || 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
+          errorCode: 'TIER_REQUIRED',
+          field: 'tier',
+          suggestion: 'Please select one of the available XP tiers (Junior, Middle, or Senior) from the dropdown.',
+        })
+      }
+      
+      // Handle other validation errors
+      const firstError = Object.values(validationErrors)[0];
+      if (firstError) {
+        return res.status(400).json({
+          success: false,
+          error: firstError.message || 'Validation error',
+          errorCode: 'VALIDATION_ERROR',
+          details: validationErrors,
+        })
+      }
+    }
 
     // Handle duplicate key error
     if (error.code === 11000) {

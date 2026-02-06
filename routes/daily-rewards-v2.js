@@ -206,7 +206,7 @@ function calculateMidWeekJoinMetadata(weekStart, weekEnd, userCreatedAt) {
   const weekContainsUserCreation = weekStart <= userCreatedAt && weekEnd >= userCreatedAt;
   
   if (!weekContainsUserCreation) {
-    return {
+  return {
       isMidWeekJoin: false,
       userCreatedDayIndex: null,
       userCreatedDayNumber: null,
@@ -310,6 +310,7 @@ router.get('/week', protect, async (req, res) => {
           return {
             ...day.toObject(),
             active: false,
+            status: day.status === 'claimed' ? 'claimed' : 'locked', // If no config, mark as locked (except already claimed)
             rewardType: 'Both',
             rewardCoins: 0,
             rewardXp: 0,
@@ -317,6 +318,13 @@ router.get('/week', protect, async (req, res) => {
             timerLabel: 'Next reward in',
             claimableOnLoginOnly: false
           };
+        }
+        
+        // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+        const isDayActive = dayConfig.active !== false;
+        let dayStatus = day.status;
+        if (!isDayActive && day.status !== 'claimed') {
+          dayStatus = 'locked'; // Disable claiming for inactive days
         }
         
         // Get base reward values from admin config
@@ -342,7 +350,8 @@ router.get('/week', protect, async (req, res) => {
         
         return {
           ...day.toObject(),
-          active: dayConfig.active !== false,
+          status: dayStatus, // Use overridden status
+          active: isDayActive,
           rewardType: rewardType,
           rewardCoins: finalCoins,
           rewardXp: finalXP,
@@ -436,9 +445,18 @@ router.get('/week', protect, async (req, res) => {
       
       const enrichedDays = currentProgress.days.map(day => {
         const dayConfig = cfg.days.find(d => d.dayNumber === day.dayNumber);
+        
+        // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+        const isDayActive = dayConfig?.active !== false;
+        let dayStatus = day.status;
+        if (!isDayActive && day.status !== 'claimed') {
+          dayStatus = 'locked'; // Disable claiming for inactive days
+        }
+        
         return {
           ...day.toObject(),
-          active: dayConfig?.active !== false,
+          status: dayStatus, // Use overridden status
+          active: isDayActive,
           rewardType: dayConfig?.rewardType || 'Both',
           claimButtonLabel: dayConfig?.claimButtonLabel || 'CLAIM NOW',
           timerLabel: dayConfig?.timerLabel || 'Next reward in',
@@ -522,6 +540,7 @@ router.get('/week', protect, async (req, res) => {
         return {
           ...day.toObject(),
           active: false,
+          status: day.status === 'claimed' ? 'claimed' : 'locked', // If no config, mark as locked (except already claimed)
           rewardType: 'Both',
           rewardCoins: 0,
           rewardXp: 0,
@@ -529,6 +548,13 @@ router.get('/week', protect, async (req, res) => {
           timerLabel: 'Next reward in',
           claimableOnLoginOnly: false
         };
+      }
+      
+      // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
+      const isDayActive = dayConfig.active !== false;
+      let dayStatus = day.status;
+      if (!isDayActive && day.status !== 'claimed') {
+        dayStatus = 'locked'; // Disable claiming for inactive days
       }
       
       // Get base reward values from admin config
@@ -554,7 +580,8 @@ router.get('/week', protect, async (req, res) => {
       
       return {
         ...day.toObject(),
-        active: dayConfig.active !== false,
+        status: dayStatus, // Use overridden status
+        active: isDayActive,
         rewardType: rewardType,
         rewardCoins: finalCoins,
         rewardXp: finalXP,
@@ -703,9 +730,9 @@ router.post('/claim', protect, async (req, res) => {
         }
       } else {
         // If downgradeOnMiss is false, big reward is always eligible (regardless of week number or mid-week join)
-        bigReward = cfg.bigReward;
-        progress.bigRewardEligible = true;
-        progress.bigRewardGranted = true;
+          bigReward = cfg.bigReward;
+          progress.bigRewardEligible = true;
+          progress.bigRewardGranted = true;
       }
 
       if (bigReward) {
@@ -740,16 +767,16 @@ router.post('/claim', protect, async (req, res) => {
       }
       if (rewardType === 'XP' || rewardType === 'Both') {
         baseXP = dayConfig.xpValue !== undefined ? dayConfig.xpValue : dayConfig.xp || 0;
-      }
+        }
     }
 
     // Apply weekly multiplier if enabled and week > 1
     let finalCoins = baseCoins;
     let finalXP = baseXP;
-    if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
+        if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
       finalCoins = applyMultiplier(baseCoins, weekMultiplier, roundingRule);
       finalXP = applyMultiplier(baseXP, weekMultiplier, roundingRule);
-    }
+        }
 
     // CRITICAL FIX: For day 7, coins and XP are already calculated correctly above
     // (baseCoins/baseXP contain big reward values if eligible, or day 6 values if not)

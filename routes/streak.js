@@ -205,26 +205,52 @@ router.get('/bonus-days', protect, async (req, res) => {
         };
         const isEligible = bonusDay.isEligibleForUser(userProfileWithCompletedTasks);
         
-        // CRITICAL FIX: Calculate progress percentage based on completed days, not just streak
+        // CRITICAL FIX: Calculate progress percentage based on CONSECUTIVE completed days ending today
+        // Progress should ONLY show consecutive days with NO gaps ending today
+        // If user skips ANY required day, progress should reset or show only consecutive days ending today
         let progressPercentage = 0;
         if (bonusDay.conditions.requiresCompletion !== false) {
-          // Count how many of the required days are completed
-          let completedRequiredDays = 0;
-          const checkDate = new Date(today);
-          for (let i = 0; i < bonusDay.conditions.minStreak; i++) {
-            const dateStr = checkDate.toISOString().split('T')[0];
-            if (completedTasksSet.has(dateStr)) {
-              completedRequiredDays++;
-              checkDate.setDate(checkDate.getDate() - 1);
+          // CRITICAL: Must start from today - if today is not completed, progress is 0
+          const todayStr = today.toISOString().split('T')[0];
+          if (!completedTasksSet.has(todayStr)) {
+            progressPercentage = 0; // No progress if today is not completed
+            console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: Progress = 0% (today not completed)`);
+          } else {
+            // Count consecutive completed days backwards from today (must be unbroken chain ending today)
+            let consecutiveCompletedDays = 0;
+            const checkDate = new Date(today);
+            let foundGap = false;
+            
+            // Start from today and count backwards consecutively
+            // CRITICAL: We only count up to minStreak days (the required days for this bonus)
+            for (let i = 0; i < bonusDay.conditions.minStreak; i++) {
+              const dateStr = checkDate.toISOString().split('T')[0];
+              if (completedTasksSet.has(dateStr)) {
+                consecutiveCompletedDays++;
+                checkDate.setDate(checkDate.getDate() - 1);
+              } else {
+                // CRITICAL FIX: If we hit a gap, stop counting immediately
+                // Progress should only reflect consecutive days ending today with NO gaps
+                foundGap = true;
+                console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: Gap found at ${dateStr}, stopping count at ${consecutiveCompletedDays} consecutive days`);
+                break;
+              }
+            }
+            
+            // CRITICAL FIX: Progress should ONLY be calculated based on consecutive days ending today
+            // If there's a gap, we only count the consecutive days ending today (not partial progress from before gap)
+            if (consecutiveCompletedDays > 0) {
+              progressPercentage = Math.min(100, Math.round((consecutiveCompletedDays / bonusDay.conditions.minStreak) * 100));
+              console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: ${consecutiveCompletedDays}/${bonusDay.conditions.minStreak} consecutive days ending today = ${progressPercentage}%${foundGap ? ' (gap found, showing only consecutive days ending today)' : ''}`);
             } else {
-              // Stop counting if we hit a gap (consecutive requirement)
-              break;
+              progressPercentage = 0; // No progress if no consecutive days ending today
+              console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: Progress = 0% (no consecutive days ending today)`);
             }
           }
-          progressPercentage = Math.min(100, Math.round((completedRequiredDays / bonusDay.conditions.minStreak) * 100));
         } else {
           // If requiresCompletion is false, use streak-based progress
           progressPercentage = Math.min(100, Math.round((currentStreak / bonusDay.conditions.minStreak) * 100));
+          console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: Progress = ${progressPercentage}% (streak-based, requiresCompletion=false)`);
         }
 
         // Calculate tier-multiplied values for XP rewards
@@ -685,11 +711,11 @@ router.get('/status', protect, async (req, res) => {
             };
             
             return {
-              dayNumber: bonusDay.dayNumber,
-              title: bonusDay.title,
-              description: bonusDay.description,
-              primaryReward: bonusDay.primaryReward,
-              alternateReward: bonusDay.alternateReward,
+            dayNumber: bonusDay.dayNumber,
+            title: bonusDay.title,
+            description: bonusDay.description,
+            primaryReward: bonusDay.primaryReward,
+            alternateReward: bonusDay.alternateReward,
               isReached: areAllRequiredDaysCompleted(bonusDay), // CRITICAL FIX: Use completion check, not just streak count
               daysRemaining: Math.max(0, bonusDay.conditions.minStreak - currentStreak),
               resetRule: resetRuleInfo // Add reset rule information

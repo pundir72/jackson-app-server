@@ -1457,6 +1457,7 @@ router.get("/surveys", protect, async (req, res) => {
       page = 1,
       limit = 20,
       useAdminConfig = "true",
+      includeBesitos = "false", // optional flag to always include Besitos along with Bitlabs
     } = req.query;
     const user = await User.findById(req.user.userId).select(
       "xp vip profile location preferences onboarding"
@@ -1497,6 +1498,8 @@ router.get("/surveys", protect, async (req, res) => {
     // 4. Return surveys with fresh, user-specific click URLs
     //
     // Reference: BITLABS_INDUSTRIAL_SOLUTION.md
+    const includeBesitosFlag = String(includeBesitos).toLowerCase() === "true";
+
     if (useAdminConfig === "true") {
       try {
         const SurveySDK = require("../models/SurveySDK");
@@ -1534,13 +1537,85 @@ router.get("/surveys", protect, async (req, res) => {
             `🔵 [USER BACKEND] ===========================================\n`
           );
 
-          // Filter by user eligibility
-          const eligibleOffers = configuredOffers.filter((offer) =>
-            offer.isEligibleForUser(userProfile)
+          // Filter by user eligibility with detailed logging
+          console.log(
+            `\n🔍 [USER BACKEND] ========== ELIGIBILITY CHECK ==========`
           );
+          console.log(`🔍 [USER BACKEND] User Profile:`, {
+            age: userProfile.age,
+            gender: userProfile.gender,
+            country: userProfile.country,
+            xp: userProfile.xp,
+            deviceType: userProfile.deviceType,
+            hasGoogleId: userProfile.hasGoogleId,
+          });
+
+          const eligibleOffers = [];
+          const ineligibleOffers = [];
+
+          configuredOffers.forEach((offer, index) => {
+            const isEligible = offer.isEligibleForUser(userProfile);
+            if (isEligible) {
+              eligibleOffers.push(offer);
+            } else {
+              // Log why this offer is not eligible
+              const reasons = [];
+              
+              // Check age requirements
+              if (offer.requirements?.minAge && userProfile.age < offer.requirements.minAge) {
+                reasons.push(`age too low (${userProfile.age} < ${offer.requirements.minAge})`);
+              }
+              if (offer.requirements?.maxAge && userProfile.age > offer.requirements.maxAge) {
+                reasons.push(`age too high (${userProfile.age} > ${offer.requirements.maxAge})`);
+              }
+              
+              // Check XP requirements
+              if (offer.targetAudience?.minXP && userProfile.xp < offer.targetAudience.minXP) {
+                reasons.push(`XP too low (${userProfile.xp} < ${offer.targetAudience.minXP})`);
+              }
+              if (offer.targetAudience?.maxXP && userProfile.xp > offer.targetAudience.maxXP) {
+                reasons.push(`XP too high (${userProfile.xp} > ${offer.targetAudience.maxXP})`);
+              }
+              
+              // Check age group targeting
+              if (offer.targetAudience?.age && offer.targetAudience.age.length > 0 && !userProfile.hasGoogleId) {
+                const userAgeGroup = offer.getAgeGroup(userProfile.age);
+                if (!offer.targetAudience.age.includes(userAgeGroup)) {
+                  reasons.push(`age group mismatch (user: ${userAgeGroup}, required: ${offer.targetAudience.age.join(', ')})`);
+                }
+              }
+              
+              // Check gender targeting
+              if (offer.targetAudience?.gender && offer.targetAudience.gender.length > 0 && !userProfile.hasGoogleId) {
+                if (!offer.targetAudience.gender.includes(userProfile.gender)) {
+                  reasons.push(`gender mismatch (user: ${userProfile.gender}, required: ${offer.targetAudience.gender.join(', ')})`);
+                }
+              }
+              
+              // Check country targeting
+              if (offer.targetAudience?.countries && offer.targetAudience.countries.length > 0) {
+                if (!offer.targetAudience.countries.includes(userProfile.country)) {
+                  reasons.push(`country mismatch (user: ${userProfile.country}, required: ${offer.targetAudience.countries.join(', ')})`);
+                }
+              }
+              
+              // Check device type
+              if (offer.requirements?.deviceType && offer.requirements.deviceType.length > 0) {
+                if (!offer.requirements.deviceType.includes(userProfile.deviceType)) {
+                  reasons.push(`device mismatch (user: ${userProfile.deviceType}, required: ${offer.requirements.deviceType.join(', ')})`);
+                }
+              }
+
+              ineligibleOffers.push({
+                externalId: offer.externalId,
+                title: offer.title,
+                reasons: reasons.length > 0 ? reasons : ["unknown reason"],
+              });
+            }
+          });
 
           console.log(
-            `\n🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`
+            `🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`
           );
           console.log(
             `🟢 [USER BACKEND] Total eligible surveys: ${eligibleOffers.length} (after filtering)`
@@ -1551,6 +1626,29 @@ router.get("/surveys", protect, async (req, res) => {
               title: offer.title,
             });
           });
+          
+          if (ineligibleOffers.length > 0) {
+            console.log(
+              `\n🔴 [USER BACKEND] ========== INELIGIBLE SURVEYS ==========`
+            );
+            console.log(
+              `🔴 [USER BACKEND] Total ineligible surveys: ${ineligibleOffers.length}`
+            );
+            ineligibleOffers.slice(0, 5).forEach((offer, index) => {
+              console.log(`🔴 [USER BACKEND] Ineligible Survey ${index + 1}:`, {
+                externalId: offer.externalId,
+                title: offer.title,
+                reasons: offer.reasons,
+              });
+            });
+            if (ineligibleOffers.length > 5) {
+              console.log(`🔴 [USER BACKEND] ... and ${ineligibleOffers.length - 5} more`);
+            }
+            console.log(
+              `🔴 [USER BACKEND] ===========================================\n`
+            );
+          }
+          
           console.log(
             `🟢 [USER BACKEND] ===========================================\n`
           );
@@ -1711,45 +1809,45 @@ router.get("/surveys", protect, async (req, res) => {
                 );
               } else {
                 // Normal behavior: Only return surveys that have fresh click URLs
-                const availableSurveys = surveysWithFreshUrls.filter(
-                  (s) => s.clickUrl !== null
-                );
+              const availableSurveys = surveysWithFreshUrls.filter(
+                (s) => s.clickUrl !== null
+              );
 
+              console.log(
+                `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+              );
+              console.log(
+                `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
+              );
+              console.log(
+                `✅ [USER BACKEND] Filtered out (no click URL): ${
+                  surveysWithFreshUrls.length - availableSurveys.length
+                }`
+              );
+              availableSurveys.forEach((survey, index) => {
                 console.log(
-                  `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
+                  `✅ [USER BACKEND] Available Survey ${index + 1}:`,
+                  {
+                    id: survey.id,
+                    title: survey.title,
+                    clickUrl: survey.clickUrl ? "✅" : "❌",
+                  }
                 );
-                console.log(
-                  `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
-                );
-                console.log(
-                  `✅ [USER BACKEND] Filtered out (no click URL): ${
-                    surveysWithFreshUrls.length - availableSurveys.length
-                  }`
-                );
-                availableSurveys.forEach((survey, index) => {
-                  console.log(
-                    `✅ [USER BACKEND] Available Survey ${index + 1}:`,
-                    {
-                      id: survey.id,
-                      title: survey.title,
-                      clickUrl: survey.clickUrl ? "✅" : "❌",
-                    }
-                  );
-                });
-                console.log(
-                  `✅ [USER BACKEND] ===========================================\n`
-                );
+              });
+              console.log(
+                `✅ [USER BACKEND] ===========================================\n`
+              );
 
-                if (availableSurveys.length > 0) {
-                  surveys = availableSurveys;
-                  source = "admin_configured";
-                  console.log(
-                    `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
-                  );
-                } else {
-                  console.log(
-                    `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
-                  );
+              if (availableSurveys.length > 0) {
+                surveys = availableSurveys;
+                source = "admin_configured";
+                console.log(
+                  `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                );
+              } else {
+                console.log(
+                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                );
                 }
               }
             } catch (bitlabsError) {
@@ -1797,6 +1895,226 @@ router.get("/surveys", protect, async (req, res) => {
             }
           }
         }
+
+        // ========== BESITOS SURVEYS HANDLING ==========
+        // Check for Besitos SDK and get admin-configured Besitos surveys
+        const besitosSDK = await SurveySDK.findOne({
+          name: { $regex: /besitos/i },
+        });
+
+        if (besitosSDK) {
+          console.log(
+            `\n🔵 [USER BACKEND] ========== BESITOS SDK FOUND ==========`
+          );
+          console.log(
+            `🔵 [USER BACKEND] Besitos SDK ID: ${besitosSDK._id}`
+          );
+
+          // Get admin-configured Besitos surveys
+          const besitosConfiguredOffers = await SurveyOffer.find({
+            sdkId: besitosSDK._id,
+            offerType: "survey",
+            status: "live",
+          });
+
+          console.log(
+            `🔵 [USER BACKEND] Total Besitos configured surveys: ${besitosConfiguredOffers.length}`
+          );
+
+          if (besitosConfiguredOffers.length > 0) {
+            // Filter by user eligibility
+            const besitosEligibleOffers = besitosConfiguredOffers.filter(
+              (offer) => offer.isEligibleForUser(userProfile)
+            );
+
+            console.log(
+              `🟢 [USER BACKEND] Besitos eligible surveys: ${besitosEligibleOffers.length}`
+            );
+
+            if (besitosEligibleOffers.length > 0) {
+              try {
+                const besitosService = require("../services/besitos.service");
+
+                // Check if Besitos service is configured
+                if (besitosService.isConfigured()) {
+                  // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
+                  // This avoids VPN detection issues on production servers
+                  // Besitos will use the userId parameter for user tracking instead
+                  const clientIp = "127.0.0.1";
+                  
+                  console.log(
+                    "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
+                  );
+
+                  // Map platform to device (REQUIRED by Besitos API)
+                  let device = "mobile"; // default
+                  const platform = req.query.platform?.toLowerCase() || "mobile";
+                  if (platform === "web") {
+                    device = "desktop";
+                  } else if (platform === "android" || platform === "ios") {
+                    device = "mobile";
+                  }
+
+                  // Build query params for Besitos API
+                  const besitosQueryParams = {
+                    device: device, // REQUIRED
+                    user_ip: clientIp, // REQUIRED - User's actual IP
+                  };
+
+                  // Add optional parameters
+                  const userGender = getUserGender(user);
+                  if (userGender === "male") {
+                    besitosQueryParams.gender = "m";
+                  } else if (userGender === "female") {
+                    besitosQueryParams.gender = "f";
+                  }
+
+                  if (user.dateOfBirth) {
+                    const dob = new Date(user.dateOfBirth);
+                    besitosQueryParams.dob = dob.toISOString().split("T")[0];
+                  }
+
+                  if (user.location?.current?.postalCode) {
+                    besitosQueryParams.postal_code = user.location.current.postalCode;
+                  }
+
+                  console.log(
+                    `🔵 [USER BACKEND] Fetching Besitos surveys with params:`,
+                    {
+                      device: besitosQueryParams.device,
+                      user_ip: besitosQueryParams.user_ip,
+                      gender: besitosQueryParams.gender || "not provided",
+                      dob: besitosQueryParams.dob || "not provided",
+                    }
+                  );
+
+                  // Get fresh surveys from Besitos API
+                  const besitosResponse = await besitosService.getSurveysWall(
+                    user._id.toString(),
+                    besitosQueryParams
+                  );
+
+                  // Besitos returns array of surveys
+                  const besitosSurveysArray = Array.isArray(besitosResponse)
+                    ? besitosResponse
+                    : besitosResponse?.data || [];
+
+                  console.log(
+                    `🔵 [USER BACKEND] Besitos API returned ${besitosSurveysArray.length} surveys`
+                  );
+
+                  // Match admin-configured surveys with fresh Besitos response
+                  const besitosSurveysWithUrls = besitosEligibleOffers
+                    .map((offer) => {
+                      // Find matching survey in Besitos response by externalId
+                      const matchingSurvey = besitosSurveysArray.find(
+                        (s) =>
+                          s.id?.toString() === offer.externalId ||
+                          s.id === offer.externalId
+                      );
+
+                      if (matchingSurvey && matchingSurvey.url) {
+                        // Convert Besitos survey format to our format
+                        const estimatedTime = matchingSurvey.length
+                          ? Math.round(matchingSurvey.length)
+                          : offer.estimatedTime || 5;
+
+                        // Convert amount to coins (assuming 1 dollar = 50 coins)
+                        const rewardCoins = matchingSurvey.amount
+                          ? Math.round(matchingSurvey.amount * 50)
+                          : offer.coinReward;
+
+                        return {
+                          id: offer.externalId,
+                          surveyId: offer.externalId,
+                          title: offer.title || matchingSurvey.name,
+                          description:
+                            offer.description ||
+                            `Complete this survey to earn $${matchingSurvey.amount || 0}`,
+                          category: offer.category || {
+                            name: "Survey",
+                            name_internal: "Survey",
+                          },
+                          icon: offer.metadata?.thumbnail || "",
+                          banner: offer.metadata?.thumbnail || "",
+                          reward: {
+                            coins: rewardCoins,
+                            currency: "points",
+                            xp: Math.round(rewardCoins * 0.5),
+                          },
+                          estimatedTime: estimatedTime,
+                          clickUrl: matchingSurvey.url, // Fresh URL from Besitos
+                          surveyUrl: matchingSurvey.url,
+                          isAvailable: true,
+                          provider: "besitos",
+                          source: "admin_configured",
+                          // Besitos specific fields
+                          value: matchingSurvey.amount
+                            ? parseFloat(matchingSurvey.amount)
+                            : 0,
+                          cpi: matchingSurvey.cpi
+                            ? parseFloat(matchingSurvey.cpi)
+                            : 0,
+                          amount_currency:
+                            matchingSurvey.amount_currency || "$",
+                        };
+                      } else {
+                        // Survey not available from Besitos
+                        return {
+                          id: offer.externalId,
+                          surveyId: offer.externalId,
+                          title: offer.title,
+                          description: offer.description,
+                          category: offer.category,
+                          icon: offer.metadata?.thumbnail,
+                          banner: offer.metadata?.thumbnail,
+                          reward: {
+                            coins: offer.coinReward,
+                            currency: "points",
+                            xp: Math.round(offer.coinReward * 0.5),
+                          },
+                          estimatedTime: offer.estimatedTime,
+                          clickUrl: null,
+                          surveyUrl: null,
+                          isAvailable: false,
+                          provider: "besitos",
+                          source: "admin_configured",
+                          message: "Survey temporarily unavailable",
+                        };
+                      }
+                    })
+                    .filter((o) => o !== null);
+
+                  // Add Besitos surveys to the main surveys array
+                  const availableBesitosSurveys = besitosSurveysWithUrls.filter(
+                    (s) => s.clickUrl !== null
+                  );
+
+                  if (availableBesitosSurveys.length > 0) {
+                    surveys = [...surveys, ...availableBesitosSurveys];
+                    console.log(
+                      `✅ [USER BACKEND] Added ${availableBesitosSurveys.length} Besitos surveys to results`
+                    );
+                  } else {
+                    console.log(
+                      `⚠️ [USER BACKEND] No Besitos surveys available with fresh URLs`
+                    );
+                  }
+                } else {
+                  console.warn(
+                    `⚠️ [USER BACKEND] Besitos service not configured`
+                  );
+                }
+              } catch (besitosError) {
+                console.error(
+                  "🔴 [USER BACKEND] Error fetching Besitos surveys:",
+                  besitosError.message
+                );
+                // Continue without Besitos surveys
+              }
+            }
+          }
+        }
       } catch (configError) {
         console.error("Error fetching admin-configured offers:", configError);
         // Fall through to BitLab API
@@ -1827,7 +2145,30 @@ router.get("/surveys", protect, async (req, res) => {
         "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SURVEYS - FALLBACK) =========="
       );
       console.log("🔵 [BITLABS API] User ID:", user._id.toString());
+      console.log("🔵 [BITLABS API] User Profile:", {
+        country: userProfile.country,
+        age: userProfile.age,
+        gender: userProfile.gender,
+        xp: userProfile.xp,
+      });
       console.log("🔵 [BITLABS API] Success:", result?.success);
+      
+      // CRITICAL: Check for VPN/restriction reasons
+      if (result?.restrictionReason) {
+        console.warn(
+          "⚠️ [BITLABS API] RESTRICTION REASON DETECTED:",
+          JSON.stringify(result.restrictionReason, null, 2)
+        );
+        if (result.restrictionReason.using_vpn) {
+          console.warn(
+            "⚠️ [BITLABS API] VPN DETECTED - Bitlabs is blocking server IP"
+          );
+          console.warn(
+            "⚠️ [BITLABS API] Solution: Contact Bitlabs support to whitelist server IP"
+          );
+        }
+      }
+      
       console.log(
         "🔵 [BITLABS API] Full Response:",
         JSON.stringify(result, null, 2)
@@ -1846,6 +2187,10 @@ router.get("/surveys", protect, async (req, res) => {
             "🔵 [BITLABS API] First Survey Value:",
             result.surveys[0]?.value || "N/A"
           );
+        } else {
+          console.warn(
+            "⚠️ [BITLABS API] Surveys array is EMPTY - checking restrictionReason above"
+          );
         }
       }
       if (result?.categorized?.surveys) {
@@ -1853,6 +2198,11 @@ router.get("/surveys", protect, async (req, res) => {
           "🔵 [BITLABS API] Categorized Surveys Count:",
           result.categorized.surveys.length
         );
+        if (result.categorized.surveys.length === 0) {
+          console.warn(
+            "⚠️ [BITLABS API] Categorized surveys array is EMPTY"
+          );
+        }
       }
       console.log(
         "🔵 [BITLABS API] ===========================================\n"
@@ -1863,13 +2213,13 @@ router.get("/surveys", protect, async (req, res) => {
         const surveysFromResult = result.categorized?.surveys || result.surveys || [];
         if (surveysFromResult.length > 0) {
           surveys = surveysFromResult.map((s) => ({
-            ...s,
-            source: "bitlab_direct",
-          }));
-          source = "bitlab_direct";
-          console.log(
-            `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
-          );
+          ...s,
+          source: "bitlab_direct",
+        }));
+        source = "bitlab_direct";
+        console.log(
+          `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
+        );
         } else {
           console.warn(
             "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="
@@ -1908,6 +2258,178 @@ router.get("/surveys", protect, async (req, res) => {
         );
         console.error(
           "🔴 [USER BACKEND] ==================================================\n"
+        );
+      }
+    }
+
+    // Step 3: Besitos direct API
+    // - If surveys are empty → pure Besitos fallback (same behavior as admin route)
+    // - If includeBesitos=true → merge Besitos + Bitlabs results (both providers)
+    const shouldIncludeBesitos = includeBesitosFlag || surveys.length === 0;
+
+    if (shouldIncludeBesitos) {
+      try {
+        const SurveySDK = require("../models/SurveySDK");
+        const SurveyOffer = require("../models/SurveyOffer");
+        const besitosService = require("../services/besitos.service");
+
+        // Check if Besitos is configured
+        if (besitosService.isConfigured()) {
+          // Find Besitos SDK (optional - we'll still call API even if no admin config)
+          const besitosSDK = await SurveySDK.findOne({
+            name: { $regex: /besitos/i },
+          });
+
+          if (besitosSDK) {
+            console.log(
+              `\n🔵 [USER BACKEND] Besitos fallback: SDK found: ${besitosSDK._id}`
+            );
+          } else {
+            console.log(
+              `\n⚠️ [USER BACKEND] Besitos fallback: SDK not found, calling API anyway`
+            );
+          }
+
+          // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
+          // This avoids VPN detection issues on production servers
+          // Besitos will use the userId parameter for user tracking instead
+          const clientIp = "127.0.0.1";
+          
+          console.log(
+            "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
+          );
+
+          // Map platform to device (android/ios → mobile, web → desktop)
+          let device = "mobile";
+          const platform = req.query.platform?.toLowerCase();
+          if (platform === "web") {
+            device = "desktop";
+          } else if (platform === "android" || platform === "ios") {
+            device = "mobile";
+          }
+
+          const besitosQueryParams = {
+            device,
+            user_ip: clientIp,
+          };
+
+          const userGender = getUserGender(user);
+          if (userGender === "male") {
+            besitosQueryParams.gender = "m";
+          } else if (userGender === "female") {
+            besitosQueryParams.gender = "f";
+          }
+
+          if (user.dateOfBirth) {
+            const dob = new Date(user.dateOfBirth);
+            besitosQueryParams.dob = dob.toISOString().split("T")[0];
+          }
+
+          if (user.location?.current?.postalCode) {
+            besitosQueryParams.postal_code = user.location.current.postalCode;
+          }
+
+          console.log(
+            "🔵 [USER BACKEND] Besitos fallback params:",
+            besitosQueryParams
+          );
+
+          // Call Besitos Surveys API using userId (not admin-preview)
+          const besitosResponse = await besitosService.getSurveysWall(
+            user._id.toString(),
+            besitosQueryParams
+          );
+
+          const besitosSurveysArray = Array.isArray(besitosResponse)
+            ? besitosResponse
+            : besitosResponse?.data || [];
+
+          console.log(
+            `🔵 [USER BACKEND] Besitos fallback returned ${besitosSurveysArray.length} surveys`
+          );
+
+          if (besitosSurveysArray.length > 0) {
+            const besitosTransformed = besitosSurveysArray.map((survey) => {
+              const estimatedTime = survey.length
+                ? Math.round(survey.length)
+                : 0;
+
+              const rewardCoins = survey.amount
+                ? Math.round(survey.amount * 50)
+                : 0;
+
+              const userRewardCoins = survey.amount
+                ? Math.round(survey.amount * 0.8 * 50)
+                : rewardCoins;
+              const userRewardXP = Math.round(userRewardCoins * 0.5);
+
+              return {
+                id: survey.id?.toString() || "",
+                surveyId: survey.id?.toString() || "",
+                offerId: survey.id?.toString() || "",
+                title: survey.name || `Survey ${survey.id}` || "Untitled Survey",
+                description: `Complete this survey to earn $${
+                  survey.amount || 0
+                }`,
+                icon: "",
+                banner: "",
+                reward: {
+                  coins: rewardCoins,
+                  currency: survey.amount_currency || "$",
+                  xp: userRewardXP,
+                },
+                estimatedTime,
+                clickUrl: survey.url || "",
+                confirmationTime: "",
+                pendingTime: 0,
+                isAvailable: true,
+                provider: "besitos",
+                requirements: "",
+                thingsToKnow: [],
+                category: "Survey",
+                value: survey.amount ? parseFloat(survey.amount) : 0,
+                cpi: survey.cpi ? parseFloat(survey.cpi) : 0,
+                loi: estimatedTime,
+                cr: 0,
+                rating: 0,
+                country: userProfile.country || "",
+                language: userProfile.language || "",
+                userRewardCoins,
+                userRewardXP,
+                type: "survey",
+              };
+            });
+
+            if (surveys.length === 0) {
+              // Pure Besitos mode (Bitlabs returned nothing)
+              surveys = besitosTransformed;
+              source = "besitos_direct";
+
+              console.log(
+                `✅ [USER BACKEND] Using Besitos fallback: ${surveys.length} surveys (besitos_direct)`
+              );
+            } else {
+              // Merge Bitlabs + Besitos when includeBesitos=true
+              surveys = [...surveys, ...besitosTransformed];
+              // Mark mixed source only if previously bitlab_direct
+              if (source === "bitlab_direct") {
+                source = "mixed";
+              }
+
+              console.log(
+                `✅ [USER BACKEND] Merged Bitlabs + Besitos surveys: ${surveys.length} total (mixed)`
+              );
+            }
+          }
+        } else {
+          console.warn(
+            "⚠️ [USER BACKEND] Besitos fallback skipped: service not configured"
+          );
+        }
+      } catch (besitosFallbackError) {
+        console.error(
+          "🔴 [USER BACKEND] Besitos fallback error:",
+          besitosFallbackError.message
         );
       }
     }

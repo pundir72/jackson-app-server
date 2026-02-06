@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const UserAchievement = require('../models/UserAchievement');
+const UserChallengeProgress = require('../models/UserChallengeProgress');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
@@ -453,11 +454,15 @@ class AccountOverviewService {
 
     const user = await User.findById(userId);
 
-    // Games played today (including games with progress > 0)
+    // Games played today - CRITICAL FIX: Use lastPlayed instead of date/completedAt for real-time updates
+    // lastPlayed is updated immediately when a game is played, ensuring real-time progress tracking
     const gamesPlayedToday = user.games?.filter(game => {
-      const gameDate = new Date(game.date || game.completedAt);
+      // Use lastPlayed as primary source (updated in real-time when game is played)
+      const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
       const isToday = gameDate >= today && gameDate < tomorrow;
-      const hasProgress = game.completed || (game.progress && game.progress > 0);
+      // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
+      // or has progress/completed status
+      const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
       return isToday && hasProgress;
     }).length || 0;
 
@@ -469,11 +474,13 @@ class AccountOverviewService {
     });
     const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 
-    // Challenges completed today
-    const challengesCompletedToday = user.challenges?.filter(challenge => {
-      const challengeDate = new Date(challenge.date);
-      return challengeDate >= today && challengeDate < tomorrow && challenge.completed;
-    }).length || 0;
+    // Challenges completed today - CRITICAL FIX: Query UserChallengeProgress model for real-time updates
+    // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
+    const challengesCompletedToday = await UserChallengeProgress.countDocuments({
+      userId: userId,
+      status: 'completed',
+      completedAt: { $gte: today, $lt: tomorrow }
+    });
 
     // Use user-specific goals
     const dailyGoals = userConfig.dailyGoals;
@@ -685,10 +692,15 @@ class AccountOverviewService {
           return false;
         }
 
+        // CRITICAL FIX: Use lastPlayed for real-time tracking (updated when game is played)
         const gamesPlayedToday = user.games.filter(game => {
-          // Check if game was completed today
-          const gameDate = new Date(game.completedAt || game.date || game.lastPlayed);
-          return gameDate >= today && gameDate < tomorrow && game.completed === true;
+          // Use lastPlayed as primary source (updated in real-time when game is played)
+          const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
+          const isToday = gameDate >= today && gameDate < tomorrow;
+          // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
+          // or has progress/completed status
+          const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
+          return isToday && hasProgress;
         }).length;
 
         // console.log(`Games played today: ${gamesPlayedToday}, Target: ${dailyGoals.gamesPlayed}`);
@@ -706,16 +718,13 @@ class AccountOverviewService {
         return coinsEarnedToday >= dailyGoals.coinsEarned;
 
       case 'challengesCompleted':
-        const userForChallenges = await User.findById(userId);
-        if (!userForChallenges || !userForChallenges.challenges) {
-          return false;
-        }
-
-        const challengesCompletedToday = userForChallenges.challenges.filter(challenge => {
-          // Check if challenge was completed today
-          const challengeDate = new Date(challenge.completedAt || challenge.date);
-          return challengeDate >= today && challengeDate < tomorrow && challenge.completed === true;
-        }).length;
+        // CRITICAL FIX: Query UserChallengeProgress model for real-time updates
+        // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
+        const challengesCompletedToday = await UserChallengeProgress.countDocuments({
+          userId: userId,
+          status: 'completed',
+          completedAt: { $gte: today, $lt: tomorrow }
+        });
 
         // console.log(`Challenges completed today: ${challengesCompletedToday}, Target: ${dailyGoals.challengesCompleted}`);
         return challengesCompletedToday >= dailyGoals.challengesCompleted;

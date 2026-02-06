@@ -89,6 +89,23 @@ const xpDecaySettingV2Schema = new mongoose.Schema({
 // Pre-save hook
 xpDecaySettingV2Schema.pre('save', function(next) {
   this.updatedAt = Date.now();
+  
+  // CRITICAL FIX: Validate tier is not empty before saving
+  if (!this.tier || 
+      (typeof this.tier === 'string' && this.tier.trim() === '') ||
+      this.tier === null ||
+      this.tier === undefined) {
+    const error = new Error('XP Tier is required. Please select a tier: Junior, Middle, or Senior');
+    error.name = 'ValidationError';
+    error.errors = {
+      tier: {
+        message: 'XP Tier is required. Please select a tier: Junior, Middle, or Senior',
+        kind: 'required'
+      }
+    };
+    return next(error);
+  }
+  
   next();
 });
 

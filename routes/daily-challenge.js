@@ -4398,72 +4398,93 @@ router.post("/complete", protect, async (req, res) => {
 
         // CRITICAL FIX: Only award bonus if all required days are completed
         // isEligibleForUser now checks requiresCompletion and verifies all days are completed
-        if (bonusDay && bonusDay.isEligibleForUser(userProfile)) {
-          // Check if bonus day reward was already claimed (track in user's metadata or transactions)
-          const existingBonusDayTransaction = await Transaction.findOne({
-            user: userId,
-            "metadata.bonusDayNumber": newStreak,
-            "metadata.source": "bonus_day",
+        if (bonusDay) {
+          const isEligible = bonusDay.isEligibleForUser(userProfile);
+          console.log(`[BONUS-REWARD] Checking Bonus Day ${bonusDay.dayNumber} (minStreak: ${bonusDay.conditions.minStreak}):`, {
+            currentStreak: newStreak,
+            requiresCompletion: bonusDay.conditions.requiresCompletion !== false,
+            completedTasksCount: completedTasks.length,
+            isEligible: isEligible,
+            completedTasks: completedTasks.slice(0, 5) // First 5 for debugging
           });
+          
+          if (isEligible) {
+            // Check if bonus day reward was already claimed (track in user's metadata or transactions)
+            const existingBonusDayTransaction = await Transaction.findOne({
+              user: userId,
+              "metadata.bonusDayNumber": newStreak,
+              "metadata.source": "bonus_day",
+            });
 
-          if (!existingBonusDayTransaction) {
-            // Award primary reward
-            const primaryReward = bonusDay.primaryReward;
-            if (primaryReward && primaryReward.type && primaryReward.value) {
-              const bonusRewardsEarned = [];
+            if (!existingBonusDayTransaction) {
+              // Award primary reward
+              const primaryReward = bonusDay.primaryReward;
+              if (primaryReward && primaryReward.type && primaryReward.value) {
+                const bonusRewardsEarned = [];
 
-              if (primaryReward.type === "coins") {
-                user.wallet.balance =
-                  (user.wallet.balance || 0) + primaryReward.value;
-                bonusRewardsEarned.push({
-                  type: "coins",
-                  value: primaryReward.value,
+                if (primaryReward.type === "coins") {
+                  user.wallet.balance =
+                    (user.wallet.balance || 0) + primaryReward.value;
+                  bonusRewardsEarned.push({
+                    type: "coins",
+                    value: primaryReward.value,
+                  });
+                } else if (primaryReward.type === "xp") {
+                  const { finalXP: bonusXP } = await applyTierMultiplierToXP(
+                    user,
+                    primaryReward.value
+                  );
+                  user.xp.current = (user.xp.current || 0) + bonusXP;
+                  user.xp.total = (user.xp.total || 0) + bonusXP;
+                  bonusRewardsEarned.push({
+                    type: "xp",
+                    value: primaryReward.value,
+                  });
+                }
+
+                // Create transaction record for bonus day reward
+                const bonusDayTransaction = new Transaction({
+                  user: userId,
+                  type: "credit",
+                  balanceType: primaryReward.type === "coins" ? "coins" : "xp",
+                  amount: primaryReward.value,
+                  description: `Bonus Day Reward - Day ${newStreak} - ${bonusDay.title}`,
+                  status: "completed",
+                  referenceId: `BONUS-DAY-${newStreak}-${Date.now()}`,
+                  metadata: {
+                    bonusDayNumber: newStreak,
+                    bonusDayId: bonusDay._id,
+                    bonusDayTitle: bonusDay.title,
+                    rewardType: primaryReward.type,
+                    rewardValue: primaryReward.value,
+                    source: "bonus_day",
+                  },
                 });
-              } else if (primaryReward.type === "xp") {
-                const { finalXP: bonusXP } = await applyTierMultiplierToXP(
-                  user,
-                  primaryReward.value
-                );
-                user.xp.current = (user.xp.current || 0) + bonusXP;
-                user.xp.total = (user.xp.total || 0) + bonusXP;
-                bonusRewardsEarned.push({
-                  type: "xp",
-                  value: primaryReward.value,
-                });
-              }
 
-              // Create transaction record for bonus day reward
-              const bonusDayTransaction = new Transaction({
-                user: userId,
-                type: "credit",
-                balanceType: primaryReward.type === "coins" ? "coins" : "xp",
-                amount: primaryReward.value,
-                description: `Bonus Day Reward - Day ${newStreak} - ${bonusDay.title}`,
-                status: "completed",
-                referenceId: `BONUS-DAY-${newStreak}-${Date.now()}`,
-                metadata: {
-                  bonusDayNumber: newStreak,
+                await bonusDayTransaction.save();
+
+                // Update bonus day analytics
+                await bonusDay.updateAnalytics("claimed", 1);
+
+                bonusDayRewardEarned = {
+                  day: newStreak,
+                  title: bonusDay.title,
+                  rewards: bonusRewardsEarned,
                   bonusDayId: bonusDay._id,
-                  bonusDayTitle: bonusDay.title,
-                  rewardType: primaryReward.type,
-                  rewardValue: primaryReward.value,
-                  source: "bonus_day",
-                },
-              });
-
-              await bonusDayTransaction.save();
-
-              // Update bonus day analytics
-              await bonusDay.updateAnalytics("claimed", 1);
-
-              bonusDayRewardEarned = {
-                day: newStreak,
-                title: bonusDay.title,
-                rewards: bonusRewardsEarned,
-                bonusDayId: bonusDay._id,
-              };
+                };
+                
+                console.log(`[BONUS-REWARD] ✅ Bonus Day ${newStreak} reward granted:`, bonusDayRewardEarned);
+              } else {
+                console.log(`[BONUS-REWARD] ⚠️ Bonus Day ${newStreak} has no valid primary reward`);
+              }
+            } else {
+              console.log(`[BONUS-REWARD] ⚠️ Bonus Day ${newStreak} reward already claimed (transaction exists)`);
             }
+          } else {
+            console.log(`[BONUS-REWARD] ❌ Bonus Day ${newStreak} NOT eligible - requirements not met`);
           }
+        } else {
+          console.log(`[BONUS-REWARD] ℹ️ No Bonus Day found for streak ${newStreak}`);
         }
       } catch (error) {
         console.error("Error awarding bonus day reward:", error);

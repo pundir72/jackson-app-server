@@ -222,11 +222,17 @@ async function checkDecayStatus(user) {
       daysInactive: inactivityCheck.daysInactive,
       requiredDays: decaySetting.inactiveDuration,
       isInactive: inactivityCheck.isInactive,
+      // CRITICAL FIX: Include XP range in response for user endpoint
+      xpRange: decaySetting.xpRange || `${decaySetting.xpMin} - ${decaySetting.xpMax || '∞'}`,
+      tierXpRange: tierDoc.xpRange || `${tierDoc.xpMin} - ${tierDoc.xpMax || '∞'}`,
       decaySetting: {
         decayRuleType: decaySetting.decayRuleType,
         xpDeduction: decaySetting.xpDeduction,
         minimumXpLimit: decaySetting.minimumXpLimit,
-        inactiveDuration: decaySetting.inactiveDuration
+        inactiveDuration: decaySetting.inactiveDuration,
+        xpRange: decaySetting.xpRange || `${decaySetting.xpMin} - ${decaySetting.xpMax || '∞'}`,
+        xpMin: decaySetting.xpMin,
+        xpMax: decaySetting.xpMax
       },
       potentialDecay: decayResult.canDecay ? {
         decayAmount: decayResult.decayAmount,

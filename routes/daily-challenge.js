@@ -4501,6 +4501,12 @@ router.post("/complete", protect, async (req, res) => {
       bonusCoins,
       bonusXP,
     });
+    
+    // CRITICAL: Increment continuous challenges completed counter (not daily-based)
+    // Counter resets only after milestone completion
+    const accountOverviewService = require('../utils/accountOverview');
+    await accountOverviewService.incrementChallengesCompletedCounter(userId);
+    
     // Only mark rewards as claimed if we actually credited them now.
     // For watch_ad claimType, rewards may remain pending until /claim-reward is called.
     if (shouldCreditImmediately) {

@@ -150,6 +150,24 @@ class AccountOverviewService {
         // Mark as claimed to prevent duplicates
         user[milestoneKey] = true;
 
+        // CRITICAL: Reset continuous counter after milestone completion (only for games and challenges)
+        // Coins remain daily-based, so no reset needed
+        if (type === 'gamesPlayed') {
+          if (!user.continuousProgress) {
+            user.continuousProgress = {};
+          }
+          user.continuousProgress.gamesPlayed = 0;
+          user.continuousProgress.lastGamesReset = new Date();
+          console.log(`[MILESTONE-RESET] Games played counter reset to 0 after milestone completion`);
+        } else if (type === 'challengesCompleted') {
+          if (!user.continuousProgress) {
+            user.continuousProgress = {};
+          }
+          user.continuousProgress.challengesCompleted = 0;
+          user.continuousProgress.lastChallengesReset = new Date();
+          console.log(`[MILESTONE-RESET] Challenges completed counter reset to 0 after milestone completion`);
+        }
+
         const baseReferenceId = `MILESTONE-${type.toUpperCase()}-${Date.now()}`;
 
         // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
@@ -445,6 +463,8 @@ class AccountOverviewService {
 
   /**
    * Get today's progress for all activities
+   * IMPORTANT: Games and challenges use CONTINUOUS counters (reset only after milestone completion)
+   * Coins remain daily-based (reset at midnight)
    */
   async getTodayProgress(userId, userConfig) {
     const today = new Date();
@@ -454,19 +474,19 @@ class AccountOverviewService {
 
     const user = await User.findById(userId);
 
-    // Games played today - CRITICAL FIX: Use lastPlayed instead of date/completedAt for real-time updates
-    // lastPlayed is updated immediately when a game is played, ensuring real-time progress tracking
-    const gamesPlayedToday = user.games?.filter(game => {
-      // Use lastPlayed as primary source (updated in real-time when game is played)
-      const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
-      const isToday = gameDate >= today && gameDate < tomorrow;
-      // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
-      // or has progress/completed status
-      const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
-      return isToday && hasProgress;
-    }).length || 0;
+    // Initialize continuous progress if not exists
+    if (!user.continuousProgress) {
+      user.continuousProgress = {
+        gamesPlayed: 0,
+        challengesCompleted: 0
+      };
+    }
 
-    // Coins earned today
+    // GAMES PLAYED: Use CONTINUOUS counter (not daily-based)
+    // Counter resets only after milestone completion, not at midnight
+    const gamesPlayedCurrent = user.continuousProgress.gamesPlayed || 0;
+
+    // COINS EARNED: Keep daily-based (reset at midnight)
     const todayTransactions = await Transaction.find({
       user: userId,
       type: 'credit',
@@ -474,23 +494,19 @@ class AccountOverviewService {
     });
     const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 
-    // Challenges completed today - CRITICAL FIX: Query UserChallengeProgress model for real-time updates
-    // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
-    const challengesCompletedToday = await UserChallengeProgress.countDocuments({
-      userId: userId,
-      status: 'completed',
-      completedAt: { $gte: today, $lt: tomorrow }
-    });
+    // CHALLENGES COMPLETED: Use CONTINUOUS counter (not daily-based)
+    // Counter resets only after milestone completion, not at midnight
+    const challengesCompletedCurrent = user.continuousProgress.challengesCompleted || 0;
 
     // Use user-specific goals
     const dailyGoals = userConfig.dailyGoals;
 
     return {
       gamesPlayed: {
-        current: gamesPlayedToday,
+        current: gamesPlayedCurrent,
         target: dailyGoals.gamesPlayed,
-        percentage: Math.min((gamesPlayedToday / dailyGoals.gamesPlayed) * 100, 100),
-        isCompleted: gamesPlayedToday >= dailyGoals.gamesPlayed
+        percentage: Math.min((gamesPlayedCurrent / dailyGoals.gamesPlayed) * 100, 100),
+        isCompleted: gamesPlayedCurrent >= dailyGoals.gamesPlayed
       },
       coinsEarned: {
         current: coinsEarnedToday,
@@ -499,10 +515,10 @@ class AccountOverviewService {
         isCompleted: coinsEarnedToday >= dailyGoals.coinsEarned
       },
       challengesCompleted: {
-        current: challengesCompletedToday,
+        current: challengesCompletedCurrent,
         target: dailyGoals.challengesCompleted,
-        percentage: Math.min((challengesCompletedToday / dailyGoals.challengesCompleted) * 100, 100),
-        isCompleted: challengesCompletedToday >= dailyGoals.challengesCompleted
+        percentage: Math.min((challengesCompletedCurrent / dailyGoals.challengesCompleted) * 100, 100),
+        isCompleted: challengesCompletedCurrent >= dailyGoals.challengesCompleted
       }
     };
   }
@@ -687,26 +703,23 @@ class AccountOverviewService {
 
     switch (milestoneType) {
       case 'gamesPlayed':
+        // GAMES: Use CONTINUOUS counter (not daily-based)
         const user = await User.findById(userId);
-        if (!user || !user.games) {
+        if (!user) {
           return false;
         }
 
-        // CRITICAL FIX: Use lastPlayed for real-time tracking (updated when game is played)
-        const gamesPlayedToday = user.games.filter(game => {
-          // Use lastPlayed as primary source (updated in real-time when game is played)
-          const gameDate = new Date(game.lastPlayed || game.date || game.completedAt);
-          const isToday = gameDate >= today && gameDate < tomorrow;
-          // A game is considered "played" if it has lastPlayed timestamp (real-time tracking)
-          // or has progress/completed status
-          const hasProgress = game.lastPlayed || game.completed || (game.progress && game.progress > 0);
-          return isToday && hasProgress;
-        }).length;
+        // Initialize if not exists
+        if (!user.continuousProgress) {
+          user.continuousProgress = { gamesPlayed: 0 };
+        }
 
-        // console.log(`Games played today: ${gamesPlayedToday}, Target: ${dailyGoals.gamesPlayed}`);
-        return gamesPlayedToday >= dailyGoals.gamesPlayed;
+        const gamesPlayedCurrent = user.continuousProgress.gamesPlayed || 0;
+        console.log(`[MILESTONE-CHECK] Games played (continuous): ${gamesPlayedCurrent}, Target: ${dailyGoals.gamesPlayed}`);
+        return gamesPlayedCurrent >= dailyGoals.gamesPlayed;
 
       case 'coinsEarned':
+        // COINS: Keep daily-based (reset at midnight)
         const todayTransactions = await Transaction.find({
           user: userId,
           type: 'credit',
@@ -714,20 +727,24 @@ class AccountOverviewService {
         });
         const coinsEarnedToday = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 
-        // console.log(`Coins earned today: ${coinsEarnedToday}, Target: ${dailyGoals.coinsEarned}`);
+        console.log(`[MILESTONE-CHECK] Coins earned (today): ${coinsEarnedToday}, Target: ${dailyGoals.coinsEarned}`);
         return coinsEarnedToday >= dailyGoals.coinsEarned;
 
       case 'challengesCompleted':
-        // CRITICAL FIX: Query UserChallengeProgress model for real-time updates
-        // Daily challenges are tracked in UserChallengeProgress, not in user.challenges array
-        const challengesCompletedToday = await UserChallengeProgress.countDocuments({
-          userId: userId,
-          status: 'completed',
-          completedAt: { $gte: today, $lt: tomorrow }
-        });
+        // CHALLENGES: Use CONTINUOUS counter (not daily-based)
+        const userForChallenges = await User.findById(userId);
+        if (!userForChallenges) {
+          return false;
+        }
 
-        // console.log(`Challenges completed today: ${challengesCompletedToday}, Target: ${dailyGoals.challengesCompleted}`);
-        return challengesCompletedToday >= dailyGoals.challengesCompleted;
+        // Initialize if not exists
+        if (!userForChallenges.continuousProgress) {
+          userForChallenges.continuousProgress = { challengesCompleted: 0 };
+        }
+
+        const challengesCompletedCurrent = userForChallenges.continuousProgress.challengesCompleted || 0;
+        console.log(`[MILESTONE-CHECK] Challenges completed (continuous): ${challengesCompletedCurrent}, Target: ${dailyGoals.challengesCompleted}`);
+        return challengesCompletedCurrent >= dailyGoals.challengesCompleted;
 
       default:
         return false;
@@ -781,8 +798,11 @@ class AccountOverviewService {
 
     const gameIndex = user.games.findIndex(g => g.gameId === gameId);
     const now = new Date();
+    let isNewPlay = false;
 
     if (gameIndex >= 0) {
+      // Check if this is a new play (lastPlayed is being updated)
+      const previousLastPlayed = user.games[gameIndex].lastPlayed;
       user.games[gameIndex].lastPlayed = now;
       user.games[gameIndex].playCount = (user.games[gameIndex].playCount || 0) + 1;
       user.games[gameIndex].completed = completed;
@@ -791,6 +811,8 @@ class AccountOverviewService {
       if (completed) {
         user.games[gameIndex].completedAt = now;
       }
+      // Consider it a new play if lastPlayed changed significantly (more than 1 minute ago)
+      isNewPlay = !previousLastPlayed || (now - new Date(previousLastPlayed)) > 60000;
     } else {
       user.games.push({
         gameId,
@@ -802,6 +824,12 @@ class AccountOverviewService {
         level,
         completedAt: completed ? now : null
       });
+      isNewPlay = true; // First time playing this game
+    }
+
+    // Increment continuous counter if this is a new play
+    if (isNewPlay) {
+      await this.incrementGamesPlayedCounter(user._id);
     }
 
     return {
@@ -978,6 +1006,86 @@ class AccountOverviewService {
     if (xp >= 5000) return 'advanced';
     if (xp >= 1000) return 'intermediate';
     return 'beginner';
+  }
+
+  /**
+   * Increment continuous games played counter
+   * Called when a game is played (lastPlayed is updated)
+   */
+  async incrementGamesPlayedCounter(userId) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) return;
+
+      // Initialize if not exists
+      if (!user.continuousProgress) {
+        user.continuousProgress = { gamesPlayed: 0 };
+      }
+
+      // Increment counter
+      user.continuousProgress.gamesPlayed = (user.continuousProgress.gamesPlayed || 0) + 1;
+      await user.save();
+
+      console.log(
+        `[CONTINUOUS-PROGRESS] Games played counter incremented to ${user.continuousProgress.gamesPlayed} for user ${userId}`
+      );
+
+      // Check if milestone reached and auto-claim if needed
+      const userConfig = this.getUserConfig(user);
+      if (
+        user.continuousProgress.gamesPlayed >= userConfig.dailyGoals.gamesPlayed &&
+        !user.milestone_gamesPlayed_claimed
+      ) {
+        console.log(
+          `[CONTINUOUS-PROGRESS] Milestone reached! Auto-checking games played reward...`
+        );
+        // This will be checked and awarded in checkAndGrantIndividualMilestoneRewards
+      }
+    } catch (error) {
+      console.error('[CONTINUOUS-PROGRESS] Error incrementing games played counter:', error);
+    }
+  }
+
+  /**
+   * Increment continuous challenges completed counter
+   * Called when a challenge is completed
+   */
+  async incrementChallengesCompletedCounter(userId) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) return;
+
+      // Initialize if not exists
+      if (!user.continuousProgress) {
+        user.continuousProgress = { challengesCompleted: 0 };
+      }
+
+      // Increment counter
+      user.continuousProgress.challengesCompleted =
+        (user.continuousProgress.challengesCompleted || 0) + 1;
+      await user.save();
+
+      console.log(
+        `[CONTINUOUS-PROGRESS] Challenges completed counter incremented to ${user.continuousProgress.challengesCompleted} for user ${userId}`
+      );
+
+      // Check if milestone reached
+      const userConfig = this.getUserConfig(user);
+      if (
+        user.continuousProgress.challengesCompleted >= userConfig.dailyGoals.challengesCompleted &&
+        !user.milestone_challengesCompleted_claimed
+      ) {
+        console.log(
+          `[CONTINUOUS-PROGRESS] Milestone reached! Auto-checking challenges completed reward...`
+        );
+        // This will be checked and awarded in checkAndGrantIndividualMilestoneRewards
+      }
+    } catch (error) {
+      console.error(
+        '[CONTINUOUS-PROGRESS] Error incrementing challenges completed counter:',
+        error
+      );
+    }
   }
 }
 

@@ -867,43 +867,83 @@ class BitlabsService {
           "🔵 [BITLABS SURVEYS] ==================================================\n"
         );
       } catch (error) {
-        // 🔴 ENHANCED ERROR LOGGING: Log full error details for 403 errors
+        // 🔴 ENHANCED ERROR LOGGING: Log full error details for debugging
+        const errorStatus = error.response?.status || error.status;
+        const errorData = error.response?.data || error.data;
+        
         console.error(
-          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API ERROR =========="
+          "\n🔴 [BITLABS SURVEYS] ========== SURVEY API ERROR =========="
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Status:",
-          error.response?.status || error.status
+          "🔴 [BITLABS SURVEYS] ❌ Error Status:",
+          errorStatus
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Message:",
+          "🔴 [BITLABS SURVEYS] ❌ Error Message:",
           error.message
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Response Data:",
-          JSON.stringify(error.response?.data || error.data, null, 2)
+          "🔴 [BITLABS SURVEYS] ❌ Error Response Data:",
+          JSON.stringify(errorData, null, 2)
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Details:",
-          error.response?.data?.error || error.error
+          "🔴 [BITLABS SURVEYS] ❌ Error Details:",
+          errorData?.error || error.error
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Trace ID:",
-          error.response?.data?.trace_id || error.data?.trace_id
+          "🔴 [BITLABS SURVEYS] ❌ Trace ID:",
+          errorData?.trace_id
         );
-        console.error("🔴 [BITLABS API SERVICE] ❌ Request URL:", fullURL);
-        console.error("🔴 [BITLABS API SERVICE] ❌ Request Headers:", {
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request URL:", fullURL);
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request Headers:", {
           "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
           "X-User-Id": userIdentifier,
         });
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Request Params:",
+          "🔴 [BITLABS SURVEYS] ❌ Request Params:",
           JSON.stringify(normalizedParams, null, 2)
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ==================================================\n"
+          "🔴 [BITLABS SURVEYS] ❌ Environment:",
+          process.env.NODE_ENV || "unknown"
         );
-        throw error; // Re-throw to be handled by outer catch
+        console.error(
+          "🔴 [BITLABS SURVEYS] ❌ Base URL:",
+          this.baseURL
+        );
+        console.error(
+          "🔴 [BITLABS SURVEYS] ❌ API Token Configured:",
+          !!this.apiToken
+        );
+        console.error(
+          "🔴 [BITLABS SURVEYS] ==================================================\n"
+        );
+        
+        // For 403 errors, return empty result instead of throwing
+        // This allows the endpoint to return success with empty data
+        if (errorStatus === 403) {
+          console.warn(
+            "⚠️ [BITLABS SURVEYS] 403 Forbidden - Returning empty surveys. This might be due to:"
+          );
+          console.warn(
+            "   1. IP blocking by Bitlabs"
+          );
+          console.warn(
+            "   2. Missing API token permissions"
+          );
+          console.warn(
+            "   3. Account restrictions"
+          );
+          return {
+            success: true,
+            data: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+            error: errorData?.error?.details?.msg || "403 Forbidden",
+          };
+        }
+        
+        throw error; // Re-throw other errors to be handled by outer catch
       }
 
       // Normalize response - Bitlabs surveys API structure
@@ -1111,13 +1151,36 @@ class BitlabsService {
         `${this.baseURL}/v2/client/surveys`
       );
       console.error(
-        "🔴 [BITLABS API SERVICE] ❌ User ID Used:",
+        "🔴 [BITLABS SURVEYS] ❌ User ID Used:",
         userId || queryParams.userId || "static-inventory"
       );
       console.error(
-        "🔴 [BITLABS API SERVICE] ==================================================\n"
+        "🔴 [BITLABS SURVEYS] ❌ Environment:",
+        process.env.NODE_ENV || "unknown"
       );
-      throw error;
+      console.error(
+        "🔴 [BITLABS SURVEYS] ❌ API Token Configured:",
+        !!this.apiToken
+      );
+      console.error(
+        "🔴 [BITLABS SURVEYS] ❌ Base URL:",
+        this.baseURL
+      );
+      console.error(
+        "🔴 [BITLABS SURVEYS] ==================================================\n"
+      );
+      
+      // Return empty result instead of throwing error
+      // This allows the endpoint to return success with empty data
+      // This is critical for live server - don't crash the API
+      const errorData = error.response?.data || error.data;
+      return {
+        success: true,
+        data: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+        error: errorData?.error?.details?.msg || error.message || "Unknown error",
+      };
     }
   }
 

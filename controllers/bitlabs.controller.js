@@ -50,6 +50,18 @@ exports.getOffers = async (req, res) => {
       isGameRequest,
     });
 
+    // Check if Bitlabs is configured
+    if (!bitlabsService.isConfigured()) {
+      console.warn("⚠️ Bitlabs API is not configured. Missing BITLABS_API_TOKEN or BITLABS_BASE_URL.");
+      return res.json({
+        success: true,
+        data: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+        warning: "Bitlabs API is not configured. Please set BITLABS_API_TOKEN and BITLABS_BASE_URL environment variables.",
+      });
+    }
+
     // Use getGameOffers if this is a game request, otherwise use getOffers
     const data = isGameRequest
       ? await bitlabsService.getGameOffers(queryParams)
@@ -135,12 +147,21 @@ exports.getOffers = async (req, res) => {
       });
     }
 
-    res.json({
+    // Include restriction reason in response if present
+    const response = {
       success: true,
       data: transformedData,
       total: transformedData.length,
       timestamp: data?.timestamp || new Date().toISOString(),
-    });
+    };
+
+    // Add restriction reason if present (helps debug empty results)
+    if (data?.restrictionReason) {
+      response.restrictionReason = data.restrictionReason;
+      response.warning = "Bitlabs API returned restriction reason. Check restrictionReason field for details.";
+    }
+
+    res.json(response);
   } catch (error) {
     logger.error("Error fetching Bitlabs offers", {
       error: error.message,

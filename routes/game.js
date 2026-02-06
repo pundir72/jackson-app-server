@@ -236,14 +236,14 @@ router.get("/", protect, async (req, res) => {
     try {
       const besitosService = require("../services/besitos.service");
       if (besitosService.isConfigured()) {
-        console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
+        // console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
         const besitosResponse = await besitosService.getUserData(user._id.toString());
-        console.log(`[GAME-LIST] Besitos response structure:`, {
-          hasData: !!besitosResponse.data,
-          hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
-          hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
-          responseKeys: Object.keys(besitosResponse)
-        });
+        // console.log(`[GAME-LIST] Besitos response structure:`, {
+        //   hasData: !!besitosResponse.data,
+        //   hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
+        //   hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
+        //   responseKeys: Object.keys(besitosResponse)
+        // });
         
         const besitosData = besitosResponse.data || besitosResponse;
         

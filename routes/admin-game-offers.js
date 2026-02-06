@@ -4100,6 +4100,19 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
           req.query.devices = ["android"];
         }
       }
+      // CRITICAL: Add country parameter if not provided (defaults to US for testing)
+      // Bitlabs offers are often country-specific, so empty results may occur without country
+      if (!req.query.country) {
+        // Default to US for admin/testing to get more games
+        req.query.country = "US";
+        console.log("ℹ️ No country parameter provided. Defaulting to 'US' for Bitlabs games. Add ?country=IN for India-targeted games.");
+      }
+      
+      // Also ensure devices are set if not provided (default to both Android and iOS)
+      if (!req.query.devices && !req.query.device_platform) {
+        req.query.devices = ["android", "iphone"];
+        console.log("ℹ️ No device filter provided. Defaulting to both Android and iOS.");
+      }
       await bitlabsController.getOffers(req, res);
     } else {
       res.status(404).json({
@@ -4113,6 +4126,86 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
       success: false,
       message: "An error occurred while fetching the game list.",
       error: error.message,
+    });
+  }
+});
+
+// Debug endpoint to test Bitlabs API directly
+router.get("/games/by-sdk/bitlabs/debug", adminAuth, async (req, res) => {
+  try {
+    const bitlabsService = require("../services/bitlabs.service");
+    
+    // Check configuration
+    const isConfigured = bitlabsService.isConfigured();
+    
+    // Build query params
+    const queryParams = {
+      is_game: true,
+      sdk: "CUSTOM",
+    };
+    
+    if (req.query.country) {
+      queryParams.country = req.query.country;
+    } else {
+      queryParams.country = "US"; // Default to US
+    }
+    
+    if (req.query.device_platform) {
+      const platform = req.query.device_platform.toLowerCase();
+      if (platform === "ios" || platform === "iphone") {
+        queryParams.devices = ["iphone"];
+      } else if (platform === "android") {
+        queryParams.devices = ["android"];
+      }
+    } else {
+      queryParams.devices = ["android", "iphone"]; // Default to both
+    }
+    
+    // Try multiple countries if requested
+    const tryMultipleCountries = req.query.try_multiple === "true";
+    const countriesToTry = ["US", "IN", "GB", "CA", "AU"];
+    
+    if (tryMultipleCountries) {
+      const results = {};
+      for (const country of countriesToTry) {
+        const testParams = { ...queryParams, country };
+        const result = await bitlabsService.getGameOffers(testParams);
+        results[country] = {
+          total: result?.total || 0,
+          offersCount: result?.data?.length || 0,
+          startedOffersCount: result?.data?.filter(o => o.isStarted)?.length || 0,
+        };
+      }
+      
+      return res.json({
+        success: true,
+        configured: isConfigured,
+        queryParams: queryParams,
+        multiCountryResults: results,
+        recommendation: Object.keys(results).reduce((a, b) => 
+          results[a].total > results[b].total ? a : b
+        ),
+      });
+    }
+    
+    const result = await bitlabsService.getGameOffers(queryParams);
+    
+    res.json({
+      success: true,
+      configured: isConfigured,
+      queryParams: queryParams,
+      result: result,
+      rawData: result?.data || [],
+      total: result?.total || 0,
+      restrictionReason: result?.restrictionReason || null,
+      note: "Add ?try_multiple=true to test multiple countries",
+    });
+  } catch (error) {
+    console.error("Bitlabs debug error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
     });
   }
 });

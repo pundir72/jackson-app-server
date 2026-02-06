@@ -102,6 +102,9 @@ class BitlabsService {
 
       // Use provided userId or a default placeholder for static inventory
       const userIdentifier = userId || queryParams.userId || "static-inventory";
+      
+      // Detect if this is an admin request (no real userId provided)
+      const isAdminRequest = !userId && !queryParams.userId;
 
       // Remove userId from queryParams if present (it goes in header, not query)
       // Also normalize parameter names to match Bitlabs API
@@ -150,6 +153,16 @@ class BitlabsService {
         normalizedParams.is_game = true;
       }
 
+      // CRITICAL: Convert is_game from string "true"/"false" to boolean if present
+      if (queryParams.is_game !== undefined) {
+        if (queryParams.is_game === "true" || queryParams.is_game === true) {
+          normalizedParams.is_game = true;
+        } else if (queryParams.is_game === "false" || queryParams.is_game === false) {
+          normalizedParams.is_game = false;
+        }
+        // If it's already a boolean, keep it as is
+      }
+
       // CRITICAL: Explicitly pass client_ip to avoid VPN detection
       // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
       // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
@@ -188,11 +201,33 @@ class BitlabsService {
         indexes: null, // Serialize arrays as devices[]=android&devices[]=iphone
       };
 
+      // Log request details for debugging
+      console.log("\n🔵 [BITLABS SERVICE] ========== GET OFFERS REQUEST ==========");
+      console.log("🔵 Endpoint:", endpoint);
+      console.log("🔵 Full URL:", fullURL);
+      console.log("🔵 Headers:", {
+        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+        "X-User-Id": userIdentifier,
+      });
+      console.log("🔵 Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 is_game value:", normalizedParams.is_game, "type:", typeof normalizedParams.is_game);
+      console.log("🔵 ==================================================\n");
+
       const response = await this.client.get(endpoint, {
         headers: headers,
         params: normalizedParams,
         paramsSerializer: paramsSerializer,
       });
+
+      // Log raw response structure
+      console.log("\n🔵 [BITLABS SERVICE] ========== RAW API RESPONSE ==========");
+      console.log("🔵 Response Status:", response.status);
+      console.log("🔵 Response Data Type:", typeof response.data);
+      console.log("🔵 Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
+      if (response.data) {
+        console.log("🔵 Response Data Structure:", JSON.stringify(response.data, null, 2).substring(0, 2000));
+      }
+      console.log("🔵 ==================================================\n");
 
       // Log raw Bitlabs API response for shopping and magic receipts
       // Extract raw offers first to check their types
@@ -296,36 +331,101 @@ class BitlabsService {
       // Normalize response to match expected format
       // Bitlabs API response structure: { data: { offers: [], offerwall_code: "...", started_offers: [] }, status: "success" }
       let rawOffers = [];
+      let startedOffers = [];
+
+      console.log("\n🔵 [BITLABS SERVICE] ========== PARSING RESPONSE ==========");
+      console.log("🔵 Checking response.data structure...");
 
       // Check if response.data is directly an array
       if (Array.isArray(response.data)) {
         rawOffers = response.data;
+        console.log("🔵 ✅ Found offers as direct array:", rawOffers.length);
       }
       // Check nested data structure (Bitlabs format: response.data.data.offers)
-      else if (
-        response.data?.data?.offers &&
-        Array.isArray(response.data.data.offers)
-      ) {
-        rawOffers = response.data.data.offers;
+      else if (response.data?.data) {
+        // Get available offers
+        if (response.data.data.offers && Array.isArray(response.data.data.offers)) {
+          rawOffers = response.data.data.offers;
+          console.log("🔵 ✅ Found offers in response.data.data.offers:", rawOffers.length);
+        }
+        // Check other nested structures
+        else if (Array.isArray(response.data.data)) {
+          rawOffers = response.data.data;
+          console.log("🔵 ✅ Found offers in response.data.data:", rawOffers.length);
+        }
       }
       // Check if offers are directly in response.data.offers (MOST COMMON)
       else if (response.data?.offers && Array.isArray(response.data.offers)) {
         rawOffers = response.data.offers;
+        console.log("🔵 ✅ Found offers in response.data.offers:", rawOffers.length);
       }
       // Check other common structures
-      else if (response.data?.data && Array.isArray(response.data.data)) {
-        rawOffers = response.data.data;
-      } else if (response.data?.items && Array.isArray(response.data.items)) {
+      else if (response.data?.items && Array.isArray(response.data.items)) {
         rawOffers = response.data.items;
+        console.log("🔵 ✅ Found offers in response.data.items:", rawOffers.length);
       } else if (
         response.data?.results &&
         Array.isArray(response.data.results)
       ) {
         rawOffers = response.data.results;
+        console.log("🔵 ✅ Found offers in response.data.results:", rawOffers.length);
       } else if (response.data?.list && Array.isArray(response.data.list)) {
         rawOffers = response.data.list;
+        console.log("🔵 ✅ Found offers in response.data.list:", rawOffers.length);
       } else {
+        console.log("🔵 ❌ No offers array found in response!");
+        console.log("🔵 Response.data type:", typeof response.data);
+        console.log("🔵 Response.data keys:", response.data ? Object.keys(response.data) : "NO DATA");
+        if (response.data && typeof response.data === 'object') {
+          console.log("🔵 Full response.data:", JSON.stringify(response.data, null, 2).substring(0, 1000));
+        }
       }
+
+      // CRITICAL: Only include started_offers for admin requests (when no real userId)
+      // For user-facing endpoints, started_offers are games the user already has, so we shouldn't include them
+      // For admin endpoints, we want to show ALL games (both available and started) for inventory purposes
+      if (isAdminRequest) {
+        if (response.data?.data?.started_offers && Array.isArray(response.data.data.started_offers)) {
+          startedOffers = response.data.data.started_offers;
+          console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.data.started_offers:", startedOffers.length);
+        } else if (response.data?.started_offers && Array.isArray(response.data.started_offers)) {
+          startedOffers = response.data.started_offers;
+          console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.started_offers:", startedOffers.length);
+        }
+
+        // CRITICAL: Combine available offers and started offers for admin endpoints only
+        if (startedOffers.length > 0) {
+          console.log("🔵 [ADMIN] Combining available offers with started offers...");
+          // Mark started offers and ensure they're recognized as games if they have game categories
+          const markedStartedOffers = startedOffers.map(offer => {
+            // Check if this is a game based on categories or app_metadata
+            const isGame = 
+              offer.is_game === true || 
+              offer.is_game === "true" ||
+              offer.type === "game" ||
+              (offer.app_metadata?.categories && 
+               offer.app_metadata.categories.some(cat => 
+                 typeof cat === 'string' && cat.toUpperCase().includes('GAME')
+               ));
+            
+            return {
+              ...offer,
+              isStarted: true, // Mark as started for reference
+              is_game: isGame ? true : (offer.is_game !== undefined ? offer.is_game : true), // Ensure is_game is set for games
+            };
+          });
+          rawOffers = [...rawOffers, ...markedStartedOffers];
+          console.log("🔵 ✅ [ADMIN] Total offers after combining:", rawOffers.length);
+          console.log("🔵 [ADMIN] Games in combined offers:", markedStartedOffers.filter(o => o.is_game === true).length);
+        }
+      } else {
+        // For user-facing endpoints, log that we're NOT including started_offers
+        if (response.data?.data?.started_offers && response.data.data.started_offers.length > 0) {
+          console.log("🔵 ℹ️ [USER] Found started_offers but NOT including them (user already has these games)");
+        }
+      }
+
+      console.log("🔵 ==================================================\n");
 
       // Helper function to determine offer type (only used if type not present)
       function getOfferType(offer) {
@@ -435,9 +535,53 @@ class BitlabsService {
         }
       }
 
+      // Helper function to detect if an offer is a game
+      const isGameOffer = (offer) => {
+        // Check explicit is_game field
+        if (offer.is_game === true || offer.is_game === "true") return true;
+        if (offer.type === "game") return true;
+        
+        // Check app_metadata categories (e.g., "GAME_CASINO", "GAME_CASUAL")
+        if (offer.app_metadata?.categories && Array.isArray(offer.app_metadata.categories)) {
+          const hasGameCategory = offer.app_metadata.categories.some(cat => {
+            const catStr = typeof cat === 'string' ? cat.toUpperCase() : '';
+            return catStr.includes('GAME') || catStr === 'GAMING';
+          });
+          if (hasGameCategory) return true;
+        }
+        
+        // Check category field
+        if (offer.category) {
+          const catName = typeof offer.category === 'string' 
+            ? offer.category 
+            : offer.category.name || offer.category.name_internal || '';
+          if (catName.toUpperCase().includes('GAME') || catName.toUpperCase() === 'GAMING') {
+            return true;
+          }
+        }
+        
+        return false;
+      };
+
+      // Filter offers by is_game if is_game parameter was set
+      let filteredOffers = rawOffers;
+      if (normalizedParams.is_game === true) {
+        // Filter for games only
+        filteredOffers = rawOffers.filter((offer) => {
+          return isGameOffer(offer);
+        });
+        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} games (is_game=true)`);
+      } else if (normalizedParams.is_game === false) {
+        // Filter for non-games only
+        filteredOffers = rawOffers.filter((offer) => {
+          return !isGameOffer(offer);
+        });
+        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} non-games (is_game=false)`);
+      }
+
       // Return raw Bitlabs offers format - preserve original structure
       // Only add minimal metadata fields (type, provider) for categorization
-      const offersWithMetadata = rawOffers.map((offer) => {
+      const offersWithMetadata = filteredOffers.map((offer) => {
         // Preserve all original Bitlabs fields and structure
         // Only add minimal fields needed for our system
         return {
@@ -485,11 +629,22 @@ class BitlabsService {
 
       if (offersWithMetadata.length === 0) {
         console.warn(`⚠️ No offers found in Bitlabs API response.`);
-        console.warn(
-          `Response structure:`,
-          JSON.stringify(response.data, null, 2)
-        );
+        console.warn(`Request params:`, JSON.stringify(normalizedParams, null, 2));
+        console.warn(`Request headers:`, {
+          "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+          "X-User-Id": userIdentifier,
+        });
+        // console.warn(
+        //   `Response structure:`,
+        //   JSON.stringify(response.data, null, 2)
+        // );
+        
+        // Log restriction reason if present
+        if (restrictionReason) {
+          console.error(`❌ Bitlabs API restriction reason:`, restrictionReason);
+        }
       } else {
+        console.log(`✅ Found ${offersWithMetadata.length} Bitlabs offers`);
       }
 
       return {

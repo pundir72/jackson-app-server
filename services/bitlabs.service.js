@@ -806,17 +806,24 @@ class BitlabsService {
         }
       }
 
-      // CRITICAL: client_ip parameter handling
-      // Bitlabs API may return 403 if client_ip is used without special permission
-      // However, on live server it might be required or previously working
-      // Only pass client_ip if explicitly configured (BITLABS_WHITELISTED_IP)
-      // Default to 127.0.0.1 if not configured (same as before)
-      // if (config.BITLABS_WHITELISTED_IP) {
-      //   normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP;
-      // } else {
-      //   // Use localhost IP as default (same as before when it was working)
-      //   normalizedParams.client_ip = "127.0.0.1";
-      // }
+      // CRITICAL: client_xx parameters for backend survey API calls
+      // Bitlabs has enabled "Allow Backend Survey API Calls" which requires client_xx parameters
+      // These parameters are required for backend servers to call the survey API
+      if (isAdminRequest || !userId) {
+        // For backend/admin calls, include client_ip and client_user_agent
+        // Use configured IP or default to 127.0.0.1 for backend calls
+        normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
+        // Add a default user agent for backend calls if not provided
+        if (!normalizedParams.client_user_agent) {
+          normalizedParams.client_user_agent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
+        }
+      } else if (queryParams.client_ip) {
+        // For user-facing calls, use provided client_ip if available
+        normalizedParams.client_ip = queryParams.client_ip;
+      }
+      if (queryParams.client_user_agent) {
+        normalizedParams.client_user_agent = queryParams.client_user_agent;
+      }
 
       const headers = {
         "X-Api-Token": this.apiToken,
@@ -1889,6 +1896,132 @@ class BitlabsService {
         configured: true,
         error: error.message || "Health probe failed",
       };
+    }
+  }
+
+  /**
+   * Get offers from Publisher Offers API (for admin/preview purposes)
+   * This endpoint is recommended by Bitlabs for browsing/previewing full non-game offer inventory
+   * Documentation: https://developer.bitlabs.ai/reference/getpublisheroffersv2
+   * Endpoint: GET https://api.bitlabs.ai/v2/publishers/offers
+   * Note: Returns offers available for all users (not customized for any user)
+   * @param {Object} queryParams - Query parameters (country, devices, type, etc.)
+   * @returns {Promise<Object>} Publisher offers data
+   */
+  async getPublisherOffers(queryParams = {}) {
+    if (!this.isConfigured()) {
+      console.warn(
+        "Bitlabs API is not properly configured. Returning empty publisher offers."
+      );
+      return {
+        success: true,
+        data: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    try {
+      const endpoint = "/v2/publishers/offers";
+      const fullURL = `${this.baseURL}${endpoint}`;
+
+      // Normalize parameters
+      const normalizedParams = { ...queryParams };
+
+      // Add SDK parameter if not provided
+      if (!normalizedParams.sdk) {
+        normalizedParams.sdk = "CUSTOM";
+      }
+
+      // Ensure devices array is properly formatted
+      if (normalizedParams.devices && !Array.isArray(normalizedParams.devices)) {
+        normalizedParams.devices = [normalizedParams.devices];
+      }
+
+      // Default country if not provided
+      if (!normalizedParams.country) {
+        normalizedParams.country = "US";
+      }
+
+      const headers = {
+        "X-Api-Token": this.apiToken,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+
+      const paramsSerializer = {
+        indexes: null,
+      };
+
+      console.log("\n🔵 [BITLABS PUBLISHER] ========== GET PUBLISHER OFFERS REQUEST ==========");
+      console.log("🔵 [BITLABS PUBLISHER] Endpoint:", endpoint);
+      console.log("🔵 [BITLABS PUBLISHER] Full URL:", fullURL);
+      console.log("🔵 [BITLABS PUBLISHER] Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 [BITLABS PUBLISHER] Headers:", {
+        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+      });
+      console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
+
+      const response = await this.client.get(endpoint, {
+        headers: headers,
+        params: normalizedParams,
+        paramsSerializer: paramsSerializer,
+      });
+
+      console.log("\n🔵 [BITLABS PUBLISHER] ========== RAW API RESPONSE ==========");
+      console.log("🔵 [BITLABS PUBLISHER] Response Status:", response.status);
+      console.log("🔵 [BITLABS PUBLISHER] Response Data Type:", typeof response.data);
+      console.log("🔵 [BITLABS PUBLISHER] Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
+      if (response.data) {
+        const responseStr = JSON.stringify(response.data, null, 2);
+        console.log("🔵 [BITLABS PUBLISHER] Response Structure (first 2000 chars):", responseStr.substring(0, 2000));
+      }
+      console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
+
+      // Parse response - Publisher API may have different structure
+      let offers = [];
+      if (Array.isArray(response.data)) {
+        offers = response.data;
+      } else if (response.data?.offers && Array.isArray(response.data.offers)) {
+        offers = response.data.offers;
+      } else if (response.data?.data?.offers && Array.isArray(response.data.data.offers)) {
+        offers = response.data.data.offers;
+      } else if (response.data?.data && Array.isArray(response.data.data)) {
+        offers = response.data.data;
+      }
+
+      console.log("🔵 [BITLABS PUBLISHER] Parsed offers count:", offers.length);
+
+      return {
+        success: true,
+        data: offers,
+        total: offers.length,
+        timestamp: new Date().toISOString(),
+        rawResponse: response.data, // Include raw response for debugging
+      };
+    } catch (error) {
+      const errorStatus = error.response?.status || error.status;
+      const errorData = error.response?.data || error.data;
+
+      console.error("\n🔴 [BITLABS PUBLISHER] ========== PUBLISHER API ERROR ==========");
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Status:", errorStatus);
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Message:", error.message);
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Response Data:", JSON.stringify(errorData, null, 2));
+      console.error("🔴 [BITLABS PUBLISHER] ==================================================\n");
+
+      // For 403/401 errors, return empty result instead of throwing
+      if (errorStatus === 403 || errorStatus === 401) {
+        console.warn("⚠️ [BITLABS PUBLISHER] 403/401 Forbidden - Returning empty offers.");
+        return {
+          success: true,
+          data: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+          error: errorData?.error?.details?.msg || "403/401 Forbidden",
+        };
+      }
+
+      throw error;
     }
   }
 }

@@ -4465,142 +4465,147 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
     // });
 
     if (sdk === "bitlabs") {
-      const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
-      const bitlabsNonGames = require("../utils/bitlabs-non-games");
+      // Use Publisher Offers API for admin non-game offers preview (as recommended by Bitlabs)
+      const bitlabsService = require("../services/bitlabs.service");
 
-      // Build query parameters
-      const queryParams = {
-        is_game: false, // Only non-game offers
-      };
+      // Build query parameters for Publisher API
+      const queryParams = {};
 
       // Add device filter if provided
       if (devices) {
         queryParams.devices = Array.isArray(devices) ? devices : [devices];
-      }
-
-      // Build userProfile with country and device support
-      // CRITICAL: Offers are often country-specific!
-      // If testing from India but offers target US, specify country=US
-      const userProfile = {};
-      if (country) {
-        userProfile.country = country;
-        // console.log(
-        //   `🌍 Admin request: Using country "${country}" for non-game offers`
-        // );
       } else {
-        // console.log(
-        //   `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
-        // );
-        // console.log(
-        //   `   To test with India-targeted offers, add ?country=IN to the request URL`
-        // );
+        // Default to both mobile platforms for admin preview
+        queryParams.devices = ["android", "iphone"];
       }
 
-      // Convert devices array to platform for userProfile
-      // This ensures surveys and cashback APIs get device filtering
-      if (devices) {
-        const devicesArray = Array.isArray(devices) ? devices : [devices];
-        if (
-          devicesArray.includes("android") &&
-          devicesArray.includes("iphone")
-        ) {
-          userProfile.platform = "mobile"; // Both platforms
-        } else if (devicesArray.includes("android")) {
-          userProfile.platform = "android";
-        } else if (devicesArray.includes("iphone")) {
-          userProfile.platform = "ios"; // or "iphone"
-        } else if (devicesArray.includes("ipad")) {
-          userProfile.platform = "ipad";
-        } else {
-          userProfile.platform = "mobile"; // Default to mobile
-        }
-        // console.log(
-        //   `📱 Admin request: Using platform "${
-        //     userProfile.platform
-        //   }" for devices: ${devicesArray.join(", ")}`
-        // );
+      // Add country filter
+      if (country) {
+        queryParams.country = country;
+      } else {
+        // Default to US for admin preview
+        queryParams.country = "US";
       }
 
-      // Get offers - also pass devices directly for general offers API
-      // CRITICAL: For admin endpoints, use null userId to let Bitlabs service use "static-inventory"
-      // This is consistent with games endpoint behavior
-      const utilityParams = {
-        userId: null, // Use null to let service default to "static-inventory" (same as games)
-        userProfile: userProfile,
-        type: type || "all",
-        category: "all",
-        devices: queryParams.devices, // Pass devices for shopping/magic receipts
-      };
-      
-      console.log("🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:", {
-        userId: utilityParams.userId,
-        type: utilityParams.type,
-        country: userProfile.country,
-        platform: userProfile.platform,
-        devices: queryParams.devices,
-      });
+      // Add type filter if specified (survey, cashback, shopping, magic_receipt)
+      if (type && type !== "all") {
+        queryParams.type = type;
+      }
 
-      const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
+      console.log("🟡 [ADMIN BACKEND ROUTE] Using Publisher Offers API for non-game offers preview");
+      console.log("🟡 [ADMIN BACKEND ROUTE] Query params:", queryParams);
 
-      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
+      // Call Publisher Offers API
+      const result = await bitlabsService.getPublisherOffers(queryParams);
+
+      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from Publisher API:", {
         success: result.success,
-        totalOffers: result.totalOffers || 0,
-        surveysCount: result.categorized?.surveys?.length || 0,
-        cashbackCount: result.categorized?.cashback?.length || 0,
-        shoppingCount: result.categorized?.shopping?.length || 0,
-        magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
+        total: result.total || 0,
+        dataCount: result.data?.length || 0,
         error: result.error,
       });
 
       if (!result.success) {
         console.error(
-          "🟡 [ADMIN BACKEND ROUTE] Error from utility:",
+          "🟡 [ADMIN BACKEND ROUTE] Error from Publisher API:",
           result.error
         );
         return res.status(500).json({
           success: false,
-          message: result.error || "Failed to fetch non-game offers",
+          message: result.error || "Failed to fetch non-game offers from Publisher API",
           data: [],
           error: result.error,
         });
       }
 
-      // Check if result is empty and log details
-      if (!result.offers || result.offers.length === 0) {
-        console.warn("⚠️ [ADMIN BACKEND ROUTE] No offers returned from Bitlabs API");
-        console.warn("⚠️ [ADMIN BACKEND ROUTE] Result details:", {
-          success: result.success,
-          totalOffers: result.totalOffers,
-          categorized: result.categorized ? {
-            surveys: result.categorized.surveys?.length || 0,
-            cashback: result.categorized.cashback?.length || 0,
-            shopping: result.categorized.shopping?.length || 0,
-            magicReceipts: result.categorized.magicReceipts?.length || 0,
-          } : null,
-          error: result.error,
-        });
-        console.warn("⚠️ [ADMIN BACKEND ROUTE] This might be a Bitlabs API limitation with static-inventory user ID");
+      // Publisher API returns offers directly in result.data
+      const offers = result.data || [];
+      
+      // Categorize offers by type (survey, cashback, shopping, magic_receipt)
+      const categorized = {
+        surveys: [],
+        cashback: [],
+        shopping: [],
+        magicReceipts: [],
+        other: [],
+      };
+
+      offers.forEach((offer) => {
+        // Determine offer type based on offer properties
+        const anchor = (offer.anchor || offer.name || "").toLowerCase();
+        const description = (offer.description || "").toLowerCase();
+        const category = offer.category || offer.categories?.[0] || "";
+        const categoryStr = typeof category === "object" 
+          ? (category.name || category.name_internal || "").toLowerCase()
+          : (category || "").toLowerCase();
+
+        if (
+          anchor.includes("survey") ||
+          description.includes("survey") ||
+          categoryStr.includes("survey") ||
+          offer.type === "survey"
+        ) {
+          categorized.surveys.push(offer);
+        } else if (
+          anchor.includes("cashback") ||
+          description.includes("cashback") ||
+          categoryStr.includes("cashback") ||
+          offer.type === "cashback"
+        ) {
+          categorized.cashback.push(offer);
+        } else if (
+          anchor.includes("shop") ||
+          anchor.includes("store") ||
+          anchor.includes("retail") ||
+          description.includes("shopping") ||
+          description.includes("purchase") ||
+          categoryStr.includes("shopping") ||
+          categoryStr.includes("retail") ||
+          offer.type === "shopping"
+        ) {
+          categorized.shopping.push(offer);
+        } else if (
+          anchor.includes("magic receipt") ||
+          anchor.includes("receipt") ||
+          description.includes("receipt") ||
+          description.includes("upload receipt") ||
+          categoryStr.includes("receipt") ||
+          categoryStr.includes("magic receipt") ||
+          offer.type === "magic_receipt"
+        ) {
+          categorized.magicReceipts.push(offer);
+        } else {
+          categorized.other.push(offer);
+        }
+      });
+
+      // Filter by type if specified
+      let filteredOffers = offers;
+      if (type && type !== "all") {
+        if (type === "survey" || type === "surveys") {
+          filteredOffers = categorized.surveys;
+        } else if (type === "cashback") {
+          filteredOffers = categorized.cashback;
+        } else if (type === "shopping") {
+          filteredOffers = categorized.shopping;
+        } else if (type === "magic_receipt" || type === "magic-receipts" || type === "magicReceipts") {
+          filteredOffers = categorized.magicReceipts;
+        }
       }
 
       const responseData = {
         success: true,
-        data: result.offers || [],
-        categorized: result.categorized || {
-          surveys: [],
-          cashback: [],
-          shopping: [],
-          magicReceipts: [],
-          other: [],
+        data: filteredOffers,
+        categorized: categorized,
+        breakdown: {
+          surveys: categorized.surveys.length,
+          cashback: categorized.cashback.length,
+          shopping: categorized.shopping.length,
+          magicReceipts: categorized.magicReceipts.length,
+          other: categorized.other.length,
         },
-        breakdown: result.breakdown || {
-          surveys: 0,
-          cashback: 0,
-          shopping: 0,
-          magicReceipts: 0,
-          other: 0,
-        },
-        total: result.totalOffers || 0,
-        estimatedEarnings: result.estimatedEarnings || 0,
+        total: filteredOffers.length,
+        timestamp: result.timestamp || new Date().toISOString(),
       };
       
       res.json(responseData);

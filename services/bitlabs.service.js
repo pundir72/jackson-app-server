@@ -1926,7 +1926,9 @@ class BitlabsService {
       const fullURL = `${this.baseURL}${endpoint}`;
 
       // Normalize parameters
-      const normalizedParams = { ...queryParams };
+      // Note: Publisher API may not support 'type' parameter - we'll filter after response
+      const { type, ...restParams } = queryParams;
+      const normalizedParams = { ...restParams };
 
       // Add SDK parameter if not provided
       if (!normalizedParams.sdk) {
@@ -1942,12 +1944,21 @@ class BitlabsService {
       if (!normalizedParams.country) {
         normalizedParams.country = "US";
       }
+      
+      // Store type for filtering after response
+      const filterType = type;
 
+      // Publisher API requires X-S2S-Token header (Server-to-Server token)
+      // Documentation: https://developer.bitlabs.ai/reference/getpublisheroffersv2
       const headers = {
-        "X-Api-Token": this.apiToken,
+        "X-S2S-Token": this.serverToServerKey || this.apiToken,
         Accept: "application/json",
         "Content-Type": "application/json",
       };
+      
+      if (!this.serverToServerKey) {
+        console.warn("⚠️ [BITLABS PUBLISHER] BITLABS_SERVER_TO_SERVER_KEY not configured. Using API token as fallback.");
+      }
 
       const paramsSerializer = {
         indexes: null,
@@ -1958,7 +1969,7 @@ class BitlabsService {
       console.log("🔵 [BITLABS PUBLISHER] Full URL:", fullURL);
       console.log("🔵 [BITLABS PUBLISHER] Query Params:", JSON.stringify(normalizedParams, null, 2));
       console.log("🔵 [BITLABS PUBLISHER] Headers:", {
-        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+        "X-S2S-Token": this.serverToServerKey ? "***SET***" : (this.apiToken ? "***FALLBACK***" : "MISSING"),
       });
       console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
 
@@ -1992,10 +2003,32 @@ class BitlabsService {
 
       console.log("🔵 [BITLABS PUBLISHER] Parsed offers count:", offers.length);
 
+      // Filter by type if specified (since Publisher API may not support type parameter)
+      let filteredOffers = offers;
+      if (filterType && filterType !== "all") {
+        filteredOffers = offers.filter((offer) => {
+          const offerType = offer.type || "";
+          const anchor = (offer.anchor || offer.name || "").toLowerCase();
+          const description = (offer.description || "").toLowerCase();
+          
+          if (filterType === "survey" || filterType === "surveys") {
+            return offerType === "survey" || anchor.includes("survey") || description.includes("survey");
+          } else if (filterType === "cashback") {
+            return offerType === "cashback" || anchor.includes("cashback") || description.includes("cashback");
+          } else if (filterType === "shopping") {
+            return offerType === "shopping" || anchor.includes("shop") || anchor.includes("store") || description.includes("shopping");
+          } else if (filterType === "magic_receipt" || filterType === "magic-receipts" || filterType === "magicReceipts") {
+            return offerType === "magic_receipt" || anchor.includes("receipt") || description.includes("receipt");
+          }
+          return true;
+        });
+        console.log("🔵 [BITLABS PUBLISHER] Filtered offers by type '" + filterType + "':", filteredOffers.length);
+      }
+
       return {
         success: true,
-        data: offers,
-        total: offers.length,
+        data: filteredOffers,
+        total: filteredOffers.length,
         timestamp: new Date().toISOString(),
         rawResponse: response.data, // Include raw response for debugging
       };

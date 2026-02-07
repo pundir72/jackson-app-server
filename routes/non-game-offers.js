@@ -2121,24 +2121,26 @@ router.get("/surveys", protect, async (req, res) => {
       }
     }
 
-    // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
-    if (surveys.length === 0 || useAdminConfig === "false") {
-      // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
-      // Bitlabs will detect the production server's IP as VPN and return empty results
-      // Only send user profile data, not server IP
-      const result = await bitlabsNonGames.getSurveys({
-        userId: user._id.toString(),
-        userProfile: {
-          ...userProfile,
-          platform: "mobile",
-          osVersion: "iOS 15.0",
-          appVersion: "1.0.0",
-          deviceModel: "iPhone 13",
-          // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
-          // Bitlabs will use the X-User-Id header for user tracking instead
-        },
-        category,
-      });
+    // Step 2: Always fetch Bitlabs surveys directly from API
+    // This ensures Bitlabs surveys are included along with admin-configured surveys
+    // This allows users to see both admin-configured surveys AND direct Bitlabs surveys
+    try {
+        // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
+        // Bitlabs will detect the production server's IP as VPN and return empty results
+        // Only send user profile data, not server IP
+        const result = await bitlabsNonGames.getSurveys({
+          userId: user._id.toString(),
+          userProfile: {
+            ...userProfile,
+            platform: "mobile",
+            osVersion: "iOS 15.0",
+            appVersion: "1.0.0",
+            deviceModel: "iPhone 13",
+            // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
+            // Bitlabs will use the X-User-Id header for user tracking instead
+          },
+          category,
+        });
 
       // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
       console.log(
@@ -2212,14 +2214,43 @@ router.get("/surveys", protect, async (req, res) => {
       if (result.success) {
         const surveysFromResult = result.categorized?.surveys || result.surveys || [];
         if (surveysFromResult.length > 0) {
-          surveys = surveysFromResult.map((s) => ({
-          ...s,
-          source: "bitlab_direct",
-        }));
-        source = "bitlab_direct";
-        console.log(
-          `✅ [USER BACKEND] Fetched ${surveys.length} surveys directly from Bitlabs (fallback)`
-        );
+          // Convert Bitlabs survey format to our format
+          const bitlabsDirectSurveys = surveysFromResult.map((s) => ({
+            id: s.id || s.surveyId,
+            surveyId: s.id || s.surveyId,
+            title: s.anchor || s.name || s.title || "Survey",
+            description: s.description || `Complete this survey to earn ${s.value || 0} points`,
+            category: s.category || { name: "Survey", name_internal: "Survey" },
+            icon: s.icon_url || s.icon || "",
+            banner: s.icon_url || s.banner || "",
+            reward: {
+              coins: s.value ? parseFloat(s.value) : 0,
+              currency: "points",
+              xp: s.value ? Math.round(parseFloat(s.value) * 0.5) : 0,
+            },
+            estimatedTime: s.loi || s.estimatedTime || 5,
+            clickUrl: s.click_url || s.url || null,
+            surveyUrl: s.click_url || s.url || null,
+            isAvailable: true,
+            provider: "bitlabs",
+            source: "bitlab_direct",
+            // Bitlabs specific fields
+            value: s.value ? parseFloat(s.value) : 0,
+            cpi: s.cpi ? parseFloat(s.cpi) : 0,
+            loi: s.loi || 5,
+            rating: s.rating || 0,
+            country: s.country || userProfile.country,
+          }));
+          
+          // Merge with existing surveys (admin-configured + direct Bitlabs)
+          surveys = [...surveys, ...bitlabsDirectSurveys];
+          source = surveys.length > 0 ? "mixed" : "bitlab_direct";
+          console.log(
+            `✅ [USER BACKEND] Fetched ${bitlabsDirectSurveys.length} surveys directly from Bitlabs API`
+          );
+          console.log(
+            `✅ [USER BACKEND] Total surveys now: ${surveys.length} (admin-configured + direct Bitlabs)`
+          );
         } else {
           console.warn(
             "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="
@@ -2260,96 +2291,99 @@ router.get("/surveys", protect, async (req, res) => {
           "🔴 [USER BACKEND] ==================================================\n"
         );
       }
+    } catch (bitlabsDirectError) {
+      // Log error but don't fail - continue with admin-configured surveys
+      console.error(
+        "🔴 [USER BACKEND] Error fetching direct Bitlabs surveys:",
+        bitlabsDirectError.message
+      );
     }
 
-    // Step 3: Besitos direct API
-    // - If surveys are empty → pure Besitos fallback (same behavior as admin route)
-    // - If includeBesitos=true → merge Besitos + Bitlabs results (both providers)
-    const shouldIncludeBesitos = includeBesitosFlag || surveys.length === 0;
+    // Step 3: Always fetch Besitos surveys directly from API
+    // This ensures both Bitlabs AND Besitos surveys are included
+    // Users will see surveys from both providers
+    try {
+      const SurveySDK = require("../models/SurveySDK");
+      const SurveyOffer = require("../models/SurveyOffer");
+      const besitosService = require("../services/besitos.service");
 
-    if (shouldIncludeBesitos) {
-      try {
-        const SurveySDK = require("../models/SurveySDK");
-        const SurveyOffer = require("../models/SurveyOffer");
-        const besitosService = require("../services/besitos.service");
+      // Check if Besitos is configured
+      if (besitosService.isConfigured()) {
+        // Find Besitos SDK (optional - we'll still call API even if no admin config)
+        const besitosSDK = await SurveySDK.findOne({
+          name: { $regex: /besitos/i },
+        });
 
-        // Check if Besitos is configured
-        if (besitosService.isConfigured()) {
-          // Find Besitos SDK (optional - we'll still call API even if no admin config)
-          const besitosSDK = await SurveySDK.findOne({
-            name: { $regex: /besitos/i },
-          });
-
-          if (besitosSDK) {
-            console.log(
-              `\n🔵 [USER BACKEND] Besitos fallback: SDK found: ${besitosSDK._id}`
-            );
-          } else {
-            console.log(
-              `\n⚠️ [USER BACKEND] Besitos fallback: SDK not found, calling API anyway`
-            );
-          }
-
-          // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
-          // This avoids VPN detection issues on production servers
-          // Besitos will use the userId parameter for user tracking instead
-          const clientIp = "127.0.0.1";
-          
+        if (besitosSDK) {
           console.log(
-            "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
+            `\n🔵 [USER BACKEND] Besitos fallback: SDK found: ${besitosSDK._id}`
           );
-
-          // Map platform to device (android/ios → mobile, web → desktop)
-          let device = "mobile";
-          const platform = req.query.platform?.toLowerCase();
-          if (platform === "web") {
-            device = "desktop";
-          } else if (platform === "android" || platform === "ios") {
-            device = "mobile";
-          }
-
-          const besitosQueryParams = {
-            device,
-            user_ip: clientIp,
-          };
-
-          const userGender = getUserGender(user);
-          if (userGender === "male") {
-            besitosQueryParams.gender = "m";
-          } else if (userGender === "female") {
-            besitosQueryParams.gender = "f";
-          }
-
-          if (user.dateOfBirth) {
-            const dob = new Date(user.dateOfBirth);
-            besitosQueryParams.dob = dob.toISOString().split("T")[0];
-          }
-
-          if (user.location?.current?.postalCode) {
-            besitosQueryParams.postal_code = user.location.current.postalCode;
-          }
-
+        } else {
           console.log(
-            "🔵 [USER BACKEND] Besitos fallback params:",
-            besitosQueryParams
+            `\n⚠️ [USER BACKEND] Besitos fallback: SDK not found, calling API anyway`
           );
+        }
 
-          // Call Besitos Surveys API using userId (not admin-preview)
-          const besitosResponse = await besitosService.getSurveysWall(
-            user._id.toString(),
-            besitosQueryParams
-          );
+        // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
+        // This avoids VPN detection issues on production servers
+        // Besitos will use the userId parameter for user tracking instead
+        const clientIp = "127.0.0.1";
+        
+        console.log(
+          "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
+        );
 
-          const besitosSurveysArray = Array.isArray(besitosResponse)
-            ? besitosResponse
-            : besitosResponse?.data || [];
+        // Map platform to device (android/ios → mobile, web → desktop)
+        let device = "mobile";
+        const platform = req.query.platform?.toLowerCase();
+        if (platform === "web") {
+          device = "desktop";
+        } else if (platform === "android" || platform === "ios") {
+          device = "mobile";
+        }
 
-          console.log(
-            `🔵 [USER BACKEND] Besitos fallback returned ${besitosSurveysArray.length} surveys`
-          );
+        const besitosQueryParams = {
+          device,
+          user_ip: clientIp,
+        };
 
-          if (besitosSurveysArray.length > 0) {
-            const besitosTransformed = besitosSurveysArray.map((survey) => {
+        const userGender = getUserGender(user);
+        if (userGender === "male") {
+          besitosQueryParams.gender = "m";
+        } else if (userGender === "female") {
+          besitosQueryParams.gender = "f";
+        }
+
+        if (user.dateOfBirth) {
+          const dob = new Date(user.dateOfBirth);
+          besitosQueryParams.dob = dob.toISOString().split("T")[0];
+        }
+
+        if (user.location?.current?.postalCode) {
+          besitosQueryParams.postal_code = user.location.current.postalCode;
+        }
+
+        console.log(
+          "🔵 [USER BACKEND] Besitos fallback params:",
+          besitosQueryParams
+        );
+
+        // Call Besitos Surveys API using userId (not admin-preview)
+        const besitosResponse = await besitosService.getSurveysWall(
+          user._id.toString(),
+          besitosQueryParams
+        );
+
+        const besitosSurveysArray = Array.isArray(besitosResponse)
+          ? besitosResponse
+          : besitosResponse?.data || [];
+
+        console.log(
+          `🔵 [USER BACKEND] Besitos fallback returned ${besitosSurveysArray.length} surveys`
+        );
+
+        if (besitosSurveysArray.length > 0) {
+          const besitosTransformed = besitosSurveysArray.map((survey) => {
               const estimatedTime = survey.length
                 ? Math.round(survey.length)
                 : 0;
@@ -2400,38 +2434,24 @@ router.get("/surveys", protect, async (req, res) => {
               };
             });
 
-            if (surveys.length === 0) {
-              // Pure Besitos mode (Bitlabs returned nothing)
-              surveys = besitosTransformed;
-              source = "besitos_direct";
-
-              console.log(
-                `✅ [USER BACKEND] Using Besitos fallback: ${surveys.length} surveys (besitos_direct)`
-              );
-            } else {
-              // Merge Bitlabs + Besitos when includeBesitos=true
-              surveys = [...surveys, ...besitosTransformed];
-              // Mark mixed source only if previously bitlab_direct
-              if (source === "bitlab_direct") {
-                source = "mixed";
-              }
-
-              console.log(
-                `✅ [USER BACKEND] Merged Bitlabs + Besitos surveys: ${surveys.length} total (mixed)`
-              );
-            }
-          }
-        } else {
-          console.warn(
-            "⚠️ [USER BACKEND] Besitos fallback skipped: service not configured"
+          // Always merge Besitos surveys with existing surveys (Bitlabs + admin-configured)
+          surveys = [...surveys, ...besitosTransformed];
+          source = surveys.length > 0 ? "mixed" : "besitos_direct";
+          
+          console.log(
+            `✅ [USER BACKEND] Merged Besitos surveys: Total ${surveys.length} surveys (Bitlabs + Besitos)`
           );
         }
-      } catch (besitosFallbackError) {
-        console.error(
-          "🔴 [USER BACKEND] Besitos fallback error:",
-          besitosFallbackError.message
+      } else {
+        console.warn(
+          "⚠️ [USER BACKEND] Besitos fallback skipped: service not configured"
         );
       }
+    } catch (besitosFallbackError) {
+      console.error(
+        "🔴 [USER BACKEND] Besitos fallback error:",
+        besitosFallbackError.message
+      );
     }
 
     // Paginate results

@@ -4532,12 +4532,15 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
 
       offers.forEach((offer) => {
         // Determine offer type based on offer properties
-        const anchor = (offer.anchor || offer.name || "").toLowerCase();
+        const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
         const description = (offer.description || "").toLowerCase();
-        const category = offer.category || offer.categories?.[0] || "";
+        const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
         const categoryStr = typeof category === "object" 
           ? (category.name || category.name_internal || "").toLowerCase()
           : (category || "").toLowerCase();
+        
+        // Check if offer has cashback field (indicates it's a cashback offer)
+        const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
 
         if (
           anchor.includes("survey") ||
@@ -4547,10 +4550,14 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         ) {
           categorized.surveys.push(offer);
         } else if (
+          offer.type === "cashback" ||
           anchor.includes("cashback") ||
+          anchor.includes("cash back") ||
           description.includes("cashback") ||
+          description.includes("cash back") ||
           categoryStr.includes("cashback") ||
-          offer.type === "cashback"
+          hasCashbackField ||
+          offer.merchant_name // Cashback offers usually have merchant_name
         ) {
           categorized.cashback.push(offer);
         } else if (

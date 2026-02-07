@@ -2007,22 +2007,55 @@ class BitlabsService {
       let filteredOffers = offers;
       if (filterType && filterType !== "all") {
         filteredOffers = offers.filter((offer) => {
-          const offerType = offer.type || "";
-          const anchor = (offer.anchor || offer.name || "").toLowerCase();
+          const offerType = (offer.type || "").toLowerCase();
+          const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
           const description = (offer.description || "").toLowerCase();
+          const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
+          const categoryStr = typeof category === "object" 
+            ? (category.name || category.name_internal || "").toLowerCase()
+            : (category || "").toLowerCase();
+          
+          // Check if offer has cashback field (indicates it's a cashback offer)
+          const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
           
           if (filterType === "survey" || filterType === "surveys") {
-            return offerType === "survey" || anchor.includes("survey") || description.includes("survey");
+            return offerType === "survey" || 
+                   anchor.includes("survey") || 
+                   description.includes("survey") ||
+                   categoryStr.includes("survey");
           } else if (filterType === "cashback") {
-            return offerType === "cashback" || anchor.includes("cashback") || description.includes("cashback");
+            return offerType === "cashback" || 
+                   anchor.includes("cashback") || 
+                   anchor.includes("cash back") ||
+                   description.includes("cashback") ||
+                   description.includes("cash back") ||
+                   categoryStr.includes("cashback") ||
+                   hasCashbackField ||
+                   offer.merchant_name; // Cashback offers usually have merchant_name
           } else if (filterType === "shopping") {
-            return offerType === "shopping" || anchor.includes("shop") || anchor.includes("store") || description.includes("shopping");
+            return offerType === "shopping" || 
+                   anchor.includes("shop") || 
+                   anchor.includes("store") || 
+                   anchor.includes("retail") ||
+                   description.includes("shopping") ||
+                   description.includes("purchase") ||
+                   categoryStr.includes("shopping") ||
+                   categoryStr.includes("retail");
           } else if (filterType === "magic_receipt" || filterType === "magic-receipts" || filterType === "magicReceipts") {
-            return offerType === "magic_receipt" || anchor.includes("receipt") || description.includes("receipt");
+            return offerType === "magic_receipt" || 
+                   anchor.includes("receipt") || 
+                   anchor.includes("magic receipt") ||
+                   description.includes("receipt") ||
+                   description.includes("upload receipt") ||
+                   categoryStr.includes("receipt") ||
+                   categoryStr.includes("magic receipt");
           }
           return true;
         });
         console.log("🔵 [BITLABS PUBLISHER] Filtered offers by type '" + filterType + "':", filteredOffers.length);
+        if (filteredOffers.length === 0 && offers.length > 0) {
+          console.warn("⚠️ [BITLABS PUBLISHER] No offers matched filter type. Sample offer structure:", JSON.stringify(offers[0], null, 2).substring(0, 500));
+        }
       }
 
       return {

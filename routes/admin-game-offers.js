@@ -5042,7 +5042,12 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     };
 
     // Fetch surveys using Survey API (if needed)
+    // Also try Publisher API as fallback since admin preview might use Publisher API IDs
     if (offerType === "all" || offerType === "survey" || offerType === "surveys") {
+      let surveysFromSurveyAPI = [];
+      let surveysFromPublisherAPI = [];
+      
+      // Try Survey API first
       try {
         const surveyQueryParams = {
           sdk: "CUSTOM",
@@ -5060,24 +5065,120 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         surveyQueryParams.client_user_agent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
         
         console.log("🟡 [SYNC] Fetching surveys from Survey API");
+        console.log("🟡 [SYNC] Survey query params:", JSON.stringify(surveyQueryParams, null, 2));
         const surveyResult = await bitlabsService.getSurveys(surveyQueryParams, "admin-sync");
         
+        console.log("🟡 [SYNC] Survey API response:", {
+          success: surveyResult.success,
+          hasData: !!surveyResult.data,
+          dataType: Array.isArray(surveyResult.data) ? "array" : typeof surveyResult.data,
+          dataLength: Array.isArray(surveyResult.data) ? surveyResult.data.length : "N/A",
+          error: surveyResult.error,
+          restrictionReason: surveyResult.restrictionReason,
+        });
+        
         if (surveyResult.success && surveyResult.data) {
-          const surveys = Array.isArray(surveyResult.data) ? surveyResult.data : [];
-          categorized.surveys = surveys;
-          allOffers.push(
-            ...surveys.map((o) => ({
-              ...o,
-              offerType: "survey",
-            }))
-          );
-          console.log("🟡 [SYNC] Fetched", surveys.length, "surveys from Survey API");
+          surveysFromSurveyAPI = Array.isArray(surveyResult.data) ? surveyResult.data : [];
+          
+          // Log sample survey IDs for debugging
+          if (surveysFromSurveyAPI.length > 0) {
+            console.log("🟡 [SYNC] Sample survey IDs from Survey API (first 5):", surveysFromSurveyAPI.slice(0, 5).map(s => ({
+              id: s.id,
+              surveyId: s.surveyId,
+              offerId: s.offerId,
+              externalId: s.externalId,
+            })));
+          }
+          
+          console.log("🟡 [SYNC] Fetched", surveysFromSurveyAPI.length, "surveys from Survey API");
         } else {
-          console.warn("🟡 [SYNC] Survey API returned no surveys:", surveyResult.error);
+          console.warn("🟡 [SYNC] Survey API returned no surveys:", {
+            error: surveyResult.error,
+            restrictionReason: surveyResult.restrictionReason,
+            message: "Will try Publisher API as fallback",
+          });
         }
       } catch (surveyError) {
-        console.error("🟡 [SYNC] Error fetching surveys:", surveyError.message);
+        console.error("🟡 [SYNC] Error fetching surveys from Survey API:", surveyError.message);
       }
+      
+      // Try Publisher API as fallback (admin preview might use Publisher API which has numeric IDs)
+      try {
+        const publisherQueryParams = {};
+        
+        if (devices && devices.length > 0) {
+          publisherQueryParams.devices = Array.isArray(devices) ? devices : [devices];
+        } else {
+          publisherQueryParams.devices = ["android", "iphone"];
+        }
+        
+        if (country) {
+          publisherQueryParams.country = country;
+        } else {
+          publisherQueryParams.country = "US";
+        }
+        
+        console.log("🟡 [SYNC] Fetching surveys from Publisher API (fallback)");
+        const publisherResult = await bitlabsService.getPublisherOffers(publisherQueryParams);
+        
+        if (publisherResult.success && publisherResult.data) {
+          const rawOffers = Array.isArray(publisherResult.data) ? publisherResult.data : [];
+          
+          // Filter for surveys only
+          surveysFromPublisherAPI = rawOffers.filter((offer) => {
+            const anchor = (offer.anchor || offer.name || "").toLowerCase();
+            const description = (offer.description || "").toLowerCase();
+            const offerType = offer.type || "";
+            return (
+              offerType === "survey" ||
+              anchor.includes("survey") ||
+              description.includes("survey")
+            );
+          });
+          
+          if (surveysFromPublisherAPI.length > 0) {
+            console.log("🟡 [SYNC] Sample survey IDs from Publisher API (first 5):", surveysFromPublisherAPI.slice(0, 5).map(s => ({
+              id: s.id,
+              surveyId: s.surveyId,
+              offerId: s.offerId,
+            })));
+          }
+          
+          console.log("🟡 [SYNC] Fetched", surveysFromPublisherAPI.length, "surveys from Publisher API");
+        }
+      } catch (publisherError) {
+        console.error("🟡 [SYNC] Error fetching surveys from Publisher API:", publisherError.message);
+      }
+      
+      // Combine surveys from both APIs, deduplicate by ID
+      const allSurveysMap = new Map();
+      
+      // Add Survey API surveys (usually UUID format)
+      surveysFromSurveyAPI.forEach(s => {
+        const id = s.id || s.surveyId || s.offerId;
+        if (id) {
+          allSurveysMap.set(id.toString(), s);
+        }
+      });
+      
+      // Add Publisher API surveys (usually numeric IDs)
+      surveysFromPublisherAPI.forEach(s => {
+        const id = s.id || s.surveyId || s.offerId;
+        if (id) {
+          allSurveysMap.set(id.toString(), s);
+        }
+      });
+      
+      const allSurveys = Array.from(allSurveysMap.values());
+      categorized.surveys = allSurveys;
+      allOffers.push(
+        ...allSurveys.map((o) => ({
+          ...o,
+          offerType: "survey",
+        }))
+      );
+      
+      console.log("🟡 [SYNC] Total unique surveys after combining APIs:", allSurveys.length);
     }
 
     // Fetch non-survey offers using Publisher API
@@ -5202,6 +5303,17 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       other: categorized.other.length,
       total: allOffers.length,
     });
+    
+    // Log all survey IDs if filtering by offerIds
+    if (offerIds && offerIds.length > 0) {
+      console.log("🟡 [SYNC] Requested offer IDs:", offerIds);
+      console.log("🟡 [SYNC] Available survey IDs:", categorized.surveys.map(s => ({
+        id: s.id,
+        surveyId: s.surveyId,
+        offerId: s.offerId,
+        externalId: s.externalId,
+      })));
+    }
 
     // Filter by offerIds if provided
     // For cashback: ID is merchant_id (number or string)
@@ -5250,15 +5362,14 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
               }
             }
 
-            if (!matches && offerIdsStr.length > 0) {
-              console.log("🔍 [SYNC] Offer ID mismatch:", {
+            if (!matches && offerIdsStr.length > 0 && o.offerType === "survey") {
+              // Only log mismatches for surveys to avoid spam
+              console.log("🔍 [SYNC] Survey ID mismatch:", {
                 requestedIds: offerIdsStr,
                 offerId: offerId?.toString(),
                 surveyId: o.surveyId?.toString(),
                 id: o.id?.toString(),
                 offerType: o.offerType,
-                anchor: o.anchor,
-                merchantId: merchantId,
               });
             }
 
@@ -5270,7 +5381,18 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       totalOffers: allOffers.length,
       requestedIds: offerIds || [],
       filteredCount: offersToSync.length,
+      offerType: offerType,
     });
+    
+    // If no offers found and offerIds were provided, log detailed info
+    if (offersToSync.length === 0 && offerIds && offerIds.length > 0) {
+      console.warn("⚠️ [SYNC] No offers matched the requested IDs:", {
+        requestedIds: offerIds,
+        totalAvailableOffers: allOffers.length,
+        availableSurveyIds: categorized.surveys.map(s => s.id || s.surveyId || s.offerId).filter(Boolean),
+        suggestion: "Check if the survey ID exists in the API response. Survey IDs from Bitlabs are usually UUIDs, not numeric.",
+      });
+    }
 
     let syncedCount = 0;
     let updatedCount = 0;

@@ -102,6 +102,9 @@ class BitlabsService {
 
       // Use provided userId or a default placeholder for static inventory
       const userIdentifier = userId || queryParams.userId || "static-inventory";
+      
+      // Detect if this is an admin request (no real userId provided)
+      const isAdminRequest = !userId && !queryParams.userId;
 
       // Remove userId from queryParams if present (it goes in header, not query)
       // Also normalize parameter names to match Bitlabs API
@@ -150,6 +153,16 @@ class BitlabsService {
         normalizedParams.is_game = true;
       }
 
+      // CRITICAL: Convert is_game from string "true"/"false" to boolean if present
+      if (queryParams.is_game !== undefined) {
+        if (queryParams.is_game === "true" || queryParams.is_game === true) {
+          normalizedParams.is_game = true;
+        } else if (queryParams.is_game === "false" || queryParams.is_game === false) {
+          normalizedParams.is_game = false;
+        }
+        // If it's already a boolean, keep it as is
+      }
+
       // CRITICAL: Explicitly pass client_ip to avoid VPN detection
       // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
       // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
@@ -188,11 +201,33 @@ class BitlabsService {
         indexes: null, // Serialize arrays as devices[]=android&devices[]=iphone
       };
 
+      // Log request details for debugging
+      console.log("\n🔵 [BITLABS SERVICE] ========== GET OFFERS REQUEST ==========");
+      console.log("🔵 Endpoint:", endpoint);
+      console.log("🔵 Full URL:", fullURL);
+      console.log("🔵 Headers:", {
+        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+        "X-User-Id": userIdentifier,
+      });
+      console.log("🔵 Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 is_game value:", normalizedParams.is_game, "type:", typeof normalizedParams.is_game);
+      console.log("🔵 ==================================================\n");
+
       const response = await this.client.get(endpoint, {
         headers: headers,
         params: normalizedParams,
         paramsSerializer: paramsSerializer,
       });
+
+      // Log raw response structure
+      console.log("\n🔵 [BITLABS SERVICE] ========== RAW API RESPONSE ==========");
+      console.log("🔵 Response Status:", response.status);
+      console.log("🔵 Response Data Type:", typeof response.data);
+      console.log("🔵 Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
+      if (response.data) {
+        console.log("🔵 Response Data Structure:", JSON.stringify(response.data, null, 2).substring(0, 2000));
+      }
+      console.log("🔵 ==================================================\n");
 
       // Log raw Bitlabs API response for shopping and magic receipts
       // Extract raw offers first to check their types
@@ -296,36 +331,101 @@ class BitlabsService {
       // Normalize response to match expected format
       // Bitlabs API response structure: { data: { offers: [], offerwall_code: "...", started_offers: [] }, status: "success" }
       let rawOffers = [];
+      let startedOffers = [];
+
+      console.log("\n🔵 [BITLABS SERVICE] ========== PARSING RESPONSE ==========");
+      console.log("🔵 Checking response.data structure...");
 
       // Check if response.data is directly an array
       if (Array.isArray(response.data)) {
         rawOffers = response.data;
+        console.log("🔵 ✅ Found offers as direct array:", rawOffers.length);
       }
       // Check nested data structure (Bitlabs format: response.data.data.offers)
-      else if (
-        response.data?.data?.offers &&
-        Array.isArray(response.data.data.offers)
-      ) {
-        rawOffers = response.data.data.offers;
+      else if (response.data?.data) {
+        // Get available offers
+        if (response.data.data.offers && Array.isArray(response.data.data.offers)) {
+          rawOffers = response.data.data.offers;
+          console.log("🔵 ✅ Found offers in response.data.data.offers:", rawOffers.length);
+        }
+        // Check other nested structures
+        else if (Array.isArray(response.data.data)) {
+          rawOffers = response.data.data;
+          console.log("🔵 ✅ Found offers in response.data.data:", rawOffers.length);
+        }
       }
       // Check if offers are directly in response.data.offers (MOST COMMON)
       else if (response.data?.offers && Array.isArray(response.data.offers)) {
         rawOffers = response.data.offers;
+        console.log("🔵 ✅ Found offers in response.data.offers:", rawOffers.length);
       }
       // Check other common structures
-      else if (response.data?.data && Array.isArray(response.data.data)) {
-        rawOffers = response.data.data;
-      } else if (response.data?.items && Array.isArray(response.data.items)) {
+      else if (response.data?.items && Array.isArray(response.data.items)) {
         rawOffers = response.data.items;
+        console.log("🔵 ✅ Found offers in response.data.items:", rawOffers.length);
       } else if (
         response.data?.results &&
         Array.isArray(response.data.results)
       ) {
         rawOffers = response.data.results;
+        console.log("🔵 ✅ Found offers in response.data.results:", rawOffers.length);
       } else if (response.data?.list && Array.isArray(response.data.list)) {
         rawOffers = response.data.list;
+        console.log("🔵 ✅ Found offers in response.data.list:", rawOffers.length);
       } else {
+        console.log("🔵 ❌ No offers array found in response!");
+        console.log("🔵 Response.data type:", typeof response.data);
+        console.log("🔵 Response.data keys:", response.data ? Object.keys(response.data) : "NO DATA");
+        if (response.data && typeof response.data === 'object') {
+          console.log("🔵 Full response.data:", JSON.stringify(response.data, null, 2).substring(0, 1000));
+        }
       }
+
+      // CRITICAL: Only include started_offers for admin requests (when no real userId)
+      // For user-facing endpoints, started_offers are games the user already has, so we shouldn't include them
+      // For admin endpoints, we want to show ALL games (both available and started) for inventory purposes
+      if (isAdminRequest) {
+        if (response.data?.data?.started_offers && Array.isArray(response.data.data.started_offers)) {
+          startedOffers = response.data.data.started_offers;
+          console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.data.started_offers:", startedOffers.length);
+        } else if (response.data?.started_offers && Array.isArray(response.data.started_offers)) {
+          startedOffers = response.data.started_offers;
+          console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.started_offers:", startedOffers.length);
+        }
+
+        // CRITICAL: Combine available offers and started offers for admin endpoints only
+        if (startedOffers.length > 0) {
+          console.log("🔵 [ADMIN] Combining available offers with started offers...");
+          // Mark started offers and ensure they're recognized as games if they have game categories
+          const markedStartedOffers = startedOffers.map(offer => {
+            // Check if this is a game based on categories or app_metadata
+            const isGame = 
+              offer.is_game === true || 
+              offer.is_game === "true" ||
+              offer.type === "game" ||
+              (offer.app_metadata?.categories && 
+               offer.app_metadata.categories.some(cat => 
+                 typeof cat === 'string' && cat.toUpperCase().includes('GAME')
+               ));
+            
+            return {
+              ...offer,
+              isStarted: true, // Mark as started for reference
+              is_game: isGame ? true : (offer.is_game !== undefined ? offer.is_game : true), // Ensure is_game is set for games
+            };
+          });
+          rawOffers = [...rawOffers, ...markedStartedOffers];
+          console.log("🔵 ✅ [ADMIN] Total offers after combining:", rawOffers.length);
+          console.log("🔵 [ADMIN] Games in combined offers:", markedStartedOffers.filter(o => o.is_game === true).length);
+        }
+      } else {
+        // For user-facing endpoints, log that we're NOT including started_offers
+        if (response.data?.data?.started_offers && response.data.data.started_offers.length > 0) {
+          console.log("🔵 ℹ️ [USER] Found started_offers but NOT including them (user already has these games)");
+        }
+      }
+
+      console.log("🔵 ==================================================\n");
 
       // Helper function to determine offer type (only used if type not present)
       function getOfferType(offer) {
@@ -435,9 +535,53 @@ class BitlabsService {
         }
       }
 
+      // Helper function to detect if an offer is a game
+      const isGameOffer = (offer) => {
+        // Check explicit is_game field
+        if (offer.is_game === true || offer.is_game === "true") return true;
+        if (offer.type === "game") return true;
+        
+        // Check app_metadata categories (e.g., "GAME_CASINO", "GAME_CASUAL")
+        if (offer.app_metadata?.categories && Array.isArray(offer.app_metadata.categories)) {
+          const hasGameCategory = offer.app_metadata.categories.some(cat => {
+            const catStr = typeof cat === 'string' ? cat.toUpperCase() : '';
+            return catStr.includes('GAME') || catStr === 'GAMING';
+          });
+          if (hasGameCategory) return true;
+        }
+        
+        // Check category field
+        if (offer.category) {
+          const catName = typeof offer.category === 'string' 
+            ? offer.category 
+            : offer.category.name || offer.category.name_internal || '';
+          if (catName.toUpperCase().includes('GAME') || catName.toUpperCase() === 'GAMING') {
+            return true;
+          }
+        }
+        
+        return false;
+      };
+
+      // Filter offers by is_game if is_game parameter was set
+      let filteredOffers = rawOffers;
+      if (normalizedParams.is_game === true) {
+        // Filter for games only
+        filteredOffers = rawOffers.filter((offer) => {
+          return isGameOffer(offer);
+        });
+        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} games (is_game=true)`);
+      } else if (normalizedParams.is_game === false) {
+        // Filter for non-games only
+        filteredOffers = rawOffers.filter((offer) => {
+          return !isGameOffer(offer);
+        });
+        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} non-games (is_game=false)`);
+      }
+
       // Return raw Bitlabs offers format - preserve original structure
       // Only add minimal metadata fields (type, provider) for categorization
-      const offersWithMetadata = rawOffers.map((offer) => {
+      const offersWithMetadata = filteredOffers.map((offer) => {
         // Preserve all original Bitlabs fields and structure
         // Only add minimal fields needed for our system
         return {
@@ -485,11 +629,22 @@ class BitlabsService {
 
       if (offersWithMetadata.length === 0) {
         console.warn(`⚠️ No offers found in Bitlabs API response.`);
-        console.warn(
-          `Response structure:`,
-          JSON.stringify(response.data, null, 2)
-        );
+        console.warn(`Request params:`, JSON.stringify(normalizedParams, null, 2));
+        console.warn(`Request headers:`, {
+          "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+          "X-User-Id": userIdentifier,
+        });
+        // console.warn(
+        //   `Response structure:`,
+        //   JSON.stringify(response.data, null, 2)
+        // );
+        
+        // Log restriction reason if present
+        if (restrictionReason) {
+          console.error(`❌ Bitlabs API restriction reason:`, restrictionReason);
+        }
       } else {
+        console.log(`✅ Found ${offersWithMetadata.length} Bitlabs offers`);
       }
 
       return {
@@ -608,6 +763,16 @@ class BitlabsService {
       const endpoint = "/v2/client/surveys";
       const fullURL = `${this.baseURL}${endpoint}`;
       const userIdentifier = userId || queryParams.userId || "static-inventory";
+      
+      // Detect if this is an admin request (no real userId provided)
+      const isAdminRequest = !userId && !queryParams.userId;
+
+      // Log request details for debugging
+      console.log("\n🔵 [BITLABS SURVEYS] ========== GET SURVEYS REQUEST ==========");
+      console.log("🔵 [BITLABS SURVEYS] Endpoint:", endpoint);
+      console.log("🔵 [BITLABS SURVEYS] Full URL:", fullURL);
+      console.log("🔵 [BITLABS SURVEYS] User ID:", userIdentifier);
+      console.log("🔵 [BITLABS SURVEYS] Is Admin Request:", isAdminRequest);
 
       // Normalize parameters
       const { userId: _, platform, sdk, country, ...restParams } = queryParams;
@@ -641,11 +806,24 @@ class BitlabsService {
         }
       }
 
-      // CRITICAL: Explicitly pass client_ip to avoid VPN detection
-      // Similar to Besitos user_ip, we pass the whitelisted IP explicitly
-      // If BITLABS_WHITELISTED_IP is set in config, use it; otherwise use 127.0.0.1
-      const whitelistedIp = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
-      normalizedParams.client_ip = whitelistedIp;
+      // CRITICAL: client_xx parameters for backend survey API calls
+      // Bitlabs has enabled "Allow Backend Survey API Calls" which requires client_xx parameters
+      // These parameters are required for backend servers to call the survey API
+      if (isAdminRequest || !userId) {
+        // For backend/admin calls, include client_ip and client_user_agent
+        // Use configured IP or default to 127.0.0.1 for backend calls
+        normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
+        // Add a default user agent for backend calls if not provided
+        if (!normalizedParams.client_user_agent) {
+          normalizedParams.client_user_agent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
+        }
+      } else if (queryParams.client_ip) {
+        // For user-facing calls, use provided client_ip if available
+        normalizedParams.client_ip = queryParams.client_ip;
+      }
+      if (queryParams.client_user_agent) {
+        normalizedParams.client_user_agent = queryParams.client_user_agent;
+      }
 
       const headers = {
         "X-Api-Token": this.apiToken,
@@ -657,6 +835,13 @@ class BitlabsService {
       const paramsSerializer = {
         indexes: null,
       };
+      
+      console.log("🔵 [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 [BITLABS SURVEYS] Headers:", {
+        "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
+        "X-User-Id": userIdentifier,
+      });
+      console.log("🔵 [BITLABS SURVEYS] ==================================================\n");
 
       let response;
       try {
@@ -666,63 +851,109 @@ class BitlabsService {
           paramsSerializer: paramsSerializer,
         });
 
-        // 🔴 DEBUG: Log raw response from Bitlabs
+        // Log raw response from Bitlabs
         console.log(
-          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API RESPONSE FROM THIRD PARTY =========="
+          "\n🔵 [BITLABS SURVEYS] ========== RAW API RESPONSE =========="
         );
         console.log(
-          "🔴 [BITLABS API SERVICE] 📊 Response Status:",
+          "🔵 [BITLABS SURVEYS] Response Status:",
           response.status
         );
         console.log(
-          "🔴 [BITLABS API SERVICE] 📦 Response Data Keys:",
+          "🔵 [BITLABS SURVEYS] Response Data Type:",
+          typeof response.data
+        );
+        console.log(
+          "🔵 [BITLABS SURVEYS] Response Data Keys:",
           response.data ? Object.keys(response.data) : "NO DATA"
         );
+        if (response.data) {
+          console.log(
+            "🔵 [BITLABS SURVEYS] Response Structure (first 2000 chars):",
+            JSON.stringify(response.data, null, 2).substring(0, 2000)
+          );
+        }
         console.log(
-          "🔴 [BITLABS API SERVICE] 📋 Full Response Structure:",
-          JSON.stringify(response.data, null, 2)
-        );
-        console.log(
-          "🔴 [BITLABS API SERVICE] ==================================================\n"
+          "🔵 [BITLABS SURVEYS] ==================================================\n"
         );
       } catch (error) {
-        // 🔴 ENHANCED ERROR LOGGING: Log full error details for 403 errors
+        // 🔴 ENHANCED ERROR LOGGING: Log full error details for debugging
+        const errorStatus = error.response?.status || error.status;
+        const errorData = error.response?.data || error.data;
+        
         console.error(
-          "\n🔴 [BITLABS API SERVICE] ========== SURVEY API ERROR =========="
+          "\n🔴 [BITLABS SURVEYS] ========== SURVEY API ERROR =========="
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Status:",
-          error.response?.status || error.status
+          "🔴 [BITLABS SURVEYS] ❌ Error Status:",
+          errorStatus
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Message:",
+          "🔴 [BITLABS SURVEYS] ❌ Error Message:",
           error.message
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Response Data:",
-          JSON.stringify(error.response?.data || error.data, null, 2)
+          "🔴 [BITLABS SURVEYS] ❌ Error Response Data:",
+          JSON.stringify(errorData, null, 2)
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Error Details:",
-          error.response?.data?.error || error.error
+          "🔴 [BITLABS SURVEYS] ❌ Error Details:",
+          errorData?.error || error.error
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Trace ID:",
-          error.response?.data?.trace_id || error.data?.trace_id
+          "🔴 [BITLABS SURVEYS] ❌ Trace ID:",
+          errorData?.trace_id
         );
-        console.error("🔴 [BITLABS API SERVICE] ❌ Request URL:", fullURL);
-        console.error("🔴 [BITLABS API SERVICE] ❌ Request Headers:", {
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request URL:", fullURL);
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request Headers:", {
           "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
           "X-User-Id": userIdentifier,
         });
         console.error(
-          "🔴 [BITLABS API SERVICE] ❌ Request Params:",
+          "🔴 [BITLABS SURVEYS] ❌ Request Params:",
           JSON.stringify(normalizedParams, null, 2)
         );
         console.error(
-          "🔴 [BITLABS API SERVICE] ==================================================\n"
+          "🔴 [BITLABS SURVEYS] ❌ Environment:",
+          process.env.NODE_ENV || "unknown"
         );
-        throw error; // Re-throw to be handled by outer catch
+        console.error(
+          "🔴 [BITLABS SURVEYS] ❌ Base URL:",
+          this.baseURL
+        );
+        console.error(
+          "🔴 [BITLABS SURVEYS] ❌ API Token Configured:",
+          !!this.apiToken
+        );
+        console.error(
+          "🔴 [BITLABS SURVEYS] ==================================================\n"
+        );
+        
+        // For 403 errors, return empty result instead of throwing
+        // This allows the endpoint to return success with empty data
+        if (errorStatus === 403) {
+          console.warn(
+            "⚠️ [BITLABS SURVEYS] 403 Forbidden - Returning empty surveys. This might be due to:"
+          );
+          console.warn(
+            "   1. IP blocking by Bitlabs"
+          );
+          console.warn(
+            "   2. Missing API token permissions"
+          );
+          console.warn(
+            "   3. Account restrictions"
+          );
+          return {
+            success: true,
+            data: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+            error: errorData?.error?.details?.msg || "403 Forbidden",
+          };
+        }
+        
+        throw error; // Re-throw other errors to be handled by outer catch
       }
 
       // Normalize response - Bitlabs surveys API structure
@@ -930,13 +1161,36 @@ class BitlabsService {
         `${this.baseURL}/v2/client/surveys`
       );
       console.error(
-        "🔴 [BITLABS API SERVICE] ❌ User ID Used:",
+        "🔴 [BITLABS SURVEYS] ❌ User ID Used:",
         userId || queryParams.userId || "static-inventory"
       );
       console.error(
-        "🔴 [BITLABS API SERVICE] ==================================================\n"
+        "🔴 [BITLABS SURVEYS] ❌ Environment:",
+        process.env.NODE_ENV || "unknown"
       );
-      throw error;
+      console.error(
+        "🔴 [BITLABS SURVEYS] ❌ API Token Configured:",
+        !!this.apiToken
+      );
+      console.error(
+        "🔴 [BITLABS SURVEYS] ❌ Base URL:",
+        this.baseURL
+      );
+      console.error(
+        "🔴 [BITLABS SURVEYS] ==================================================\n"
+      );
+      
+      // Return empty result instead of throwing error
+      // This allows the endpoint to return success with empty data
+      // This is critical for live server - don't crash the API
+      const errorData = error.response?.data || error.data;
+      return {
+        success: true,
+        data: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+        error: errorData?.error?.details?.msg || error.message || "Unknown error",
+      };
     }
   }
 
@@ -1642,6 +1896,198 @@ class BitlabsService {
         configured: true,
         error: error.message || "Health probe failed",
       };
+    }
+  }
+
+  /**
+   * Get offers from Publisher Offers API (for admin/preview purposes)
+   * This endpoint is recommended by Bitlabs for browsing/previewing full non-game offer inventory
+   * Documentation: https://developer.bitlabs.ai/reference/getpublisheroffersv2
+   * Endpoint: GET https://api.bitlabs.ai/v2/publishers/offers
+   * Note: Returns offers available for all users (not customized for any user)
+   * @param {Object} queryParams - Query parameters (country, devices, type, etc.)
+   * @returns {Promise<Object>} Publisher offers data
+   */
+  async getPublisherOffers(queryParams = {}) {
+    if (!this.isConfigured()) {
+      console.warn(
+        "Bitlabs API is not properly configured. Returning empty publisher offers."
+      );
+      return {
+        success: true,
+        data: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    try {
+      const endpoint = "/v2/publishers/offers";
+      const fullURL = `${this.baseURL}${endpoint}`;
+
+      // Normalize parameters
+      // Note: Publisher API may not support 'type' parameter - we'll filter after response
+      const { type, ...restParams } = queryParams;
+      const normalizedParams = { ...restParams };
+
+      // Add SDK parameter if not provided
+      if (!normalizedParams.sdk) {
+        normalizedParams.sdk = "CUSTOM";
+      }
+
+      // Ensure devices array is properly formatted
+      if (normalizedParams.devices && !Array.isArray(normalizedParams.devices)) {
+        normalizedParams.devices = [normalizedParams.devices];
+      }
+
+      // Default country if not provided
+      if (!normalizedParams.country) {
+        normalizedParams.country = "US";
+      }
+      
+      // Store type for filtering after response
+      const filterType = type;
+
+      // Publisher API requires X-S2S-Token header (Server-to-Server token)
+      // Documentation: https://developer.bitlabs.ai/reference/getpublisheroffersv2
+      const headers = {
+        "X-S2S-Token": this.serverToServerKey || this.apiToken,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+      
+      if (!this.serverToServerKey) {
+        console.warn("⚠️ [BITLABS PUBLISHER] BITLABS_SERVER_TO_SERVER_KEY not configured. Using API token as fallback.");
+      }
+
+      const paramsSerializer = {
+        indexes: null,
+      };
+
+      console.log("\n🔵 [BITLABS PUBLISHER] ========== GET PUBLISHER OFFERS REQUEST ==========");
+      console.log("🔵 [BITLABS PUBLISHER] Endpoint:", endpoint);
+      console.log("🔵 [BITLABS PUBLISHER] Full URL:", fullURL);
+      console.log("🔵 [BITLABS PUBLISHER] Query Params:", JSON.stringify(normalizedParams, null, 2));
+      console.log("🔵 [BITLABS PUBLISHER] Headers:", {
+        "X-S2S-Token": this.serverToServerKey ? "***SET***" : (this.apiToken ? "***FALLBACK***" : "MISSING"),
+      });
+      console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
+
+      const response = await this.client.get(endpoint, {
+        headers: headers,
+        params: normalizedParams,
+        paramsSerializer: paramsSerializer,
+      });
+
+      console.log("\n🔵 [BITLABS PUBLISHER] ========== RAW API RESPONSE ==========");
+      console.log("🔵 [BITLABS PUBLISHER] Response Status:", response.status);
+      console.log("🔵 [BITLABS PUBLISHER] Response Data Type:", typeof response.data);
+      console.log("🔵 [BITLABS PUBLISHER] Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
+      if (response.data) {
+        const responseStr = JSON.stringify(response.data, null, 2);
+        console.log("🔵 [BITLABS PUBLISHER] Response Structure (first 2000 chars):", responseStr.substring(0, 2000));
+      }
+      console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
+
+      // Parse response - Publisher API may have different structure
+      let offers = [];
+      if (Array.isArray(response.data)) {
+        offers = response.data;
+      } else if (response.data?.offers && Array.isArray(response.data.offers)) {
+        offers = response.data.offers;
+      } else if (response.data?.data?.offers && Array.isArray(response.data.data.offers)) {
+        offers = response.data.data.offers;
+      } else if (response.data?.data && Array.isArray(response.data.data)) {
+        offers = response.data.data;
+      }
+
+      console.log("🔵 [BITLABS PUBLISHER] Parsed offers count:", offers.length);
+
+      // Filter by type if specified (since Publisher API may not support type parameter)
+      let filteredOffers = offers;
+      if (filterType && filterType !== "all") {
+        filteredOffers = offers.filter((offer) => {
+          const offerType = (offer.type || "").toLowerCase();
+          const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
+          const description = (offer.description || "").toLowerCase();
+          const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
+          const categoryStr = typeof category === "object" 
+            ? (category.name || category.name_internal || "").toLowerCase()
+            : (category || "").toLowerCase();
+          
+          // Check if offer has cashback field (indicates it's a cashback offer)
+          const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
+          
+          if (filterType === "survey" || filterType === "surveys") {
+            return offerType === "survey" || 
+                   anchor.includes("survey") || 
+                   description.includes("survey") ||
+                   categoryStr.includes("survey");
+          } else if (filterType === "cashback") {
+            return offerType === "cashback" || 
+                   anchor.includes("cashback") || 
+                   anchor.includes("cash back") ||
+                   description.includes("cashback") ||
+                   description.includes("cash back") ||
+                   categoryStr.includes("cashback") ||
+                   hasCashbackField ||
+                   offer.merchant_name; // Cashback offers usually have merchant_name
+          } else if (filterType === "shopping") {
+            return offerType === "shopping" || 
+                   anchor.includes("shop") || 
+                   anchor.includes("store") || 
+                   anchor.includes("retail") ||
+                   description.includes("shopping") ||
+                   description.includes("purchase") ||
+                   categoryStr.includes("shopping") ||
+                   categoryStr.includes("retail");
+          } else if (filterType === "magic_receipt" || filterType === "magic-receipts" || filterType === "magicReceipts") {
+            return offerType === "magic_receipt" || 
+                   anchor.includes("receipt") || 
+                   anchor.includes("magic receipt") ||
+                   description.includes("receipt") ||
+                   description.includes("upload receipt") ||
+                   categoryStr.includes("receipt") ||
+                   categoryStr.includes("magic receipt");
+          }
+          return true;
+        });
+        console.log("🔵 [BITLABS PUBLISHER] Filtered offers by type '" + filterType + "':", filteredOffers.length);
+        if (filteredOffers.length === 0 && offers.length > 0) {
+          console.warn("⚠️ [BITLABS PUBLISHER] No offers matched filter type. Sample offer structure:", JSON.stringify(offers[0], null, 2).substring(0, 500));
+        }
+      }
+
+      return {
+        success: true,
+        data: filteredOffers,
+        total: filteredOffers.length,
+        timestamp: new Date().toISOString(),
+        rawResponse: response.data, // Include raw response for debugging
+      };
+    } catch (error) {
+      const errorStatus = error.response?.status || error.status;
+      const errorData = error.response?.data || error.data;
+
+      console.error("\n🔴 [BITLABS PUBLISHER] ========== PUBLISHER API ERROR ==========");
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Status:", errorStatus);
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Message:", error.message);
+      console.error("🔴 [BITLABS PUBLISHER] ❌ Error Response Data:", JSON.stringify(errorData, null, 2));
+      console.error("🔴 [BITLABS PUBLISHER] ==================================================\n");
+
+      // For 403/401 errors, return empty result instead of throwing
+      if (errorStatus === 403 || errorStatus === 401) {
+        console.warn("⚠️ [BITLABS PUBLISHER] 403/401 Forbidden - Returning empty offers.");
+        return {
+          success: true,
+          data: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+          error: errorData?.error?.details?.msg || "403/401 Forbidden",
+        };
+      }
+
+      throw error;
     }
   }
 }

@@ -4100,6 +4100,19 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
           req.query.devices = ["android"];
         }
       }
+      // CRITICAL: Add country parameter if not provided (defaults to US for testing)
+      // Bitlabs offers are often country-specific, so empty results may occur without country
+      if (!req.query.country) {
+        // Default to US for admin/testing to get more games
+        req.query.country = "US";
+        console.log("ℹ️ No country parameter provided. Defaulting to 'US' for Bitlabs games. Add ?country=IN for India-targeted games.");
+      }
+      
+      // Also ensure devices are set if not provided (default to both Android and iOS)
+      if (!req.query.devices && !req.query.device_platform) {
+        req.query.devices = ["android", "iphone"];
+        console.log("ℹ️ No device filter provided. Defaulting to both Android and iOS.");
+      }
       await bitlabsController.getOffers(req, res);
     } else {
       res.status(404).json({
@@ -4113,6 +4126,86 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
       success: false,
       message: "An error occurred while fetching the game list.",
       error: error.message,
+    });
+  }
+});
+
+// Debug endpoint to test Bitlabs API directly
+router.get("/games/by-sdk/bitlabs/debug", adminAuth, async (req, res) => {
+  try {
+    const bitlabsService = require("../services/bitlabs.service");
+    
+    // Check configuration
+    const isConfigured = bitlabsService.isConfigured();
+    
+    // Build query params
+    const queryParams = {
+      is_game: true,
+      sdk: "CUSTOM",
+    };
+    
+    if (req.query.country) {
+      queryParams.country = req.query.country;
+    } else {
+      queryParams.country = "US"; // Default to US
+    }
+    
+    if (req.query.device_platform) {
+      const platform = req.query.device_platform.toLowerCase();
+      if (platform === "ios" || platform === "iphone") {
+        queryParams.devices = ["iphone"];
+      } else if (platform === "android") {
+        queryParams.devices = ["android"];
+      }
+    } else {
+      queryParams.devices = ["android", "iphone"]; // Default to both
+    }
+    
+    // Try multiple countries if requested
+    const tryMultipleCountries = req.query.try_multiple === "true";
+    const countriesToTry = ["US", "IN", "GB", "CA", "AU"];
+    
+    if (tryMultipleCountries) {
+      const results = {};
+      for (const country of countriesToTry) {
+        const testParams = { ...queryParams, country };
+        const result = await bitlabsService.getGameOffers(testParams);
+        results[country] = {
+          total: result?.total || 0,
+          offersCount: result?.data?.length || 0,
+          startedOffersCount: result?.data?.filter(o => o.isStarted)?.length || 0,
+        };
+      }
+      
+      return res.json({
+        success: true,
+        configured: isConfigured,
+        queryParams: queryParams,
+        multiCountryResults: results,
+        recommendation: Object.keys(results).reduce((a, b) => 
+          results[a].total > results[b].total ? a : b
+        ),
+      });
+    }
+    
+    const result = await bitlabsService.getGameOffers(queryParams);
+    
+    res.json({
+      success: true,
+      configured: isConfigured,
+      queryParams: queryParams,
+      result: result,
+      rawData: result?.data || [],
+      total: result?.total || 0,
+      restrictionReason: result?.restrictionReason || null,
+      note: "Add ?try_multiple=true to test multiple countries",
+    });
+  } catch (error) {
+    console.error("Bitlabs debug error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
     });
   }
 });
@@ -4372,107 +4465,156 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
     // });
 
     if (sdk === "bitlabs") {
-      const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
-      const bitlabsNonGames = require("../utils/bitlabs-non-games");
+      // Use Publisher Offers API for admin non-game offers preview (as recommended by Bitlabs)
+      const bitlabsService = require("../services/bitlabs.service");
 
-      // Build query parameters
-      const queryParams = {
-        is_game: false, // Only non-game offers
-      };
+      // Build query parameters for Publisher API
+      const queryParams = {};
 
       // Add device filter if provided
       if (devices) {
         queryParams.devices = Array.isArray(devices) ? devices : [devices];
-      }
-
-      // Build userProfile with country and device support
-      // CRITICAL: Offers are often country-specific!
-      // If testing from India but offers target US, specify country=US
-      const userProfile = {};
-      if (country) {
-        userProfile.country = country;
-        // console.log(
-        //   `🌍 Admin request: Using country "${country}" for non-game offers`
-        // );
       } else {
-        // console.log(
-        //   `⚠️ Admin request: No country specified. Will default to "US" in utility function.`
-        // );
-        // console.log(
-        //   `   To test with India-targeted offers, add ?country=IN to the request URL`
-        // );
+        // Default to both mobile platforms for admin preview
+        queryParams.devices = ["android", "iphone"];
       }
 
-      // Convert devices array to platform for userProfile
-      // This ensures surveys and cashback APIs get device filtering
-      if (devices) {
-        const devicesArray = Array.isArray(devices) ? devices : [devices];
-        if (
-          devicesArray.includes("android") &&
-          devicesArray.includes("iphone")
-        ) {
-          userProfile.platform = "mobile"; // Both platforms
-        } else if (devicesArray.includes("android")) {
-          userProfile.platform = "android";
-        } else if (devicesArray.includes("iphone")) {
-          userProfile.platform = "ios"; // or "iphone"
-        } else if (devicesArray.includes("ipad")) {
-          userProfile.platform = "ipad";
-        } else {
-          userProfile.platform = "mobile"; // Default to mobile
-        }
-        // console.log(
-        //   `📱 Admin request: Using platform "${
-        //     userProfile.platform
-        //   }" for devices: ${devicesArray.join(", ")}`
-        // );
+      // Add country filter
+      if (country) {
+        queryParams.country = country;
+      } else {
+        // Default to US for admin preview
+        queryParams.country = "US";
       }
 
-      // Get offers - also pass devices directly for general offers API
-      const utilityParams = {
-        userId: "admin-preview",
-        userProfile: userProfile,
-        type: type || "all",
-        category: "all",
-        devices: queryParams.devices, // Pass devices for shopping/magic receipts
-      };
-      // console.log(
-      //   "🟡 [ADMIN BACKEND ROUTE] Calling bitlabsNonGames.getNonGameOffers with:",
-      //   utilityParams
-      // );
+      // Add type filter if specified (survey, cashback, shopping, magic_receipt)
+      if (type && type !== "all") {
+        queryParams.type = type;
+      }
 
-      const result = await bitlabsNonGames.getNonGameOffers(utilityParams);
+      console.log("🟡 [ADMIN BACKEND ROUTE] Using Publisher Offers API for non-game offers preview");
+      console.log("🟡 [ADMIN BACKEND ROUTE] Query params:", queryParams);
 
-      // console.log("🟡 [ADMIN BACKEND ROUTE] Received result from utility:", {
-      //   success: result.success,
-      //   totalOffers: result.totalOffers || 0,
-      //   surveysCount: result.categorized?.surveys?.length || 0,
-      //   cashbackCount: result.categorized?.cashback?.length || 0,
-      //   shoppingCount: result.categorized?.shopping?.length || 0,
-      //   magicReceiptsCount: result.categorized?.magicReceipts?.length || 0,
-      //   error: result.error,
-      // });
+      // Call Publisher Offers API
+      const result = await bitlabsService.getPublisherOffers(queryParams);
+
+      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from Publisher API:", {
+        success: result.success,
+        total: result.total || 0,
+        dataCount: result.data?.length || 0,
+        error: result.error,
+      });
 
       if (!result.success) {
         console.error(
-          "🟡 [ADMIN BACKEND ROUTE] Error from utility:",
+          "🟡 [ADMIN BACKEND ROUTE] Error from Publisher API:",
           result.error
         );
         return res.status(500).json({
           success: false,
-          message: result.error || "Failed to fetch non-game offers",
+          message: result.error || "Failed to fetch non-game offers from Publisher API",
           data: [],
+          error: result.error,
         });
+      }
+
+      // Publisher API returns offers directly in result.data
+      const offers = result.data || [];
+      
+      // Categorize offers by type (survey, cashback, shopping, magic_receipt)
+      const categorized = {
+        surveys: [],
+        cashback: [],
+        shopping: [],
+        magicReceipts: [],
+        other: [],
+      };
+
+      offers.forEach((offer) => {
+        // Determine offer type based on offer properties
+        const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
+        const description = (offer.description || "").toLowerCase();
+        const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
+        const categoryStr = typeof category === "object" 
+          ? (category.name || category.name_internal || "").toLowerCase()
+          : (category || "").toLowerCase();
+        
+        // Check if offer has cashback field (indicates it's a cashback offer)
+        const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
+
+        if (
+          anchor.includes("survey") ||
+          description.includes("survey") ||
+          categoryStr.includes("survey") ||
+          offer.type === "survey"
+        ) {
+          categorized.surveys.push(offer);
+        } else if (
+          offer.type === "cashback" ||
+          anchor.includes("cashback") ||
+          anchor.includes("cash back") ||
+          description.includes("cashback") ||
+          description.includes("cash back") ||
+          categoryStr.includes("cashback") ||
+          hasCashbackField ||
+          offer.merchant_name // Cashback offers usually have merchant_name
+        ) {
+          categorized.cashback.push(offer);
+        } else if (
+          anchor.includes("shop") ||
+          anchor.includes("store") ||
+          anchor.includes("retail") ||
+          description.includes("shopping") ||
+          description.includes("purchase") ||
+          categoryStr.includes("shopping") ||
+          categoryStr.includes("retail") ||
+          offer.type === "shopping"
+        ) {
+          categorized.shopping.push(offer);
+        } else if (
+          anchor.includes("magic receipt") ||
+          anchor.includes("receipt") ||
+          description.includes("receipt") ||
+          description.includes("upload receipt") ||
+          categoryStr.includes("receipt") ||
+          categoryStr.includes("magic receipt") ||
+          offer.type === "magic_receipt"
+        ) {
+          categorized.magicReceipts.push(offer);
+        } else {
+          categorized.other.push(offer);
+        }
+      });
+
+      // Filter by type if specified
+      let filteredOffers = offers;
+      if (type && type !== "all") {
+        if (type === "survey" || type === "surveys") {
+          filteredOffers = categorized.surveys;
+        } else if (type === "cashback") {
+          filteredOffers = categorized.cashback;
+        } else if (type === "shopping") {
+          filteredOffers = categorized.shopping;
+        } else if (type === "magic_receipt" || type === "magic-receipts" || type === "magicReceipts") {
+          filteredOffers = categorized.magicReceipts;
+        }
       }
 
       const responseData = {
         success: true,
-        data: result.offers,
-        categorized: result.categorized,
-        breakdown: result.breakdown,
-        total: result.totalOffers,
-        estimatedEarnings: result.estimatedEarnings,
+        data: filteredOffers,
+        categorized: categorized,
+        breakdown: {
+          surveys: categorized.surveys.length,
+          cashback: categorized.cashback.length,
+          shopping: categorized.shopping.length,
+          magicReceipts: categorized.magicReceipts.length,
+          other: categorized.other.length,
+        },
+        total: filteredOffers.length,
+        timestamp: result.timestamp || new Date().toISOString(),
       };
+      
       res.json(responseData);
     } else if (sdk === "besitos") {
       // Handle Besitos surveys

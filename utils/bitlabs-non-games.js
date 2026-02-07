@@ -165,6 +165,17 @@ async function getNonGameOffers(params = {}) {
               "🟠 [BITLABS UTILITY] Error fetching surveys:",
               err.message
             );
+            console.error(
+              "🟠 [BITLABS UTILITY] Error details:",
+              {
+                status: err.status || err.response?.status,
+                message: err.message,
+                error: err.error || err.response?.data,
+                traceId: err.response?.data?.trace_id,
+              }
+            );
+            // Return empty surveys array instead of failing completely
+            categorizedOffers.surveys = [];
           })
       );
     }

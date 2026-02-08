@@ -316,15 +316,15 @@ surveyOfferSchema.methods.isEligibleForUser = function (userProfile) {
     }
   }
 
-  // Check country targeting
-  if (
-    this.targetAudience.countries &&
-    this.targetAudience.countries.length > 0
-  ) {
-    if (!this.targetAudience.countries.includes(userProfile.country)) {
-      return false;
-    }
-  }
+  // Check country targeting (commented out for now - show surveys regardless of user country)
+  // if (
+  //   this.targetAudience.countries &&
+  //   this.targetAudience.countries.length > 0
+  // ) {
+  //   if (!this.targetAudience.countries.includes(userProfile.country)) {
+  //     return false;
+  //   }
+  // }
 
   // Check device type
   if (this.requirements.deviceType && this.requirements.deviceType.length > 0) {

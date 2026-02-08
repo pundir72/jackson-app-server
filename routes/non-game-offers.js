@@ -1972,13 +1972,15 @@ router.get("/surveys", protect, async (req, res) => {
                     }
                   );
 
-                  const extId = String(offer.externalId);
+                  const extId = String(offer.externalId).trim();
                   const matchingSurvey = publisherSurveys.find(
-                    (s) =>
-                      String(s.id) === extId ||
-                      String(s.surveyId) === extId ||
-                      String(s.offerId) === extId ||
-                      String(s.product_id) === extId
+                    (s) => {
+                      const sid = s.id != null ? String(s.id).trim() : "";
+                      const sSurveyId = s.surveyId != null ? String(s.surveyId).trim() : "";
+                      const sOfferId = s.offerId != null ? String(s.offerId).trim() : "";
+                      const sProductId = s.product_id != null ? String(s.product_id).trim() : "";
+                      return sid === extId || sSurveyId === extId || sOfferId === extId || sProductId === extId;
+                    }
                   );
 
                   console.log(
@@ -1997,7 +1999,11 @@ router.get("/surveys", protect, async (req, res) => {
 
                   const freshClickUrl = matchingSurvey?.click_url || matchingSurvey?.clickUrl || null;
                   const fallbackUrl = offer.metadata?.externalUrl || offer.metadata?.surveyUrl || null;
-                  const clickUrl = freshClickUrl || fallbackUrl;
+                  const rawClickUrl = freshClickUrl || fallbackUrl;
+                  // Add user ID to click URL for tracking (s1 param so Bitlabs callbacks attribute to user)
+                  const clickUrl = rawClickUrl
+                    ? injectUserIdIntoClickUrl(rawClickUrl, user._id.toString())
+                    : null;
                   const iconFromBitlabs = matchingSurvey?.creatives?.icon || matchingSurvey?.icon;
 
                   return {
@@ -2068,47 +2074,40 @@ router.get("/surveys", protect, async (req, res) => {
                   `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys (VPN restriction active)`
                 );
               } else {
-                // Normal behavior: Only return surveys that have fresh click URLs
-              const availableSurveys = surveysWithFreshUrls.filter(
-                (s) => s.clickUrl !== null
-              );
-
-              console.log(
-                `\n✅ [USER BACKEND] ========== FINAL AVAILABLE SURVEYS ==========`
-              );
-              console.log(
-                `✅ [USER BACKEND] Total available surveys (with click URLs): ${availableSurveys.length}`
-              );
-              console.log(
-                `✅ [USER BACKEND] Filtered out (no click URL): ${
-                  surveysWithFreshUrls.length - availableSurveys.length
-                }`
-              );
-              availableSurveys.forEach((survey, index) => {
-                console.log(
-                  `✅ [USER BACKEND] Available Survey ${index + 1}:`,
-                  {
-                    id: survey.id,
-                    title: survey.title,
-                    clickUrl: survey.clickUrl ? "✅" : "❌",
-                  }
+                // When useAdminConfig=true: return ALL admin-configured eligible surveys so they always display.
+                // Surveys with a click URL are available; others show as unavailable (e.g. geo or not in Publisher response).
+                const availableSurveys = surveysWithFreshUrls.filter(
+                  (s) => s.clickUrl !== null
                 );
-              });
-              console.log(
-                `✅ [USER BACKEND] ===========================================\n`
-              );
+                const unavailableCount = surveysWithFreshUrls.length - availableSurveys.length;
 
-              if (availableSurveys.length > 0) {
-                surveys = availableSurveys;
+                console.log(
+                  `\n✅ [USER BACKEND] ========== FINAL ADMIN-CONFIGURED SURVEYS ==========`
+                );
+                console.log(
+                  `✅ [USER BACKEND] Total admin-configured surveys: ${surveysWithFreshUrls.length} (available with click URL: ${availableSurveys.length}, unavailable: ${unavailableCount})`
+                );
+                surveysWithFreshUrls.forEach((survey, index) => {
+                  console.log(
+                    `✅ [USER BACKEND] Survey ${index + 1}:`,
+                    {
+                      id: survey.id,
+                      title: survey.title,
+                      clickUrl: survey.clickUrl ? "✅" : "❌",
+                      isAvailable: survey.isAvailable,
+                    }
+                  );
+                });
+                console.log(
+                  `✅ [USER BACKEND] ===========================================\n`
+                );
+
+                // Always return all admin-configured surveys (available and unavailable) so they display in the app
+                surveys = surveysWithFreshUrls;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Returning ${availableSurveys.length} surveys for user ${user._id} (Publisher API, same as admin)`
+                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys for user ${user._id} (${availableSurveys.length} with click URL, ${unavailableCount} temporarily unavailable)`
                 );
-              } else {
-                console.log(
-                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none matched in Bitlabs Publisher response for user ${user._id}`
-                );
-                }
               }
             } catch (bitlabsError) {
               // 🔴 ENHANCED ERROR LOGGING: Log full error details
@@ -2381,9 +2380,9 @@ router.get("/surveys", protect, async (req, res) => {
       }
     }
 
-    // Step 2: Always fetch Bitlabs surveys directly from API
-    // This ensures Bitlabs surveys are included along with admin-configured surveys
-    // This allows users to see both admin-configured surveys AND direct Bitlabs surveys
+    // Step 2: Fetch Bitlabs surveys directly from API only when useAdminConfig is NOT true
+    // When useAdminConfig=true: only return admin-configured offers (matched with Bitlabs for availability) - do not add non-configured Bitlabs surveys
+    if (useAdminConfig !== "true") {
     try {
         // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
         // Bitlabs will detect the production server's IP as VPN and return empty results
@@ -2558,8 +2557,11 @@ router.get("/surveys", protect, async (req, res) => {
         bitlabsDirectError.message
       );
     }
+    }
 
-    // Step 3: Always fetch Besitos surveys directly from API
+    // Step 3: Fetch Besitos surveys directly from API only when useAdminConfig is NOT true
+    // When useAdminConfig=true: only return admin-configured offers - do not add non-configured Besitos surveys
+    if (useAdminConfig !== "true") {
     // This ensures both Bitlabs AND Besitos surveys are included
     // Users will see surveys from both providers
     try {
@@ -2712,6 +2714,7 @@ router.get("/surveys", protect, async (req, res) => {
         "🔴 [USER BACKEND] Besitos fallback error:",
         besitosFallbackError.message
       );
+    }
     }
 
     // Paginate results

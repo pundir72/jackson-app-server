@@ -4089,6 +4089,8 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
     if (sdk === "besitos") {
       await besitosController.getOffers(req, res);
     } else if (sdk === "bitlabs") {
+      // Use Publisher API for full catalog (avoids "static-inventory" returning user started offers only)
+      req.query.usePublisherCatalog = "true";
       // Add is_game parameter to query for BitLabs game offers
       req.query.is_game = "true";
       // Add device platform if provided
@@ -4227,46 +4229,37 @@ router.get(
       const SurveyOffer = require("../models/SurveyOffer");
       const NonGameOffer = require("../models/NonGameOffer");
 
-      const { offerType = "all", status = "all" } = req.query;
+      const { offerType = "all", status = "all", sdk: sdkFilter } = req.query;
+      const sdkParam = typeof sdkFilter === "string" ? sdkFilter.trim().toLowerCase() : "";
 
-      // console.log("🔵 [ADMIN BACKEND] Get configured offers request:", {
-      //   offerType,
-      //   status,
-      //   query: req.query,
-      // });
+      // Resolve which SDK(s) to query: bitlabs, besitos, or both
+      const bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
+      const besitosSDK = await SurveySDK.findOne({ name: { $regex: /besitos/i } });
 
-      // Find BitLab SDK
-      const bitlabSDK = await SurveySDK.findOne({
-        name: { $regex: /bitlab/i },
-      });
+      let sdkIds = [];
+      if (sdkParam === "besitos") {
+        if (besitosSDK) sdkIds = [besitosSDK._id];
+      } else if (sdkParam === "bitlabs" || !sdkParam) {
+        if (bitlabSDK) sdkIds = [bitlabSDK._id];
+      } else if (sdkParam === "all") {
+        if (bitlabSDK) sdkIds.push(bitlabSDK._id);
+        if (besitosSDK) sdkIds.push(besitosSDK._id);
+      }
 
-      if (!bitlabSDK) {
-        // console.log("⚠️ [ADMIN BACKEND] BitLab SDK not found");
+      if (sdkIds.length === 0) {
         return res.json({
           success: true,
           data: {
             configuredOffers: [],
-            breakdown: {
-              surveys: 0,
-              cashback: 0,
-              shopping: 0,
-              magicReceipts: 0,
-              other: 0,
-            },
+            breakdown: { surveys: 0, cashback: 0, shopping: 0, magicReceipts: 0, other: 0 },
             total: 0,
           },
         });
       }
 
-      // console.log("✅ [ADMIN BACKEND] BitLab SDK found:", {
-      //   id: bitlabSDK._id,
-      //   name: bitlabSDK.name,
-      // });
-
-      // Build base query
-      const baseQuery = {
-        sdkId: bitlabSDK._id,
-      };
+      const baseQuery = sdkIds.length === 1
+        ? { sdkId: sdkIds[0] }
+        : { sdkId: { $in: sdkIds } };
 
       if (status !== "all") {
         baseQuery.status = status;
@@ -4967,10 +4960,21 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     const NonGameOffer = require("../models/NonGameOffer");
     const bitlabsNonGames = require("../utils/bitlabs-non-games");
 
-    // Get or create BitLab SDK
+    const {
+      offerIds,
+      offerType = "all",
+      autoActivate = true,
+      devices,
+      country,
+      targetAudience,
+      sdk: sdkProvider = "bitlabs", // "bitlabs" | "besitos" - same route for both survey configs
+    } = req.body;
+
+    const useBesitos = String(sdkProvider).toLowerCase() === "besitos";
+
+    // Get or create BitLab SDK (used for bitlabs path)
     let bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
     if (!bitlabSDK) {
-      // Create BitLab SDK if doesn't exist
       bitlabSDK = new SurveySDK({
         name: "bitlabs",
         displayName: "BitLab",
@@ -4982,14 +4986,33 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       await bitlabSDK.save();
     }
 
-    const {
-      offerIds,
-      offerType = "all",
-      autoActivate = true,
-      devices,
-      country, // Add country support for syncing
-      targetAudience, // Array of { offerId, targetAudience: { age: [], gender: [] } }
-    } = req.body;
+    // Get or create Besitos SDK (used when sdk=besitos)
+    let besitosSDK = null;
+    if (useBesitos) {
+      const config = require("../config/config");
+      const besitosApiKey = config.BESITOS_API_TOKEN || process.env.BESITOS_API_TOKEN || "";
+      besitosSDK = await SurveySDK.findOne({ name: { $regex: /besitos/i } });
+      if (!besitosSDK) {
+        if (!besitosApiKey || !besitosApiKey.trim()) {
+          return res.status(500).json({
+            success: false,
+            message: "Besitos API is not configured. Set BESITOS_API_TOKEN in environment.",
+            error: "BESITOS_NOT_CONFIGURED",
+          });
+        }
+        besitosSDK = new SurveySDK({
+          name: "besitos",
+          displayName: "Besitos",
+          apiKey: besitosApiKey.trim(),
+          baseUrl: config.BESITOS_BASE_URL || process.env.BESITOS_BASE_URL || "https://api.besitos.ai",
+          isActive: true,
+          createdBy: req.user.userId,
+        });
+        await besitosSDK.save();
+      }
+    }
+
+    const currentSDK = useBesitos ? besitosSDK : bitlabSDK;
 
     // Build userProfile with country and device support
     // CRITICAL: Offers are often country-specific!
@@ -5027,11 +5050,233 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       // );
     }
 
-    // Use appropriate API based on offer type
-    // For surveys: Use Survey API (user-based, requires client_xx params)
-    // For non-surveys (cashback, shopping, magic_receipt): Use Publisher API
-    const bitlabsService = require("../services/bitlabs.service");
-    
+    let result;
+
+    if (useBesitos) {
+      // Besitos: use same source as admin GET non-game-offers/by-sdk/besitos (survey list)
+      const besitosService = require("../services/besitos.service");
+      if (!besitosService.isConfigured()) {
+        return res.status(500).json({
+          success: false,
+          message: "Besitos API is not properly configured",
+          error: "BESITOS_NOT_CONFIGURED",
+        });
+      }
+      const surveysParams = {};
+      if (country) surveysParams.country = country;
+      // Besitos API requires "device": "mobile" | "tablet" | "desktop" – always set it
+      if (devices && devices.length > 0) {
+        const devicesArray = Array.isArray(devices) ? devices : [devices];
+        if (devicesArray.includes("ipad")) {
+          surveysParams.device = "tablet";
+        } else if (devicesArray.includes("android") || devicesArray.includes("iphone") || devicesArray.includes("ios")) {
+          surveysParams.device = "mobile";
+        } else {
+          surveysParams.device = "mobile";
+        }
+      } else {
+        surveysParams.device = "mobile"; // Default: both Android and iOS
+      }
+      surveysParams.user_ip = "127.0.0.1";
+      let besitosResponse;
+      try {
+        besitosResponse = await besitosService.getSurveys(surveysParams, "admin-preview");
+      } catch (err) {
+        console.error("Besitos getSurveys error:", err.message);
+        return res.status(500).json({
+          success: false,
+          message: err.message || "Failed to fetch Besitos surveys",
+          error: err.message,
+        });
+      }
+      const besitosSurveys = Array.isArray(besitosResponse) ? besitosResponse : besitosResponse?.data || [];
+      const normalizedBesitos = besitosSurveys.map((survey) => {
+        const estimatedTime = survey.length ? Math.round(survey.length) : 0;
+        const userRewardCoins = survey.amount ? Math.round(survey.amount * 0.8 * 50) : 0;
+        const userRewardXP = Math.round(userRewardCoins * 0.5);
+        return {
+          id: survey.id?.toString() ?? "",
+          surveyId: survey.id?.toString() ?? "",
+          offerId: survey.id?.toString() ?? "",
+          title: survey.name || `Survey ${survey.id}` || "Untitled Survey",
+          description: survey.description || `Complete this survey to earn $${survey.amount || 0}`,
+          icon: survey.icon || "",
+          banner: survey.banner || "",
+          clickUrl: survey.url || "",
+          surveyUrl: survey.url || "",
+          url: survey.url || "",
+          click_url: survey.url || "",
+          value: survey.amount ? parseFloat(survey.amount) : 0,
+          cpi: survey.cpi ? parseFloat(survey.cpi) : 0,
+          userRewardCoins,
+          userRewardXP,
+          reward: { coins: userRewardCoins, xp: userRewardXP, currency: "points" },
+          estimatedTime,
+          duration: estimatedTime,
+          loi: estimatedTime,
+          category: "other",
+          countries: country ? [country] : [],
+          country: country || "",
+          offerType: "survey",
+          provider: "besitos",
+        };
+      });
+      result = {
+        success: true,
+        categorized: {
+          surveys: normalizedBesitos,
+          cashback: [],
+          shopping: [],
+          magicReceipts: [],
+          other: [],
+        },
+      };
+    } else {
+      // Bitlabs: use Publisher API (same as admin listing)
+      const bitlabsService = require("../services/bitlabs.service");
+      const publisherQuery = {
+        country: country || userProfile.country || "US",
+        devices: devices && devices.length > 0 ? devices : ["android", "iphone"],
+        is_game: false,
+      };
+      if (offerType && offerType !== "all") {
+        publisherQuery.type = offerType;
+      }
+      const publisherResult = await bitlabsService.getPublisherOffers(publisherQuery);
+    if (publisherResult.success && Array.isArray(publisherResult.data) && publisherResult.data.length > 0) {
+      // Categorize Publisher API offers (same logic as GET non-game-offers/by-sdk/bitlabs)
+      const categorized = {
+        surveys: [],
+        cashback: [],
+        shopping: [],
+        magicReceipts: [],
+        other: [],
+      };
+      publisherResult.data.forEach((offer) => {
+        const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
+        const description = (offer.description || "").toLowerCase();
+        const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
+        const categoryStr = typeof category === "object"
+          ? (category.name || category.name_internal || "").toLowerCase()
+          : (category || "").toLowerCase();
+        const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
+
+        if (
+          anchor.includes("survey") ||
+          description.includes("survey") ||
+          categoryStr.includes("survey") ||
+          offer.type === "survey"
+        ) {
+          categorized.surveys.push(offer);
+        } else if (
+          offer.type === "cashback" ||
+          anchor.includes("cashback") ||
+          anchor.includes("cash back") ||
+          description.includes("cashback") ||
+          description.includes("cash back") ||
+          categoryStr.includes("cashback") ||
+          hasCashbackField ||
+          offer.merchant_name
+        ) {
+          categorized.cashback.push(offer);
+        } else if (
+          anchor.includes("shop") ||
+          anchor.includes("store") ||
+          anchor.includes("retail") ||
+          description.includes("shopping") ||
+          description.includes("purchase") ||
+          categoryStr.includes("shopping") ||
+          categoryStr.includes("retail") ||
+          offer.type === "shopping"
+        ) {
+          categorized.shopping.push(offer);
+        } else if (
+          anchor.includes("magic receipt") ||
+          anchor.includes("receipt") ||
+          description.includes("receipt") ||
+          description.includes("upload receipt") ||
+          categoryStr.includes("receipt") ||
+          categoryStr.includes("magic receipt") ||
+          offer.type === "magic_receipt"
+        ) {
+          categorized.magicReceipts.push(offer);
+        } else {
+          categorized.other.push(offer);
+        }
+      });
+
+      // Normalize Publisher survey format to shape sync loop expects (id, value, userRewardCoins, title, clickUrl, etc.)
+      const normalizePublisherSurvey = (o) => {
+        const payout = o.events?.[0];
+        const valueNum = payout ? parseFloat(payout.payout) : parseFloat(o.total_points) || 0;
+        const userRewardCoins = Math.round(valueNum * 0.2);
+        const userRewardXP = Math.round(userRewardCoins * 0.5);
+        const countries = (o.geo_targeting?.countries || []).map((c) => c.country_code || c).filter(Boolean);
+        const categoryVal = o.categories?.[0];
+        const categoryStrVal = typeof categoryVal === "object" ? (categoryVal?.name || categoryVal?.name_internal || "other") : (categoryVal || "other");
+        return {
+          ...o,
+          offerType: "survey",
+          id: o.id != null ? o.id : o.product_id,
+          surveyId: o.id,
+          offerId: o.id,
+          value: valueNum,
+          userRewardCoins,
+          userRewardXP,
+          reward: { coins: userRewardCoins, xp: userRewardXP, currency: "points" },
+          title: o.name || o.anchor || o.product_name || "Untitled",
+          name: o.name || o.anchor,
+          description: o.description || "",
+          icon: o.creatives?.icon || o.icon || "",
+          banner: o.creatives?.icon || o.icon || "",
+          clickUrl: o.click_url || "",
+          click_url: o.click_url || "",
+          surveyUrl: o.click_url || "",
+          url: o.click_url || "",
+          estimatedTime: o.session_hours ? Math.round(o.session_hours / 60) : 5,
+          duration: 5,
+          loi: 5,
+          cpi: payout ? parseFloat(payout.payout) : 0,
+          cr: 0,
+          country: countries[0] || "",
+          countries,
+          category: categoryStrVal,
+          pendingTime: o.pending_time || 0,
+          requirements: o.requirements || "",
+          thingsToKnow: o.things_to_know || [],
+        };
+      };
+
+      result = {
+        success: true,
+        categorized: {
+          surveys: categorized.surveys.map(normalizePublisherSurvey),
+          cashback: categorized.cashback.map((o) => ({ ...o, offerType: "cashback" })),
+          shopping: categorized.shopping.map((o) => ({ ...o, offerType: "shopping" })),
+          magicReceipts: categorized.magicReceipts.map((o) => ({ ...o, offerType: "magic_receipt" })),
+          other: categorized.other.map((o) => ({ ...o, offerType: "other" })),
+        },
+      };
+    } else {
+      // Fallback: Client API (getNonGameOffers) in case Publisher returns empty
+      result = await bitlabsNonGames.getNonGameOffers({
+        userId: "admin-preview",
+        userProfile: userProfile,
+        type: offerType,
+        category: "all",
+        devices: devices,
+      });
+    }
+    }
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || "Failed to fetch offers from BitLab",
+        error: result.error,
+      });
+    }
+
     const allOffers = [];
     const categorized = {
       surveys: [],
@@ -5041,136 +5286,9 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       other: [],
     };
 
-    // Fetch surveys using Survey API (if needed)
-    // Also try Publisher API as fallback since admin preview might use Publisher API IDs
-    if (offerType === "all" || offerType === "survey" || offerType === "surveys") {
-      let surveysFromSurveyAPI = [];
-      let surveysFromPublisherAPI = [];
-      
-      // Try Survey API first
-      try {
-        const surveyQueryParams = {
-          sdk: "CUSTOM",
-          country: country || "US",
-        };
-        
-        if (devices && devices.length > 0) {
-          surveyQueryParams.devices = Array.isArray(devices) ? devices : [devices];
-        } else {
-          surveyQueryParams.devices = ["android", "iphone"];
-        }
-        
-        // Add client_xx params for backend calls
-        surveyQueryParams.client_ip = "127.0.0.1";
-        surveyQueryParams.client_user_agent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
-        
-        console.log("🟡 [SYNC] Fetching surveys from Survey API");
-        console.log("🟡 [SYNC] Survey query params:", JSON.stringify(surveyQueryParams, null, 2));
-        const surveyResult = await bitlabsService.getSurveys(surveyQueryParams, "admin-sync");
-        
-        console.log("🟡 [SYNC] Survey API response:", {
-          success: surveyResult.success,
-          hasData: !!surveyResult.data,
-          dataType: Array.isArray(surveyResult.data) ? "array" : typeof surveyResult.data,
-          dataLength: Array.isArray(surveyResult.data) ? surveyResult.data.length : "N/A",
-          error: surveyResult.error,
-          restrictionReason: surveyResult.restrictionReason,
-        });
-        
-        if (surveyResult.success && surveyResult.data) {
-          surveysFromSurveyAPI = Array.isArray(surveyResult.data) ? surveyResult.data : [];
-          
-          // Log sample survey IDs for debugging
-          if (surveysFromSurveyAPI.length > 0) {
-            console.log("🟡 [SYNC] Sample survey IDs from Survey API (first 5):", surveysFromSurveyAPI.slice(0, 5).map(s => ({
-              id: s.id,
-              surveyId: s.surveyId,
-              offerId: s.offerId,
-              externalId: s.externalId,
-            })));
-          }
-          
-          console.log("🟡 [SYNC] Fetched", surveysFromSurveyAPI.length, "surveys from Survey API");
-        } else {
-          console.warn("🟡 [SYNC] Survey API returned no surveys:", {
-            error: surveyResult.error,
-            restrictionReason: surveyResult.restrictionReason,
-            message: "Will try Publisher API as fallback",
-          });
-        }
-      } catch (surveyError) {
-        console.error("🟡 [SYNC] Error fetching surveys from Survey API:", surveyError.message);
-      }
-      
-      // Try Publisher API as fallback (admin preview might use Publisher API which has numeric IDs)
-      try {
-        const publisherQueryParams = {};
-        
-        if (devices && devices.length > 0) {
-          publisherQueryParams.devices = Array.isArray(devices) ? devices : [devices];
-        } else {
-          publisherQueryParams.devices = ["android", "iphone"];
-        }
-        
-        if (country) {
-          publisherQueryParams.country = country;
-        } else {
-          publisherQueryParams.country = "US";
-        }
-        
-        console.log("🟡 [SYNC] Fetching surveys from Publisher API (fallback)");
-        const publisherResult = await bitlabsService.getPublisherOffers(publisherQueryParams);
-        
-        if (publisherResult.success && publisherResult.data) {
-          const rawOffers = Array.isArray(publisherResult.data) ? publisherResult.data : [];
-          
-          // Filter for surveys only
-          surveysFromPublisherAPI = rawOffers.filter((offer) => {
-            const anchor = (offer.anchor || offer.name || "").toLowerCase();
-            const description = (offer.description || "").toLowerCase();
-            const offerType = offer.type || "";
-            return (
-              offerType === "survey" ||
-              anchor.includes("survey") ||
-              description.includes("survey")
-            );
-          });
-          
-          if (surveysFromPublisherAPI.length > 0) {
-            console.log("🟡 [SYNC] Sample survey IDs from Publisher API (first 5):", surveysFromPublisherAPI.slice(0, 5).map(s => ({
-              id: s.id,
-              surveyId: s.surveyId,
-              offerId: s.offerId,
-            })));
-          }
-          
-          console.log("🟡 [SYNC] Fetched", surveysFromPublisherAPI.length, "surveys from Publisher API");
-        }
-      } catch (publisherError) {
-        console.error("🟡 [SYNC] Error fetching surveys from Publisher API:", publisherError.message);
-      }
-      
-      // Combine surveys from both APIs, deduplicate by ID
-      const allSurveysMap = new Map();
-      
-      // Add Survey API surveys (usually UUID format)
-      surveysFromSurveyAPI.forEach(s => {
-        const id = s.id || s.surveyId || s.offerId;
-        if (id) {
-          allSurveysMap.set(id.toString(), s);
-        }
-      });
-      
-      // Add Publisher API surveys (usually numeric IDs)
-      surveysFromPublisherAPI.forEach(s => {
-        const id = s.id || s.surveyId || s.offerId;
-        if (id) {
-          allSurveysMap.set(id.toString(), s);
-        }
-      });
-      
-      const allSurveys = Array.from(allSurveysMap.values());
-      categorized.surveys = allSurveys;
+    // Collect all offers by type
+    if (offerType === "all" || offerType === "survey") {
+      const surveys = result.categorized.surveys || [];
       allOffers.push(
         ...allSurveys.map((o) => ({
           ...o,
@@ -5449,7 +5567,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
         // Check if already exists
         const existing = await OfferModel.findOne({
-          sdkId: bitlabSDK._id,
+          sdkId: currentSDK._id,
           externalId: externalId,
         });
 
@@ -5695,18 +5813,31 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         // Store ALL normalized offer fields in the same format
         // For cashback: Preserve exact Bitlabs API structure in metadata
 
+        // SurveyOffer model expects category as object { name, name_internal, icon_name, icon_url }; NonGameOffer expects string enum
+        const categoryValue = isSurvey
+          ? {
+              name: categoryString.charAt(0).toUpperCase() + categoryString.slice(1).toLowerCase(),
+              name_internal: categoryString,
+              icon_name: "shapes",
+              icon_url: "",
+            }
+          : categoryString;
+
         const offerData = {
           sdkId: bitlabSDK._id,
           externalId: externalId,
           title: isCashback
-            ? normalizedOffer.merchant_name || "Untitled Cashback"
+            ? (normalizedOffer.merchant_name ||
+                normalizedOffer.name ||
+                normalizedOffer.anchor ||
+                "Untitled Cashback")
             : isMagicReceipt || isShopping
             ? normalizedOffer.anchor ||
               normalizedOffer.product_name ||
               (isMagicReceipt ? "Untitled Magic Receipt" : "Untitled Shopping")
             : normalizedOffer.title || normalizedOffer.name || "Untitled Offer",
           description: normalizedOffer.description || "",
-          category: categoryString, // Store as string (enum value) - MUST be one of: finance, shopping, entertainment, technology, health, travel, education, other
+          category: categoryValue,
           offerType: normalizedOffer.offerType || defaultOfferType,
           coinReward: coinReward, // User reward coins (20% of value)
           estimatedTime: isCashback
@@ -5778,7 +5909,10 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
             deepLink: normalizedOffer.deepLink || "",
             supportUrl: normalizedOffer.supportUrl || "",
             thumbnail: isCashback
-              ? normalizedOffer.images?.cardImage || ""
+              ? (normalizedOffer.creatives?.icon ||
+                  normalizedOffer.images?.cardImage ||
+                  normalizedOffer.icon ||
+                  "")
               : isMagicReceipt || isShopping
               ? normalizedOffer.creatives?.icon ||
                 normalizedOffer.icon_url ||
@@ -5810,12 +5944,17 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
                     cashback: normalizedOffer.cashback || "0",
                     click_url: normalizedOffer.click_url || "",
                     country_code: normalizedOffer.country_code || "",
+                    creatives: normalizedOffer.creatives || {},
                     currency: normalizedOffer.currency || "USD",
                     description: normalizedOffer.description || "",
                     flat_payout: normalizedOffer.flat_payout || false,
                     images: normalizedOffer.images || {},
                     merchant_id: normalizedOffer.merchant_id || 0,
-                    merchant_name: normalizedOffer.merchant_name || "",
+                    merchant_name:
+                      normalizedOffer.merchant_name ||
+                      normalizedOffer.name ||
+                      normalizedOffer.anchor ||
+                      "",
                     original_cashback: normalizedOffer.original_cashback || "0",
                     primary_category: normalizedOffer.primary_category || "",
                     rank: normalizedOffer.rank || 0,
@@ -5962,9 +6101,10 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     }
 
     // Update SDK analytics
-    bitlabSDK.analytics.totalOffers = syncedCount + updatedCount;
-    bitlabSDK.analytics.lastSyncAt = new Date();
-    await bitlabSDK.save();
+    currentSDK.analytics = currentSDK.analytics || {};
+    currentSDK.analytics.totalOffers = syncedCount + updatedCount;
+    currentSDK.analytics.lastSyncAt = new Date();
+    await currentSDK.save();
 
     // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
     //   syncedCount,

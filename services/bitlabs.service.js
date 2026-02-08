@@ -723,6 +723,54 @@ class BitlabsService {
   }
 
   /**
+   * Get a single offer by ID for deep-link resolution. Looks in both `offers` and `started_offers`
+   * from the Bitlabs API so we can resolve a link even when the user has 0 in "offers".
+   * @param {string} offerId - Bitlabs offer ID (e.g. "1672629")
+   * @param {string} userId - User ID for X-User-Id (use "static-inventory" for catalog)
+   * @param {Object} queryParams - Optional query params (country, devices, etc.)
+   * @returns {Promise<Object|null>} The offer object (with continue_url, click_url, etc.) or null
+   */
+  async getOfferByIdForDeepLink(offerId, userId, queryParams = {}) {
+    if (!this.isConfigured() || !offerId) return null;
+    const idStr = offerId.toString();
+    try {
+      const endpoint = "/v2/client/offers";
+      const params = {
+        sdk: "CUSTOM",
+        is_game: true,
+        country: queryParams.country || "US",
+        devices: queryParams.devices || ["android", "iphone"],
+        client_ip: config.BITLABS_WHITELISTED_IP || "127.0.0.1",
+        ...queryParams,
+      };
+      const headers = {
+        "X-Api-Token": this.apiToken,
+        "X-User-Id": userId,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+      const response = await this.client.get(endpoint, {
+        headers,
+        params,
+        paramsSerializer: { indexes: null },
+      });
+      const data = response.data?.data || response.data;
+      const offers = Array.isArray(data?.offers) ? data.offers : [];
+      const started = Array.isArray(data?.started_offers) ? data.started_offers : [];
+      const all = [...offers, ...started];
+      const offer = all.find(
+        (o) =>
+          (o.id && o.id.toString() === idStr) ||
+          (o.offerId && o.offerId.toString() === idStr)
+      );
+      return offer || null;
+    } catch (err) {
+      console.warn("Bitlabs getOfferByIdForDeepLink error:", err.message);
+      return null;
+    }
+  }
+
+  /**
    * Get non-game offers
    * @param {Object} queryParams - Query parameters
    * @param {string} userId - Optional user ID
@@ -1927,8 +1975,15 @@ class BitlabsService {
 
       // Normalize parameters
       // Note: Publisher API may not support 'type' parameter - we'll filter after response
-      const { type, ...restParams } = queryParams;
+      const { type, is_game, ...restParams } = queryParams;
       const normalizedParams = { ...restParams };
+
+      // Add is_game to request if Publisher API supports it (true = games only, false = non-games only)
+      if (is_game === true || is_game === "true") {
+        normalizedParams.is_game = true;
+      } else if (is_game === false || is_game === "false") {
+        normalizedParams.is_game = false;
+      }
 
       // Add SDK parameter if not provided
       if (!normalizedParams.sdk) {
@@ -1945,8 +2000,8 @@ class BitlabsService {
         normalizedParams.country = "US";
       }
       
-      // Store type for filtering after response
-      const filterType = type;
+      // Store type for filtering after response (game when is_game is set)
+      const filterType = type || (is_game === true || is_game === "true" ? "game" : undefined);
 
       // Publisher API requires X-S2S-Token header (Server-to-Server token)
       // Documentation: https://developer.bitlabs.ai/reference/getpublisheroffersv2
@@ -2049,6 +2104,14 @@ class BitlabsService {
                    description.includes("upload receipt") ||
                    categoryStr.includes("receipt") ||
                    categoryStr.includes("magic receipt");
+          } else if (filterType === "game" || filterType === "games") {
+            return offerType === "game" ||
+                   offer.is_game === true ||
+                   offer.is_game === "true" ||
+                   (offer.app_metadata?.categories &&
+                    offer.app_metadata.categories.some((cat) =>
+                      typeof cat === "string" && cat.toUpperCase().includes("GAME")
+                    ));
           }
           return true;
         });

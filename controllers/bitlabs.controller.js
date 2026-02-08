@@ -62,10 +62,18 @@ exports.getOffers = async (req, res) => {
       });
     }
 
-    // Use getGameOffers if this is a game request, otherwise use getOffers
-    const data = isGameRequest
-      ? await bitlabsService.getGameOffers(queryParams)
-      : await bitlabsService.getOffers(queryParams);
+    // Admin game list: use Publisher API for full catalog (not user-specific started offers)
+    const usePublisherCatalog = queryParams.usePublisherCatalog === "true" || queryParams.usePublisherCatalog === true;
+    let data;
+    if (isGameRequest && usePublisherCatalog) {
+      const { usePublisherCatalog: _, ...paramsForPublisher } = queryParams;
+      data = await bitlabsService.getPublisherOffers({ ...paramsForPublisher, is_game: "true", type: "game" });
+    } else {
+      // Use getGameOffers if this is a game request, otherwise use getOffers
+      data = isGameRequest
+        ? await bitlabsService.getGameOffers(queryParams)
+        : await bitlabsService.getOffers(queryParams);
+    }
 
     // Transform BitLabs game offers to match frontend expectations (similar to Besitos format)
     let transformedData = data?.data || [];
@@ -263,6 +271,8 @@ exports.getUserOfferHistory = async (req, res) => {
     
     console.log("🔵 [BITLABS CONTROLLER] Extracted bitlabsData:", {
       hasId: !!bitlabsData?.id,
+      bitlabsDataId: bitlabsData?.id,
+      bitlabsDataIdType: bitlabsData?.id != null ? typeof bitlabsData.id : "n/a",
       isArray: Array.isArray(bitlabsData),
       keys: bitlabsData ? Object.keys(bitlabsData) : [],
     });
@@ -335,13 +345,13 @@ exports.getUserOfferHistory = async (req, res) => {
       localVipTier: user.vip?.tier || user.vip?.level || "free",
     });
 
-    // Build user profile for progression rule matching
+    // Build user profile for progression rule matching (same as Besitos: treat null membership as "free" so rules for free tier can match)
     const gamesDownloaded = user.games?.length || 0;
     const membershipTier = getUserMembershipTier(user);
     const userProfile = {
       xp: user.xp?.current || 0,
       gamesPlayed: gamesDownloaded,
-      membershipTier: membershipTier,
+      membershipTier: membershipTier ?? "free",
     };
 
     // Get user-based progression rule
@@ -470,7 +480,9 @@ exports.getUserOfferHistory = async (req, res) => {
     console.log("🔵 [BITLABS CONTROLLER] Final offers array:", {
       count: offers.length,
       firstOfferId: offers[0]?.id,
+      firstOfferIdType: offers[0]?.id != null ? typeof offers[0].id : "n/a",
       firstOfferKeys: offers[0] ? Object.keys(offers[0]) : [],
+      routeOfferIdParam: offerId || "none (all offers)",
     });
 
     // Track offers that need to be processed without game matching
@@ -486,8 +498,16 @@ exports.getUserOfferHistory = async (req, res) => {
         continue;
       }
       
-      // Check for id field - Bitlabs might use 'id' or 'offer_id'
-      const offerIdValue = offer.id || offer.offer_id || offer._id;
+      // Check for id field - Bitlabs might use 'id' or 'offer_id'; use route param if single-offer response has no id
+      const offerIdValue = offer.id || offer.offer_id || offer._id || (offerId && String(offerId));
+      console.log("🔵 [BITLABS CONTROLLER] Offer id resolution:", {
+        "offer.id": offer.id,
+        "offer.offer_id": offer.offer_id,
+        "offer._id": offer._id,
+        "route offerId param": offerId || "n/a",
+        resolvedOfferIdValue: offerIdValue,
+        resolvedType: offerIdValue != null ? typeof offerIdValue : "n/a",
+      });
       if (!offerIdValue) {
         console.log("⚠️ [BITLABS CONTROLLER] Skipping offer without id:", {
           keys: Object.keys(offer),
@@ -503,35 +523,78 @@ exports.getUserOfferHistory = async (req, res) => {
 
       console.log("🔵 [BITLABS CONTROLLER] Processing offer:", {
         offerId: offer.id,
+        anchor: offer.anchor || offer.name || "n/a",
         hasEvents: !!offer.events,
         eventsCount: offer.events?.length || 0,
       });
 
-      // Find matching game in our database
-      const gameDoc = await Game.findOne({
-        sdkProvider: "Bitlabs",
-        $or: [
-          { gameId: offer.id.toString() },
-          { "gameDetails.id": offer.id.toString() },
-          { "gameDetails.offer_id": offer.id.toString() },
-          { "metadata.externalId": offer.id.toString() },
-        ],
-      }).lean();
+      // Normalize offer id to string and number (DB may store either)
+      const offerIdStr = offer.id.toString();
+      const offerIdNum = typeof offer.id === "number" ? offer.id : parseInt(offer.id, 10);
+
+      // Find matching game in our database (sdkProvider may be "Bitlabs" or "bitlabs")
+      // Match both string and number id - admin may store gameId/gameDetails.id as either
+      const idConditions = [
+        { gameId: offerIdStr },
+        { "gameDetails.id": offerIdStr },
+        { "gameDetails.offer_id": offerIdStr },
+        { "metadata.externalId": offerIdStr },
+      ];
+      if (!Number.isNaN(offerIdNum)) {
+        idConditions.push(
+          { gameId: offerIdNum },
+          { "gameDetails.id": offerIdNum },
+          { "gameDetails.offer_id": offerIdNum },
+          { "metadata.externalId": offerIdNum }
+        );
+      }
+      const gameQuery = {
+        sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+        $or: idConditions,
+      };
+      console.log("🔵 [BITLABS CONTROLLER] Game lookup query:", {
+        offerIdStr,
+        offerIdNum: Number.isNaN(offerIdNum) ? "NaN" : offerIdNum,
+        idConditionsCount: idConditions.length,
+        querySummary: JSON.stringify(gameQuery),
+      });
+      const gameDoc = await Game.findOne(gameQuery).lean();
       
       console.log("🔵 [BITLABS CONTROLLER] Game lookup result:", {
         offerId: offer.id,
         gameFound: !!gameDoc,
         gameId: gameDoc?._id?.toString(),
+        gameTitle: gameDoc?.title || "n/a",
       });
 
       // If game not found in database, mark for later processing without progression rules
       if (!gameDoc) {
-        console.log(
-          `⚠️ Game not found in database for bitlabs offer ID: ${offer.id}. Will include without progression rules.`
+        console.warn(
+          `⚠️ [BITLABS CONTROLLER] Game not found for offer ID: ${offer.id} (str: "${offerIdStr}", num: ${offerIdNum}). Will include without progression rules.`
         );
+        // Debug: show what Bitlabs games exist in DB (sample)
+        const bitlabsGamesCount = await Game.countDocuments({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] } });
+        const bitlabsGamesSample = await Game.find({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] } })
+          .select("gameId gameDetails.id gameDetails.offer_id metadata.externalId sdkProvider title")
+          .limit(5)
+          .lean();
+        console.warn("🔍 [BITLABS CONTROLLER] DEBUG - Bitlabs games in DB:", {
+          totalBitlabsGames: bitlabsGamesCount,
+          sampleGameIds: bitlabsGamesSample.map((g) => ({
+            gameId: g.gameId,
+            "gameDetails.id": g.gameDetails?.id,
+            "gameDetails.offer_id": g.gameDetails?.offer_id,
+            "metadata.externalId": g.metadata?.externalId,
+            sdkProvider: g.sdkProvider,
+            title: g.title,
+          })),
+        });
         offersWithoutGame.push(offer);
         continue;
       }
+
+      // Each game has its own admin XP (different games can have different baseXP/multiplier) - same as Besitos user-data
+      offer.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
 
       const gameIdString = gameDoc._id.toString();
       const currentGameIdString = String(gameDoc._id);

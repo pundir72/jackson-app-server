@@ -1918,29 +1918,75 @@ router.get("/today", protect, async (req, res) => {
       } else if (challenge.gameId && challenge.gameDetails?.name) {
         // Challenge has gameId and gameDetails
         let deepLink = challenge.gameDetails.downloadUrl;
-        
+        let iconUrl =
+          challenge.gameDetails.image || challenge.gameDetails.square_image || "";
+        // For Bitlabs: if icon or link missing, fetch from same source as admin (getPublisherOffers) to get image and URL
+        if (
+          challenge.sdkProvider === "bitlabs" &&
+          challenge.gameId &&
+          (!iconUrl || !deepLink)
+        ) {
+          try {
+            const publisherResult = await bitlabsService.getPublisherOffers({
+              country: "US",
+              devices: ["android", "iphone"],
+              is_game: "true",
+              type: "game",
+            });
+            const offers = Array.isArray(publisherResult?.data)
+              ? publisherResult.data
+              : [];
+            const offerId = challenge.gameId.toString();
+            const offer = offers.find(
+              (o) =>
+                (o.id && o.id.toString() === offerId) ||
+                (o.offerId && o.offerId.toString() === offerId)
+            );
+            if (offer) {
+              if (!iconUrl) {
+                iconUrl =
+                  offer.creatives?.icon ||
+                  offer.creatives?.images?.["275x275"] ||
+                  offer.creatives?.images?.["400x400"] ||
+                  offer.icon_url ||
+                  "";
+              }
+              if (!deepLink) {
+                deepLink =
+                  offer.continue_url ||
+                  offer.click_url ||
+                  offer.clickUrl ||
+                  offer.deepLink ||
+                  "";
+              }
+            }
+          } catch (err) {
+            console.warn(
+              "[GET /today] Bitlabs enrich icon/deepLink failed:",
+              err.message
+            );
+          }
+        }
         // Add user ID to deepLink for bitlabs games (matches discover route behavior)
         if (challenge.sdkProvider === "bitlabs" && deepLink) {
-          // Replace user ID placeholder or add user ID to URL
           deepLink = deepLink
-            .replace(/users\/[^\/]+/, `users/${userId}`)
+            .replace(/users\/[^/]+/, `users/${userId}`)
             .replace(/user_id=[^&]+/, `user_id=${userId}`)
             .replace(/aff_id=[^&]+/, `aff_id=${userId}`);
-            
-          // If no user ID placeholder exists, add it as a parameter
-          if (!deepLink.includes(`users/${userId}`) && !deepLink.includes(`user_id=${userId}`)) {
-            const separator = deepLink.includes('?') ? '&' : '?';
+          if (
+            !deepLink.includes(`users/${userId}`) &&
+            !deepLink.includes(`user_id=${userId}`)
+          ) {
+            const separator = deepLink.includes("?") ? "&" : "?";
             deepLink += `${separator}user_id=${userId}`;
           }
         }
-        
         activeGame = {
           id: challenge.gameId,
           name: challenge.gameDetails.name,
           gameId: challenge.gameId,
-          iconUrl:
-            challenge.gameDetails.image || challenge.gameDetails.square_image,
-          deepLink: deepLink,
+          iconUrl: iconUrl,
+          deepLink: deepLink || "",
           isRequired: false,
           isSelected: false,
         };
@@ -2933,6 +2979,62 @@ router.post("/start", protect, async (req, res) => {
       gameToPlay = await Game.findById(progress.selectedGame.gameId);
     }
 
+    // For Bitlabs games: use same Bitlabs function as admin route (getPublisherOffers), match offer, get URL and game title, then add userId
+    let deepLink = gameToPlay?.metadata?.deepLink;
+    let gameTitleFromOffer = null; // Use Bitlabs offer title (game name) instead of challenge/user title
+    const packageName = gameToPlay?.metadata?.packageName ?? gameToPlay?._id;
+    if (
+      challenge.type === "game" &&
+      gameToPlay &&
+      challenge.sdkProvider === "bitlabs" &&
+      challenge.gameId
+    ) {
+      const offerId = challenge.gameId.toString();
+      // Same function as admin GET /api/admin/game-offers/games/by-sdk/bitlabs
+      const publisherResult = await bitlabsService.getPublisherOffers({
+        country: "US",
+        devices: ["android", "iphone"],
+        is_game: "true",
+        type: "game",
+      });
+      const offers = Array.isArray(publisherResult?.data) ? publisherResult.data : [];
+      const offer = offers.find(
+        (o) =>
+          (o.id && o.id.toString() === offerId) ||
+          (o.offerId && o.offerId.toString() === offerId)
+      );
+      if (offer) {
+        gameTitleFromOffer = offer.anchor || offer.title || offer.name || offer.product_name || null;
+        deepLink =
+          offer.continue_url ||
+          offer.click_url ||
+          offer.clickUrl ||
+          offer.deepLink ||
+          offer.deep_link ||
+          "";
+      }
+      console.log("[DAILY-CHALLENGE START] Bitlabs (same as admin: getPublisherOffers):", {
+        offerId,
+        userId,
+        offersCount: offers.length,
+        found: !!offer,
+        deepLink: deepLink || "(none)",
+      });
+      // Attach userId to redirect link for attribution
+      if (deepLink) {
+        deepLink = deepLink
+          .replace(/users\/[^/]+/, `users/${userId}`)
+          .replace(/user_id=[^&]+/, `user_id=${userId}`)
+          .replace(/aff_id=[^&]+/, `aff_id=${userId}`);
+        if (!deepLink.includes(`users/${userId}`) && !deepLink.includes(`user_id=${userId}`)) {
+          const separator = deepLink.includes("?") ? "&" : "?";
+          deepLink += `${separator}user_id=${userId}`;
+        }
+      }
+    } else if (gameToPlay?.metadata?.deepLink) {
+      deepLink = gameToPlay.metadata.deepLink;
+    }
+
     // Only return game info for game type challenges
     const responseData = {
       success: true,
@@ -2945,13 +3047,13 @@ router.post("/start", protect, async (req, res) => {
       },
     };
 
-    // Only include game info for game type challenges
+    // Only include game info for game type challenges (use game title from Bitlabs offer when available, not challenge/user title)
     if (challenge.type === "game" && gameToPlay) {
       responseData.data.game = {
         id: gameToPlay._id,
-        title: gameToPlay.title,
-        deepLink: gameToPlay.metadata?.deepLink,
-        packageName: gameToPlay.metadata?.packageName,
+        title: gameTitleFromOffer || gameToPlay.title,
+        deepLink: deepLink || "",
+        packageName: packageName || gameToPlay._id,
       };
     }
 
@@ -4563,8 +4665,9 @@ router.post("/complete", protect, async (req, res) => {
       transactionMetadata.gameRef = linkedGameObjectId;
     }
 
-    // Determine transaction status based on claim type
-    const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
+    // Transaction log always created with status "completed" (pending commented out)
+    // const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
+    const transactionStatus = "completed";
     const baseReferenceId = `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`;
 
     // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)

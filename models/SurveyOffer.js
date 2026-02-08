@@ -22,22 +22,22 @@ const surveyOfferSchema = new mongoose.Schema(
       trim: true,
     },
     category: {
-      // Store full category object from Bitlabs API
-      name: {
-        type: String,
-        default: "General",
-      },
-      name_internal: {
-        type: String,
-        default: "Other",
-      },
-      icon_name: {
-        type: String,
-        default: "shapes",
-      },
-      icon_url: {
-        type: String,
-        default: "",
+      // Store full category object; accept string (e.g. "other") and normalize to object so validation never fails
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({ name: "General", name_internal: "Other", icon_name: "shapes", icon_url: "" }),
+      set: function (v) {
+        if (v == null) return { name: "General", name_internal: "Other", icon_name: "shapes", icon_url: "" };
+        if (typeof v === "string") {
+          const s = (v || "other").toLowerCase();
+          const name = s.charAt(0).toUpperCase() + s.slice(1);
+          return { name, name_internal: s, icon_name: "shapes", icon_url: "" };
+        }
+        return {
+          name: v.name != null ? v.name : "General",
+          name_internal: v.name_internal != null ? v.name_internal : "Other",
+          icon_name: v.icon_name != null ? v.icon_name : "shapes",
+          icon_url: v.icon_url != null ? v.icon_url : "",
+        };
       },
     },
     offerType: {

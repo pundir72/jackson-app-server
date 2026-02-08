@@ -271,6 +271,9 @@ exports.getUserData = async (req, res) => {
           continue;
         }
 
+        // Each game has its own admin XP (different games can have different baseXP/multiplier)
+        game.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
+
         const gameIdString = gameDoc._id.toString();
         const currentGameIdString = String(gameDoc._id);
 
@@ -674,6 +677,8 @@ exports.getUserData = async (req, res) => {
         }).lean();
 
         if (gameDoc) {
+          // Each game has its own admin XP (different games can have different baseXP/multiplier)
+          game.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
           const gameIdString = gameDoc._id.toString();
           const progression = taskProgressionMap[gameIdString];
 
@@ -705,6 +710,26 @@ exports.getUserData = async (req, res) => {
                 progression.thresholdReached && progression.rewardTransferred,
             };
           }
+        }
+      }
+    }
+
+    // Attach per-game admin XP to completed games (each game can have different XP)
+    const completedGames =
+      besitosData.completed || besitosData.data?.completed || [];
+    if (Array.isArray(completedGames) && completedGames.length > 0) {
+      for (const game of completedGames) {
+        const gameDoc = await Game.findOne({
+          sdkProvider: "Besitos",
+          $or: [
+            { gameId: game.id },
+            { "gameDetails.id": game.id },
+            { "gameDetails.offer_id": game.id },
+            { "metadata.externalId": game.id },
+          ],
+        }).lean();
+        if (gameDoc) {
+          game.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
         }
       }
     }

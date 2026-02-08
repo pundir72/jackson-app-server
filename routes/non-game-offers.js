@@ -10,6 +10,7 @@ const protect = require("../middleware/auth");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const bitlabsNonGames = require("../utils/bitlabs-non-games");
+const bitlabsService = require("../services/bitlabs.service");
 const everflowService = require("../services/everflow.service");
 const config = require("../config/config");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
@@ -57,6 +58,36 @@ function getUserGender(user) {
   const gender = user.onboarding?.gender || "other";
   // Normalize to lowercase for consistent matching with offer targetAudience.gender
   return String(gender).toLowerCase();
+}
+
+// Resolve cashback offer image URL from DB metadata, raw Bitlabs data, or fresh API offer
+function resolveCashbackImageUrl(configuredOffer, rawData, freshOffer) {
+  const fromFresh =
+    freshOffer?.creatives?.icon ||
+    freshOffer?.images?.cardImage ||
+    freshOffer?.icon ||
+    "";
+  const fromMeta =
+    typeof configuredOffer?.metadata?.thumbnail === "string"
+      ? configuredOffer.metadata.thumbnail
+      : configuredOffer?.metadata?.thumbnail?.url || "";
+  const fromRaw =
+    rawData?.creatives?.icon || rawData?.images?.cardImage || "";
+  return fromFresh || fromMeta || fromRaw || "";
+}
+
+// Inject user ID into Bitlabs click URL for tracking (s1 is common pass-through param)
+// Publisher API returns URLs with s1= empty; we set s1=userId so callbacks can attribute to user
+function injectUserIdIntoClickUrl(url, userId) {
+  if (!url || typeof url !== "string" || !userId) return url || "";
+  try {
+    const u = new URL(url);
+    u.searchParams.set("s1", String(userId));
+    return u.toString();
+  } catch {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}s1=${encodeURIComponent(userId)}`;
+  }
 }
 
 // Helper function to get admin-configured offers with fresh URLs from Bitlabs
@@ -232,45 +263,207 @@ async function getAdminConfiguredOffers(
         let apiResult = null;
 
         if (sdkProvider === "bitlabs") {
-          // Bitlabs API calls
-          const bitlabsNonGames = require("../utils/bitlabs-non-games");
-          
-          if (offerType === "survey" || offerType === "surveys") {
-            apiResult = await bitlabsNonGames.getSurveys({
-              userId: userId,
-              userProfile: userProfileForAPI,
-              category: category || "all",
-            });
-          } else if (offerType === "cashback") {
-            apiResult = await bitlabsNonGames.getCashbackOffers({
-              userId: userId,
-              userProfile: userProfileForAPI,
-              category: category || "all",
-            });
-          } else if (
-            offerType === "magic_receipt" ||
-            offerType === "magic-receipts" ||
-            offerType === "magicReceipts"
+          // Use same Bitlabs function as admin: Publisher API (getPublisherOffers)
+          const bitlabsService = require("../services/bitlabs.service");
+          const publisherQuery = {
+            country: userProfileForAPI.country || "US",
+            devices: ["android", "iphone"],
+            is_game: false,
+          };
+          if (offerType && offerType !== "all") {
+            publisherQuery.type = offerType;
+          }
+          let publisherResult = await bitlabsService.getPublisherOffers(
+            publisherQuery
+          );
+
+          if (
+            publisherResult.success &&
+            Array.isArray(publisherResult.data) &&
+            publisherResult.data.length > 0
           ) {
-            apiResult = await bitlabsNonGames.getMagicReceipts({
-              userId: userId,
-              userProfile: userProfileForAPI,
-              category: category || "all",
+            // Categorize Publisher API offers (same logic as admin sync / GET non-game-offers/by-sdk/bitlabs)
+            const categorized = {
+              surveys: [],
+              cashback: [],
+              shopping: [],
+              magicReceipts: [],
+              other: [],
+            };
+            publisherResult.data.forEach((offer) => {
+              const anchor = (
+                offer.anchor ||
+                offer.name ||
+                offer.merchant_name ||
+                ""
+              ).toLowerCase();
+              const description = (offer.description || "").toLowerCase();
+              const category =
+                offer.category ||
+                offer.categories?.[0] ||
+                offer.primary_category ||
+                "";
+              const categoryStr =
+                typeof category === "object"
+                  ? (
+                      category.name ||
+                      category.name_internal ||
+                      ""
+                    ).toLowerCase()
+                  : (category || "").toLowerCase();
+              const hasCashbackField =
+                offer.cashback !== undefined ||
+                offer.original_cashback !== undefined;
+
+              if (
+                anchor.includes("survey") ||
+                description.includes("survey") ||
+                categoryStr.includes("survey") ||
+                offer.type === "survey"
+              ) {
+                categorized.surveys.push(offer);
+              } else if (
+                offer.type === "cashback" ||
+                anchor.includes("cashback") ||
+                anchor.includes("cash back") ||
+                description.includes("cashback") ||
+                description.includes("cash back") ||
+                categoryStr.includes("cashback") ||
+                hasCashbackField ||
+                offer.merchant_name
+              ) {
+                categorized.cashback.push(offer);
+              } else if (
+                anchor.includes("shop") ||
+                anchor.includes("store") ||
+                anchor.includes("retail") ||
+                description.includes("shopping") ||
+                description.includes("purchase") ||
+                categoryStr.includes("shopping") ||
+                categoryStr.includes("retail") ||
+                offer.type === "shopping"
+              ) {
+                categorized.shopping.push(offer);
+              } else if (
+                anchor.includes("magic receipt") ||
+                anchor.includes("receipt") ||
+                description.includes("receipt") ||
+                description.includes("upload receipt") ||
+                categoryStr.includes("receipt") ||
+                categoryStr.includes("magic receipt") ||
+                offer.type === "magic_receipt"
+              ) {
+                categorized.magicReceipts.push(offer);
+              } else {
+                categorized.other.push(offer);
+              }
             });
-          } else if (offerType === "shopping") {
-            apiResult = await bitlabsNonGames.getShoppingOffers({
-              userId: userId,
-              userProfile: userProfileForAPI,
-              category: category || "all",
-            });
-          } else if (offerType === "all") {
-            // For "all", fetch all types and combine
-            apiResult = await bitlabsNonGames.getNonGameOffers({
-              userId: userId,
-              userProfile: userProfileForAPI,
-              type: "all",
-              category: category || "all",
-            });
+
+            // Normalize Publisher survey format (same as admin sync)
+            const normalizePublisherSurvey = (o) => {
+              const payout = o.events?.[0];
+              const valueNum = payout
+                ? parseFloat(payout.payout)
+                : parseFloat(o.total_points) || 0;
+              const userRewardCoins = Math.round(valueNum * 0.2);
+              const userRewardXP = Math.round(userRewardCoins * 0.5);
+              return {
+                ...o,
+                offerType: "survey",
+                id: o.id != null ? o.id : o.product_id,
+                surveyId: o.id,
+                offerId: o.id,
+                value: valueNum,
+                userRewardCoins,
+                userRewardXP,
+                title: o.name || o.anchor || o.product_name || "Untitled",
+                name: o.name || o.anchor,
+                description: o.description || "",
+                icon: o.creatives?.icon || o.icon || "",
+                banner: o.creatives?.icon || o.icon || "",
+                clickUrl: o.click_url || "",
+                click_url: o.click_url || "",
+                surveyUrl: o.click_url || "",
+                url: o.click_url || "",
+                estimatedTime: o.session_hours
+                  ? Math.round(o.session_hours / 60)
+                  : 5,
+              };
+            };
+
+            apiResult = {
+              success: true,
+              categorized: {
+                surveys: categorized.surveys.map(normalizePublisherSurvey),
+                cashback: categorized.cashback.map((o) => ({
+                  ...o,
+                  offerType: "cashback",
+                })),
+                shopping: categorized.shopping.map((o) => ({
+                  ...o,
+                  offerType: "shopping",
+                })),
+                magicReceipts: categorized.magicReceipts.map((o) => ({
+                  ...o,
+                  offerType: "magic_receipt",
+                })),
+                other: categorized.other.map((o) => ({ ...o, offerType: "other" })),
+              },
+            };
+            console.log(
+              "🟢 [getAdminConfiguredOffers] Using Bitlabs Publisher API (same as admin):",
+              {
+                surveys: apiResult.categorized.surveys.length,
+                cashback: apiResult.categorized.cashback.length,
+                shopping: apiResult.categorized.shopping.length,
+                magicReceipts: apiResult.categorized.magicReceipts.length,
+                other: apiResult.categorized.other.length,
+              }
+            );
+          } else {
+            // Fallback: Client API (same as admin fallback) if Publisher returns empty
+            const bitlabsNonGames = require("../utils/bitlabs-non-games");
+            if (offerType === "survey" || offerType === "surveys") {
+              apiResult = await bitlabsNonGames.getSurveys({
+                userId: userId,
+                userProfile: userProfileForAPI,
+                category: category || "all",
+              });
+            } else if (offerType === "cashback") {
+              apiResult = await bitlabsNonGames.getCashbackOffers({
+                userId: userId,
+                userProfile: userProfileForAPI,
+                category: category || "all",
+              });
+            } else if (
+              offerType === "magic_receipt" ||
+              offerType === "magic-receipts" ||
+              offerType === "magicReceipts"
+            ) {
+              apiResult = await bitlabsNonGames.getMagicReceipts({
+                userId: userId,
+                userProfile: userProfileForAPI,
+                category: category || "all",
+              });
+            } else if (offerType === "shopping") {
+              apiResult = await bitlabsNonGames.getShoppingOffers({
+                userId: userId,
+                userProfile: userProfileForAPI,
+                category: category || "all",
+              });
+            } else if (offerType === "all") {
+              apiResult = await bitlabsNonGames.getNonGameOffers({
+                userId: userId,
+                userProfile: userProfileForAPI,
+                type: "all",
+                category: category || "all",
+              });
+            }
+            if (apiResult) {
+              console.log(
+                "🟢 [getAdminConfiguredOffers] Publisher empty; using Bitlabs Client API fallback"
+              );
+            }
           }
         } else if (sdkProvider === "everflow") {
           // Everflow API calls
@@ -402,6 +595,14 @@ async function getAdminConfiguredOffers(
                   fresh.id === configuredOffer.externalId ||
                   fresh.offerId === configuredOffer.externalId
                 );
+              } else if (sdkProvider === "bitlabs" && offerType === "shopping") {
+                // For Bitlabs shopping, match by product_id, id, offerId
+                return (
+                  fresh.product_id?.toString() === configuredOffer.externalId ||
+                  fresh.id === configuredOffer.externalId ||
+                  fresh.offerId === configuredOffer.externalId ||
+                  fresh.surveyId === configuredOffer.externalId
+                );
               } else if (sdkProvider === "everflow") {
                 // For Everflow, match by network_offer_id or offerId
                 return (
@@ -420,10 +621,9 @@ async function getAdminConfiguredOffers(
               }
             });
 
-            if (
-              matchingFreshOffer &&
-              (matchingFreshOffer.click_url || matchingFreshOffer.clickUrl)
-            ) {
+            // Match by id = offer available at moment; use recent URL from comparison (or stored) and attach user id in response
+            // Validation that required fresh click_url is commented out so we match by id only and still use URL + userId
+            if (matchingFreshOffer) {
               matchedCount++;
               if (offerType === "cashback") {
                 console.log(
@@ -449,10 +649,27 @@ async function getAdminConfiguredOffers(
                 offerType === "shopping"
               ) {
                 // Include ALL database fields + fresh Bitlabs data
+                const cashbackImageUrl = resolveCashbackImageUrl(
+                  configuredOffer,
+                  configuredOffer.metadata?.rawBitlabsData,
+                  matchingFreshOffer
+                );
+                const rawClickUrl =
+                  matchingFreshOffer.click_url ||
+                  matchingFreshOffer.clickUrl ||
+                  configuredOffer.metadata?.externalUrl ||
+                  "";
+                const userClickUrl = injectUserIdIntoClickUrl(rawClickUrl, userId);
                 freshOffers.push({
                   ...matchingFreshOffer, // Preserve ALL original Bitlabs fields
-                  click_url:
-                    matchingFreshOffer.click_url || matchingFreshOffer.clickUrl, // Use fresh URL from Bitlabs
+                  click_url: userClickUrl, // Redirect URL with user ID for tracking
+                  images: {
+                    ...(matchingFreshOffer.images || {}),
+                    cardImage:
+                      matchingFreshOffer.images?.cardImage ||
+                      matchingFreshOffer.creatives?.icon ||
+                      cashbackImageUrl,
+                  },
 
                   // Database fields
                   _id: configuredOffer._id?.toString(),
@@ -474,13 +691,8 @@ async function getAdminConfiguredOffers(
                   metadata: {
                     ...configuredOffer.metadata,
                     ...matchingFreshOffer, // Merge fresh Bitlabs data into metadata
-                    // Always expose the latest, user-specific click URL in metadata.externalUrl
-                    // so frontend can safely use it as the redirect URL.
-                    externalUrl:
-                      (matchingFreshOffer.click_url ||
-                        matchingFreshOffer.clickUrl ||
-                        configuredOffer.metadata?.externalUrl ||
-                        ""),
+                    thumbnail: cashbackImageUrl,
+                    externalUrl: userClickUrl, // Same URL with user ID for redirect
                   },
                   expiryDate: configuredOffer.expiryDate || null,
                   createdAt: configuredOffer.createdAt || null,
@@ -498,7 +710,19 @@ async function getAdminConfiguredOffers(
                   source: "admin_configured",
                 });
               } else {
-                // For surveys and other offers: Include ALL database fields + fresh URL
+                // For surveys and other offers: use recent URL from match (or stored), attach user id, send in response
+                const surveyRawUrl =
+                  matchingFreshOffer.click_url ||
+                  matchingFreshOffer.clickUrl ||
+                  matchingFreshOffer.surveyUrl ||
+                  matchingFreshOffer.url ||
+                  configuredOffer.metadata?.externalUrl ||
+                  configuredOffer.metadata?.surveyUrl ||
+                  "";
+                const surveyUserUrl = injectUserIdIntoClickUrl(
+                  surveyRawUrl,
+                  userId
+                );
                 freshOffers.push({
                   // Core identifiers
                   id:
@@ -557,15 +781,10 @@ async function getAdminConfiguredOffers(
                   duration: configuredOffer.estimatedTime || 5,
                   loi: configuredOffer.estimatedTime || 5,
 
-                  // URLs (fresh from Bitlabs)
-                  clickUrl: matchingFreshOffer.clickUrl, // Fresh URL from Bitlabs
-                  surveyUrl:
-                    matchingFreshOffer.clickUrl ||
-                    matchingFreshOffer.surveyUrl ||
-                    configuredOffer.metadata?.surveyUrl ||
-                    "",
-                  url:
-                    matchingFreshOffer.clickUrl || matchingFreshOffer.url || "",
+                  // URLs: recent from match (or stored), with user id attached for tracking
+                  clickUrl: surveyUserUrl,
+                  surveyUrl: surveyUserUrl,
+                  url: surveyUserUrl,
 
                   // Target audience (from database)
                   targetAudience: configuredOffer.targetAudience || {},
@@ -579,8 +798,12 @@ async function getAdminConfiguredOffers(
                   // Analytics (from database)
                   analytics: configuredOffer.analytics || {},
 
-                  // Metadata (from database - includes all stored metadata)
-                  metadata: configuredOffer.metadata || {},
+                  // Metadata: include redirect URL with user id for tracking
+                  metadata: {
+                    ...(configuredOffer.metadata || {}),
+                    externalUrl: surveyUserUrl,
+                    surveyUrl: surveyUserUrl,
+                  },
 
                   // Dates
                   expiryDate: configuredOffer.expiryDate || null,
@@ -628,9 +851,19 @@ async function getAdminConfiguredOffers(
                       "Not found in fresh Bitlabs response or no click_url",
                   }
                 );
-                // For cashback: Return structure with isAvailable: false
-                // Use rawBitlabsData from metadata if available, otherwise use basic fields
+                // For cashback: Use stored externalUrl, add user id for tracking, send in response
                 const rawData = configuredOffer.metadata?.rawBitlabsData || {};
+                const cashbackImageUrl = resolveCashbackImageUrl(
+                  configuredOffer,
+                  rawData,
+                  null
+                );
+                const cashbackStoredUrl =
+                  configuredOffer.metadata?.externalUrl || "";
+                const cashbackUserUrl = injectUserIdIntoClickUrl(
+                  cashbackStoredUrl,
+                  userId
+                );
                 freshOffers.push({
                   // Bitlabs structure
                   merchant_id: parseInt(configuredOffer.externalId),
@@ -640,13 +873,16 @@ async function getAdminConfiguredOffers(
                     rawData.cashback ||
                     configuredOffer.metadata?.cashback ||
                     "0",
-                  click_url: "", // No fresh URL available
+                  click_url: cashbackUserUrl, // Redirect URL with user id
                   country_code: rawData.country_code || "",
                   currency: rawData.currency || "USD",
                   description:
                     configuredOffer.description || rawData.description || "",
                   flat_payout: rawData.flat_payout || false,
-                  images: rawData.images || {},
+                  images: {
+                    ...(rawData.images || {}),
+                    cardImage: rawData.images?.cardImage || cashbackImageUrl,
+                  },
                   original_cashback:
                     rawData.original_cashback || rawData.cashback || "0",
                   primary_category: rawData.primary_category || "",
@@ -676,7 +912,11 @@ async function getAdminConfiguredOffers(
                   requirements: configuredOffer.requirements || {},
                   offerDetails: configuredOffer.offerDetails || {},
                   analytics: configuredOffer.analytics || {},
-                  metadata: configuredOffer.metadata || {},
+                  metadata: {
+                    ...(configuredOffer.metadata || {}),
+                    thumbnail: cashbackImageUrl,
+                    externalUrl: cashbackUserUrl, // Same URL with user id for redirect
+                  },
                   expiryDate: configuredOffer.expiryDate || null,
                   createdAt: configuredOffer.createdAt || null,
                   updatedAt: configuredOffer.updatedAt || null,
@@ -689,7 +929,7 @@ async function getAdminConfiguredOffers(
                     configuredOffer.sdkId?.displayName ||
                     "bitlabs",
 
-                  isAvailable: false,
+                  isAvailable: !!cashbackUserUrl,
                   source: "admin_configured",
                 });
               } else if (
@@ -868,12 +1108,30 @@ async function getAdminConfiguredOffers(
             totalReturned: freshOffers.length,
           });
 
+          // For cashback and shopping: only return offers that have a fresh user-specific redirect URL
+          // (so user side gets a valid click_url for redirect; don't return offers that can't be used)
+          let offersToReturn = freshOffers;
+          if (offerType === "cashback" || offerType === "shopping") {
+            const withFreshUrl = freshOffers.filter(
+              (o) =>
+                (o.click_url && String(o.click_url).trim().length > 0) ||
+                (o.metadata?.externalUrl &&
+                  String(o.metadata.externalUrl).trim().length > 0)
+            );
+            console.log(
+              "🟢 [getAdminConfiguredOffers] Cashback/Shopping: only returning offers with fresh redirect URL:",
+              { total: freshOffers.length, withFreshUrl: withFreshUrl.length }
+            );
+            offersToReturn = withFreshUrl;
+          }
+
           if (offerType === "cashback") {
             console.log(
               "🟢 [getAdminConfiguredOffers] Cashback offers summary:",
               {
-                available: freshOffers.filter((o) => o.isAvailable).length,
-                unavailable: freshOffers.filter((o) => !o.isAvailable).length,
+                available: offersToReturn.filter((o) => o.isAvailable).length,
+                unavailable: offersToReturn.filter((o) => !o.isAvailable)
+                  .length,
               }
             );
           }
@@ -881,7 +1139,7 @@ async function getAdminConfiguredOffers(
           console.log(
             "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n"
           );
-          return freshOffers;
+          return offersToReturn;
         }
       } catch (freshUrlError) {
         console.error(
@@ -904,21 +1162,39 @@ async function getAdminConfiguredOffers(
       eligibleOffers.length
     );
 
-    // Fallback: return offers without fresh URLs (if fetching failed or userId not provided)
+    // For cashback and shopping: only return when we have fresh URL with user id; otherwise return empty
+    if (offerType === "cashback" || offerType === "shopping") {
+      console.log(
+        "🟢 [getAdminConfiguredOffers] Cashback/Shopping: no fresh URLs — returning empty list (require fresh URL with user id)"
+      );
+      return [];
+    }
+
+    // Fallback: return offers; for cashback use stored URL and add user id
     const fallbackOffers = eligibleOffers.map((offer) => {
-      // For cashback: Preserve raw Bitlabs structure from metadata
+      // For cashback: Use stored externalUrl, add user id for tracking
       if (offer.offerType === "cashback") {
         const rawData = offer.metadata?.rawBitlabsData || {};
+        const cashbackImageUrl = resolveCashbackImageUrl(offer, rawData, null);
+        const fallbackCashbackUrl =
+          offer.metadata?.externalUrl || "";
+        const fallbackCashbackUserUrl = injectUserIdIntoClickUrl(
+          fallbackCashbackUrl,
+          userId
+        );
         return {
           merchant_id: parseInt(offer.externalId),
           merchant_name: offer.title || rawData.merchant_name || "",
           cashback: rawData.cashback || "0",
-          click_url: "", // No fresh URL available
+          click_url: fallbackCashbackUserUrl,
           country_code: rawData.country_code || "",
           currency: rawData.currency || "USD",
           description: offer.description || rawData.description || "",
           flat_payout: rawData.flat_payout || false,
-          images: rawData.images || {},
+          images: {
+            ...(rawData.images || {}),
+            cardImage: rawData.images?.cardImage || cashbackImageUrl,
+          },
           original_cashback:
             rawData.original_cashback || rawData.cashback || "0",
           primary_category: rawData.primary_category || "",
@@ -927,7 +1203,12 @@ async function getAdminConfiguredOffers(
           terms: rawData.terms || [],
           tier_mappings: rawData.tier_mappings || [],
           up_to: rawData.up_to || false,
-          isAvailable: false, // Not available without fresh URL
+          metadata: {
+            ...(offer.metadata || {}),
+            thumbnail: cashbackImageUrl,
+            externalUrl: fallbackCashbackUserUrl,
+          },
+          isAvailable: !!fallbackCashbackUserUrl,
           source: "admin_configured",
         };
       }
@@ -1179,14 +1460,19 @@ router.get("/", protect, async (req, res) => {
         });
 
         if (adminOffers.length > 0) {
-          // Group by type
+          // Group by type (use offerType for admin-configured offers; type for API-shaped)
           adminOffers.forEach((offer) => {
+            const t = offer.type || offer.offerType;
             const offerTypeKey =
-              offer.type === "magic_receipt"
+              t === "magic_receipt" || t === "magic-receipts"
                 ? "magicReceipts"
-                : offer.type === "magic-receipts"
-                ? "magicReceipts"
-                : offer.type || "other";
+                : t === "survey" || t === "surveys"
+                ? "surveys"
+                : t === "cashback"
+                ? "cashback"
+                : t === "shopping"
+                ? "shopping"
+                : "other";
             if (categorized[offerTypeKey]) {
               categorized[offerTypeKey].push(offer);
             } else {
@@ -1224,20 +1510,27 @@ router.get("/", protect, async (req, res) => {
     }
 
     // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
-    // NOTE: For cashback offers, NO FALLBACK - only return admin-configured data
+    // NOTE: For cashback and survey (when useAdminConfig=true), NO FALLBACK - only return admin-configured data
     const isCashbackRequest = type === "cashback";
+    const isSurveyRequestAdminOnly =
+      useAdminConfig === "true" &&
+      (type === "survey" || type === "surveys");
     console.log("🔵 [MAIN ROUTE] Checking fallback conditions:", {
       offersCount: offers.length,
       useAdminConfig,
       isCashbackRequest,
+      isSurveyRequestAdminOnly,
       willFallback:
         (offers.length === 0 || useAdminConfig === "false") &&
-        !isCashbackRequest,
+        !isCashbackRequest &&
+        !isSurveyRequestAdminOnly,
     });
 
+    // No fallback when useAdminConfig=true and type=survey — only admin config (SurveyOffer).
     if (
       (offers.length === 0 || useAdminConfig === "false") &&
-      !isCashbackRequest
+      !isCashbackRequest &&
+      !isSurveyRequestAdminOnly
     ) {
       // Try Bitlabs first
       const result = await bitlabsNonGames.getNonGameOffers({
@@ -1654,30 +1947,19 @@ router.get("/surveys", protect, async (req, res) => {
           );
 
           if (eligibleOffers.length > 0) {
-            // INDUSTRIAL-LEVEL: Fetch fresh surveys from Bitlabs with user's X-User-Id
-            // This ensures click URLs are user-specific and properly tracked
+            // Use same Bitlabs function as admin: Publisher API (getPublisherOffers) for survey catalog and click URLs
             try {
-              // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
-              // Bitlabs will detect the production server's IP as VPN and return empty results
-              // Only send user profile data, not server IP or userAgent
-              const bitlabsResult = await bitlabsNonGames.getSurveys({
-                userId: user._id.toString(), // ← User's ID for proper tracking
-                userProfile: {
-                  ...userProfile,
-                  platform: "mobile",
-                  osVersion: "iOS 15.0",
-                  appVersion: "1.0.0",
-                  deviceModel: "iPhone 13",
-                  // NOTE: Removed userAgent and ip - these cause VPN detection on production servers
-                  // Bitlabs will use the X-User-Id header for user tracking instead
-                },
-                category,
+              const bitlabsResult = await bitlabsService.getPublisherOffers({
+                country: userProfile.country || "US",
+                devices: ["android", "iphone"],
+                is_game: false,
+                type: "survey",
               });
 
+              // Publisher API returns result.data (array of offers with id, click_url, creatives.icon, etc.)
+              const publisherSurveys = Array.isArray(bitlabsResult?.data) ? bitlabsResult.data : [];
 
-              // Match admin-configured surveys with fresh Bitlabs response
-              // INDUSTRIAL-LEVEL: Each user gets fresh click URLs with their X-User-Id
-              // This ensures proper tracking when user clicks and completes surveys
+              // Match admin-configured surveys with Publisher response (same source as admin sync/listing)
               const surveysWithFreshUrls = eligibleOffers
                 .map((offer, offerIndex) => {
                   console.log(
@@ -1690,13 +1972,14 @@ router.get("/surveys", protect, async (req, res) => {
                     }
                   );
 
-                  // Find matching survey in Bitlabs response by externalId
-                  const matchingSurvey =
-                    bitlabsResult.categorized?.surveys?.find(
-                      (s) =>
-                        s.id === offer.externalId ||
-                        s.surveyId === offer.externalId
-                    );
+                  const extId = String(offer.externalId);
+                  const matchingSurvey = publisherSurveys.find(
+                    (s) =>
+                      String(s.id) === extId ||
+                      String(s.surveyId) === extId ||
+                      String(s.offerId) === extId ||
+                      String(s.product_id) === extId
+                  );
 
                   console.log(
                     `🔍 [USER BACKEND] Matching result:`,
@@ -1704,71 +1987,48 @@ router.get("/surveys", protect, async (req, res) => {
                       ? {
                           found: true,
                           bitlabsId: matchingSurvey.id,
-                          bitlabsSurveyId: matchingSurvey.surveyId,
-                          hasClickUrl: !!matchingSurvey.clickUrl,
+                          hasClickUrl: !!(matchingSurvey.click_url || matchingSurvey.clickUrl),
                         }
                       : {
                           found: false,
-                          reason: "Survey not in Bitlabs response",
+                          reason: "Survey not in Bitlabs Publisher response",
                         }
                   );
 
-                  if (matchingSurvey && matchingSurvey.clickUrl) {
-                    // Return survey with fresh click URL (user-specific)
-                    return {
-                      id: offer.externalId,
-                      surveyId: offer.externalId,
-                      title: offer.title,
-                      description: offer.description,
-                      category: offer.category,
-                      icon: offer.metadata?.thumbnail || matchingSurvey.icon,
-                      banner:
-                        offer.metadata?.thumbnail || matchingSurvey.banner,
-                      reward: {
-                        coins: offer.coinReward,
-                        currency: "points",
-                        xp: Math.round(offer.coinReward * 0.5),
-                      },
-                      estimatedTime: offer.estimatedTime,
-                      clickUrl: matchingSurvey.clickUrl, // ← Fresh URL with user's session
-                      surveyUrl:
-                        matchingSurvey.surveyUrl || matchingSurvey.clickUrl,
-                      isAvailable: offer.status === "live",
-                      provider: "bitlabs",
-                      source: "admin_configured",
-                    };
-                  } else {
-                    // Survey not available from Bitlabs (expired, not available for user's country, etc.)
-                    return {
-                      id: offer.externalId,
-                      surveyId: offer.externalId,
-                      title: offer.title,
-                      description: offer.description,
-                      category: offer.category,
-                      icon: offer.metadata?.thumbnail,
-                      banner: offer.metadata?.thumbnail,
-                      reward: {
-                        coins: offer.coinReward,
-                        currency: "points",
-                        xp: Math.round(offer.coinReward * 0.5),
-                      },
-                      estimatedTime: offer.estimatedTime,
-                      clickUrl: null, // Not available
-                      surveyUrl: null,
-                      isAvailable: false,
-                      provider: "bitlabs",
-                      source: "admin_configured",
-                      message: "Survey temporarily unavailable",
-                    };
-                  }
+                  const freshClickUrl = matchingSurvey?.click_url || matchingSurvey?.clickUrl || null;
+                  const fallbackUrl = offer.metadata?.externalUrl || offer.metadata?.surveyUrl || null;
+                  const clickUrl = freshClickUrl || fallbackUrl;
+                  const iconFromBitlabs = matchingSurvey?.creatives?.icon || matchingSurvey?.icon;
+
+                  return {
+                    id: offer.externalId,
+                    surveyId: offer.externalId,
+                    title: offer.title,
+                    description: offer.description,
+                    category: offer.category,
+                    icon: offer.metadata?.thumbnail || iconFromBitlabs,
+                    banner: offer.metadata?.thumbnail || iconFromBitlabs,
+                    reward: {
+                      coins: offer.coinReward,
+                      currency: "points",
+                      xp: Math.round(offer.coinReward * 0.5),
+                    },
+                    estimatedTime: offer.estimatedTime,
+                    clickUrl: clickUrl || null,
+                    surveyUrl: clickUrl || null,
+                    isAvailable: offer.status === "live" && !!clickUrl,
+                    provider: "bitlabs",
+                    source: "admin_configured",
+                    message: clickUrl ? null : "Survey temporarily unavailable",
+                  };
                 })
                 .filter((o) => o !== null);
 
               console.log(
-                `\n🟣 [USER BACKEND] ========== SURVEYS WITH FRESH URLS ==========`
+                `\n🟣 [USER BACKEND] ========== SURVEYS (Publisher API, same as admin) ==========`
               );
               console.log(
-                `🟣 [USER BACKEND] Total surveys with fresh URLs: ${surveysWithFreshUrls.length}`
+                `🟣 [USER BACKEND] Total surveys with URLs: ${surveysWithFreshUrls.length}`
               );
               surveysWithFreshUrls.forEach((survey, index) => {
                 console.log(`🟣 [USER BACKEND] Survey ${index + 1}:`, {
@@ -1842,11 +2102,11 @@ router.get("/surveys", protect, async (req, res) => {
                 surveys = availableSurveys;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Generated ${availableSurveys.length} fresh click URLs for user ${user._id} (admin-configured surveys)`
+                  `✅ [USER BACKEND] Returning ${availableSurveys.length} surveys for user ${user._id} (Publisher API, same as admin)`
                 );
               } else {
                 console.log(
-                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none are available from Bitlabs for user ${user._id}`
+                  `⚠️ [USER BACKEND] Admin configured ${eligibleOffers.length} surveys, but none matched in Bitlabs Publisher response for user ${user._id}`
                 );
                 }
               }

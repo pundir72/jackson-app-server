@@ -124,7 +124,9 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         return false;
       }
     } else if (normalizedProvider === "bitlabs") {
-      const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+      const bitlabsService = require("../services/bitlabs.service");
+      // Use Publisher API (same as admin /games/by-sdk/bitlabs) - full catalog, no user-specific filtering
+      // const bitlabsOfferCache = require("../utils/bitlabsOfferCache"); // Client API - commented out
       const gameIdToFind = game.gameId?.toString().trim();
 
       if (!gameIdToFind) {
@@ -132,7 +134,7 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         return false;
       }
 
-      console.log(`[BITLABS] Checking availability for game ${gameIdToFind}, userId: ${userId}`);
+      console.log(`[BITLABS] Checking availability for game ${gameIdToFind} (Publisher API, same as admin)`);
 
       try {
         // Convert platform to devices array for Bitlabs
@@ -148,15 +150,21 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
 
         const queryParams = {
           is_game: true,
-          devices: devices.length > 0 ? devices : undefined,
-          userId: userId,  // Add userId for personalized offers
+          devices: devices.length > 0 ? devices : ["android", "iphone"],
+          country: userProfile.country || "US",
+          sdk: "CUSTOM",
         };
 
-        console.log(`[BITLABS] Fetching offers with params:`, queryParams);
+        console.log(`[BITLABS] Fetching offers via Publisher API with params:`, queryParams);
 
-        const offers = await bitlabsOfferCache.getOffers(queryParams);
+        // Publisher API - full catalog (same as admin by-sdk/bitlabs)
+        const result = await bitlabsService.getPublisherOffers(queryParams);
+        const offers = Array.isArray(result?.data) ? result.data : [];
 
-        if (!Array.isArray(offers) || offers.length === 0) {
+        // Client API - commented out (user-specific, often returned empty offers / started_offers only)
+        // const offers = await bitlabsOfferCache.getOffers({ ...queryParams, userId });
+
+        if (!offers.length) {
           console.log(`[BITLABS] No offers returned for game ${gameIdToFind}`);
           return false;
         }

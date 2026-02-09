@@ -5481,10 +5481,13 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           offer.offerType === "shopping" ||
           offer.offerType === "magic_receipt"
         ) {
+          // For shopping & magic receipt offers, prefer the Bitlabs/Publisher numeric ID
+          // so that it matches the ID used in the admin UI list (offer.id).
+          // Fallbacks keep backward compatibility if product_id/anchor were used previously.
           externalId =
+            offer.id?.toString() ||
             offer.product_id?.toString() ||
             offer.anchor ||
-            offer.id ||
             offer.offerId ||
             offer.externalId;
         } else {

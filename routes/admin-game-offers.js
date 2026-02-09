@@ -5277,8 +5277,8 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       });
     }
 
-    const allOffers = [];
-    const categorized = {
+    // Use the categorized offers from result (already fetched from Publisher API)
+    const categorized = result.categorized || {
       surveys: [],
       cashback: [],
       shopping: [],
@@ -5286,131 +5286,65 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       other: [],
     };
 
-    // Collect all offers by type
-    if (offerType === "all" || offerType === "survey") {
-      const surveys = result.categorized.surveys || [];
+    const allOffers = [];
+
+    // Collect all offers by type from result.categorized (already fetched)
+    if (offerType === "all" || offerType === "survey" || offerType === "surveys") {
+      const surveys = categorized.surveys || [];
       allOffers.push(
         ...surveys.map((o) => ({
           ...o,
           offerType: "survey",
         }))
       );
-      
-      console.log("🟡 [SYNC] Total unique surveys after combining APIs:", surveys.length);
+      console.log("🟡 [SYNC] Surveys from result.categorized:", surveys.length);
     }
 
-    // Fetch non-survey offers using Publisher API
-    if (offerType === "all" || offerType === "cashback" || offerType === "shopping" || offerType === "magic_receipt") {
-      try {
-        const queryParams = {};
-        
-        if (devices && devices.length > 0) {
-          queryParams.devices = Array.isArray(devices) ? devices : [devices];
-        } else {
-          queryParams.devices = ["android", "iphone"];
-        }
-        
-        if (country) {
-          queryParams.country = country;
-        } else {
-          queryParams.country = "US";
-        }
-        
-        console.log("🟡 [SYNC] Fetching non-survey offers from Publisher API");
-        const result = await bitlabsService.getPublisherOffers(queryParams);
+    if (offerType === "all" || offerType === "cashback") {
+      const cashback = categorized.cashback || [];
+      allOffers.push(
+        ...cashback.map((o) => ({
+          ...o,
+          offerType: "cashback",
+        }))
+      );
+      console.log("🟡 [SYNC] Cashback from result.categorized:", cashback.length);
+    }
 
-        if (result.success && result.data) {
-          const rawOffers = Array.isArray(result.data) ? result.data : [];
-          
-          // Categorize offers
-          rawOffers.forEach((offer) => {
-            const anchor = (offer.anchor || offer.name || offer.merchant_name || "").toLowerCase();
-            const description = (offer.description || "").toLowerCase();
-            const category = offer.category || offer.categories?.[0] || offer.primary_category || "";
-            const categoryStr = typeof category === "object" 
-              ? (category.name || category.name_internal || "").toLowerCase()
-              : (category || "").toLowerCase();
-            const hasCashbackField = offer.cashback !== undefined || offer.original_cashback !== undefined;
+    if (offerType === "all" || offerType === "shopping") {
+      const shopping = categorized.shopping || [];
+      allOffers.push(
+        ...shopping.map((o) => ({
+          ...o,
+          offerType: "shopping",
+        }))
+      );
+      console.log("🟡 [SYNC] Shopping from result.categorized:", shopping.length);
+    }
 
-            if (
-              offer.type === "cashback" ||
-              anchor.includes("cashback") ||
-              anchor.includes("cash back") ||
-              description.includes("cashback") ||
-              description.includes("cash back") ||
-              categoryStr.includes("cashback") ||
-              hasCashbackField ||
-              offer.merchant_name
-            ) {
-              categorized.cashback.push(offer);
-            } else if (
-              offer.type === "shopping" ||
-              anchor.includes("shop") ||
-              anchor.includes("store") ||
-              anchor.includes("retail") ||
-              description.includes("shopping") ||
-              description.includes("purchase") ||
-              categoryStr.includes("shopping") ||
-              categoryStr.includes("retail")
-            ) {
-              categorized.shopping.push(offer);
-            } else if (
-              offer.type === "magic_receipt" ||
-              anchor.includes("magic receipt") ||
-              anchor.includes("receipt") ||
-              description.includes("receipt") ||
-              description.includes("upload receipt") ||
-              categoryStr.includes("receipt") ||
-              categoryStr.includes("magic receipt")
-            ) {
-              categorized.magicReceipts.push(offer);
-            } else if (
-              offer.type !== "survey" && 
-              !anchor.includes("survey") && 
-              !description.includes("survey")
-            ) {
-              categorized.other.push(offer);
-            }
-          });
+    if (offerType === "all" || offerType === "magic_receipt" || offerType === "magic-receipts" || offerType === "magicReceipts") {
+      const magicReceipts = categorized.magicReceipts || [];
+      allOffers.push(
+        ...magicReceipts.map((o) => ({
+          ...o,
+          offerType: "magic_receipt",
+        }))
+      );
+      console.log("🟡 [SYNC] Magic Receipts from result.categorized:", magicReceipts.length);
+    }
 
-          // Add to allOffers based on offerType filter
-          if (offerType === "all" || offerType === "cashback") {
-            allOffers.push(
-              ...categorized.cashback.map((o) => ({
-                ...o,
-                offerType: "cashback",
-              }))
-            );
-          }
-          if (offerType === "all" || offerType === "shopping") {
-            allOffers.push(
-              ...categorized.shopping.map((o) => ({
-                ...o,
-                offerType: "shopping",
-              }))
-            );
-          }
-          if (offerType === "all" || offerType === "magic_receipt" || offerType === "magic-receipts" || offerType === "magicReceipts") {
-            allOffers.push(
-              ...categorized.magicReceipts.map((o) => ({
-                ...o,
-                offerType: "magic_receipt",
-              }))
-            );
-          }
-          
-          console.log("🟡 [SYNC] Fetched from Publisher API:", {
-            cashback: categorized.cashback.length,
-            shopping: categorized.shopping.length,
-            magicReceipts: categorized.magicReceipts.length,
-            other: categorized.other.length,
-          });
-        } else {
-          console.warn("🟡 [SYNC] Publisher API returned no offers:", result.error);
-        }
-      } catch (publisherError) {
-        console.error("🟡 [SYNC] Error fetching from Publisher API:", publisherError.message);
-      }
+    // REMOVED: Duplicate Publisher API fetch - we already have offers in result.categorized
+    // The previous code was fetching twice which was causing issues
+    // Now we use result.categorized directly which already has all offers (surveys, shopping, cashback, etc.)
+    
+    // Log sample shopping offer IDs for debugging
+    if (categorized.shopping && categorized.shopping.length > 0) {
+      console.log("🟡 [SYNC] Sample shopping offer IDs (first 5):", categorized.shopping.slice(0, 5).map(o => ({
+        id: o.id,
+        productId: o.product_id,
+        anchor: o.anchor,
+        type: o.type,
+      })));
     }
     
     console.log("🟡 [SYNC] Total offers to sync:", {
@@ -5422,48 +5356,53 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       total: allOffers.length,
     });
     
-    // Log all survey IDs if filtering by offerIds
+    // Log all offer IDs if filtering by offerIds
     if (offerIds && offerIds.length > 0) {
       console.log("🟡 [SYNC] Requested offer IDs:", offerIds);
-      console.log("🟡 [SYNC] Available survey IDs:", categorized.surveys.map(s => ({
-        id: s.id,
-        surveyId: s.surveyId,
-        offerId: s.offerId,
-        externalId: s.externalId,
-      })));
+      console.log("🟡 [SYNC] Available offer IDs by type:", {
+        surveys: categorized.surveys.slice(0, 5).map(s => ({
+          id: s.id,
+          surveyId: s.surveyId,
+          offerId: s.offerId,
+        })),
+        shopping: categorized.shopping.slice(0, 5).map(s => ({
+          id: s.id,
+          productId: s.product_id,
+          anchor: s.anchor,
+        })),
+        cashback: categorized.cashback.slice(0, 5).map(s => ({
+          id: s.id,
+          merchantId: s.merchant_id,
+        })),
+      });
     }
 
     // Filter by offerIds if provided
     // For cashback: ID is merchant_id (number or string)
-    // For shopping/magic receipts: ID might be product_id or anchor
+    // For shopping/magic receipts: ID is id (numeric) from Publisher API
     // For surveys: ID is surveyId or id (can be UUID or number)
     const offersToSync =
       offerIds && offerIds.length > 0
         ? allOffers.filter((o) => {
             // Get all possible ID formats for this offer
+            // IMPORTANT: For shopping offers from Publisher API, the ID is directly in o.id (numeric)
             const offerId = o.id || o.surveyId || o.offerId || o.externalId;
             const merchantId = o.merchant_id?.toString();
             const productId = o.product_id?.toString();
             const anchor = o.anchor?.toString();
             
-            // For surveys, also check numeric ID if it's a UUID format
-            let numericId = null;
-            if (offerId && typeof offerId === 'string' && offerId.includes('-')) {
-              // If it's a UUID, try to extract numeric part or use as-is
-              numericId = offerId;
-            } else if (offerId) {
-              numericId = offerId.toString();
-            }
-
-            // Convert offerIds to strings for comparison
-            const offerIdsStr = offerIds.map((id) => id?.toString());
+            // Convert offerIds to strings for comparison (handle both string and number inputs)
+            const offerIdsStr = offerIds.map((id) => {
+              // Handle both string and number inputs from frontend
+              if (typeof id === 'string') return id;
+              if (typeof id === 'number') return id.toString();
+              return String(id);
+            });
 
             // Check if any ID matches (normalize all to strings)
-            // For surveys: Bitlabs returns UUID format IDs, but we might receive numeric IDs
-            // Try to match by converting both to strings and checking if numeric part matches
+            // For shopping/cashback: Publisher API returns numeric IDs directly in o.id
             let matches = 
               offerIdsStr.includes(offerId?.toString()) ||
-              (numericId && offerIdsStr.includes(numericId)) ||
               (merchantId && offerIdsStr.includes(merchantId)) ||
               (productId && offerIdsStr.includes(productId)) ||
               (anchor && offerIdsStr.includes(anchor));
@@ -5480,13 +5419,15 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
               }
             }
 
-            if (!matches && offerIdsStr.length > 0 && o.offerType === "survey") {
-              // Only log mismatches for surveys to avoid spam
-              console.log("🔍 [SYNC] Survey ID mismatch:", {
+            // Log mismatch for debugging (only first few to avoid spam)
+            if (!matches && offerIdsStr.length > 0) {
+              // Log for all offer types, not just surveys
+              console.log(`🔍 [SYNC] ${o.offerType} ID mismatch:`, {
                 requestedIds: offerIdsStr,
                 offerId: offerId?.toString(),
-                surveyId: o.surveyId?.toString(),
-                id: o.id?.toString(),
+                merchantId: merchantId,
+                productId: productId,
+                anchor: anchor,
                 offerType: o.offerType,
               });
             }
@@ -5507,8 +5448,15 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       console.warn("⚠️ [SYNC] No offers matched the requested IDs:", {
         requestedIds: offerIds,
         totalAvailableOffers: allOffers.length,
-        availableSurveyIds: categorized.surveys.map(s => s.id || s.surveyId || s.offerId).filter(Boolean),
-        suggestion: "Check if the survey ID exists in the API response. Survey IDs from Bitlabs are usually UUIDs, not numeric.",
+        offerType: offerType,
+        availableIds: {
+          surveys: categorized.surveys.map(s => s.id || s.surveyId || s.offerId).filter(Boolean).slice(0, 10),
+          shopping: categorized.shopping.map(s => s.id || s.product_id).filter(Boolean).slice(0, 10),
+          cashback: categorized.cashback.map(s => s.merchant_id || s.id).filter(Boolean).slice(0, 10),
+        },
+        suggestion: offerType === "survey" 
+          ? "Survey IDs from Bitlabs are usually UUIDs, not numeric. Check if the ID exists in the API response."
+          : "Check if the offer ID exists in the API response. Shopping/cashback offers use numeric IDs from Publisher API.",
       });
     }
 

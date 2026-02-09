@@ -975,8 +975,10 @@ router.get("/discover", protect, async (req, res) => {
 
     const userId = req.user.userId;
 
-    // CRITICAL: Explicitly select games field to ensure it's included
-    const user = await User.findById(userId).select('games').lean();
+    // Load user with all fields needed for userProfile (age, country, xp, vip, taskProgression)
+    const user = await User.findById(userId)
+      .select('games profile onboarding location xp vip taskProgression')
+      .lean();
 
     if (!user) {
       return res.status(401).json({
@@ -1140,28 +1142,39 @@ router.get("/discover", protect, async (req, res) => {
       );
     }
 
-    // Membership tier filter (free, bronze, gold, platinum)
-    // Filter games where the membership tier is within the allowed range
-    if (membership) {
-      const normalizedMembership = membership.toLowerCase();
+    // Membership tier filter: use query param if sent, else authenticated user's VIP tier (automatic)
+    const membershipForFilter = membership || membershipTier || "free";
+    if (membershipForFilter) {
+      const normalizedMembership = String(membershipForFilter).toLowerCase();
       const tierOrder = ["free", "bronze", "gold", "platinum"];
       const membershipIndex = tierOrder.indexOf(normalizedMembership);
 
       if (membershipIndex !== -1) {
-        // Include games with no tier restrictions OR where membership tier is allowed
-        // Games with tierRestrictions.minTier <= membership <= tierRestrictions.maxTier
+        // Include games with no tier restrictions, "all" segment, OR where user's tier is in [minTier, maxTier]
+        // When admin configures segment as "all", minTier is "all" -> show to free, bronze, gold, platinum
         const membershipFilter = {
           $or: [
             // Games with no tier restrictions (available to all)
             { tierRestrictions: { $exists: false } },
             { "tierRestrictions.minTier": { $exists: false } },
             { "tierRestrictions.maxTier": { $exists: false } },
-            // Games where minTier allows this membership level or lower
-            // This is a simplified filter - full validation happens in post-query filtering
+            // Segment "all" config by admin: all membership users (free, bronze, gold, platinum) see the game
+            { "tierRestrictions.minTier": "all" },
+            { "tierRestrictions.maxTier": "all" },
+            // User's tier is within game's [minTier, maxTier]: minTier <= user <= maxTier
             {
-              $or: tierOrder.slice(0, membershipIndex + 1).map((tier) => ({
-                "tierRestrictions.minTier": tier,
-              })),
+              $and: [
+                {
+                  "tierRestrictions.minTier": {
+                    $in: tierOrder.slice(0, membershipIndex + 1),
+                  },
+                },
+                {
+                  "tierRestrictions.maxTier": {
+                    $in: tierOrder.slice(membershipIndex),
+                  },
+                },
+              ],
             },
           ],
         };
@@ -1517,17 +1530,20 @@ router.get("/discover", protect, async (req, res) => {
         const maxTier = (
           g.tierRestrictions.maxTier || "platinum"
         ).toLowerCase();
-        const userTierLower = userMembershipTier.toLowerCase();
+        // Segment "all" config by admin: game applies to free, bronze, gold, platinum
+        if (minTier === "all" || maxTier === "all") {
+          passesMembershipTier = true;
+        } else {
+          const userTierLower = userMembershipTier.toLowerCase();
+          const tierOrder = ["free", "bronze", "gold", "platinum"];
+          const userTierIndex = tierOrder.indexOf(userTierLower);
+          const minTierIndex = tierOrder.indexOf(minTier);
+          const maxTierIndex = tierOrder.indexOf(maxTier);
 
-        // Tier hierarchy: free < bronze < gold < platinum
-        const tierOrder = ["free", "bronze", "gold", "platinum"];
-        const userTierIndex = tierOrder.indexOf(userTierLower);
-        const minTierIndex = tierOrder.indexOf(minTier);
-        const maxTierIndex = tierOrder.indexOf(maxTier);
-
-        // User must have tier >= minTier and <= maxTier
-        if (userTierIndex < minTierIndex || userTierIndex > maxTierIndex) {
-          passesMembershipTier = false;
+          // User must have tier >= minTier and <= maxTier
+          if (userTierIndex < minTierIndex || userTierIndex > maxTierIndex) {
+            passesMembershipTier = false;
+          }
         }
       } else {
         // Game has no membership tier restrictions - available to all tiers
@@ -1681,6 +1697,21 @@ router.get("/discover", protect, async (req, res) => {
           };
         }
 
+        // Same format for Besitos and Bitlabs: use raw SDK data to fill icon, images, details
+        const raw = g.besitosRawData || {};
+        const iconFromRaw = raw.creatives?.icon || raw.icon || raw.icon_url || "";
+        const bannerFromRaw = raw.creatives?.images?.["600x300"] || raw.creatives?.icon || raw.icon || "";
+        const detailsFromRaw = {
+          id: raw.id || g.gameDetails?.id || g.gameId,
+          name: raw.anchor || raw.name || g.gameDetails?.name || g.title,
+          description: raw.description || g.gameDetails?.description || g.description,
+          image: raw.creatives?.icon || raw.icon || g.gameDetails?.image || "",
+          square_image: raw.creatives?.icon || raw.icon || g.gameDetails?.square_image || "",
+          large_image: raw.creatives?.images?.["600x300"] || raw.creatives?.icon || g.gameDetails?.large_image || "",
+          category: (raw.categories && raw.categories[0]) ? (typeof raw.categories[0] === "string" ? raw.categories[0] : raw.categories[0]?.name) : (g.gameDetails?.category || g.category || ""),
+          downloadUrl: raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
+        };
+
         return {
           gameId: g.gameId,
           title: g.title,
@@ -1689,23 +1720,28 @@ router.get("/discover", protect, async (req, res) => {
           uiSection: g.uiSection,
           gender: g.gender,
           ageGroup: g.ageGroup,
-          rewards: g.rewards,
-          clickUrl: g.clickUrl || null,  // Include clickUrl for downloads
+          rewards: {
+            coins: g.rewards?.coins ?? 0,
+            xp: g.rewards?.xp ?? 0,
+            gold: g.rewards?.coins ?? g.rewards?.gold ?? 0,
+          },
+          clickUrl: g.clickUrl || null,
           icon:
             g.metadata?.thumbnail?.url ||
             g.gameDetails?.square_image ||
             g.gameDetails?.image ||
+            iconFromRaw ||
             "",
           images: {
-            icon: g.metadata?.images?.icon || g.gameDetails?.square_image || "",
-            banner:
-              g.metadata?.images?.banner || g.gameDetails?.large_image || "",
+            icon: g.metadata?.images?.icon || g.gameDetails?.square_image || iconFromRaw || "",
+            banner: g.metadata?.images?.banner || g.gameDetails?.large_image || bannerFromRaw || "",
           },
-          details: g.gameDetails || {},
-          besitosRawData: g.besitosRawData || null,
+          details: { ...(g.gameDetails || {}), ...detailsFromRaw },
+          besitosRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? null : (g.besitosRawData || null),
+          bitlabsRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? (g.besitosRawData || null) : null,
+          sdkProvider: g.sdkProvider || null,
           xpRewardConfig: g.xpRewardConfig || { baseXP: 0, multiplier: 1.0 },
           _id: g._id,
-          // User's XP tier
           userXpTier: userXpTier,
           // Bonus task eligibility - check if this game is in user's downloaded games
           bonusTasks: (() => {

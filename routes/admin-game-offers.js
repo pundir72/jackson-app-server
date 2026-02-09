@@ -5290,13 +5290,13 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     if (offerType === "all" || offerType === "survey") {
       const surveys = result.categorized.surveys || [];
       allOffers.push(
-        ...allSurveys.map((o) => ({
+        ...surveys.map((o) => ({
           ...o,
           offerType: "survey",
         }))
       );
       
-      console.log("🟡 [SYNC] Total unique surveys after combining APIs:", allSurveys.length);
+      console.log("🟡 [SYNC] Total unique surveys after combining APIs:", surveys.length);
     }
 
     // Fetch non-survey offers using Publisher API

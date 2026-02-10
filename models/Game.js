@@ -353,10 +353,16 @@ gameSchema.statics.findByGenre = function (genre) {
 
 // Instance methods
 gameSchema.methods.isEligibleForTier = function (tier) {
+  if (!this.tierRestrictions) return true;
+  const minTier = (this.tierRestrictions.minTier || "").toLowerCase();
+  const maxTier = (this.tierRestrictions.maxTier || "").toLowerCase();
+  // Segment "all" config by admin: applies to free, bronze, gold, platinum
+  if (minTier === "all" || maxTier === "all") return true;
+
   const tierOrder = ["free", "bronze", "gold", "platinum"];
   const userTierIndex = tierOrder.indexOf(tier);
-  const minTierIndex = tierOrder.indexOf(this.tierRestrictions.minTier);
-  const maxTierIndex = tierOrder.indexOf(this.tierRestrictions.maxTier);
+  const minTierIndex = tierOrder.indexOf(minTier);
+  const maxTierIndex = tierOrder.indexOf(maxTier);
 
   return userTierIndex >= minTierIndex && userTierIndex <= maxTierIndex;
 };

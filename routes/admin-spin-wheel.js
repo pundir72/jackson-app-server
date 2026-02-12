@@ -18,6 +18,17 @@ const fs = require("fs");
 const sharp = require("sharp");
 const config = require("../config/config");
 
+/**
+ * Parse date string as UTC for campaign start/end.
+ * If the string has no timezone (e.g. from datetime-local), treat it as UTC.
+ */
+function parseDateAsUTC(value) {
+  if (!value || typeof value !== "string" || !value.trim()) return null;
+  const s = value.trim();
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
+  return new Date(s + "Z");
+}
+
 // Multer setup for icon uploads
 const iconsUploadDir = path.join(__dirname, "../uploads/spin-wheel/icons");
 fs.mkdirSync(iconsUploadDir, { recursive: true });
@@ -821,10 +832,9 @@ router.post(
       const vipMultipliers = req.body.vipMultipliers;
       const additionalSpinsPerTier = req.body.additionalSpinsPerTier;
       const visualSettings = req.body.visualSettings;
-      const startDate = req.body.startDate
-        ? new Date(req.body.startDate)
-        : null;
-      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      // Store start/end as UTC so campaign window is enforced consistently
+      const startDate = parseDateAsUTC(req.body.startDate);
+      const endDate = parseDateAsUTC(req.body.endDate);
 
       // Deactivate existing config
       await SpinWheelConfig.updateMany({ isActive: true }, { isActive: false });
@@ -855,8 +865,8 @@ router.post(
           animationDuration: 3000,
           soundEnabled: true,
         },
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
+        startDate: startDate || null,
+        endDate: endDate || null,
         createdBy: req.user.userId,
       });
 

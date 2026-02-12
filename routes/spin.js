@@ -40,6 +40,26 @@ function isTierEligible(userTier, eligibleTiers) {
   );
 }
 
+/**
+ * Check if current UTC time is within the campaign start/end window.
+ * Uses UTC for all comparisons so admin start/end times are enforced consistently.
+ * @param {{ startDate?: Date | string | null, endDate?: Date | string | null }} config
+ * @returns {boolean} true if within window (or no dates set), false if outside
+ */
+function isWithinCampaignWindowUTC(config) {
+  if (!config) return true;
+  const nowUtcMs = Date.now();
+  if (config.startDate) {
+    const startMs = new Date(config.startDate).getTime();
+    if (Number.isNaN(startMs) || nowUtcMs < startMs) return false;
+  }
+  if (config.endDate) {
+    const endMs = new Date(config.endDate).getTime();
+    if (Number.isNaN(endMs) || nowUtcMs > endMs) return false;
+  }
+  return true;
+}
+
 // Helper function to get active spin wheel configuration
 async function getSpinWheelConfig() {
   try {
@@ -80,36 +100,8 @@ router.get("/config", protect, async (req, res) => {
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
-    // Check date restrictions - ensure dates are properly compared
-    const now = new Date();
-    let isWithinDateRange = true;
-
-    if (config.startDate) {
-      const startDate = new Date(config.startDate);
-      // Compare dates only (ignore time) to avoid timezone issues
-      const startDateOnly = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate()
-      );
-      const nowDateOnly = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      );
-      // If current date is before start date, block access
-      if (nowDateOnly < startDateOnly) {
-        isWithinDateRange = false;
-      }
-    }
-
-    if (config.endDate) {
-      const endDate = new Date(config.endDate);
-      // Compare full datetime (including time) - if current time is after end time, block access
-      if (now > endDate) {
-        isWithinDateRange = false;
-      }
-    }
+    // Check campaign window (start/end date & time) in UTC - block if outside window
+    const isWithinDateRange = isWithinCampaignWindowUTC(config);
 
     res.json({
       success: true,
@@ -160,7 +152,7 @@ router.get("/status", protect, async (req, res) => {
     }
 
     // Get active spin wheel configuration
-    const config = await SpinWheelConfig.findOne({ isActive: true });
+    let config = await SpinWheelConfig.findOne({ isActive: true });
     if (!config) {
       config = DEFAULT_SPIN_CONFIG;
     }
@@ -171,36 +163,8 @@ router.get("/status", protect, async (req, res) => {
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
-    // Check date restrictions - ensure dates are properly compared
-    const now = new Date();
-    let isWithinDateRange = true;
-
-    if (config.startDate) {
-      const startDate = new Date(config.startDate);
-      // Compare dates only (ignore time) to avoid timezone issues
-      const startDateOnly = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate()
-      );
-      const nowDateOnly = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      );
-      // If current date is before start date, block access
-      if (nowDateOnly < startDateOnly) {
-        isWithinDateRange = false;
-      }
-    }
-
-    if (config.endDate) {
-      const endDate = new Date(config.endDate);
-      // Compare full datetime (including time) - if current time is after end time, block access
-      if (now > endDate) {
-        isWithinDateRange = false;
-      }
-    }
+    // Check campaign window (start/end date & time) in UTC - block if outside window
+    const isWithinDateRange = isWithinCampaignWindowUTC(config);
 
     if (!isEligible || !isWithinDateRange) {
       return res.json({
@@ -311,7 +275,7 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    const config = await SpinWheelConfig.findOne({ isActive: true });
+    let config = await SpinWheelConfig.findOne({ isActive: true });
     if (!config) {
       config = DEFAULT_SPIN_CONFIG;
     }
@@ -325,38 +289,8 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    // Check date restrictions - ensure dates are properly compared
-    const now = new Date();
-    let isWithinDateRange = true;
-
-    if (config.startDate) {
-      const startDate = new Date(config.startDate);
-      // Compare dates only (ignore time) to avoid timezone issues
-      const startDateOnly = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate()
-      );
-      const nowDateOnly = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      );
-      // If current date is before start date, block access
-      if (nowDateOnly < startDateOnly) {
-        isWithinDateRange = false;
-      }
-    }
-
-    if (config.endDate) {
-      const endDate = new Date(config.endDate);
-      // Compare full datetime (including time) - if current time is after end time, block access
-      if (now > endDate) {
-        isWithinDateRange = false;
-      }
-    }
-
-    if (!isWithinDateRange) {
+    // Enforce campaign start/end in UTC - block spin if outside window
+    if (!isWithinCampaignWindowUTC(config)) {
       return res.status(403).json({
         success: false,
         error:

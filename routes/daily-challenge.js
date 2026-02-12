@@ -3337,6 +3337,23 @@ router.post("/spin", protect, async (req, res) => {
       $set: { "stats.lastWon": new Date() },
     });
 
+    // Mark daily challenge progress as completed in UserChallengeProgress (same collection used for admin "Daily Challenges Completed" count)
+    if (
+      config.spinMode === "free" ||
+      !config.spinMode ||
+      config.spinMode !== "ad_based"
+    ) {
+      await progress.markCompleted({
+        coins: coinsEarned,
+        xp: xpEarned,
+        bonusCoins: 0,
+        bonusXP: 0,
+      });
+      await progress.claimRewards();
+      const accountOverviewService = require("../utils/accountOverview");
+      await accountOverviewService.incrementChallengesCompletedCounter(userId);
+    }
+
     res.json({
       success: true,
       message: "Spin completed for daily challenge",

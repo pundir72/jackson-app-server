@@ -764,6 +764,16 @@ router.get("/wallet/:userId", adminAuth, async (req, res) => {
       action: "VIEW_USER_WALLET",
     });
 
+    // Resolve tier name from admin XP Tiers config (same ranges as Rewards Management)
+    const currentXp = user.xp?.current ?? 0;
+    let tierName = null;
+    try {
+      const tierDoc = await XPTier.findByXpValue(currentXp);
+      if (tierDoc && tierDoc.tierName) tierName = tierDoc.tierName;
+    } catch (err) {
+      console.error("Error resolving XP tier for wallet:", err);
+    }
+
     res.json({
       success: true,
       data: {
@@ -782,6 +792,7 @@ router.get("/wallet/:userId", adminAuth, async (req, res) => {
           current: user.xp.current || 0,
           total: user.xp.total || 0,
           tier: user.xp.tier || 1,
+          tierName: tierName || undefined,
         },
         recentTransactions,
       },

@@ -1443,21 +1443,18 @@ router.get("/discover", protect, async (req, res) => {
       // If no games found, we previously logged debug information; now it's silent
     }
 
-    // Apply display rule limit if rule matches AND uiSection is "Swipe"
-    // Display rules only apply to Swipe section games for all users
+    // Apply display rule limit when rule matches, for all UI sections EXCEPT "Swipe" and "Most Played"
+    const normalizedUiSection = (uiSection || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const skipLimitForSection =
+      normalizedUiSection === "swipe" ||
+      normalizedUiSection === "most played" ||
+      normalizedUiSection === "mostplayed";
     if (
       maxGamesFromRule &&
-      uiSection &&
-      uiSection.toLowerCase() === "swipe" &&
+      !skipLimitForSection &&
       allGames.length > maxGamesFromRule
     ) {
       allGames = allGames.slice(0, maxGamesFromRule);
-    } else if (
-      maxGamesFromRule &&
-      uiSection &&
-      uiSection.toLowerCase() !== "swipe"
-    ) {
-      // Display rule limit applies only to Swipe section
     }
 
     // Get user's XP tier from admin configuration (XPTier model)
@@ -1491,6 +1488,18 @@ router.get("/discover", protect, async (req, res) => {
 
     // Get user's membership tier
     const userMembershipTier = getUserMembershipTier(user) || "free";
+
+    // Get user's XP tier multiplier (same as spin wheel, daily challenge) for discover display
+    const { multiplier: discoverTierMultiplier, tier: discoverTierKey } =
+      await applyTierMultiplierToXP(user, 1);
+    const userCurrentXp = user.xp?.current ?? 0;
+    console.log("[DISCOVER] XP tier multiplier for discover:", {
+      userId,
+      currentXp: userCurrentXp,
+      tierKey: discoverTierKey,
+      tierMultiplier: discoverTierMultiplier,
+      check: "Junior=1x, Middle=1.3x, Senior=1.5x (from Rewards > XP Tiers)",
+    });
 
     // Filter games by XP tier and VIP tier requirements (before pagination)
 
@@ -1740,7 +1749,12 @@ router.get("/discover", protect, async (req, res) => {
           besitosRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? null : (g.besitosRawData || null),
           bitlabsRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? (g.besitosRawData || null) : null,
           sdkProvider: g.sdkProvider || null,
-          xpRewardConfig: g.xpRewardConfig || { baseXP: 0, multiplier: 1.0 },
+          xpRewardConfig: (() => {
+            const baseXP = g.xpRewardConfig?.baseXP ?? 0;
+            const baseMultiplier = g.xpRewardConfig?.multiplier ?? 1.0;
+            const multiplier = Math.round(baseMultiplier * discoverTierMultiplier * 100) / 100;
+            return { baseXP, multiplier };
+          })(),
           _id: g._id,
           userXpTier: userXpTier,
           // Bonus task eligibility - check if this game is in user's downloaded games

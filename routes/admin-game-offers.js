@@ -2580,40 +2580,49 @@ router.post(
         }
       }
 
-      // Get targetSegment from request (top-level or metadata) or auto-generate
+      // Get targetSegment from request (top-level or metadata) or derive from milestones + gameCountLimits
       let targetSegment =
         req.body.targetSegment || req.body.metadata?.targetSegment;
-      if (
-        !targetSegment &&
-        req.body.userMilestones &&
-        req.body.userMilestones.length > 0
-      ) {
-        const segmentParts = [];
-        req.body.userMilestones.forEach((milestone) => {
-          switch (milestone) {
-            case "first_time_user":
-              segmentParts.push("New Users");
-              break;
-            case "returning_user":
-              segmentParts.push("Engaged Users (3+ games)");
-              break;
-            case "xp_tier":
-              segmentParts.push("XP Tier");
-              break;
-            case "membership_tier":
-              if (req.body.membershipTier) {
-                const tierName =
-                  req.body.membershipTier.charAt(0).toUpperCase() +
-                  req.body.membershipTier.slice(1);
-                segmentParts.push(`${tierName} Tier`);
-              } else {
-                segmentParts.push("Membership Tier");
-              }
-              break;
-          }
-        });
-        targetSegment =
-          segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+      if (!targetSegment || !targetSegment.trim()) {
+        const limits = req.body.gameCountLimits || {};
+        const hasNew = limits.newUsersLimit != null;
+        const hasEngaged = limits.engagedUsersLimit != null;
+        if (hasNew && hasEngaged) {
+          targetSegment = "New Users, Engaged Users";
+        } else if (hasEngaged) {
+          targetSegment = "Engaged Users";
+        } else if (hasNew) {
+          targetSegment = "New Users";
+        } else if (req.body.userMilestones && req.body.userMilestones.length > 0) {
+          const segmentParts = [];
+          req.body.userMilestones.forEach((milestone) => {
+            switch (milestone) {
+              case "first_time_user":
+                segmentParts.push("New Users");
+                break;
+              case "returning_user":
+                segmentParts.push("Engaged Users (3+ games)");
+                break;
+              case "xp_tier":
+                segmentParts.push("XP Tier");
+                break;
+              case "membership_tier":
+                if (req.body.membershipTier) {
+                  const tierName =
+                    req.body.membershipTier.charAt(0).toUpperCase() +
+                    req.body.membershipTier.slice(1);
+                  segmentParts.push(`${tierName} Tier`);
+                } else {
+                  segmentParts.push("Membership Tier");
+                }
+                break;
+            }
+          });
+          targetSegment =
+            segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
+        } else {
+          targetSegment = "All Users";
+        }
       }
 
       const ruleData = {
@@ -2771,17 +2780,20 @@ router.put(
           ? updateData.membershipTier
           : existingRule.membershipTier;
 
-      // Get targetSegment from request (top-level or metadata) or auto-generate
+      // Get targetSegment from request (top-level or metadata) or derive from gameCountLimits / milestones
       let targetSegment =
         updateData.targetSegment || updateData.metadata?.targetSegment;
-
-      // Auto-generate targetSegment from userMilestones if milestones are being updated
-      if (
-        updateData.userMilestones ||
-        updateData.membershipTier !== undefined ||
-        !targetSegment
-      ) {
-        if (finalMilestones && finalMilestones.length > 0) {
+      if (!targetSegment || !targetSegment.trim()) {
+        const limits = updateData.gameCountLimits || existingRule.gameCountLimits || {};
+        const hasNew = limits.newUsersLimit != null;
+        const hasEngaged = limits.engagedUsersLimit != null;
+        if (hasNew && hasEngaged) {
+          targetSegment = "New Users, Engaged Users";
+        } else if (hasEngaged) {
+          targetSegment = "Engaged Users";
+        } else if (hasNew) {
+          targetSegment = "New Users";
+        } else if (finalMilestones && finalMilestones.length > 0) {
           const segmentParts = [];
           finalMilestones.forEach((milestone) => {
             switch (milestone) {
@@ -2809,12 +2821,8 @@ router.put(
           targetSegment =
             segmentParts.length > 0 ? segmentParts.join(", ") : "All Users";
         } else {
-          targetSegment =
-            targetSegment || existingRule.targetSegment || "All Users";
+          targetSegment = existingRule.targetSegment || "All Users";
         }
-      } else {
-        targetSegment =
-          targetSegment || existingRule.targetSegment || "All Users";
       }
 
       // Set targetSegment as top-level field
@@ -5260,12 +5268,12 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     } else {
       // Fallback: Client API (getNonGameOffers) in case Publisher returns empty
       result = await bitlabsNonGames.getNonGameOffers({
-        userId: "admin-preview",
-        userProfile: userProfile,
-        type: offerType,
-        category: "all",
+      userId: "admin-preview",
+      userProfile: userProfile,
+      type: offerType,
+      category: "all",
         devices: devices,
-      });
+    });
     }
     }
 
@@ -5374,29 +5382,29 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           });
 
           // Add to allOffers based on offerType filter
-          if (offerType === "all" || offerType === "cashback") {
-            allOffers.push(
+    if (offerType === "all" || offerType === "cashback") {
+      allOffers.push(
               ...categorized.cashback.map((o) => ({
-                ...o,
-                offerType: "cashback",
-              }))
-            );
-          }
-          if (offerType === "all" || offerType === "shopping") {
-            allOffers.push(
+          ...o,
+          offerType: "cashback",
+        }))
+      );
+    }
+    if (offerType === "all" || offerType === "shopping") {
+      allOffers.push(
               ...categorized.shopping.map((o) => ({
-                ...o,
-                offerType: "shopping",
-              }))
-            );
-          }
+          ...o,
+          offerType: "shopping",
+        }))
+      );
+    }
           if (offerType === "all" || offerType === "magic_receipt" || offerType === "magic-receipts" || offerType === "magicReceipts") {
-            allOffers.push(
+      allOffers.push(
               ...categorized.magicReceipts.map((o) => ({
-                ...o,
-                offerType: "magic_receipt",
-              }))
-            );
+          ...o,
+          offerType: "magic_receipt",
+        }))
+      );
           }
           
           console.log("🟡 [SYNC] Fetched from Publisher API:", {

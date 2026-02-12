@@ -45,6 +45,12 @@ async function applyTierMultiplierToXP(user, baseXP) {
     }).lean();
 
     if (!config || !config.multiplier || config.multiplier <= 0) {
+      console.log("[XP Tier Multiplier] No active config for tier:", {
+        currentXp,
+        tierKey,
+        multiplierUsed: 1.0,
+        note: "Falling back to 1.0 (Junior = 1x)",
+      });
       return {
         finalXP: Math.round(numericBase),
         multiplier: 1.0,
@@ -54,6 +60,13 @@ async function applyTierMultiplierToXP(user, baseXP) {
 
     const m = Number(config.multiplier) || 1.0;
     const finalXP = Math.round(numericBase * m);
+
+    console.log("[XP Tier Multiplier] Using config:", {
+      currentXp,
+      tierKey,
+      multiplierUsed: m,
+      expectedTiers: "Junior 0-999=1x, Mid 1000-4999=1.3x, Senior 5000+=1.5x",
+    });
 
     return {
       finalXP,

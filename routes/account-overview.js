@@ -323,19 +323,19 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
       const lastRewardTime = new Date(lastAdRewardAt);
       const timeSinceLastReward = now.getTime() - lastRewardTime.getTime();
       
-      if (timeSinceLastReward < COOLDOWN_MS) {
-        const timeRemaining = COOLDOWN_MS - timeSinceLastReward;
-        return res.status(429).json({
-          success: false,
-          error: 'Ad reward is on cooldown',
-          cooldown: {
-            hours: COOLDOWN_HOURS,
-            timeRemainingMs: timeRemaining,
-            timeRemainingFormatted: formatTimeRemaining(timeRemaining),
-            nextRewardAt: new Date(lastRewardTime.getTime() + COOLDOWN_MS).toISOString()
-          }
-        });
-      }
+      // if (timeSinceLastReward < COOLDOWN_MS) {
+      //   const timeRemaining = COOLDOWN_MS - timeSinceLastReward;
+      //   return res.status(429).json({
+      //     success: false,
+      //     error: 'Ad reward is on cooldown',
+      //     cooldown: {
+      //       hours: COOLDOWN_HOURS,
+      //       timeRemainingMs: timeRemaining,
+      //       timeRemainingFormatted: formatTimeRemaining(timeRemaining),
+      //       nextRewardAt: new Date(lastRewardTime.getTime() + COOLDOWN_MS).toISOString()
+      //     }
+      //   });
+      // }
     }
 
     // Use provided rewardAmount or default to 50 coins

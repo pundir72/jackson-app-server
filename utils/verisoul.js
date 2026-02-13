@@ -17,7 +17,7 @@ class VerisoulSDK {
         id: accountId,
         email: email,
         metadata: metadata,
-        group: group || 'default' // Always include group (required by Verisoul)
+        group: group || 'regular_users' // Always include group (required by Verisoul)
       };
 
       // Verisoul requires session_id from their frontend SDK
@@ -35,7 +35,7 @@ class VerisoulSDK {
         sessionId: finalSessionId,
         accountId: accountId,
         email: email,
-        group: group || 'default',
+        group: group || 'regular_users',
         isFromSDK: !!sessionId
       });
 

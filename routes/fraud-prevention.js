@@ -113,7 +113,7 @@ router.post('/session/authenticate', [
     const finalSessionId = sessionId || session_id || null;
 
     // Provide default group if not specified (REQUIRED by Verisoul)
-    const defaultGroup = group || 'default';
+    const defaultGroup = group || 'regular_users';
 
     const result = await verisoul.authenticateSession(accountId, email, metadata, defaultGroup, finalSessionId);
 

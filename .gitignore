@@ -177,7 +177,6 @@ tests/
 utils/dashboardErrorHandler.js
 utils/dashboardMonitoring.js
 utils/retentionCalculator.backup.js
-utils/retentionCalculatorFixed.js
 utils/spinWheelRandomizer.js
 
 

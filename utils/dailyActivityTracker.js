@@ -129,6 +129,30 @@ async function trackUserActivity(userId, options = {}) {
     const isAlreadyActiveToday = activity.activeDates.includes(todayStr);
     const forceTrack = options.forceTrack || false;
 
+    // Validate and clean activeDates array to prevent duplicates and invalid entries
+    if (activity.activeDates && Array.isArray(activity.activeDates)) {
+      // Remove duplicates and invalid date formats
+      const validDates = activity.activeDates.filter((dateStr, index, arr) => {
+        // Check if it's a valid YYYY-MM-DD format
+        const isValidFormat = isValidDateString(dateStr);
+        // Check if it's not a duplicate
+        const isUnique = arr.indexOf(dateStr) === index;
+        return isValidFormat && isUnique;
+      });
+      
+      // Sort dates to maintain chronological order
+      validDates.sort();
+      
+      // Update the array if we found any issues
+      if (validDates.length !== activity.activeDates.length) {
+        console.log(`🔧 Cleaned activeDates for user ${userId}: removed ${activity.activeDates.length - validDates.length} invalid/duplicate entries`);
+        activity.activeDates = validDates;
+      }
+    } else {
+      // Initialize activeDates if it's not an array
+      activity.activeDates = [];
+    }
+
     // Store reward info for response
     let rewardAwarded = null;
     
@@ -656,7 +680,26 @@ async function resetUserStreak(userId, reason = "admin_reset") {
  * @returns {string} Date string
  */
 function getDateString(date) {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+    throw new Error('Invalid date provided to getDateString');
+  }
   return date.toISOString().split("T")[0];
+}
+
+/**
+ * Validate date string format (YYYY-MM-DD)
+ * @param {string} dateStr - Date string to validate
+ * @returns {boolean} Whether the date string is valid
+ */
+function isValidDateString(dateStr) {
+  if (typeof dateStr !== 'string') return false;
+  
+  // Check format with regex
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  
+  // Check if it's a valid date
+  const date = new Date(dateStr + 'T00:00:00.000Z');
+  return !isNaN(date.getTime()) && date.toISOString().split('T')[0] === dateStr;
 }
 
 /**
@@ -826,5 +869,6 @@ module.exports = {
   resetUserStreak,
   wasUserActiveOnDate,
   getDateString,
+  isValidDateString,
   cleanupStreakHistory,
 };

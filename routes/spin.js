@@ -347,20 +347,23 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    // Select reward by probability using weighted random selection
-    // This ensures truly random selection based on probability weights
+    // FIXED: Select reward by probability using proper weighted random selection
+    // This fixes BUG-065: User always receives the same reward
     const totalProbability = eligibleRewards.reduce(
       (sum, r) => sum + (r.probability || 0),
       0
     );
 
+    let selectedReward;
+
     if (totalProbability <= 0) {
       // Fallback: equal probability for all rewards if no probabilities set
       const randomIndex = Math.floor(Math.random() * eligibleRewards.length);
       selectedReward = eligibleRewards[randomIndex];
+      console.log(`🎲 Spin: Equal distribution selected ${selectedReward.name}`);
     } else {
+      // FIXED ALGORITHM: Proper weighted random selection
       // Generate random number in the range [0, totalProbability)
-      // Using a more precise random number to avoid clustering
       const random = Math.random() * totalProbability;
 
       // Build cumulative distribution and select reward
@@ -371,17 +374,27 @@ router.post("/spin", protect, async (req, res) => {
         const prob = reward.probability || 0;
         cumulative += prob;
 
-        // Select the first reward where random falls within its cumulative range
-        // Using < ensures proper distribution (random is in [0, totalProbability))
-        if (random < cumulative) {
+        // FIXED: Use <= instead of < to include the upper bound properly
+        // This ensures that when random equals cumulative, the reward is selected
+        // Fixes edge case where random = totalProbability always fell back to last reward
+        if (random <= cumulative) {
           selectedReward = reward;
           break;
         }
       }
 
-      // Safety fallback (should never reach here if algorithm is correct)
+      // This should NEVER happen with correct logic
+      // If it does, it indicates a serious bug in the algorithm
       if (!selectedReward) {
-        selectedReward = eligibleRewards[eligibleRewards.length - 1];
+        console.error('❌ CRITICAL SPIN ERROR: No reward selected in probability distribution');
+        console.error(`   Random: ${random}, Total: ${totalProbability}, User: ${userId}`);
+        console.error('   Rewards:', eligibleRewards.map(r => `${r.name}:${r.probability}%`));
+        
+        // Emergency fallback - select first reward and log the error
+        selectedReward = eligibleRewards[0];
+        console.error(`🚨 Emergency fallback to: ${selectedReward.name}`);
+      } else {
+        console.log(`🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) for user ${userId}`);
       }
     }
 

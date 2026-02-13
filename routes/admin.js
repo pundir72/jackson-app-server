@@ -18,7 +18,9 @@ const { getVIPPricing } = require('../utils/pricing')
 const {
   calculateRetention,
   getRetentionTrend,
-} = require('../utils/retentionCalculator')
+  getRetentionInsights,
+  validateRetentionData
+} = require('../utils/retentionCalculatorFixed')
 
 // Admin authentication middleware
 const { adminAuth } = require('../middleware/adminAuth')
@@ -2471,9 +2473,13 @@ router.get(
 
       // OPTIMIZED: Run all independent queries in parallel
       const today = new Date()
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      // Use standardized date string format to match activity tracking
+      const { getDateString } = require('../utils/dailyActivityTracker')
+      const todayStr = getDateString(today)
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
+
+      console.log(`📅 Dashboard: Calculating metrics for today: ${todayStr}`);
 
       const [
         totalUsers,
@@ -2488,10 +2494,26 @@ router.get(
         User.countDocuments(userFilter),
 
         // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
-        User.countDocuments({
-          ...userFilter,
-          'dailyActivity.activeDates': todayStr,
-        }),
+        (async () => {
+          try {
+            const activeUsersQuery = {
+              ...userFilter,
+              'dailyActivity.activeDates': todayStr,
+            }
+            console.log(`📊 Active Users Today query (main dashboard):`, JSON.stringify(activeUsersQuery, null, 2))
+            
+            const count = await User.countDocuments(activeUsersQuery)
+            console.log(`📊 Active Users Today result (main dashboard): ${count}`)
+            
+            return count
+          } catch (error) {
+            console.error('❌ Error calculating Active Users Today (main dashboard):', error.message)
+            console.error('Query details:', { userFilter, todayStr })
+            
+            // Return 0 instead of throwing to prevent dashboard from breaking
+            return 0
+          }
+        })(),
 
         // Total Rewards Issued (Coins) - OPTIMIZED: Use aggregation with user filter
         (async () => {
@@ -2542,7 +2564,9 @@ router.get(
 
         // Total Redemptions (Currency) - OPTIMIZED (BUG-040 fix: Include PayoutRequest data)
         (async () => {
-          const PayoutRequest = require('../models/PayoutRequest')
+          try {
+            console.log('📊 Calculating redemption metrics...')
+            const PayoutRequest = require('../models/PayoutRequest')
           
           // Get redemptions from Transaction collection
           let transactionRedemptions = 0
@@ -2633,6 +2657,10 @@ router.get(
           }
 
           return transactionRedemptions + payoutRequestRedemptions
+          } catch (error) {
+            console.error('❌ Error calculating total redemptions:', error.message)
+            return 0
+          }
         })(),
 
         // Avg. XP/User
@@ -3321,9 +3349,13 @@ router.get(
       }
 
       const today = new Date()
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      // Use standardized date string format to match activity tracking
+      const { getDateString } = require('../utils/dailyActivityTracker')
+      const todayStr = getDateString(today)
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
+
+      console.log(`📅 Dashboard KPIs: Calculating metrics for today: ${todayStr}`);
 
       const [
         totalUsers,
@@ -3334,10 +3366,28 @@ router.get(
       ] = await Promise.all([
         User.countDocuments(userFilter),
         // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
-        User.countDocuments({
-          ...userFilter,
-          'dailyActivity.activeDates': todayStr,
-        }),
+        (async () => {
+          try {
+            const activeUsersQuery = {
+              ...userFilter,
+              'dailyActivity.activeDates': todayStr,
+            }
+            console.log(`📊 Active Users Today query (KPIs):`, JSON.stringify(activeUsersQuery, null, 2))
+            
+            const count = await User.countDocuments(activeUsersQuery)
+            console.log(`📊 Active Users Today result (KPIs): ${count}`)
+            
+            return count
+          } catch (error) {
+            console.error('❌ Error calculating Active Users Today (KPIs):', error.message)
+            console.error('Query details:', { userFilter, todayStr })
+            
+            // Return 0 instead of throwing to prevent dashboard from breaking
+            return 0
+          }
+        })(),
+
+        // Total Rewards Issued (Coins) - OPTIMIZED: Use aggregation with user filter
         (async () => {
           const matchStage = { ...transactionFilter }
           if (userFilterForTransactions) {
@@ -3384,11 +3434,12 @@ router.get(
         })(),
         // Total Redemptions (Currency) - Include PayoutRequest data (BUG-040 fix)
         (async () => {
-          const PayoutRequest = require('../models/PayoutRequest')
-          
-          // Get redemptions from Transaction collection
-          let transactionRedemptions = 0
-          const matchStage = { ...transactionFilter }
+          try {
+            const PayoutRequest = require('../models/PayoutRequest')
+            
+            // Get redemptions from Transaction collection
+            let transactionRedemptions = 0
+            const matchStage = { ...transactionFilter }
           if (userFilterForTransactions) {
             const pipeline = [
               { $match: matchStage },
@@ -3475,6 +3526,10 @@ router.get(
           }
 
           return transactionRedemptions + payoutRequestRedemptions
+          } catch (error) {
+            console.error('❌ Error calculating total redemptions (KPIs):', error.message)
+            return 0
+          }
         })(),
         User.aggregate([
           { $match: userFilter },
@@ -3586,6 +3641,10 @@ router.get(
         getRetentionTrend(filters),
       ])
 
+      // Add insights and validation
+      const insights = getRetentionInsights(retention);
+      const validation = validateRetentionData(retention);
+
       res.json({
         success: true,
         data: {
@@ -3598,6 +3657,11 @@ router.get(
             },
             trend: retentionTrend,
             totalCohort: retention.totalCohort,
+            insights: insights,
+            validation: validation,
+            methodology: retention.methodology,
+            calculatedAt: retention.calculatedAt,
+            detailedData: retention.data // For debugging and transparency
           },
         },
       })

@@ -1077,6 +1077,32 @@ router.get(
 
       const user = req.user;
 
+      // Check if user account status allows login (only active users can login)
+      if (user.profile && user.profile.status !== "active") {
+        const status = user.profile.status;
+        const statusReason = user.profile.statusReason;
+
+        let message =
+          "Your account is not active. Please contact support for more information.";
+        if (status === "suspended") {
+          message =
+            statusReason ||
+            "Your account has been suspended. Please contact support for more information.";
+        } else if (status === "paused") {
+          message =
+            statusReason ||
+            "Your account has been paused. Please contact support for more information.";
+        } else if (status === "inactive") {
+          message =
+            "Your account is inactive. Please contact support to reactivate your account.";
+        }
+
+        const errorMessage = encodeURIComponent(message);
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`
+        );
+      }
+
       // Update login analytics and device info (same as normal login)
       // This tracks total number of Google logins for this specific user (by Google email)
       // Each time this user logs in with Google, loginCount increments by 1
@@ -1210,6 +1236,32 @@ router.get(
           `com.jackson.app://auth/error?message=${encodeURIComponent(
             "User not found after Facebook authentication"
           )}`
+        );
+      }
+
+      // Check if user account status allows login (only active users can login)
+      if (user.profile && user.profile.status !== "active") {
+        const status = user.profile.status;
+        const statusReason = user.profile.statusReason;
+
+        let message =
+          "Your account is not active. Please contact support for more information.";
+        if (status === "suspended") {
+          message =
+            statusReason ||
+            "Your account has been suspended. Please contact support for more information.";
+        } else if (status === "paused") {
+          message =
+            statusReason ||
+            "Your account has been paused. Please contact support for more information.";
+        } else if (status === "inactive") {
+          message =
+            "Your account is inactive. Please contact support to reactivate your account.";
+        }
+
+        const errorMessage = encodeURIComponent(message);
+        return res.redirect(
+          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`
         );
       }
 

@@ -217,13 +217,8 @@ function generateTargetSegmentFromMilestones(
 gameDisplayRuleSchema.pre("save", async function (next) {
   this.updatedAt = Date.now();
 
-  // Auto-generate targetSegment from userMilestones if not already set or if milestones changed
-  // Use top-level targetSegment if provided, otherwise generate from milestones
-  if (
-    !this.targetSegment ||
-    this.isModified("userMilestones") ||
-    this.isModified("membershipTier")
-  ) {
+  // Only auto-generate targetSegment when not explicitly set (preserve value from API request)
+  if (!this.targetSegment || typeof this.targetSegment !== "string" || !this.targetSegment.trim()) {
     // Note: xpTier might be populated, so we need to handle both ObjectId and populated object
     const xpTierValue = this.xpTier?._id || this.xpTier;
     this.targetSegment = generateTargetSegmentFromMilestones(
@@ -416,8 +411,10 @@ gameDisplayRuleSchema.methods.getMaxGamesForSegment = function (
 gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
   console.log("=== GAME DISPLAY RULE EVALUATION START ===");
   console.log(`Rule: "${this.ruleName}" (ID: ${this._id})`);
+  const targetSegmentValue = this.targetSegment || this.metadata?.targetSegment || "";
   console.log("Rule Configuration:", {
     ruleName: this.ruleName,
+    targetSegment: targetSegmentValue,
     userMilestones: this.userMilestones,
     maxGamesToShow: this.maxGamesToShow,
     priority: this.metadata?.priority || 0,
@@ -428,55 +425,36 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
 
   const { age, gender, country, xp, gamesPlayed, membershipTier } = userProfile;
 
-  // Validate mutually exclusive milestones first
-  // A rule cannot have both first_time_user and returning_user
-  if (
-    this.userMilestones.includes("first_time_user") &&
-    this.userMilestones.includes("returning_user")
-  ) {
-    console.log(
-      "❌ Invalid rule: Cannot have both first_time_user and returning_user"
-    );
-    return null;
-  }
-
-  // Check if rule applies based on milestones
-  // ALL selected milestones must match (AND logic)
+  // Segment applicability: use targetSegment (discover uses this instead of userMilestones for segment)
   let applies = true;
-  const milestoneChecks = {};
-
-  // Check first-time user (no games downloaded)
-  if (this.userMilestones.includes("first_time_user")) {
-    milestoneChecks.first_time_user = gamesPlayed === 0;
-    if (gamesPlayed !== 0) {
-      applies = false;
-      console.log(
-        `  ❌ first_time_user milestone: FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
-      );
-    } else {
-      console.log(
-        `  ✅ first_time_user milestone: PASSED (gamesPlayed: ${gamesPlayed})`
-      );
-    }
-  }
-
-  // Check returning user (three or more games downloaded)
-  if (this.userMilestones.includes("returning_user")) {
-    milestoneChecks.returning_user = gamesPlayed >= 3;
+  const segment = (targetSegmentValue || "").trim().toLowerCase();
+  if (segment === "engaged users") {
     if (gamesPlayed < 3) {
       applies = false;
       console.log(
-        `  ❌ returning_user milestone: FAILED (gamesPlayed: ${gamesPlayed}, expected: >= 3)`
+        `  ❌ targetSegment "Engaged Users": FAILED (gamesPlayed: ${gamesPlayed}, expected >= 3)`
       );
     } else {
       console.log(
-        `  ✅ returning_user milestone: PASSED (gamesPlayed: ${gamesPlayed})`
+        `  ✅ targetSegment "Engaged Users": PASSED (gamesPlayed: ${gamesPlayed})`
+      );
+    }
+  } else if (segment === "new users") {
+    if (gamesPlayed !== 0) {
+      applies = false;
+      console.log(
+        `  ❌ targetSegment "New Users": FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
+      );
+    } else {
+      console.log(
+        `  ✅ targetSegment "New Users": PASSED (gamesPlayed: ${gamesPlayed})`
       );
     }
   }
+  // "new users, engaged users" or "all users" or empty → no segment filter
 
-  // Check XP tier
-  if (this.userMilestones.includes("xp_tier")) {
+  // Check XP tier (still use userMilestones for xp_tier and membership_tier)
+  if (this.userMilestones && this.userMilestones.includes("xp_tier")) {
     if (!this.xpTier) {
       applies = false;
       console.log(
@@ -500,7 +478,7 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
   }
 
   // Check membership tier
-  if (this.userMilestones.includes("membership_tier")) {
+  if (this.userMilestones && this.userMilestones.includes("membership_tier")) {
     if (!this.membershipTier) {
       applies = false;
       console.log(

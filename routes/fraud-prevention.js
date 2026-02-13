@@ -51,13 +51,13 @@ router.post('/test/session/authenticate', [
     }
 
     const { accountId, email, metadata = {}, group, sessionId, session_id } = req.body;
-    
+
     // Accept both sessionId (camelCase) and session_id (snake_case from SDK)
     const finalSessionId = sessionId || session_id || null;
-    
+
     // Provide default group if not specified (REQUIRED by Verisoul)
     const defaultGroup = group || 'default';
-    
+
     const result = await verisoul.authenticateSession(accountId, email, metadata, defaultGroup, finalSessionId);
 
     if (result.success) {
@@ -108,13 +108,13 @@ router.post('/session/authenticate', [
     }
 
     const { accountId, email, metadata = {}, group, sessionId, session_id } = req.body;
-    
+
     // Accept both sessionId (camelCase) and session_id (snake_case from SDK)
     const finalSessionId = sessionId || session_id || null;
-    
+
     // Provide default group if not specified (REQUIRED by Verisoul)
     const defaultGroup = group || 'default';
-    
+
     const result = await verisoul.authenticateSession(accountId, email, metadata, defaultGroup, finalSessionId);
 
     if (result.success) {

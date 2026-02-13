@@ -202,3 +202,17 @@ fix-test-user-multipliers.js
 test-adm-dr-005-year-transition.js
 test-adm-dr-011-admin-flags.js
 test-adm-dr-011-admin-integration.js
+
+BACKEND-FIXES-SUMMARY-ALL-ISSUES.md
+FINAL-SOLUTION-ADM-DR-006-027.md
+SOLUTION-ADM-DR-044-XP-TIER-DECAY.md
+SOLUTION-ADM-DR-045-FRONTEND-VALIDATION.md
+debug-adm-dr-044-xp-tier-decay.js
+debug-adm-dr-045-frontend-validation.js
+debug-specific-user-multipliers.js
+fix-adm-dr-044-xp-tier-issues.js
+fix-adm-dr-045-frontend-validation.js
+fix-daily-challenge-config.js
+test-adm-dr-044-api-endpoints.js
+verify-fixes-adm-dr-006-027.js
+

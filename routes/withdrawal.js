@@ -176,6 +176,21 @@ router.post("/request", protect, async (req, res) => {
 
     await Promise.all([user.save(), transaction.save()]);
 
+    // 🎯 ADJUST TRACKING: Cash Withdrawal
+    try {
+      const { trackWithdrawal } = require('../utils/adjustTracker');
+      await trackWithdrawal(user._id.toString(), {
+        amount: amount,
+        method: method,
+        count: user.withdrawals.length,
+        fee: processingFee || 0,
+        deviceId: user.deviceId
+      });
+    } catch (adjustError) {
+      console.error('Adjust withdrawal tracking failed:', adjustError);
+      // Don't fail withdrawal due to tracking error
+    }
+
     res.json({
       success: true,
       data: {

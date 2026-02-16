@@ -3069,6 +3069,22 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
 
     await user.save();
 
+    // 🎯 ADJUST TRACKING: Game Task Completion
+    try {
+      const { trackTaskCompletion } = require('../utils/adjustTracker');
+      await trackTaskCompletion(user._id.toString(), {
+        gameId: gameId,
+        taskId: taskId,
+        isBonusTask: isBonusTask,
+        rewardAmount: task.rewardType === "xp" ? calculatedXP : task.rewardValue,
+        taskName: task.name,
+        deviceId: user.deviceId
+      });
+    } catch (adjustError) {
+      console.error('Adjust task tracking failed:', adjustError);
+      // Don't fail task completion due to tracking error
+    }
+
     // Prepare response
     const response = {
       success: true,

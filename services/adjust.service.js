@@ -593,6 +593,10 @@ class AdjustService {
         status: "misconfigured",
         configured: false,
         error: "Missing Adjust config (API_TOKEN or APP_TOKEN)",
+        appToken: this.appToken,
+        apiToken: this.apiToken ? 'configured' : 'NOT SET',
+        baseURL: this.baseURL,
+        analyticsBaseURL: this.analyticsBaseURL
       };
     }
 
@@ -601,6 +605,10 @@ class AdjustService {
       status: "ok",
       configured: true,
       message: "Adjust S2S API is configured",
+      appToken: this.appToken,
+      apiToken: this.apiToken ? 'configured' : 'NOT SET',
+      baseURL: this.baseURL,
+      analyticsBaseURL: this.analyticsBaseURL
     };
   }
 

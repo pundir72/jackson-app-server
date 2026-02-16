@@ -329,6 +329,21 @@ router.post('/callback/:providerId', async (req, res) => {
         transaction.save()
       ]);
 
+      // 🎯 ADJUST TRACKING: Survey Completion
+      try {
+        const { trackSurveyCompletion } = require('../utils/adjustTracker');
+        await trackSurveyCompletion(user._id.toString(), {
+          provider: providerId,
+          surveyId: surveyId,
+          rewardAmount: finalReward,
+          duration: survey.completedAt - survey.startedAt,
+          deviceId: user.deviceId
+        });
+      } catch (adjustError) {
+        console.error('Adjust survey tracking failed:', adjustError);
+        // Don't fail survey completion due to tracking error
+      }
+
       res.json({
         success: true,
         data: {

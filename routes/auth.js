@@ -549,6 +549,20 @@ router.post(
 
       await user.save();
 
+      // 🎯 ADJUST TRACKING: User Registration
+      try {
+        const { trackRegistration } = require('../utils/adjustTracker');
+        await trackRegistration(user._id.toString(), {
+          method: 'mobile',
+          source: req.body.referralSource || 'direct',
+          platform: req.body.platform || 'mobile',
+          deviceId: req.body.deviceId || user.deviceId
+        });
+      } catch (adjustError) {
+        console.error('Adjust registration tracking failed:', adjustError);
+        // Don't fail registration due to tracking error
+      }
+
       // Process referral if code was provided
       let referralResult = null;
       if (referralCode) {

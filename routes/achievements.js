@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
+const { standardIntegrityVerification } = require('../middleware/integrityVerification');
 const Achievement = require('../models/Achievement');
 const UserAchievement = require('../models/UserAchievement');
 const { 
@@ -118,7 +119,7 @@ router.get('/:achievementId', protect, async (req, res) => {
 });
 
 // Claim achievement rewards
-router.post('/:achievementId/claim', protect, async (req, res) => {
+router.post('/:achievementId/claim', protect, standardIntegrityVerification, async (req, res) => {
   try {
     const { achievementId } = req.params;
     

@@ -264,6 +264,7 @@ mongoose
     const adjustV2Routes = require("./routes/adjust-v2");
     const adminAdjustEventsRoutes = require("./routes/admin-adjust-events");
     const affiseRoutes = require("./routes/affise");
+    const integrityRoutes = require("./routes/integrity");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
@@ -335,6 +336,7 @@ mongoose
     app.use("/api/bitlabs", bitlabsRoutes);
     app.use("/api/everflow", everflowRoutes);
     app.use("/api/affise", affiseRoutes);
+    app.use("/api/integrity", integrityRoutes);
     app.use("/api/adjust", adjustRoutes);
     app.use("/api/v2/adjust", adjustV2Routes);
     app.use("/api/admin/adjust-events", adminAdjustEventsRoutes);

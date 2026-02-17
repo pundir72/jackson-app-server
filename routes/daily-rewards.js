@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
+const { standardIntegrityVerification } = require("../middleware/integrityVerification");
 const DailyRewardProgress = require("../models/DailyRewardProgress");
 const DailyRewardConfigV2 = require("../models/DailyRewardConfigV2");
 const Transaction = require("../models/Transaction");
@@ -1072,7 +1073,7 @@ router.get("/week", protect, async (req, res) => {
 });
 
 // POST /api/daily-rewards/claim
-router.post("/claim", protect, async (req, res) => {
+router.post("/claim", protect, standardIntegrityVerification, async (req, res) => {
   try {
     const userId = req.user.userId;
     const now = new Date();

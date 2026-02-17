@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const validateTransaction = require('../middleware/transaction');
+const { strictIntegrityVerification, standardIntegrityVerification } = require('../middleware/integrityVerification');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 
@@ -55,7 +56,7 @@ router.get('/transactions', [protect], async (req, res, next) => {
 });
 
 // Add funds to wallet
-router.post('/add-funds', [protect, validateTransaction], async (req, res, next) => {
+router.post('/add-funds', [protect, standardIntegrityVerification, validateTransaction], async (req, res, next) => {
     try {
         const { amount } = req.body;
         
@@ -88,7 +89,7 @@ router.post('/add-funds', [protect, validateTransaction], async (req, res, next)
 });
 
 // Withdraw funds from wallet
-router.post('/withdraw', [protect, validateTransaction], async (req, res, next) => {
+router.post('/withdraw', [protect, strictIntegrityVerification, validateTransaction], async (req, res, next) => {
     try {
         const { amount } = req.body;
         const user = await User.findById(req.user.userId);

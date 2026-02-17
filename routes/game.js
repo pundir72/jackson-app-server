@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
+const { standardIntegrityVerification } = require("../middleware/integrityVerification");
 const User = require("../models/User");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
@@ -456,7 +457,7 @@ router.put("/score", protect, async (req, res) => {
 });
 
 // Complete game
-router.put("/complete", protect, async (req, res) => {
+router.put("/complete", protect, standardIntegrityVerification, async (req, res) => {
   try {
     const { gameId } = req.body;
 

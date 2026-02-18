@@ -4225,7 +4225,8 @@ router.get("/games/by-sdk/bitlabs/debug", adminAuth, async (req, res) => {
  * GET /api/admin/game-offers/non-game-offers/configured/bitlabs
  * Query: {
  *   offerType: 'survey' | 'cashback' | 'shopping' | 'magic_receipt' | 'all',
- *   status: 'live' | 'paused' | 'all'
+ *   status: 'live' | 'paused' | 'all',
+ *   sdk: 'bitlabs' | 'besitos' | 'everflow' | 'all'  // optional; default 'bitlabs'. Use sdk=everflow to get synced Everflow offers.
  * }
  */
 router.get(
@@ -4240,18 +4241,22 @@ router.get(
       const { offerType = "all", status = "all", sdk: sdkFilter } = req.query;
       const sdkParam = typeof sdkFilter === "string" ? sdkFilter.trim().toLowerCase() : "";
 
-      // Resolve which SDK(s) to query: bitlabs, besitos, or both
+      // Resolve which SDK(s) to query: bitlabs, besitos, everflow, or all
       const bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
       const besitosSDK = await SurveySDK.findOne({ name: { $regex: /besitos/i } });
+      const everflowSDK = await SurveySDK.findOne({ name: { $regex: /everflow/i } });
 
       let sdkIds = [];
       if (sdkParam === "besitos") {
         if (besitosSDK) sdkIds = [besitosSDK._id];
+      } else if (sdkParam === "everflow") {
+        if (everflowSDK) sdkIds = [everflowSDK._id];
       } else if (sdkParam === "bitlabs" || !sdkParam) {
         if (bitlabSDK) sdkIds = [bitlabSDK._id];
       } else if (sdkParam === "all") {
         if (bitlabSDK) sdkIds.push(bitlabSDK._id);
         if (besitosSDK) sdkIds.push(besitosSDK._id);
+        if (everflowSDK) sdkIds.push(everflowSDK._id);
       }
 
       if (sdkIds.length === 0) {
@@ -4450,7 +4455,7 @@ router.get(
 router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
   try {
     const { sdk } = req.params;
-    const { type = "all", devices, is_game = false, country } = req.query;
+    const { type = "all", devices, is_game = false, country, page = 1, limit = 20 } = req.query;
 
     // console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
     //   endpoint: "/non-game-offers/by-sdk/:sdk",
@@ -4793,29 +4798,24 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
 
       res.json(responseData);
     } else if (sdk === "everflow") {
-      // Everflow SDK support
+      // Everflow SDK: exact same response format as GET {{base_url}}/everflow/offers
       const everflowService = require("../services/everflow.service");
 
       if (!everflowService.isConfigured()) {
         return res.status(400).json({
           success: false,
-          message: "Everflow API is not configured. Please set EVERFLOW_API_KEY in environment variables.",
+          error: {
+            message: "Everflow API is not configured. Please set EVERFLOW_API_KEY in environment variables.",
+            code: "EVERFLOW_OFFERS_ERROR",
+          },
+          data: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
         });
       }
 
-      // Build query parameters for Everflow
-      const queryParams = {};
-      
-      // Map type to Everflow offer_status if needed
-      if (type && type !== "all") {
-        // Everflow uses offer_status field, but we'll filter after fetching
-        queryParams.offer_status = "active";
-      }
-
-      // Add country filter if provided
-      if (country) {
-        queryParams.country = country;
-      }
+      const queryParams = { offer_status: "active" };
+      if (country) queryParams.country = country;
 
       try {
         const result = await everflowService.getOffers(queryParams);
@@ -4823,65 +4823,44 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         if (!result.success) {
           return res.status(500).json({
             success: false,
-            message: result.error || "Failed to fetch Everflow offers",
+            error: {
+              message: result.error || "Failed to fetch Everflow offers",
+              code: "EVERFLOW_OFFERS_ERROR",
+            },
             data: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
           });
         }
 
-        // Filter by type if specified
-        let filteredOffers = result.data || [];
+        let offers = result.data || [];
         if (type && type !== "all") {
-          filteredOffers = filteredOffers.filter((offer) => {
-            const offerType = offer.offerType || offer.type || "other";
-            return offerType === type;
-          });
+          offers = offers.filter((o) => (o.offerType || o.type || "other") === type);
         }
 
-        // Categorize offers
-        const categorized = {
-          surveys: [],
-          cashback: [],
-          shopping: [],
-          magicReceipts: [],
-          other: [],
-        };
+        const total = offers.length;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+        const skip = (pageNum - 1) * limitNum;
+        const data = offers.slice(skip, skip + limitNum);
 
-        filteredOffers.forEach((offer) => {
-          const offerType = offer.offerType || offer.type || "other";
-          const categoryKey = offerType === "magic_receipt" ? "magicReceipts" : offerType;
-          if (categorized[categoryKey]) {
-            categorized[categoryKey].push(offer);
-          } else {
-            categorized.other.push(offer);
-          }
-        });
-
-        const responseData = {
+        res.json({
           success: true,
-          data: filteredOffers,
-          categorized: categorized,
-          breakdown: {
-            surveys: categorized.surveys.length,
-            cashback: categorized.cashback.length,
-            shopping: categorized.shopping.length,
-            magicReceipts: categorized.magicReceipts.length,
-            other: categorized.other.length,
-          },
-          total: filteredOffers.length,
-          estimatedEarnings: filteredOffers.reduce(
-            (sum, o) => sum + (o.coinReward || o.reward?.coins || 0),
-            0
-          ),
-        };
-
-        res.json(responseData);
+          data,
+          total,
+          timestamp: result.timestamp || new Date().toISOString(),
+        });
       } catch (error) {
         console.error("Error fetching Everflow offers:", error);
         res.status(500).json({
           success: false,
-          message: "Failed to fetch Everflow offers",
-          error: error.message,
+          error: {
+            message: error.message || "Failed to fetch Everflow offers",
+            code: "EVERFLOW_OFFERS_ERROR",
+          },
           data: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
         });
       }
     } else {
@@ -6091,6 +6070,159 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to sync offers",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Sync Everflow non-gaming offers to database (fixed 30 coins, 10 XP per offer)
+ * POST /api/admin/game-offers/non-game-offers/sync/everflow
+ * Body: { offerIds: ['1', '2', ...], autoActivate: true }
+ */
+router.post("/non-game-offers/sync/everflow", adminAuth, async (req, res) => {
+  try {
+    const SurveySDK = require("../models/SurveySDK");
+    const NonGameOffer = require("../models/NonGameOffer");
+    const everflowService = require("../services/everflow.service");
+
+    if (!everflowService.isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        message: "Everflow API is not configured. Set EVERFLOW_API_KEY and EVERFLOW_BASE_URL.",
+      });
+    }
+
+    const { offerIds = [], autoActivate = true, targetAudience: targetAudienceList = [] } = req.body;
+    if (!Array.isArray(offerIds) || offerIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "offerIds array is required and must not be empty",
+      });
+    }
+
+    let everflowSDK = await SurveySDK.findOne({ name: { $regex: /everflow/i } });
+    if (!everflowSDK) {
+      everflowSDK = new SurveySDK({
+        name: "Everflow",
+        displayName: "Everflow",
+        apiKey: process.env.EVERFLOW_API_KEY || "",
+        baseUrl: process.env.EVERFLOW_BASE_URL || "https://api.eflow.team",
+        isActive: true,
+        createdBy: req.user?.userId || req.user?.id,
+      });
+      await everflowSDK.save();
+    }
+
+    const EVERFLOW_COIN_REWARD = 30;
+    const EVERFLOW_XP_REWARD = 10;
+    let syncedCount = 0;
+    let updatedCount = 0;
+
+    for (const offerIdStr of offerIds) {
+      const externalId = String(offerIdStr).trim();
+      if (!externalId) continue;
+
+      let offerPayload = null;
+      try {
+        const result = await everflowService.getOfferById(externalId);
+        if (result?.success && result?.data) offerPayload = result.data;
+      } catch (e) {
+        // If getOfferById fails, create a minimal record from IDs only
+        offerPayload = {
+          offerId: externalId,
+          externalId,
+          title: `Everflow Offer ${externalId}`,
+          description: "",
+          category: "other",
+          offerType: "other",
+          coinReward: EVERFLOW_COIN_REWARD,
+          userRewardCoins: EVERFLOW_COIN_REWARD,
+          userRewardXP: EVERFLOW_XP_REWARD,
+          estimatedTime: 5,
+        };
+      }
+
+      const title = offerPayload?.title || offerPayload?.name || `Everflow Offer ${externalId}`;
+      const description = offerPayload?.description || offerPayload?.html_description || "";
+      const category = (offerPayload?.category || "other").toLowerCase();
+      const categoryEnum = ["finance", "shopping", "entertainment", "technology", "health", "travel", "education", "other"].includes(category) ? category : "other";
+      const offerType = offerPayload?.offerType || offerPayload?.type || "other";
+      const offerTypeEnum = ["cashback", "shopping", "magic_receipt", "other"].includes(offerType) ? offerType : "other";
+      const coinReward = Number(offerPayload?.coinReward) || EVERFLOW_COIN_REWARD;
+      const estimatedTime = 0; // Everflow: no time value, display as NIL on user/admin
+
+      const existing = await NonGameOffer.findOne({
+        sdkId: everflowSDK._id,
+        externalId,
+      });
+
+      // Resolve segment/target audience from modal (same shape as Bitlabs)
+      const offerTargetAudience = Array.isArray(targetAudienceList) && targetAudienceList.length > 0
+        ? targetAudienceList.find(
+            (t) =>
+              String(t.offerId) === externalId ||
+              String(t.offerId) === String(offerIdStr)
+          )
+        : null;
+      const selectedAges = offerTargetAudience?.targetAudience?.age || [];
+      const selectedGenders = offerTargetAudience?.targetAudience?.gender || [];
+      const targetAudienceDoc = {
+        age:
+          selectedAges.length === 0 || selectedAges.includes("all")
+            ? []
+            : selectedAges.filter((a) => a !== "all"),
+        gender:
+          selectedGenders.length === 0 || selectedGenders.includes("all")
+            ? []
+            : selectedGenders.filter((g) => g !== "all"),
+        countries: [],
+        minXP: 0,
+      };
+
+      const doc = {
+        sdkId: everflowSDK._id,
+        externalId,
+        title,
+        description,
+        category: categoryEnum,
+        offerType: offerTypeEnum,
+        coinReward,
+        estimatedTime,
+        status: autoActivate ? "live" : "paused",
+        targetAudience: targetAudienceDoc,
+        metadata: {
+          externalUrl: offerPayload?.clickUrl || offerPayload?.trackingUrl || "",
+          userRewardCoins: Number(offerPayload?.userRewardCoins) || EVERFLOW_COIN_REWARD,
+          userRewardXP: Number(offerPayload?.userRewardXP) || EVERFLOW_XP_REWARD,
+          thumbnail: offerPayload?.thumbnailUrl || offerPayload?.thumbnail_url || offerPayload?.creativeBundleUrl || offerPayload?.relationship?.creative_bundle?.url || "",
+          creativeBundleUrl: offerPayload?.creativeBundleUrl || offerPayload?.relationship?.creative_bundle?.url || "",
+        },
+        updatedBy: req.user?.userId || req.user?.id,
+      };
+
+      if (existing) {
+        await NonGameOffer.findByIdAndUpdate(existing._id, { ...doc, updatedAt: new Date() });
+        updatedCount++;
+      } else {
+        await NonGameOffer.create({
+          ...doc,
+          createdBy: req.user?.userId || req.user?.id,
+        });
+        syncedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Synced Everflow offers: ${syncedCount} added, ${updatedCount} updated`,
+      data: { syncedCount, updatedCount },
+    });
+  } catch (error) {
+    console.error("Error syncing Everflow offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to sync Everflow offers",
       error: error.message,
     });
   }

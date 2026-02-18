@@ -682,7 +682,7 @@ async function getAdminConfiguredOffers(
                   userRewardXP:
                     configuredOffer.userRewardXP ||
                     Math.round((configuredOffer.coinReward || 0) * 0.5),
-                  estimatedTime: configuredOffer.estimatedTime || 1,
+                  estimatedTime: configuredOffer.estimatedTime ?? 1,
                   status: configuredOffer.status,
                   targetAudience: configuredOffer.targetAudience || {},
                   requirements: configuredOffer.requirements || {},
@@ -758,6 +758,7 @@ async function getAdminConfiguredOffers(
                     configuredOffer.metadata?.thumbnail ||
                     matchingFreshOffer.banner ||
                     "",
+                  creativeBundleUrl: configuredOffer.metadata?.creativeBundleUrl || "",
 
                   // Rewards
                   coinReward: configuredOffer.coinReward || 0,
@@ -776,10 +777,10 @@ async function getAdminConfiguredOffers(
                       Math.round((configuredOffer.coinReward || 0) * 0.5),
                   },
 
-                  // Time
-                  estimatedTime: configuredOffer.estimatedTime || 5,
-                  duration: configuredOffer.estimatedTime || 5,
-                  loi: configuredOffer.estimatedTime || 5,
+                  // Time (0 = NIL for Everflow)
+                  estimatedTime: configuredOffer.estimatedTime ?? 5,
+                  duration: configuredOffer.estimatedTime ?? 5,
+                  loi: configuredOffer.estimatedTime ?? 5,
 
                   // URLs: recent from match (or stored), with user id attached for tracking
                   clickUrl: surveyUserUrl,
@@ -904,7 +905,7 @@ async function getAdminConfiguredOffers(
                   userRewardXP:
                     configuredOffer.userRewardXP ||
                     Math.round((configuredOffer.coinReward || 0) * 0.5),
-                  estimatedTime: configuredOffer.estimatedTime || 1,
+                  estimatedTime: configuredOffer.estimatedTime ?? 1,
                   status: configuredOffer.status,
                   category: configuredOffer.category,
                   offerType: configuredOffer.offerType,
@@ -975,7 +976,7 @@ async function getAdminConfiguredOffers(
                   userRewardXP:
                     configuredOffer.userRewardXP ||
                     Math.round((configuredOffer.coinReward || 0) * 0.5),
-                  estimatedTime: configuredOffer.estimatedTime || 1,
+                  estimatedTime: configuredOffer.estimatedTime ?? 1,
                   status: configuredOffer.status,
                   category: configuredOffer.category,
                   offerType: configuredOffer.offerType,
@@ -1043,7 +1044,7 @@ async function getAdminConfiguredOffers(
                   userRewardXP:
                     configuredOffer.userRewardXP ||
                     Math.round((configuredOffer.coinReward || 0) * 0.5),
-                  estimatedTime: configuredOffer.estimatedTime || 1,
+                  estimatedTime: configuredOffer.estimatedTime ?? 1,
                   status: configuredOffer.status,
                   category: configuredOffer.category,
                   offerType: configuredOffer.offerType,
@@ -1084,13 +1085,14 @@ async function getAdminConfiguredOffers(
                   type: configuredOffer.offerType,
                   icon: configuredOffer.metadata?.thumbnail || "",
                   banner: configuredOffer.metadata?.thumbnail || "",
+                  creativeBundleUrl: configuredOffer.metadata?.creativeBundleUrl || "",
                   reward: {
                     coins: configuredOffer.coinReward || 0,
                     currency: "points",
                     xp: Math.round((configuredOffer.coinReward || 0) * 0.5),
                   },
-                  estimatedTime: configuredOffer.estimatedTime || 5,
-                  duration: configuredOffer.estimatedTime || 5,
+                  estimatedTime: configuredOffer.estimatedTime ?? 5,
+                  duration: configuredOffer.estimatedTime ?? 5,
                   clickUrl: "", // No fresh URL available
                   surveyUrl: "",
                   url: "",
@@ -1237,6 +1239,7 @@ async function getAdminConfiguredOffers(
         // Images
         icon: offer.metadata?.thumbnail || offer.category?.icon_url || "",
         banner: offer.metadata?.thumbnail || "",
+        creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
 
         // Rewards
         coinReward: offer.coinReward || 0,
@@ -1249,10 +1252,10 @@ async function getAdminConfiguredOffers(
           xp: offer.userRewardXP || Math.round((offer.coinReward || 0) * 0.5),
         },
 
-        // Time
-        estimatedTime: offer.estimatedTime || 5,
-        duration: offer.estimatedTime || 5,
-        loi: offer.estimatedTime || 5,
+        // Time (0 = NIL for Everflow)
+        estimatedTime: offer.estimatedTime ?? 5,
+        duration: offer.estimatedTime ?? 5,
+        loi: offer.estimatedTime ?? 5,
 
         // URLs (no fresh URL available)
         clickUrl: "", // No fresh URL available
@@ -2014,6 +2017,7 @@ router.get("/surveys", protect, async (req, res) => {
                     category: offer.category,
                     icon: offer.metadata?.thumbnail || iconFromBitlabs,
                     banner: offer.metadata?.thumbnail || iconFromBitlabs,
+                    creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
                     reward: {
                       coins: offer.coinReward,
                       currency: "points",
@@ -2296,6 +2300,7 @@ router.get("/surveys", protect, async (req, res) => {
                           },
                           icon: offer.metadata?.thumbnail || "",
                           banner: offer.metadata?.thumbnail || "",
+                          creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
                           reward: {
                             coins: rewardCoins,
                             currency: "points",
@@ -2327,6 +2332,7 @@ router.get("/surveys", protect, async (req, res) => {
                           category: offer.category,
                           icon: offer.metadata?.thumbnail,
                           banner: offer.metadata?.thumbnail,
+                          creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
                           reward: {
                             coins: offer.coinReward,
                             currency: "points",

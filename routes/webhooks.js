@@ -1974,9 +1974,9 @@ router.post("/everflow/postback", async (req, res) => {
           `✅ Daily challenge completed via Everflow webhook for user ${user._id}`
         );
       } else {
-        // No challenge, credit direct rewards based on conversion payout
-        const coinsToCredit = Math.floor((payout || revenue || 0) * 100); // Convert to coins (adjust multiplier as needed)
-        const xpToCredit = Math.floor(coinsToCredit / 10); // 1 XP per 10 coins (adjust as needed)
+        // No challenge: Everflow fixed reward — 30 coins and 10 XP per conversion
+        const coinsToCredit = 30;
+        const xpToCredit = 10;
 
         user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
         const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);
@@ -2292,8 +2292,9 @@ async function processEverflowPostback(postbackData, req, res) {
           `✅ Daily challenge completed via Everflow webhook for user ${user._id}`
         );
       } else {
-        const coinsToCredit = Math.floor((payout || revenue || 0) * 100);
-        const xpToCredit = Math.floor(coinsToCredit / 10);
+        // Everflow fixed reward: 30 coins and 10 XP per conversion
+        const coinsToCredit = 30;
+        const xpToCredit = 10;
 
         user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
         const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);

@@ -237,8 +237,8 @@ router.get("/everflow/raw", async (req, res) => {
       "/affiliate/postbacks",     // If base URL already includes /v1
       "/v1/postbacks",            // Alternative structure
       "/postbacks",               // If base URL includes /v1/affiliate
-      "/v1/affiliates/alloffers",     // Offers endpoint
-      "/affiliates/alloffers",        // Offers if base includes /v1
+      "/v1/affiliates/offersrunnable",     // Offers endpoint (runnable, with payouts)
+      "/affiliates/offersrunnable",        // Offers if base includes /v1
     ];
 
     const authMethods = [

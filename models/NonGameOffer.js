@@ -52,9 +52,9 @@ const nonGameOfferSchema = new mongoose.Schema(
       min: 0, // Allow 0 to show raw API values
     },
     estimatedTime: {
-      type: Number, // in minutes
+      type: Number, // in minutes; 0 = no time / display as NIL (e.g. Everflow)
       required: true,
-      min: 1,
+      min: 0,
     },
     status: {
       type: String,
@@ -163,6 +163,8 @@ const nonGameOfferSchema = new mongoose.Schema(
       externalUrl: String,
       previewUrl: String,
       thumbnail: String,
+      /** Everflow creative bundle URL (page or asset) for display/link on user side */
+      creativeBundleUrl: String,
       tags: [String],
       priority: {
         type: Number,

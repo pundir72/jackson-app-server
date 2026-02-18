@@ -2323,16 +2323,20 @@ async function buildUserFilter(filters) {
     conditions.push({ 'games.gameId': filters.gameId })
   }
 
-  if (filters.startDate || filters.endDate) {
-    const dateCondition = {}
-    if (filters.startDate) {
-      dateCondition.$gte = new Date(filters.startDate)
-    }
-    if (filters.endDate) {
-      dateCondition.$lte = new Date(filters.endDate)
-    }
-    conditions.push({ createdAt: dateCondition })
-  }
+  // REMOVED: Date filtering by user registration date
+  // Date filters should only apply to activity dates and transactions, not user registration
+  // This was causing the issue where filtering by "yesterday" only showed users registered yesterday
+  
+  // if (filters.startDate || filters.endDate) {
+  //   const dateCondition = {}
+  //   if (filters.startDate) {
+  //     dateCondition.$gte = new Date(filters.startDate)
+  //   }
+  //   if (filters.endDate) {
+  //     dateCondition.$lte = new Date(filters.endDate)
+  //   }
+  //   conditions.push({ createdAt: dateCondition })
+  // }
 
   // If we have conditions, use $and, otherwise return empty query (matches all)
   if (conditions.length > 0) {

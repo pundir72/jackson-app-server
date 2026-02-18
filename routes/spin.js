@@ -348,13 +348,13 @@ router.post("/spin", protect, async (req, res) => {
     }
 
     // FIXED: Select reward by probability using proper weighted random selection
-    // This fixes BUG-065: User always receives the same reward
+    // This fixes BUG-065: Rewards with <100% probability should allow "no reward" outcomes
     const totalProbability = eligibleRewards.reduce(
       (sum, r) => sum + (r.probability || 0),
       0
     );
 
-    let selectedReward;
+    let selectedReward = null;
 
     if (totalProbability <= 0) {
       // Fallback: equal probability for all rewards if no probabilities set
@@ -362,40 +362,70 @@ router.post("/spin", protect, async (req, res) => {
       selectedReward = eligibleRewards[randomIndex];
       console.log(`🎲 Spin: Equal distribution selected ${selectedReward.name}`);
     } else {
-      // FIXED ALGORITHM: Proper weighted random selection
-      // Generate random number in the range [0, totalProbability)
-      const random = Math.random() * totalProbability;
+      // FIXED ALGORITHM: Generate random in [0, 100) range to allow "no reward" outcomes
+      // This is the key fix for BUG-065
+      const random = Math.random() * 100;
 
       // Build cumulative distribution and select reward
       let cumulative = 0;
-      selectedReward = null;
 
       for (const reward of eligibleRewards) {
         const prob = reward.probability || 0;
         cumulative += prob;
 
-        // FIXED: Use <= instead of < to include the upper bound properly
-        // This ensures that when random equals cumulative, the reward is selected
-        // Fixes edge case where random = totalProbability always fell back to last reward
-        if (random <= cumulative) {
+        // Select reward if random falls within its probability range
+        if (random < cumulative) {
           selectedReward = reward;
           break;
         }
       }
 
-      // This should NEVER happen with correct logic
-      // If it does, it indicates a serious bug in the algorithm
-      if (!selectedReward) {
-        console.error('❌ CRITICAL SPIN ERROR: No reward selected in probability distribution');
-        console.error(`   Random: ${random}, Total: ${totalProbability}, User: ${userId}`);
-        console.error('   Rewards:', eligibleRewards.map(r => `${r.name}:${r.probability}%`));
-        
-        // Emergency fallback - select first reward and log the error
-        selectedReward = eligibleRewards[0];
-        console.error(`🚨 Emergency fallback to: ${selectedReward.name}`);
+      // Log the outcome for debugging
+      if (selectedReward) {
+        console.log(`🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) - Random: ${random.toFixed(2)}, Total: ${totalProbability}%`);
       } else {
-        console.log(`🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) for user ${userId}`);
+        console.log(`🎲 Spin: No reward selected - Random: ${random.toFixed(2)}, Total: ${totalProbability}% (${100 - totalProbability}% chance of no reward)`);
       }
+    }
+
+    // Handle "no reward" outcome - this is now possible and correct
+    if (!selectedReward) {
+      // Still need to log the spin and update user stats for no-reward outcomes
+      const spinId = `SPIN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+      const spinLog = new SpinWheelLog({
+        user: userId,
+        spinId: spinId,
+        reward: null,
+        rewardName: "No Reward",
+        rewardType: "none",
+        rewardAmount: 0,
+        vipMultiplier: 1.0,
+        spinMode: config.spinMode || "free",
+        userTier: userTier,
+        isWin: false, // No reward = not a win
+      });
+
+      // Update user spin count and last spin time
+      user.spinCount = (user.spinCount || 0) + 1;
+      user.lastSpinAt = new Date();
+      await user.save();
+
+      // Save spin log for no-reward outcome
+      await spinLog.save();
+
+      return res.json({
+        success: true,
+        data: {
+          spinId: spinLog._id,
+          reward: null,
+          noReward: true,
+          message: "Better luck next time!",
+          totalProbability,
+          remainingSpins: Math.max(0, dailyLimit - todaySpins - 1),
+          userTier,
+          status: "completed",
+        },
+      });
     }
 
     // VIP multiplier applies to both coins and XP rewards

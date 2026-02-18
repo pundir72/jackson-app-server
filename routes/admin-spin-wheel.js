@@ -1124,8 +1124,11 @@ router.get("/probability/check", adminAuth, async (req, res) => {
             "Same probability CAN be used across different tiers",
             "Same probability CANNOT be duplicated within the same tier", 
             "Total probability per tier should not exceed 100%",
-            "Global total probability should not exceed 100%"
-          ]
+            "Global total probability CAN exceed 100% (tiers are independent)"
+          ],
+          // BUG-063 Fix: Provide per-tier remaining percentages instead of global
+          remainingPerTier: calculateRemainingPerTier(detailedAnalysis),
+          globalLimitEnforced: false // BUG-063 fix: No global limit
         }
       },
     });
@@ -1137,5 +1140,24 @@ router.get("/probability/check", adminAuth, async (req, res) => {
     });
   }
 });
+
+/**
+ * Calculate remaining probability percentage for each tier (BUG-063 fix)
+ */
+function calculateRemainingPerTier(analysis) {
+  const allTiers = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
+  const remaining = {};
+  
+  allTiers.forEach(tier => {
+    const tierData = analysis.tierAnalysis[tier];
+    if (tierData) {
+      remaining[tier] = Math.max(0, 100 - tierData.totalProbability);
+    } else {
+      remaining[tier] = 100; // No rewards in this tier yet
+    }
+  });
+  
+  return remaining;
+}
 
 module.exports = router;

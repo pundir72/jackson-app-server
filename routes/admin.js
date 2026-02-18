@@ -2496,19 +2496,50 @@ router.get(
         // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
         (async () => {
           try {
-            const activeUsersQuery = {
-              ...userFilter,
-              'dailyActivity.activeDates': todayStr,
+            let activeUsersQuery = { ...userFilter }
+            
+            // If we have date filters, calculate active users within that date range
+            if (start || end) {
+              // Generate array of date strings within the range
+              const dateStrings = []
+              const currentDate = start ? new Date(start) : new Date(end)
+              const endDate = end ? new Date(end) : new Date(start)
+              
+              // If only start date, use start date
+              // If only end date, use end date  
+              // If both, use the range
+              if (start && end) {
+                // Generate all dates in range
+                while (currentDate <= endDate) {
+                  dateStrings.push(getDateString(currentDate))
+                  currentDate.setDate(currentDate.getDate() + 1)
+                }
+              } else if (start) {
+                // Only start date - use that specific date
+                dateStrings.push(getDateString(start))
+              } else if (end) {
+                // Only end date - use that specific date
+                dateStrings.push(getDateString(end))
+              }
+              
+              // Find users active on any of these dates
+              activeUsersQuery['dailyActivity.activeDates'] = { $in: dateStrings }
+              
+              console.log(`📊 Active Users in date range query:`, JSON.stringify(activeUsersQuery, null, 2))
+              console.log(`📊 Looking for activity on dates:`, dateStrings)
+            } else {
+              // No date filter - show today's active users
+              activeUsersQuery['dailyActivity.activeDates'] = todayStr
+              console.log(`📊 Active Users Today query (no date filter):`, JSON.stringify(activeUsersQuery, null, 2))
             }
-            console.log(`📊 Active Users Today query (main dashboard):`, JSON.stringify(activeUsersQuery, null, 2))
             
             const count = await User.countDocuments(activeUsersQuery)
-            console.log(`📊 Active Users Today result (main dashboard): ${count}`)
+            console.log(`📊 Active Users result: ${count}`)
             
             return count
           } catch (error) {
-            console.error('❌ Error calculating Active Users Today (main dashboard):', error.message)
-            console.error('Query details:', { userFilter, todayStr })
+            console.error('❌ Error calculating Active Users:', error.message)
+            console.error('Query details:', { userFilter, start, end })
             
             // Return 0 instead of throwing to prevent dashboard from breaking
             return 0
@@ -3368,19 +3399,50 @@ router.get(
         // Active Users Today - Check if today's date is in activeDates array (BUG-040 fix)
         (async () => {
           try {
-            const activeUsersQuery = {
-              ...userFilter,
-              'dailyActivity.activeDates': todayStr,
+            let activeUsersQuery = { ...userFilter }
+            
+            // If we have date filters, calculate active users within that date range
+            if (start || end) {
+              // Generate array of date strings within the range
+              const dateStrings = []
+              const currentDate = start ? new Date(start) : new Date(end)
+              const endDate = end ? new Date(end) : new Date(start)
+              
+              // If only start date, use start date
+              // If only end date, use end date  
+              // If both, use the range
+              if (start && end) {
+                // Generate all dates in range
+                while (currentDate <= endDate) {
+                  dateStrings.push(getDateString(currentDate))
+                  currentDate.setDate(currentDate.getDate() + 1)
+                }
+              } else if (start) {
+                // Only start date - use that specific date
+                dateStrings.push(getDateString(start))
+              } else if (end) {
+                // Only end date - use that specific date
+                dateStrings.push(getDateString(end))
+              }
+              
+              // Find users active on any of these dates
+              activeUsersQuery['dailyActivity.activeDates'] = { $in: dateStrings }
+              
+              console.log(`📊 Active Users in date range query (KPIs):`, JSON.stringify(activeUsersQuery, null, 2))
+              console.log(`📊 Looking for activity on dates (KPIs):`, dateStrings)
+            } else {
+              // No date filter - show today's active users
+              activeUsersQuery['dailyActivity.activeDates'] = todayStr
+              console.log(`📊 Active Users Today query (KPIs - no date filter):`, JSON.stringify(activeUsersQuery, null, 2))
             }
-            console.log(`📊 Active Users Today query (KPIs):`, JSON.stringify(activeUsersQuery, null, 2))
             
             const count = await User.countDocuments(activeUsersQuery)
-            console.log(`📊 Active Users Today result (KPIs): ${count}`)
+            console.log(`📊 Active Users result (KPIs): ${count}`)
             
             return count
           } catch (error) {
-            console.error('❌ Error calculating Active Users Today (KPIs):', error.message)
-            console.error('Query details:', { userFilter, todayStr })
+            console.error('❌ Error calculating Active Users (KPIs):', error.message)
+            console.error('Query details:', { userFilter, start, end })
             
             // Return 0 instead of throwing to prevent dashboard from breaking
             return 0

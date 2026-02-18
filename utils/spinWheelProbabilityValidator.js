@@ -129,7 +129,7 @@ async function validateProbabilityConfiguration(rewardData, excludeRewardId = nu
       }
     }
     
-    // Calculate global probability (all active rewards)
+    // Calculate global probability (all active rewards) - for informational purposes only
     const globalTotalProbability = existingRewards.reduce((sum, reward) => 
       sum + reward.probability, 0
     ) + probability;
@@ -138,17 +138,9 @@ async function validateProbabilityConfiguration(rewardData, excludeRewardId = nu
     
     console.log(`🌍 Global total probability: ${globalTotalProbability}%`);
     
-    // Check global probability limit
-    if (globalTotalProbability > 100) {
-      validationResult.isValid = false;
-      validationResult.errors.push({
-        type: 'GLOBAL_PROBABILITY_EXCEEDED',
-        totalProbability: globalTotalProbability,
-        message: `Global total probability would be ${globalTotalProbability}%, which exceeds 100%`
-      });
-      
-      console.log(`❌ Global probability exceeds 100%: ${globalTotalProbability}%`);
-    }
+    // NOTE: BUG-063 FIX - Removed global probability limit check
+    // Each tier can independently reach 100%, so global total can exceed 100%
+    // This is the correct behavior for multi-tier spin wheel systems
     
     console.log(`✅ Validation complete. Valid: ${validationResult.isValid}`);
     
@@ -305,14 +297,8 @@ function suggestProbabilityFixes(validationResult) {
         });
         break;
         
-      case 'GLOBAL_PROBABILITY_EXCEEDED':
-        suggestions.push({
-          type: 'REDUCE_GLOBAL_PROBABILITIES',
-          currentTotal: error.totalProbability,
-          excessAmount: error.totalProbability - 100,
-          message: `Reduce global probabilities by ${error.totalProbability - 100}% total`
-        });
-        break;
+      // NOTE: BUG-063 FIX - Removed GLOBAL_PROBABILITY_EXCEEDED case
+      // Global probability can exceed 100% since each tier is independent
     }
   });
   

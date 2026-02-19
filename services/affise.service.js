@@ -16,7 +16,7 @@ class AffiseService {
     this.apiVersion = config.AFFISE_API_VERSION || "3.0";
     this.apiKey = config.AFFISE_API_KEY;
 
-    console.log("Affise base URL:", config.AFFISE_API_KEY);
+    console.log("Affise base URL:", config.AFFISE_API_KEY || this.baseURL);
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {

@@ -3743,8 +3743,43 @@ router.get(
 )
 
 /**
+ * Get all games list for dropdown
+ * @route   GET /api/admin/dashboard/games-list
+ */
+router.get(
+  '/dashboard/games-list',
+  adminAuth,
+  async (req, res) => {
+    try {
+      const games = await Game.find({ isActive: true })
+        .select('_id gameId title')
+        .sort({ title: 1 })
+        .lean()
+
+      res.json({
+        success: true,
+        data: {
+          games: games.map(game => ({
+            id: game._id.toString(),
+            gameId: game.gameId,
+            title: game.title,
+          })),
+        },
+      })
+    } catch (error) {
+      console.error('Error getting games list:', error)
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch games list',
+      })
+    }
+  }
+)
+
+/**
  * Get Top Played Game only
  * @route   GET /api/admin/dashboard/top-game
+ * @query   selectedGameId - Optional: Specific game ID to show instead of auto-calculated top game
  */
 router.get(
   '/dashboard/top-game',
@@ -3756,6 +3791,7 @@ router.get(
     query('source').optional().isString(),
     query('age').optional().isString(),
     query('gender').optional().isIn(['male', 'female', 'other']),
+    query('selectedGameId').optional().isString(),
   ],
   async (req, res) => {
     try {
@@ -3767,7 +3803,7 @@ router.get(
         })
       }
 
-      const { startDate, endDate, gameId, source, age, gender } = req.query
+      const { startDate, endDate, gameId, source, age, gender, selectedGameId } = req.query
 
       // If no date range provided, retrieve all data (no date filter)
       let start = startDate ? new Date(startDate) : undefined
@@ -3786,38 +3822,67 @@ router.get(
 
       // Get top played game by counting actual user game installations
       let topPlayedGame = null
-
-      // Step 1: Find the most played games from actual user data (top 20 to find at least one that exists)
-      const topGamesByUsers = await User.aggregate([
-        { $match: userFilter },
-        { $unwind: '$games' },
-        {
-          $group: {
-            _id: '$games.gameId',
-            totalPlays: { $sum: 1 }
-          }
-        },
-        { $sort: { totalPlays: -1 } },
-        { $limit: 20 }
-      ])
-
-      console.log('🎮 Top Game - Top 20 games from user data:', topGamesByUsers.map(g => `${g._id} (${g.totalPlays} users)`));
-
-      // Step 2: Find the first game that exists in Game collection
       let game = null
       let actualPlayCount = 0
 
-      for (const userGame of topGamesByUsers) {
-        const topGames = await Game.find({ gameId: userGame._id, isActive: true })
+      // If selectedGameId is provided, fetch that specific game
+      if (selectedGameId) {
+        console.log('🎮 Top Game - Fetching selected game:', selectedGameId);
+        
+        // Try to find by MongoDB ObjectId first, then by gameId
+        const gameQuery = mongoose.Types.ObjectId.isValid(selectedGameId)
+          ? { _id: selectedGameId, isActive: true }
+          : { gameId: selectedGameId, isActive: true }
+        
+        const selectedGames = await Game.find(gameQuery)
           .select('_id gameId title bannerImage besitosRawData analytics')
           .limit(1)
           .lean()
 
-        if (topGames.length > 0) {
-          game = topGames[0]
-          actualPlayCount = userGame.totalPlays
-          console.log(`🎮 Top Game - Found match: ${game.title} (${actualPlayCount} users)`);
-          break
+        if (selectedGames.length > 0) {
+          game = selectedGames[0]
+          
+          // Count how many users have this game
+          const gameUserCount = await User.countDocuments({
+            'games.gameId': game.gameId,
+            ...userFilter,
+          })
+          actualPlayCount = gameUserCount
+          console.log(`🎮 Top Game - Selected game: ${game.title} (${actualPlayCount} users)`);
+        } else {
+          console.log('🎮 Top Game - Selected game not found');
+        }
+      } else {
+        // Auto-calculate top played game
+        // Step 1: Find the most played games from actual user data (top 20 to find at least one that exists)
+        const topGamesByUsers = await User.aggregate([
+          { $match: userFilter },
+          { $unwind: '$games' },
+          {
+            $group: {
+              _id: '$games.gameId',
+              totalPlays: { $sum: 1 }
+            }
+          },
+          { $sort: { totalPlays: -1 } },
+          { $limit: 20 }
+        ])
+
+        console.log('🎮 Top Game - Top 20 games from user data:', topGamesByUsers.map(g => `${g._id} (${g.totalPlays} users)`));
+
+        // Step 2: Find the first game that exists in Game collection
+        for (const userGame of topGamesByUsers) {
+          const topGames = await Game.find({ gameId: userGame._id, isActive: true })
+            .select('_id gameId title bannerImage besitosRawData analytics')
+            .limit(1)
+            .lean()
+
+          if (topGames.length > 0) {
+            game = topGames[0]
+            actualPlayCount = userGame.totalPlays
+            console.log(`🎮 Top Game - Found match: ${game.title} (${actualPlayCount} users)`);
+            break
+          }
         }
       }
 
@@ -3969,6 +4034,7 @@ router.get(
 /**
  * Get Revenue by Game only - WITH PAGINATION (50 records per page)
  * @route   GET /api/admin/dashboard/revenue
+ * @query   retentionDay - Optional: Retention day to calculate (D1, D3, D4, D5, D6, D7). Default: D7
  */
 router.get(
   '/dashboard/revenue',
@@ -3982,6 +4048,7 @@ router.get(
     query('gender').optional().isIn(['male', 'female', 'other']),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+    query('retentionDay').optional().isIn(['D1', 'D3', 'D4', 'D5', 'D6', 'D7']),
   ],
   async (req, res) => {
     try {
@@ -4002,7 +4069,12 @@ router.get(
         gender,
         page = 1,
         limit = 50,
+        retentionDay = 'D7', // Default to D7 if not specified
       } = req.query
+
+      // Parse retention day number (D1 -> 1, D7 -> 7, etc.)
+      const retentionDays = parseInt(retentionDay.substring(1))
+      console.log(`📊 Revenue - Calculating ${retentionDay} retention (${retentionDays} days)`);
 
       // If no date range provided, retrieve all data (no date filter)
       let start = startDate && startDate.trim() !== '' ? new Date(startDate) : undefined
@@ -4106,19 +4178,19 @@ router.get(
             .select('dailyActivity createdAt')
             .lean()
 
-          let d7Retention = 0
+          let retentionValue = 0
           if (gameUsersForRetention.length > 0) {
             const retained = gameUsersForRetention.filter((user) => {
               if (!user.dailyActivity?.activeDates) return false
               const userCreatedAt = new Date(user.createdAt)
-              const d7Date = new Date(userCreatedAt)
-              d7Date.setDate(d7Date.getDate() + 7)
-              const d7DateStr = `${d7Date.getFullYear()}-${String(
-                d7Date.getMonth() + 1
-              ).padStart(2, '0')}-${String(d7Date.getDate()).padStart(2, '0')}`
-              return user.dailyActivity.activeDates.includes(d7DateStr)
+              const retentionDate = new Date(userCreatedAt)
+              retentionDate.setDate(retentionDate.getDate() + retentionDays)
+              const retentionDateStr = `${retentionDate.getFullYear()}-${String(
+                retentionDate.getMonth() + 1
+              ).padStart(2, '0')}-${String(retentionDate.getDate()).padStart(2, '0')}`
+              return user.dailyActivity.activeDates.includes(retentionDateStr)
             }).length
-            d7Retention = (
+            retentionValue = (
               (retained / gameUsersForRetention.length) *
               100
             ).toFixed(2)
@@ -4131,7 +4203,9 @@ router.get(
             rewardCost: rewardCost,
             margin: margin,
             marginPercent: parseFloat(marginPercent),
-            d7Retention: parseFloat(d7Retention),
+            retention: parseFloat(retentionValue), // Generic retention field
+            retentionDay: retentionDay, // Include which day was calculated
+            d7Retention: parseFloat(retentionValue), // Keep for backward compatibility
             performance:
               parseFloat(marginPercent) > 0 ? 'positive' : 'negative',
           }
@@ -4346,12 +4420,47 @@ router.get(
           const marginPercent =
             revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
 
+          // Calculate marketing cost from Adjust callbacks (ad_spend activity)
+          // Query Adjust callbacks for ad spend data for this source
+          let marketingCost = 0
+          try {
+            const AdjustCallback = require('../models/AdjustCallback')
+            const adSpendData = await AdjustCallback.aggregate([
+              {
+                $match: {
+                  activityKind: 'ad_spend',
+                  userId: { $in: filteredSourceUserIds },
+                  ...(filters.startDate || filters.endDate ? {
+                    createdAt: {
+                      ...(filters.startDate ? { $gte: new Date(filters.startDate) } : {}),
+                      ...(filters.endDate ? { $lte: new Date(filters.endDate) } : {})
+                    }
+                  } : {})
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalCost: { $sum: '$revenue' } // Adjust uses 'revenue' field for ad spend amount
+                }
+              }
+            ])
+            marketingCost = adSpendData[0]?.totalCost || 0
+          } catch (error) {
+            console.warn(`⚠️ Attribution - Could not fetch marketing cost for ${source}:`, error.message)
+            // If no ad spend data available, marketing cost remains 0
+            marketingCost = 0
+          }
+
+          console.log(`📊 Attribution - ${source}: Installs=${installs}, Revenue=${revenue}, RewardCost=${rewardCost}, MarketingCost=${marketingCost}`)
+
           return {
             source: source || 'direct',
             installs: installs,
             d1Retention: parseFloat(d1Retention),
             revenue: revenue,
             rewardCost: rewardCost,
+            marketingCost: marketingCost, // New field
             margin: margin,
             marginPercent: parseFloat(marginPercent),
           }

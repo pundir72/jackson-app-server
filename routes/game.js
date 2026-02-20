@@ -20,7 +20,6 @@ const {
 const besitosController = require("../controllers/besitos.controller");
 const { trackAchievements } = require("../utils/achievements");
 
-
 function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
   if (taskNumber <= 1) {
     return baseXP;
@@ -35,7 +34,12 @@ function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
  * @param {Object} userProfile - User profile for API calls
  * @returns {Promise<boolean>} True if game is available, false otherwise
  */
-async function checkGameAvailability(game, userProfile, userId = null, isRetry = false) {
+async function checkGameAvailability(
+  game,
+  userProfile,
+  userId = null,
+  isRetry = false,
+) {
   try {
     // Normalize SDK provider to lowercase for case-insensitive comparison
     const normalizedProvider = (game.sdkProvider || "").toLowerCase();
@@ -57,7 +61,9 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         };
 
         const response = await besitosService.getOffers(requestParams);
-        const offers = Array.isArray(response) ? response : response?.data || [];
+        const offers = Array.isArray(response)
+          ? response
+          : response?.data || [];
 
         // If API returns no offers, game is not available
         if (!Array.isArray(offers) || offers.length === 0) {
@@ -89,9 +95,13 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
             const userDataResponse = userData.data || userData;
 
             const inProgressGames =
-              userDataResponse.in_progress || userDataResponse.data?.in_progress || [];
+              userDataResponse.in_progress ||
+              userDataResponse.data?.in_progress ||
+              [];
             const availableGames =
-              userDataResponse.available || userDataResponse.data?.available || [];
+              userDataResponse.available ||
+              userDataResponse.data?.available ||
+              [];
 
             const isInUserProgress = inProgressGames.some((g) => {
               const id = g.id || g.game_id || g.offer_id;
@@ -119,7 +129,7 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
           {
             message: error.message,
             status: error.status || error.response?.status,
-          }
+          },
         );
         return false;
       }
@@ -134,7 +144,9 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         return false;
       }
 
-      console.log(`[BITLABS] Checking availability for game ${gameIdToFind} (Publisher API, same as admin)`);
+      console.log(
+        `[BITLABS] Checking availability for game ${gameIdToFind} (Publisher API, same as admin)`,
+      );
 
       try {
         // Convert platform to devices array for Bitlabs
@@ -155,7 +167,10 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
           sdk: "CUSTOM",
         };
 
-        console.log(`[BITLABS] Fetching offers via Publisher API with params:`, queryParams);
+        console.log(
+          `[BITLABS] Fetching offers via Publisher API with params:`,
+          queryParams,
+        );
 
         // Publisher API - full catalog (same as admin by-sdk/bitlabs)
         const result = await bitlabsService.getPublisherOffers(queryParams);
@@ -191,10 +206,14 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
         const matchingOffer = offers.find(matchesGameId);
 
         if (matchingOffer) {
-          console.log(`[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${matchingOffer.click_url}`);
+          console.log(
+            `[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${matchingOffer.click_url}`,
+          );
           return { available: true, clickUrl: matchingOffer.click_url };
         } else {
-          console.log(`[BITLABS] No matching offer found for game ${gameIdToFind}`);
+          console.log(
+            `[BITLABS] No matching offer found for game ${gameIdToFind}`,
+          );
           return false;
         }
       } catch (error) {
@@ -202,7 +221,7 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
           `   ❌ [BITLABS] Error checking Bitlabs availability for game ${game.gameId}:`,
           {
             message: error.message,
-          }
+          },
         );
         return false;
       }
@@ -220,7 +239,7 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
   } catch (error) {
     console.error(
       `Error checking availability for game ${game.gameId}:`,
-      error.message
+      error.message,
     );
     return false;
   }
@@ -245,60 +264,103 @@ router.get("/", protect, async (req, res) => {
       const besitosService = require("../services/besitos.service");
       if (besitosService.isConfigured()) {
         // console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
-        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        const besitosResponse = await besitosService.getUserData(
+          user._id.toString(),
+        );
         // console.log(`[GAME-LIST] Besitos response structure:`, {
         //   hasData: !!besitosResponse.data,
         //   hasInProgress: !!(besitosResponse.data?.in_progress || besitosResponse.in_progress),
         //   hasCompleted: !!(besitosResponse.data?.completed || besitosResponse.completed),
         //   responseKeys: Object.keys(besitosResponse)
         // });
-        
+
         const besitosData = besitosResponse.data || besitosResponse;
-        
-        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
-        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+
+        const inProgressGames =
+          besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames =
+          besitosData.completed || besitosData.data?.completed || [];
         const allBesitosGames = [...inProgressGames, ...completedGames];
-        
-        console.log(`[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
-        
+
+        console.log(
+          `[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`,
+        );
+
         if (allBesitosGames.length > 0) {
           console.log(`[GAME-LIST] Sample game structure:`, allBesitosGames[0]);
-          console.log(`[GAME-LIST] Syncing ${allBesitosGames.length} games from Besitos to user.games array`);
-          
+          console.log(
+            `[GAME-LIST] Syncing ${allBesitosGames.length} games from Besitos to user.games array`,
+          );
+
           if (!user.games) user.games = [];
-          
-          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
-          console.log(`[GAME-LIST] Current user.games count: ${user.games.length}, existing IDs:`, Array.from(existingGameIds));
-          
+
+          const existingGameIds = new Set(
+            (user.games || []).map((g) => String(g.gameId)),
+          );
+          console.log(
+            `[GAME-LIST] Current user.games count: ${user.games.length}, existing IDs:`,
+            Array.from(existingGameIds),
+          );
+
           let syncedCount = 0;
           for (const besitosGame of allBesitosGames) {
-            const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
-            if (!gameId || gameId === 'undefined' || gameId === 'null') {
-              console.log(`[GAME-LIST] ⚠️ Skipping game with invalid ID:`, besitosGame);
+            const gameId = String(
+              besitosGame.id || besitosGame.offer_id || besitosGame.game_id,
+            );
+            if (!gameId || gameId === "undefined" || gameId === "null") {
+              console.log(
+                `[GAME-LIST] ⚠️ Skipping game with invalid ID:`,
+                besitosGame,
+              );
               continue;
             }
-            
+
             if (!existingGameIds.has(gameId)) {
               const newGame = {
                 gameId: gameId,
                 offerId: besitosGame.offer_id || besitosGame.id || null,
-                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
-                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId) ? 'completed' : 'installed',
-                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === gameId),
-                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === gameId).completed_at) : null,
-                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+                installedAt: besitosGame.downloaded_at
+                  ? new Date(besitosGame.downloaded_at)
+                  : new Date(),
+                status: completedGames.some(
+                  (g) => String(g.id || g.offer_id || g.game_id) === gameId,
+                )
+                  ? "completed"
+                  : "installed",
+                completed: completedGames.some(
+                  (g) => String(g.id || g.offer_id || g.game_id) === gameId,
+                ),
+                completedAt: completedGames.find(
+                  (g) => String(g.id || g.offer_id || g.game_id) === gameId,
+                )?.completed_at
+                  ? new Date(
+                      completedGames.find(
+                        (g) =>
+                          String(g.id || g.offer_id || g.game_id) === gameId,
+                      ).completed_at,
+                    )
+                  : null,
+                date: besitosGame.downloaded_at
+                  ? new Date(besitosGame.downloaded_at)
+                  : new Date(),
               };
               user.games.push(newGame);
               syncedCount++;
-              console.log(`[GAME-LIST] ➕ Added game: ${gameId} (${newGame.status})`);
+              console.log(
+                `[GAME-LIST] ➕ Added game: ${gameId} (${newGame.status})`,
+              );
             }
           }
-          
-          if (syncedCount > 0 || user.isModified('games')) {
+
+          if (syncedCount > 0 || user.isModified("games")) {
             await user.save();
-            console.log(`[GAME-LIST] ✅ Synced ${syncedCount} new games. Total: ${user.games.length}`);
+            console.log(
+              `[GAME-LIST] ✅ Synced ${syncedCount} new games. Total: ${user.games.length}`,
+            );
           } else {
-            console.log(`[GAME-LIST] ℹ️ No new games to sync (all games already in user.games)`);
+            console.log(
+              `[GAME-LIST] ℹ️ No new games to sync (all games already in user.games)`,
+            );
           }
         } else {
           console.log(`[GAME-LIST] ⚠️ No games found in Besitos response`);
@@ -307,11 +369,11 @@ router.get("/", protect, async (req, res) => {
         console.log(`[GAME-LIST] ⚠️ Besitos service not configured`);
       }
     } catch (syncError) {
-      console.error('[GAME-LIST] ❌ Error syncing games from Besitos:', {
+      console.error("[GAME-LIST] ❌ Error syncing games from Besitos:", {
         message: syncError.message,
         stack: syncError.stack,
         status: syncError.status,
-        data: syncError.data
+        data: syncError.data,
       });
     }
 
@@ -319,7 +381,7 @@ router.get("/", protect, async (req, res) => {
     gamesArr.sort(
       (a, b) =>
         new Date(b.installedAt || b.date || 0) -
-        new Date(a.installedAt || a.date || 0)
+        new Date(a.installedAt || a.date || 0),
     );
 
     const start = (pageNum - 1) * pageSize;
@@ -332,7 +394,7 @@ router.get("/", protect, async (req, res) => {
         try {
           meta = await Game.findOne({ gameId: g.gameId })
             .select(
-              "title description category uiSection gender ageGroup metadata gameDetails rewards"
+              "title description category uiSection gender ageGroup metadata gameDetails rewards",
             )
             .lean();
         } catch (_) {}
@@ -363,7 +425,7 @@ router.get("/", protect, async (req, res) => {
             "",
           gameDetails: meta?.gameDetails || null,
         };
-      })
+      }),
     );
 
     res.json({
@@ -499,11 +561,13 @@ router.put("/complete", protect, async (req, res) => {
 router.post("/install", protect, async (req, res) => {
   try {
     const { gameId, offerId } = req.body;
-    
-    console.log(`[GAME-INSTALL] ========== INSTALL REQUEST (game.js) ==========`);
+
+    console.log(
+      `[GAME-INSTALL] ========== INSTALL REQUEST (game.js) ==========`,
+    );
     console.log(`[GAME-INSTALL] User ID: ${req.user.userId}`);
     console.log(`[GAME-INSTALL] Request body:`, { gameId, offerId });
-    
+
     if (!gameId) {
       console.log(`[GAME-INSTALL] ❌ ERROR: gameId is missing!`);
       return res
@@ -518,11 +582,11 @@ router.post("/install", protect, async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
-    
+
     console.log(`[GAME-INSTALL] User found. Current games array:`, {
       hasGames: !!user.games,
       isArray: Array.isArray(user.games),
-      length: user.games?.length || 0
+      length: user.games?.length || 0,
     });
 
     const idx = Array.isArray(user.games)
@@ -547,57 +611,102 @@ router.post("/install", protect, async (req, res) => {
       gameId: gameId,
       offerId: offerId,
       gamesArrayLength: user.games.length,
-      savedGame: user.games[user.games.length - 1]
+      savedGame: user.games[user.games.length - 1],
     });
 
     await user.save();
-    
-    console.log(`[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`);
+
+    console.log(
+      `[GAME-INSTALL] ✅ Game saved successfully. User now has ${user.games.length} games in array.`,
+    );
 
     // CRITICAL: Sync from Besitos API after installation to ensure we have latest data
     // This handles cases where user downloads directly from Besitos without calling our install endpoint
     try {
       const besitosService = require("../services/besitos.service");
       if (besitosService.isConfigured()) {
-        console.log(`[GAME-INSTALL] 🔄 Syncing games from Besitos after installation...`);
-        const besitosResponse = await besitosService.getUserData(user._id.toString());
+        console.log(
+          `[GAME-INSTALL] 🔄 Syncing games from Besitos after installation...`,
+        );
+        const besitosResponse = await besitosService.getUserData(
+          user._id.toString(),
+        );
         const besitosData = besitosResponse.data || besitosResponse;
-        
-        const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
-        const completedGames = besitosData.completed || besitosData.data?.completed || [];
+
+        const inProgressGames =
+          besitosData.in_progress || besitosData.data?.in_progress || [];
+        const completedGames =
+          besitosData.completed || besitosData.data?.completed || [];
         const allBesitosGames = [...inProgressGames, ...completedGames];
-        
+
         if (allBesitosGames.length > 0) {
           if (!user.games) user.games = [];
-          const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
+          const existingGameIds = new Set(
+            (user.games || []).map((g) => String(g.gameId)),
+          );
           let syncedCount = 0;
-          
+
           for (const besitosGame of allBesitosGames) {
-            const besitosGameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
-            if (!besitosGameId || besitosGameId === 'undefined' || besitosGameId === 'null') continue;
-            
+            const besitosGameId = String(
+              besitosGame.id || besitosGame.offer_id || besitosGame.game_id,
+            );
+            if (
+              !besitosGameId ||
+              besitosGameId === "undefined" ||
+              besitosGameId === "null"
+            )
+              continue;
+
             if (!existingGameIds.has(besitosGameId)) {
               user.games.push({
                 gameId: besitosGameId,
                 offerId: besitosGame.offer_id || besitosGame.id || null,
-                installedAt: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date(),
-                status: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId) ? 'completed' : 'installed',
-                completed: completedGames.some(g => String(g.id || g.offer_id || g.game_id) === besitosGameId),
-                completedAt: completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId)?.completed_at ? new Date(completedGames.find(g => String(g.id || g.offer_id || g.game_id) === besitosGameId).completed_at) : null,
-                date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
+                installedAt: besitosGame.downloaded_at
+                  ? new Date(besitosGame.downloaded_at)
+                  : new Date(),
+                status: completedGames.some(
+                  (g) =>
+                    String(g.id || g.offer_id || g.game_id) === besitosGameId,
+                )
+                  ? "completed"
+                  : "installed",
+                completed: completedGames.some(
+                  (g) =>
+                    String(g.id || g.offer_id || g.game_id) === besitosGameId,
+                ),
+                completedAt: completedGames.find(
+                  (g) =>
+                    String(g.id || g.offer_id || g.game_id) === besitosGameId,
+                )?.completed_at
+                  ? new Date(
+                      completedGames.find(
+                        (g) =>
+                          String(g.id || g.offer_id || g.game_id) ===
+                          besitosGameId,
+                      ).completed_at,
+                    )
+                  : null,
+                date: besitosGame.downloaded_at
+                  ? new Date(besitosGame.downloaded_at)
+                  : new Date(),
               });
               syncedCount++;
             }
           }
-          
+
           if (syncedCount > 0) {
             await user.save();
-            console.log(`[GAME-INSTALL] ✅ Synced ${syncedCount} additional games from Besitos. Total: ${user.games.length}`);
+            console.log(
+              `[GAME-INSTALL] ✅ Synced ${syncedCount} additional games from Besitos. Total: ${user.games.length}`,
+            );
           }
         }
       }
     } catch (syncError) {
-      console.error('[GAME-INSTALL] ⚠️ Error syncing from Besitos (non-critical):', syncError.message);
+      console.error(
+        "[GAME-INSTALL] ⚠️ Error syncing from Besitos (non-critical):",
+        syncError.message,
+      );
       // Don't fail the install if sync fails
     }
 
@@ -608,7 +717,7 @@ router.post("/install", protect, async (req, res) => {
     } catch (e) {
       console.warn(
         "Failed to invalidate user caches after game installation:",
-        e.message
+        e.message,
       );
     }
 
@@ -639,7 +748,7 @@ router.get("/downloads", protect, async (req, res) => {
 
     const gamesArr = Array.isArray(user.games) ? user.games.slice() : [];
     gamesArr.sort(
-      (a, b) => new Date(b.installedAt || 0) - new Date(a.installedAt || 0)
+      (a, b) => new Date(b.installedAt || 0) - new Date(a.installedAt || 0),
     );
 
     const start = (pageNum - 1) * pageSize;
@@ -652,7 +761,7 @@ router.get("/downloads", protect, async (req, res) => {
         try {
           meta = await Game.findOne({ gameId: g.gameId })
             .select(
-              "title category uiSection gender ageGroup metadata.thumbnail gameDetails"
+              "title category uiSection gender ageGroup metadata.thumbnail gameDetails",
             )
             .lean();
         } catch (_) {}
@@ -672,7 +781,7 @@ router.get("/downloads", protect, async (req, res) => {
             meta?.gameDetails?.image ||
             "",
         };
-      })
+      }),
     );
 
     res.json({
@@ -700,17 +809,17 @@ router.get("/downloads", protect, async (req, res) => {
 // Credit earned XP and coins to the authenticated user
 router.post("/earn", protect, async (req, res) => {
   try {
-    const { 
-      gameId, 
-      offerId, 
-      coins = 0, 
-      xp = 0, 
+    const {
+      gameId,
+      offerId,
+      coins = 0,
+      xp = 0,
       reason,
-      batchNumber,        // NEW
-      batchesClaimed,     // NEW
-      gameTitle           // NEW
+      batchNumber, // NEW
+      batchesClaimed, // NEW
+      gameTitle, // NEW
     } = req.body;
-    
+
     const coinsNum = Number(coins);
     const baseXpNum = Number(xp);
     const userId = req.user.userId; // Get from auth middleware
@@ -741,27 +850,30 @@ router.post("/earn", protect, async (req, res) => {
 
     // Per-call cap check
     if (coinsNum > 100000 || baseXpNum > 100000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "coins/xp exceed per-call cap" 
+      return res.status(400).json({
+        success: false,
+        message: "coins/xp exceed per-call cap",
       });
     }
 
     const user = await User.findById(userId).select("wallet xp games");
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found" 
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
       });
     }
 
     // NEW: Check if batches already claimed (prevent duplicate claims)
     if (gameId && batchNumber !== undefined) {
-      const batchNumbersToCheck = Array.from({ length: batchesClaimed }, (_, i) => batchNumber + i);
+      const batchNumbersToCheck = Array.from(
+        { length: batchesClaimed },
+        (_, i) => batchNumber + i,
+      );
       const existingClaim = await BatchClaim.findOne({
         userId: user._id,
         gameId: gameId,
-        batchNumber: { $in: batchNumbersToCheck }
+        batchNumber: { $in: batchNumbersToCheck },
       });
 
       if (existingClaim) {
@@ -769,7 +881,7 @@ router.post("/earn", protect, async (req, res) => {
           success: false,
           message: `Batch ${existingClaim.batchNumber} already claimed for this game`,
           alreadyClaimed: true,
-          claimedBatchNumber: existingClaim.batchNumber
+          claimedBatchNumber: existingClaim.batchNumber,
         });
       }
     }
@@ -781,7 +893,7 @@ router.post("/earn", protect, async (req, res) => {
 
     // Update xp object (current + total) with tier-based multiplier
     user.xp = user.xp || {};
-    const { finalXP, multiplier: tierMultiplier } = 
+    const { finalXP, multiplier: tierMultiplier } =
       await applyTierMultiplierToXP(user, baseXpNum);
     user.xp.current = Number(user.xp.current || 0) + finalXP;
     user.xp.total = Number(user.xp.total || 0) + finalXP;
@@ -789,7 +901,7 @@ router.post("/earn", protect, async (req, res) => {
     // Optional lightweight history on user.games entry if present
     if (gameId && Array.isArray(user.games)) {
       const idx = user.games.findIndex(
-        (g) => String(g.gameId) === String(gameId)
+        (g) => String(g.gameId) === String(gameId),
       );
       if (idx >= 0) {
         user.games[idx].lastEarnedAt = new Date();
@@ -817,7 +929,7 @@ router.post("/earn", protect, async (req, res) => {
       amount: coinsNum,
       balanceType: "coins",
       description: gameId
-        ? `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ''}`
+        ? `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ""}`
         : `Manual game earnings${reason ? ` - ${reason}` : ""}`,
       status: "completed",
       referenceId: `GAME-EARN-${gameId || "manual"}-${Date.now()}`,
@@ -831,9 +943,9 @@ router.post("/earn", protect, async (req, res) => {
         xpEarned: finalXP,
         baseXp: baseXpNum,
         tierMultiplier,
-        batchNumber: batchNumber || null,        // NEW
-        batchesClaimed: batchesClaimed || null,  // NEW
-        gameTitle: gameTitle || null             // NEW
+        batchNumber: batchNumber || null, // NEW
+        batchesClaimed: batchesClaimed || null, // NEW
+        gameTitle: gameTitle || null, // NEW
       },
     });
 
@@ -845,11 +957,11 @@ router.post("/earn", protect, async (req, res) => {
           userId: user._id,
           gameId: gameId,
           batchNumber: batchNumber + i,
-          coins: coinsNum / batchesClaimed,  // Divide coins across batches if multiple
-          xp: finalXP / batchesClaimed,       // Divide XP across batches if multiple
+          coins: coinsNum / batchesClaimed, // Divide coins across batches if multiple
+          xp: finalXP / batchesClaimed, // Divide XP across batches if multiple
           gameTitle: gameTitle || null,
           claimedAt: new Date(),
-          transactionId: transaction._id
+          transactionId: transaction._id,
         });
       }
     }
@@ -886,8 +998,8 @@ router.post("/earn", protect, async (req, res) => {
       data: {
         wallet: { balance: user.wallet.balance },
         xp: { current: user.xp.current, total: user.xp.total },
-        batchesClaimed: batchClaims.length,  // NEW
-        batchNumbers: batchClaims.map(b => b.batchNumber)  // NEW
+        batchesClaimed: batchClaims.length, // NEW
+        batchNumbers: batchClaims.map((b) => b.batchNumber), // NEW
       },
     });
   } catch (error) {
@@ -909,26 +1021,33 @@ router.get("/batch-status", protect, async (req, res) => {
     if (!gameId) {
       return res.status(400).json({
         success: false,
-        message: "gameId is required"
+        message: "gameId is required",
       });
     }
 
     // Find all claimed batches for this user + game
     const claimedBatches = await BatchClaim.find({
       userId: userId,
-      gameId: gameId
+      gameId: gameId,
     })
-    .sort({ batchNumber: 1 }) // Sort by batch number ascending
-    .select("batchNumber coins xp claimedAt")
-    .lean();
+      .sort({ batchNumber: 1 }) // Sort by batch number ascending
+      .select("batchNumber coins xp claimedAt")
+      .lean();
 
     // Calculate totals
-    const totalCoinsClaimed = claimedBatches.reduce((sum, b) => sum + (b.coins || 0), 0);
-    const totalXPClaimed = claimedBatches.reduce((sum, b) => sum + (b.xp || 0), 0);
-    const batchNumbers = claimedBatches.map(b => b.batchNumber);
-    const lastClaimedAt = claimedBatches.length > 0 
-      ? claimedBatches[claimedBatches.length - 1].claimedAt 
-      : null;
+    const totalCoinsClaimed = claimedBatches.reduce(
+      (sum, b) => sum + (b.coins || 0),
+      0,
+    );
+    const totalXPClaimed = claimedBatches.reduce(
+      (sum, b) => sum + (b.xp || 0),
+      0,
+    );
+    const batchNumbers = claimedBatches.map((b) => b.batchNumber);
+    const lastClaimedAt =
+      claimedBatches.length > 0
+        ? claimedBatches[claimedBatches.length - 1].claimedAt
+        : null;
 
     return res.json({
       success: true,
@@ -940,15 +1059,15 @@ router.get("/batch-status", protect, async (req, res) => {
         lastClaimedAt: lastClaimedAt,
         totalCoinsClaimed: totalCoinsClaimed,
         totalXPClaimed: totalXPClaimed,
-        batchDetails: claimedBatches // Optional: include full details
-      }
+        batchDetails: claimedBatches, // Optional: include full details
+      },
     });
   } catch (error) {
     console.error("Error fetching batch status:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch batch status",
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -977,7 +1096,7 @@ router.get("/discover", protect, async (req, res) => {
 
     // Load user with all fields needed for userProfile (age, country, xp, vip, taskProgression)
     const user = await User.findById(userId)
-      .select('games profile onboarding location xp vip taskProgression')
+      .select("games profile onboarding location xp vip taskProgression")
       .lean();
 
     if (!user) {
@@ -986,22 +1105,25 @@ router.get("/discover", protect, async (req, res) => {
         message: "User not found",
       });
     }
-    
+
     // Debug: Log user games status - ALWAYS LOG THIS
     console.log(`\n[DISCOVER] ========== USER GAMES STATUS ==========`);
     console.log(`[DISCOVER] User ID: ${userId}`);
-    console.log(`[DISCOVER] Has games field: ${'games' in user}`);
+    console.log(`[DISCOVER] Has games field: ${"games" in user}`);
     console.log(`[DISCOVER] Games is array: ${Array.isArray(user.games)}`);
     console.log(`[DISCOVER] Games length: ${user.games?.length || 0}`);
     if (user.games && user.games.length > 0) {
-      console.log(`[DISCOVER] First 3 games sample:`, user.games.slice(0, 3).map(g => ({
-        gameId: g.gameId,
-        offerId: g.offerId,
-        installedAt: g.installedAt,
-        status: g.status,
-        date: g.date,
-        completed: g.completed
-      })));
+      console.log(
+        `[DISCOVER] First 3 games sample:`,
+        user.games.slice(0, 3).map((g) => ({
+          gameId: g.gameId,
+          offerId: g.offerId,
+          installedAt: g.installedAt,
+          status: g.status,
+          date: g.date,
+          completed: g.completed,
+        })),
+      );
     } else {
       console.log(`[DISCOVER] ⚠️ User has NO games in games array!`);
     }
@@ -1074,7 +1196,10 @@ router.get("/discover", protect, async (req, res) => {
       const normalizedStatus = status.toLowerCase();
       if (normalizedStatus === "active" || normalizedStatus === "true") {
         filter.isActive = true;
-      } else if (normalizedStatus === "inactive" || normalizedStatus === "false") {
+      } else if (
+        normalizedStatus === "inactive" ||
+        normalizedStatus === "false"
+      ) {
         filter.isActive = false;
       } else if (normalizedStatus === "all") {
         // Don't filter by isActive - show all games
@@ -1086,9 +1211,9 @@ router.get("/discover", protect, async (req, res) => {
       // Default behavior: only show active games
       filter.isActive = true;
     }
-    
+
     if (uiSection) filter.uiSection = uiSection;
-    
+
     // Check if user has Google ID (can login with Google - may not have age/gender)
     const isGoogleUser = !!user.social?.googleId;
 
@@ -1138,7 +1263,7 @@ router.get("/discover", protect, async (req, res) => {
           },
         },
         { xpTiers: { $exists: false } },
-        { xpTiers: { $size: 0 } }
+        { xpTiers: { $size: 0 } },
       );
     }
 
@@ -1286,18 +1411,18 @@ router.get("/discover", protect, async (req, res) => {
       // Get all downloaded game IDs from user.games
       const downloadedGames = user.games.filter((g) => {
         return (
-          g.installedAt ||
-          g.status === "installed" ||
-          (g.date && !g.completed)
+          g.installedAt || g.status === "installed" || (g.date && !g.completed)
         );
       });
-      
-      console.log(`[DISCOVER] User has ${downloadedGames.length} downloaded games out of ${user.games.length} total games`);
-      
+
+      console.log(
+        `[DISCOVER] User has ${downloadedGames.length} downloaded games out of ${user.games.length} total games`,
+      );
+
       // Collect all possible identifiers for downloaded games
       const downloadedGameIds = new Set(); // For gameId (string) comparisons
       const downloadedGameObjectIds = new Set(); // For _id (ObjectId) comparisons
-      
+
       // Step 1: Collect gameIds directly from user.games
       downloadedGames.forEach((g) => {
         if (g.gameId) {
@@ -1311,7 +1436,7 @@ router.get("/discover", protect, async (req, res) => {
           downloadedGameObjectIds.add(idStr);
         }
       });
-      
+
       // Step 2: Lookup Game documents to get their _id and ensure we have all identifiers
       // CRITICAL: For Bitlabs/Besitos games, gameId might be stored in gameDetails.id
       if (downloadedGameIds.size > 0) {
@@ -1320,13 +1445,17 @@ router.get("/discover", protect, async (req, res) => {
         const gameDocs = await Game.find({
           $or: [
             { gameId: { $in: gameIdArray } },
-            { 'gameDetails.id': { $in: gameIdArray } },
-            { 'metadata.externalId': { $in: gameIdArray } }
-          ]
-        }).select('_id gameId gameDetails metadata').lean();
-        
-        console.log(`[DISCOVER] Found ${gameDocs.length} Game documents matching downloaded gameIds`);
-        
+            { "gameDetails.id": { $in: gameIdArray } },
+            { "metadata.externalId": { $in: gameIdArray } },
+          ],
+        })
+          .select("_id gameId gameDetails metadata")
+          .lean();
+
+        console.log(
+          `[DISCOVER] Found ${gameDocs.length} Game documents matching downloaded gameIds`,
+        );
+
         gameDocs.forEach((doc) => {
           // Add Game's _id to exclusion set
           if (doc._id) {
@@ -1351,15 +1480,23 @@ router.get("/discover", protect, async (req, res) => {
             downloadedGameIds.add(externalIdStr);
           }
         });
-        
+
         // Also check if any downloaded gameIds are actually ObjectIds pointing to Game._id
         const objectIdPattern = /^[0-9a-fA-F]{24}$/;
-        const potentialObjectIds = gameIdArray.filter(id => objectIdPattern.test(id));
+        const potentialObjectIds = gameIdArray.filter((id) =>
+          objectIdPattern.test(id),
+        );
         if (potentialObjectIds.length > 0) {
           const gameDocsByObjectId = await Game.find({
-            _id: { $in: potentialObjectIds.map(id => new mongoose.Types.ObjectId(id)) }
-          }).select('_id gameId gameDetails metadata').lean();
-          
+            _id: {
+              $in: potentialObjectIds.map(
+                (id) => new mongoose.Types.ObjectId(id),
+              ),
+            },
+          })
+            .select("_id gameId gameDetails metadata")
+            .lean();
+
           gameDocsByObjectId.forEach((doc) => {
             if (doc._id) {
               downloadedGameObjectIds.add(String(doc._id));
@@ -1392,51 +1529,70 @@ router.get("/discover", protect, async (req, res) => {
           let gameIdMatch = false;
           if (g.gameId) {
             const gameIdStr = String(g.gameId).trim();
-            gameIdMatch = downloadedGameIds.has(gameIdStr.toLowerCase()) || 
-                         downloadedGameIds.has(gameIdStr);
+            gameIdMatch =
+              downloadedGameIds.has(gameIdStr.toLowerCase()) ||
+              downloadedGameIds.has(gameIdStr);
           }
-          
+
           // CRITICAL: Also check gameDetails.id (for Bitlabs/Besitos games)
           // When games come from Bitlabs, the id (e.g., 1671214) is stored in gameDetails.id
           if (!gameIdMatch && g.gameDetails?.id) {
             const externalIdStr = String(g.gameDetails.id).trim();
-            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
-                         downloadedGameIds.has(externalIdStr);
+            gameIdMatch =
+              downloadedGameIds.has(externalIdStr.toLowerCase()) ||
+              downloadedGameIds.has(externalIdStr);
           }
-          
+
           // Also check metadata.externalId
           if (!gameIdMatch && g.metadata?.externalId) {
             const externalIdStr = String(g.metadata.externalId).trim();
-            gameIdMatch = downloadedGameIds.has(externalIdStr.toLowerCase()) || 
-                         downloadedGameIds.has(externalIdStr);
+            gameIdMatch =
+              downloadedGameIds.has(externalIdStr.toLowerCase()) ||
+              downloadedGameIds.has(externalIdStr);
           }
-          
+
           // Check by _id
           let objectIdMatch = false;
           if (g._id) {
             objectIdMatch = downloadedGameObjectIds.has(String(g._id));
           }
-          
+
           // Exclude if either matches
           const shouldExclude = gameIdMatch || objectIdMatch;
-          
+
           if (shouldExclude) {
-            console.log(`[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, gameDetails.id=${g.gameDetails?.id}, _id=${g._id}`);
+            console.log(
+              `[DISCOVER] Excluding downloaded game: gameId=${g.gameId}, gameDetails.id=${g.gameDetails?.id}, _id=${g._id}`,
+            );
           }
-          
+
           return !shouldExclude;
         });
         const afterHideCount = allGames.length;
-        console.log(`[DISCOVER] Filtered downloaded games: ${beforeHideCount} -> ${afterHideCount} (excluded ${beforeHideCount - afterHideCount})`);
-        console.log(`[DISCOVER] Downloaded gameIds set size: ${downloadedGameIds.size}`);
-        console.log(`[DISCOVER] Downloaded ObjectIds set size: ${downloadedGameObjectIds.size}`);
+        console.log(
+          `[DISCOVER] Filtered downloaded games: ${beforeHideCount} -> ${afterHideCount} (excluded ${beforeHideCount - afterHideCount})`,
+        );
+        console.log(
+          `[DISCOVER] Downloaded gameIds set size: ${downloadedGameIds.size}`,
+        );
+        console.log(
+          `[DISCOVER] Downloaded ObjectIds set size: ${downloadedGameObjectIds.size}`,
+        );
       } else {
-        console.log(`[DISCOVER] ⚠️ No downloaded games to filter (user.games might be empty or no installed games)`);
+        console.log(
+          `[DISCOVER] ⚠️ No downloaded games to filter (user.games might be empty or no installed games)`,
+        );
       }
     } else {
-      console.log(`[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`);
-      console.log(`[DISCOVER] This means ALL games will be shown, even if they're downloaded!`);
-      console.log(`[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`);
+      console.log(
+        `[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`,
+      );
+      console.log(
+        `[DISCOVER] This means ALL games will be shown, even if they're downloaded!`,
+      );
+      console.log(
+        `[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`,
+      );
     }
 
     if (!(userProfileGamesCount > 0 && allGames.length === 0)) {
@@ -1444,7 +1600,10 @@ router.get("/discover", protect, async (req, res) => {
     }
 
     // Apply display rule limit when rule matches, for all UI sections EXCEPT "Swipe" and "Most Played"
-    const normalizedUiSection = (uiSection || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const normalizedUiSection = (uiSection || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
     const skipLimitForSection =
       normalizedUiSection === "swipe" ||
       normalizedUiSection === "most played" ||
@@ -1525,7 +1684,7 @@ router.get("/discover", protect, async (req, res) => {
 
         const userTierNormalized = normalizeTierName(userXpTier);
         const gameTiersNormalized = g.xpTiers.map((tier) =>
-          normalizeTierName(tier)
+          normalizeTierName(tier),
         );
 
         passesXpTier = gameTiersNormalized.includes(userTierNormalized);
@@ -1572,13 +1731,16 @@ router.get("/discover", protect, async (req, res) => {
     const userAgent = req.headers["user-agent"] || "";
     if (!req.query.platform) {
       // Infer platform from user-agent if not provided
-      if (userAgent.toLowerCase().includes("iphone") || userAgent.toLowerCase().includes("ipad")) {
+      if (
+        userAgent.toLowerCase().includes("iphone") ||
+        userAgent.toLowerCase().includes("ipad")
+      ) {
         platform = "ios";
       } else if (userAgent.toLowerCase().includes("android")) {
         platform = "android";
       }
     }
-    
+
     // Build user profile for API calls
     const userProfileForAPI = {
       platform: platform,
@@ -1591,18 +1753,28 @@ router.get("/discover", protect, async (req, res) => {
     const availabilityChecks = [];
     const BATCH_SIZE = 10; // Process 10 games at a time
     const totalBatches = Math.ceil(allGames.length / BATCH_SIZE);
-    
+
     for (let i = 0; i < allGames.length; i += BATCH_SIZE) {
       const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
       const batch = allGames.slice(i, i + BATCH_SIZE);
       const batchStartTime = Date.now();
       const batchChecks = await Promise.all(
         batch.map(async (game) => {
-          const availabilityResult = await checkGameAvailability(game, userProfileForAPI, userId);
-          const isAvailable = availabilityResult && (availabilityResult.available === true || availabilityResult === true);
-          const clickUrl = availabilityResult && availabilityResult.clickUrl ? availabilityResult.clickUrl : null;
+          const availabilityResult = await checkGameAvailability(
+            game,
+            userProfileForAPI,
+            userId,
+          );
+          const isAvailable =
+            availabilityResult &&
+            (availabilityResult.available === true ||
+              availabilityResult === true);
+          const clickUrl =
+            availabilityResult && availabilityResult.clickUrl
+              ? availabilityResult.clickUrl
+              : null;
           return { game, isAvailable, clickUrl };
-        })
+        }),
       );
       const batchEndTime = Date.now();
       const batchDuration = batchEndTime - batchStartTime;
@@ -1612,10 +1784,17 @@ router.get("/discover", protect, async (req, res) => {
 
     // Filter to only include available games
     const beforeAvailabilityCount = allGames.length;
-    const availableGames = availabilityChecks.filter(({ isAvailable }) => isAvailable);
-    const unavailableGames = availabilityChecks.filter(({ isAvailable }) => !isAvailable);
-    allGames = availableGames.map(({ game, clickUrl }) => ({ ...game, clickUrl }));
-    
+    const availableGames = availabilityChecks.filter(
+      ({ isAvailable }) => isAvailable,
+    );
+    const unavailableGames = availabilityChecks.filter(
+      ({ isAvailable }) => !isAvailable,
+    );
+    allGames = availableGames.map(({ game, clickUrl }) => ({
+      ...game,
+      clickUrl,
+    }));
+
     const afterAvailabilityCount = allGames.length;
     // ===== END REAL-TIME AVAILABILITY CHECKING =====
 
@@ -1623,7 +1802,7 @@ router.get("/discover", protect, async (req, res) => {
     const total = allGames.length;
     const paginatedGames = allGames.slice(
       (pageNum - 1) * pageSize,
-      pageNum * pageSize
+      pageNum * pageSize,
     );
 
     if (isGoogleUser) {
@@ -1650,9 +1829,8 @@ router.get("/discover", protect, async (req, res) => {
     // Get user-based task progression rule (applies to user, not specific game)
     // Fetching task progression rule
 
-    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
-      userProfile
-    );
+    const progressionRule =
+      await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     if (progressionRule) {
       // Task progression rule found
@@ -1708,17 +1886,37 @@ router.get("/discover", protect, async (req, res) => {
 
         // Same format for Besitos and Bitlabs: use raw SDK data to fill icon, images, details
         const raw = g.besitosRawData || {};
-        const iconFromRaw = raw.creatives?.icon || raw.icon || raw.icon_url || "";
-        const bannerFromRaw = raw.creatives?.images?.["600x300"] || raw.creatives?.icon || raw.icon || "";
+        const iconFromRaw =
+          raw.creatives?.icon || raw.icon || raw.icon_url || "";
+        const bannerFromRaw =
+          raw.creatives?.images?.["600x300"] ||
+          raw.creatives?.icon ||
+          raw.icon ||
+          "";
         const detailsFromRaw = {
           id: raw.id || g.gameDetails?.id || g.gameId,
           name: raw.anchor || raw.name || g.gameDetails?.name || g.title,
-          description: raw.description || g.gameDetails?.description || g.description,
+          description:
+            raw.description || g.gameDetails?.description || g.description,
           image: raw.creatives?.icon || raw.icon || g.gameDetails?.image || "",
-          square_image: raw.creatives?.icon || raw.icon || g.gameDetails?.square_image || "",
-          large_image: raw.creatives?.images?.["600x300"] || raw.creatives?.icon || g.gameDetails?.large_image || "",
-          category: (raw.categories && raw.categories[0]) ? (typeof raw.categories[0] === "string" ? raw.categories[0] : raw.categories[0]?.name) : (g.gameDetails?.category || g.category || ""),
-          downloadUrl: raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
+          square_image:
+            raw.creatives?.icon ||
+            raw.icon ||
+            g.gameDetails?.square_image ||
+            "",
+          large_image:
+            raw.creatives?.images?.["600x300"] ||
+            raw.creatives?.icon ||
+            g.gameDetails?.large_image ||
+            "",
+          category:
+            raw.categories && raw.categories[0]
+              ? typeof raw.categories[0] === "string"
+                ? raw.categories[0]
+                : raw.categories[0]?.name
+              : g.gameDetails?.category || g.category || "",
+          downloadUrl:
+            raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
         };
 
         return {
@@ -1742,17 +1940,32 @@ router.get("/discover", protect, async (req, res) => {
             iconFromRaw ||
             "",
           images: {
-            icon: g.metadata?.images?.icon || g.gameDetails?.square_image || iconFromRaw || "",
-            banner: g.metadata?.images?.banner || g.gameDetails?.large_image || bannerFromRaw || "",
+            icon:
+              g.metadata?.images?.icon ||
+              g.gameDetails?.square_image ||
+              iconFromRaw ||
+              "",
+            banner:
+              g.metadata?.images?.banner ||
+              g.gameDetails?.large_image ||
+              bannerFromRaw ||
+              "",
           },
           details: { ...(g.gameDetails || {}), ...detailsFromRaw },
-          besitosRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? null : (g.besitosRawData || null),
-          bitlabsRawData: (g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs") ? (g.besitosRawData || null) : null,
+          besitosRawData:
+            g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs"
+              ? null
+              : g.besitosRawData || null,
+          bitlabsRawData:
+            g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs"
+              ? g.besitosRawData || null
+              : null,
           sdkProvider: g.sdkProvider || null,
           xpRewardConfig: (() => {
-            const baseXP = g.xpRewardConfig?.baseXP ?? 0;
-            const baseMultiplier = g.xpRewardConfig?.multiplier ?? 1.0;
-            const multiplier = Math.round(baseMultiplier * discoverTierMultiplier * 100) / 100;
+            const rawBaseXP = g.xpRewardConfig?.baseXP ?? 0;
+            // Apply XP tier multiplier into baseXP; response multiplier is always 1
+            const baseXP = Math.round(rawBaseXP * discoverTierMultiplier);
+            const multiplier = 1;
             return { baseXP, multiplier };
           })(),
           _id: g._id,
@@ -1781,16 +1994,16 @@ router.get("/discover", protect, async (req, res) => {
           // Task progression rule info
           taskProgression: progressionStatus,
         };
-      })
+      }),
     );
 
     const uiSections = await Game.distinct("uiSection");
 
     // Set cache-control headers to prevent 304 Not Modified responses
     res.set({
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
     });
 
     res.json({
@@ -1842,7 +2055,7 @@ router.get("/get-game-by-id/:id", protect, async (req, res) => {
     if (mongoose.Types.ObjectId.isValid(id)) {
       game = await Game.findById(id)
         .select(
-          "gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards"
+          "gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards",
         )
         .lean();
     }
@@ -1851,7 +2064,7 @@ router.get("/get-game-by-id/:id", protect, async (req, res) => {
     if (!game) {
       game = await Game.findOne({ gameId: id })
         .select(
-          "gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards"
+          "gameId title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards",
         )
         .lean();
     }
@@ -1866,7 +2079,7 @@ router.get("/get-game-by-id/:id", protect, async (req, res) => {
     // Get user's game data if this game is in their downloaded games
     const user = await User.findById(userId).select("games").lean();
     const userGame = user?.games?.find(
-      (g) => String(g.gameId) === String(game.gameId)
+      (g) => String(g.gameId) === String(game.gameId),
     );
 
     // If game is from Besitos, get external details
@@ -1964,7 +2177,7 @@ router.get("/downloaded/:gameId", protect, async (req, res) => {
 
     // Find game in user's downloaded games
     const userGame = user.games?.find(
-      (g) => String(g.gameId) === String(gameId)
+      (g) => String(g.gameId) === String(gameId),
     );
     if (!userGame) {
       return res.status(404).json({
@@ -1976,7 +2189,7 @@ router.get("/downloaded/:gameId", protect, async (req, res) => {
     // Get full game metadata
     const game = await Game.findOne({ gameId })
       .select(
-        "title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards"
+        "title description category uiSection gender ageGroup metadata gameDetails sdkProvider rewards",
       )
       .lean();
 
@@ -2097,7 +2310,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
       // Get the first enabled gameBonusTasks config as global template
       const gameBonusConfig = rule.gameBonusTasks.find(
         (config) =>
-          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
+          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0,
       );
 
       if (gameBonusConfig && gameBonusConfig.bonusTasks.length > 0) {
@@ -2130,9 +2343,8 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
     };
 
     // Get user-based progression rule (applies to user, not specific game)
-    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
-      userProfile
-    );
+    const progressionRule =
+      await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     // Get user's progression data for this game
     const gameIdString = gameId.toString();
@@ -2150,7 +2362,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
       const allGameTaskIds = allGameTasks.map((t) => t._id.toString());
       const completedGameTasks =
         user?.tasks?.filter(
-          (t) => t.completed && allGameTaskIds.includes(t.taskId)
+          (t) => t.completed && allGameTaskIds.includes(t.taskId),
         ) || [];
 
       progression = {
@@ -2195,7 +2407,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
         calculatedRewardValue = calculateStepwiseXP(
           taskNumber,
           baseXP,
-          multiplier
+          multiplier,
         );
       }
       const taskIdString = task._id.toString();
@@ -2215,7 +2427,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
         const unlockCheck = progressionRule.canUnlockTask(
           completedTasksCount,
           taskOrder,
-          rewardTransferred
+          rewardTransferred,
         );
         isUnlocked = unlockCheck.canUnlock;
         unlockReason = unlockCheck.reason || "Unlocked";
@@ -2228,7 +2440,7 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
           // Check if previous task is completed
           const previousTask = tasks[index - 1];
           const previousTaskCompleted = completedTaskIds.includes(
-            previousTask._id.toString()
+            previousTask._id.toString(),
           );
           if (!previousTaskCompleted) {
             isUnlocked = false;
@@ -2332,7 +2544,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
     })
       .populate(
         "gameBonusTasks.bonusTasks.taskId",
-        "name description completionRule rewardType rewardValue"
+        "name description completionRule rewardType rewardValue",
       )
       .lean();
 
@@ -2391,7 +2603,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
     // Get the first enabled gameBonusTasks config as global template
     const gameBonusConfig = rule.gameBonusTasks.find(
       (config) =>
-        config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
+        config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0,
     );
 
     if (
@@ -2490,13 +2702,13 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
         } else {
           // Task 2 and 3: Require previous task completion AND event threshold
           const previousTask = gameBonusConfig.bonusTasks.find(
-            (t) => t.order === bt.order - 1
+            (t) => t.order === bt.order - 1,
           );
           const previousTaskId =
             previousTask?.taskId._id || previousTask?.taskId;
           const previousTaskIdString = previousTaskId.toString();
           const previousUserTask = userTasks.find(
-            (t) => t.taskId === previousTaskIdString
+            (t) => t.taskId === previousTaskIdString,
           );
           const previousTaskCompleted = previousUserTask?.completed || false;
           const eventThresholdMet = userInternalEvents >= minimumEventThreshold;
@@ -2522,7 +2734,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
         const completionDeadline = sharedDeadlineStartTime
           ? new Date(
               sharedDeadlineStartTime.getTime() +
-                completionDeadlineHours * 60 * 60 * 1000
+                completionDeadlineHours * 60 * 60 * 1000,
             )
           : null;
         const now = new Date();
@@ -2649,7 +2861,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       .lean();
 
     const taskIndex = allTasks.findIndex(
-      (t) => t._id.toString() === taskId.toString()
+      (t) => t._id.toString() === taskId.toString(),
     );
     const taskNumber = taskIndex + 1; // 1-based task number
 
@@ -2663,7 +2875,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       calculatedXP = calculateStepwiseXP(
         taskNumber,
         game.xpRewardConfig.baseXP,
-        game.xpRewardConfig.multiplier || 1.0
+        game.xpRewardConfig.multiplier || 1.0,
       );
     }
 
@@ -2678,7 +2890,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
 
     // Check if task is already completed
     const existingTask = user.tasks?.find(
-      (t) => t.taskId === taskId.toString()
+      (t) => t.taskId === taskId.toString(),
     );
     if (existingTask && existingTask.completed) {
       return res.status(400).json({
@@ -2709,9 +2921,8 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
     };
 
     // Get user-based progression rule (applies to user, not specific game)
-    const progressionRule = await TaskProgressionRule.findBestMatchForUser(
-      userProfile
-    );
+    const progressionRule =
+      await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     // Check if task is unlocked before allowing completion
     if (progressionRule) {
@@ -2728,7 +2939,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
 
       // Check if this is a post-threshold task with tier requirements
       const postThresholdTask = progressionRule.postThresholdTasks.find(
-        (pt) => pt.taskId.toString() === taskId.toString() && pt.isEnabled
+        (pt) => pt.taskId.toString() === taskId.toString() && pt.isEnabled,
       );
 
       if (postThresholdTask) {
@@ -2737,7 +2948,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
           user,
           taskId.toString(),
           completedTasksCount,
-          rewardTransferred
+          rewardTransferred,
         );
 
         if (!unlockCheck.canUnlock) {
@@ -2755,7 +2966,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
           .lean();
 
         const taskIndex = allTasks.findIndex(
-          (t) => t._id.toString() === taskId.toString()
+          (t) => t._id.toString() === taskId.toString(),
         );
         if (taskIndex > 0) {
           // Check if all previous tasks are completed
@@ -2777,7 +2988,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
           const unlockCheck = progressionRule.canUnlockTask(
             completedTasksCount,
             taskOrder,
-            rewardTransferred
+            rewardTransferred,
           );
 
           if (!unlockCheck.canUnlock) {
@@ -2851,12 +3062,12 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       // Get the first enabled gameBonusTasks config as global template
       const gameBonusConfig = rule.gameBonusTasks.find(
         (config) =>
-          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0
+          config.isEnabled && config.bonusTasks && config.bonusTasks.length > 0,
       );
 
       if (gameBonusConfig) {
         const bonusTask = gameBonusConfig.bonusTasks.find(
-          (bt) => (bt.taskId._id || bt.taskId).toString() === taskId.toString()
+          (bt) => (bt.taskId._id || bt.taskId).toString() === taskId.toString(),
         );
 
         if (bonusTask) {
@@ -2867,7 +3078,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
           const maxTasks = bonusRule?.maxBonusTasksPerGame || 3;
           if (bonusTaskOrder < maxTasks) {
             const nextBonusTask = gameBonusConfig.bonusTasks.find(
-              (bt) => bt.order === bonusTaskOrder + 1
+              (bt) => bt.order === bonusTaskOrder + 1,
             );
 
             if (nextBonusTask) {
@@ -2897,7 +3108,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
                 // Actually unlock the next bonus task by saving unlock timestamp
                 const nextTaskIdString = nextBonusTaskId;
                 const existingNextTask = user.tasks?.find(
-                  (t) => t.taskId === nextTaskIdString
+                  (t) => t.taskId === nextTaskIdString,
                 );
                 const unlockTime = new Date();
 
@@ -2980,7 +3191,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
         const allGameTaskIds = allGameTasks.map((t) => t._id.toString());
         const completedGameTasks =
           user.tasks?.filter(
-            (t) => t.completed && allGameTaskIds.includes(t.taskId)
+            (t) => t.completed && allGameTaskIds.includes(t.taskId),
           ) || [];
 
         progression = {
@@ -3132,7 +3343,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       const userInternalEvents = userGame?.playCount || 0;
       const gameBonusConfig = rule.gameBonusTasks.find(
         (config) =>
-          config.gameId.toString() === gameId.toString() && config.isEnabled
+          config.gameId.toString() === gameId.toString() && config.isEnabled,
       );
       const minimumEventThreshold = gameBonusConfig?.minimumEventThreshold || 0;
 
@@ -3169,7 +3380,7 @@ router.get("/:gameId/coin-box", protect, async (req, res) => {
 
     // Get user data
     const user = await User.findById(userId).select(
-      "taskProgression wallet games xp vip"
+      "taskProgression wallet games xp vip",
     );
     if (!user) {
       return res.status(404).json({
@@ -3252,7 +3463,7 @@ router.get("/:gameId/coin-box", protect, async (req, res) => {
           required: rule.minimumEventThreshold,
           percentage: Math.min(
             100,
-            Math.round((completedTasks / rule.minimumEventThreshold) * 100)
+            Math.round((completedTasks / rule.minimumEventThreshold) * 100),
           ),
         },
       },
@@ -3284,7 +3495,7 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
 
     // Get user data
     const user = await User.findById(userId).select(
-      "taskProgression wallet games xp vip"
+      "taskProgression wallet games xp vip",
     );
     if (!user) {
       return res.status(404).json({

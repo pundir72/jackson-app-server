@@ -425,33 +425,52 @@ gameDisplayRuleSchema.methods.applyToUser = async function (userProfile) {
 
   const { age, gender, country, xp, gamesPlayed, membershipTier } = userProfile;
 
-  // Segment applicability: use targetSegment (discover uses this instead of userMilestones for segment)
+  // Segment applicability: use targetSegment (admin generates e.g. "New Users", "Engaged Users (3+ games)")
+  // Match with includes() so "engaged users (3+ games)" and "new users, xp tier" etc. work
   let applies = true;
   const segment = (targetSegmentValue || "").trim().toLowerCase();
-  if (segment === "engaged users") {
-    if (gamesPlayed < 3) {
-      applies = false;
-      console.log(
-        `  ❌ targetSegment "Engaged Users": FAILED (gamesPlayed: ${gamesPlayed}, expected >= 3)`
-      );
+  const hasNewUsers = segment.includes("new users");
+  const hasEngagedUsers = segment.includes("engaged users");
+
+  if (hasNewUsers || hasEngagedUsers) {
+    if (hasNewUsers && hasEngagedUsers) {
+      // Rule targets both: apply if user is new (0 games) OR engaged (3+ games)
+      if (gamesPlayed !== 0 && gamesPlayed < 3) {
+        applies = false;
+        console.log(
+          `  ❌ targetSegment "New Users, Engaged Users": FAILED (gamesPlayed: ${gamesPlayed}, expected 0 or >= 3)`
+        );
+      } else {
+        console.log(
+          `  ✅ targetSegment "New Users, Engaged Users": PASSED (gamesPlayed: ${gamesPlayed})`
+        );
+      }
+    } else if (hasEngagedUsers) {
+      if (gamesPlayed < 3) {
+        applies = false;
+        console.log(
+          `  ❌ targetSegment "Engaged Users": FAILED (gamesPlayed: ${gamesPlayed}, expected >= 3)`
+        );
+      } else {
+        console.log(
+          `  ✅ targetSegment "Engaged Users": PASSED (gamesPlayed: ${gamesPlayed})`
+        );
+      }
     } else {
-      console.log(
-        `  ✅ targetSegment "Engaged Users": PASSED (gamesPlayed: ${gamesPlayed})`
-      );
-    }
-  } else if (segment === "new users") {
-    if (gamesPlayed !== 0) {
-      applies = false;
-      console.log(
-        `  ❌ targetSegment "New Users": FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
-      );
-    } else {
-      console.log(
-        `  ✅ targetSegment "New Users": PASSED (gamesPlayed: ${gamesPlayed})`
-      );
+      // hasNewUsers only
+      if (gamesPlayed !== 0) {
+        applies = false;
+        console.log(
+          `  ❌ targetSegment "New Users": FAILED (gamesPlayed: ${gamesPlayed}, expected: 0)`
+        );
+      } else {
+        console.log(
+          `  ✅ targetSegment "New Users": PASSED (gamesPlayed: ${gamesPlayed})`
+        );
+      }
     }
   }
-  // "new users, engaged users" or "all users" or empty → no segment filter
+  // "all users" or empty or XP/Membership only → no segment filter
 
   // Check XP tier (still use userMilestones for xp_tier and membership_tier)
   if (this.userMilestones && this.userMilestones.includes("xp_tier")) {

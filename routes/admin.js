@@ -2506,24 +2506,44 @@ router.get(
             if (start || end) {
               // Generate array of date strings within the range
               const dateStrings = []
-              const currentDate = start ? new Date(start) : new Date(end)
-              const endDate = end ? new Date(end) : new Date(start)
+              
+              // Normalize dates to UTC midnight to avoid timezone issues
+              const startDateNormalized = start ? new Date(Date.UTC(
+                start.getUTCFullYear(),
+                start.getUTCMonth(),
+                start.getUTCDate()
+              )) : (end ? new Date(Date.UTC(
+                end.getUTCFullYear(),
+                end.getUTCMonth(),
+                end.getUTCDate()
+              )) : null)
+              
+              const endDateNormalized = end ? new Date(Date.UTC(
+                end.getUTCFullYear(),
+                end.getUTCMonth(),
+                end.getUTCDate()
+              )) : (start ? new Date(Date.UTC(
+                start.getUTCFullYear(),
+                start.getUTCMonth(),
+                start.getUTCDate()
+              )) : null)
               
               // If only start date, use start date
               // If only end date, use end date  
               // If both, use the range
-              if (start && end) {
+              if (startDateNormalized && endDateNormalized) {
                 // Generate all dates in range
-                while (currentDate <= endDate) {
+                const currentDate = new Date(startDateNormalized)
+                while (currentDate <= endDateNormalized) {
                   dateStrings.push(getDateString(currentDate))
-                  currentDate.setDate(currentDate.getDate() + 1)
+                  currentDate.setUTCDate(currentDate.getUTCDate() + 1)
                 }
-              } else if (start) {
+              } else if (startDateNormalized) {
                 // Only start date - use that specific date
-                dateStrings.push(getDateString(start))
-              } else if (end) {
+                dateStrings.push(getDateString(startDateNormalized))
+              } else if (endDateNormalized) {
                 // Only end date - use that specific date
-                dateStrings.push(getDateString(end))
+                dateStrings.push(getDateString(endDateNormalized))
               }
               
               // Find users active on any of these dates
@@ -3409,24 +3429,44 @@ router.get(
             if (start || end) {
               // Generate array of date strings within the range
               const dateStrings = []
-              const currentDate = start ? new Date(start) : new Date(end)
-              const endDate = end ? new Date(end) : new Date(start)
+              
+              // Normalize dates to UTC midnight to avoid timezone issues
+              const startDateNormalized = start ? new Date(Date.UTC(
+                start.getUTCFullYear(),
+                start.getUTCMonth(),
+                start.getUTCDate()
+              )) : (end ? new Date(Date.UTC(
+                end.getUTCFullYear(),
+                end.getUTCMonth(),
+                end.getUTCDate()
+              )) : null)
+              
+              const endDateNormalized = end ? new Date(Date.UTC(
+                end.getUTCFullYear(),
+                end.getUTCMonth(),
+                end.getUTCDate()
+              )) : (start ? new Date(Date.UTC(
+                start.getUTCFullYear(),
+                start.getUTCMonth(),
+                start.getUTCDate()
+              )) : null)
               
               // If only start date, use start date
               // If only end date, use end date  
               // If both, use the range
-              if (start && end) {
+              if (startDateNormalized && endDateNormalized) {
                 // Generate all dates in range
-                while (currentDate <= endDate) {
+                const currentDate = new Date(startDateNormalized)
+                while (currentDate <= endDateNormalized) {
                   dateStrings.push(getDateString(currentDate))
-                  currentDate.setDate(currentDate.getDate() + 1)
+                  currentDate.setUTCDate(currentDate.getUTCDate() + 1)
                 }
-              } else if (start) {
+              } else if (startDateNormalized) {
                 // Only start date - use that specific date
-                dateStrings.push(getDateString(start))
-              } else if (end) {
+                dateStrings.push(getDateString(startDateNormalized))
+              } else if (endDateNormalized) {
                 // Only end date - use that specific date
-                dateStrings.push(getDateString(end))
+                dateStrings.push(getDateString(endDateNormalized))
               }
               
               // Find users active on any of these dates

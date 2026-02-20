@@ -58,6 +58,19 @@ const adjustEventTokenSchema = new mongoose.Schema({
     default: true,
     index: true
   },
+  // Adjust S2S: environment for event submission (sandbox | production)
+  environment: {
+    type: String,
+    enum: ['sandbox', 'production'],
+    default: 'production',
+    index: true
+  },
+  // Adjust S2S: revenue events (revenue + currency params)
+  isRevenueEvent: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   description: {
     type: String,
     trim: true
@@ -134,6 +147,8 @@ adjustEventTokenSchema.index({ token: 1, isActive: 1 });
 adjustEventTokenSchema.index({ name: 1, isActive: 1 });
 adjustEventTokenSchema.index({ category: 1, isActive: 1 });
 adjustEventTokenSchema.index({ isS2S: 1, isActive: 1 });
+adjustEventTokenSchema.index({ environment: 1, isActive: 1 });
+adjustEventTokenSchema.index({ isRevenueEvent: 1, isActive: 1 });
 
 // Static methods
 adjustEventTokenSchema.statics.findByToken = function(token) {

@@ -412,22 +412,28 @@ welcomeBonusTimerSchema.methods.getTimerInfo = function (
     userXp
   );
 
+  const now = new Date();
+  // Unlock time = signup + unlockTimeHours (e.g. 13 hours)
   const unlockTime = new Date(
     gameDownloadTime.getTime() + unlockTimeHours * 60 * 60 * 1000
   );
-  const completionDeadline = new Date(
-    unlockTime.getTime() + completionDeadlineDays * 24 * 60 * 60 * 1000
-  );
+  // Completion deadline = unlock time only (no extra days)
+  const completionDeadline = new Date(unlockTime.getTime());
 
-  const now = new Date();
+  const timeUntilUnlockMs = Math.max(0, unlockTime.getTime() - now.getTime());
+  // timeUntilExpiry based on unlockTimeHours: time until unlock (max = unlockTimeHours in ms)
+  const timeUntilExpiryMs = Math.min(
+    timeUntilUnlockMs,
+    unlockTimeHours * 60 * 60 * 1000
+  );
 
   return {
     unlockTime,
     completionDeadline,
     isUnlocked: now >= unlockTime,
     isExpired: now > completionDeadline,
-    timeUntilUnlock: Math.max(0, unlockTime.getTime() - now.getTime()),
-    timeUntilExpiry: Math.max(0, completionDeadline.getTime() - now.getTime()),
+    timeUntilUnlock: timeUntilUnlockMs,
+    timeUntilExpiry: timeUntilExpiryMs,
     unlockTimeHours,
     completionDeadlineDays,
   };

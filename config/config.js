@@ -55,6 +55,10 @@ module.exports = {
   GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT: process.env.GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT,
   ANDROID_PACKAGE_NAME: process.env.ANDROID_PACKAGE_NAME,
 
+  // Google Play In-App Purchase (IAP)
+  GOOGLE_PLAY_SERVICE_ACCOUNT: process.env.GOOGLE_PLAY_SERVICE_ACCOUNT, // JSON string of service account credentials
+  GOOGLE_PLAY_KEY_FILE: process.env.GOOGLE_PLAY_KEY_FILE, // Path to service account key file (alternative to JSON string)
+
   // Redis
   REDIS_URL: process.env.REDIS_URL || "redis://localhost:6379",
 

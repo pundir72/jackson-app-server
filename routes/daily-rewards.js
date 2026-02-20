@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
+const { standardIntegrityVerification } = require("../middleware/integrityVerification");
 const DailyRewardProgress = require("../models/DailyRewardProgress");
 const DailyRewardConfigV2 = require("../models/DailyRewardConfigV2");
 const Transaction = require("../models/Transaction");
@@ -23,249 +24,39 @@ const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const { getTierKeyFromXPV2 } = require("../utils/xpTierMultiplierV2");
 const XPMultiplier = require("../models/XPMultiplier");
 const XPTier = require("../models/XPTier");
+// ADM-DR-001 FIX: Import fixed daily reward progress loader
+const { loadProgressFixed, calculateMidWeekJoinMetadataFixed } = require("../utils/dailyRewardProgressFixed");
 
 /**
  * Load or create weekly progress for Daily Rewards
  * 
- * MID-WEEK JOIN BEHAVIOR:
- * When a user joins mid-week (not on Monday), the following logic applies:
+ * ADM-DR-001 FIX: This now uses the fixed logic that ensures new users
+ * get a full 7-day reward experience regardless of when they join.
  * 
- * 1. Days before user creation: Marked as "missed" (user cannot claim rewards for days before they joined)
- * 2. Day of creation: If it's today, marked as "claimable"; if it's in the past, marked as "missed"
- * 3. Days after creation (within the same week): Follow normal progression (claimable today, locked for future)
- * 4. Big Reward Eligibility: 
- *    - User must claim ALL 6 days (Day 1-6) AFTER their creation date to be eligible for Day 7 big reward
- *    - If user joined on Day 3, they need to claim Day 3, 4, 5, 6 to be eligible (4 days total)
- *    - Days 1-2 before their creation are automatically marked as "missed" and don't count toward eligibility
- * 
- * Example: User joins on Wednesday (Day 3 of the week)
- * - Day 1 (Mon): MISSED (before creation)
- * - Day 2 (Tue): MISSED (before creation)
- * - Day 3 (Wed): CLAIMABLE (if today) or MISSED (if past)
- * - Day 4-6: Follow normal progression
- * - Day 7: Eligible for big reward ONLY if Days 3-6 are all claimed
+ * NEW BEHAVIOR:
+ * - FIRST WEEK: User-relative days starting from join date (Day 1, 2, 3...)
+ * - SUBSEQUENT WEEKS: Calendar-based days (Monday, Tuesday, Wednesday...)
  * 
  * @param {string} userId - User ID
  * @param {Date} dateUtc - Date to load progress for (defaults to current date)
  * @returns {Object|null} DailyRewardProgress document or null if access denied
  */
 async function loadProgress(userId, dateUtc = new Date()) {
-  // Always use actual current date for logic, not the requested date
-  const now = new Date();
-  const currentWeekKey = getISOWeekKey(now);
-  const requestedWeekKey = getISOWeekKey(dateUtc);
-  const isCurrentWeek = requestedWeekKey === currentWeekKey;
-
-  const { weekStart, weekEnd } = getWeekBoundsUtc(dateUtc);
-  const weekKey = requestedWeekKey;
-
-  // Get user account creation date to enforce access restriction
-  const user = await User.findById(userId).select("createdAt");
-  if (!user) {
-    return null; // User not found
-  }
-
-  const userCreatedAt = user.createdAt || new Date();
-
-  // Check if requested week is before user account creation
-  // User should only access data from their account creation date onward
-  // Allow access if the week contains or is after the user's creation date
-  if (weekEnd < userCreatedAt) {
-    // Entire week is before user account was created - not allowed
-    return null;
-  }
-
-  let progress = await DailyRewardProgress.findOne({ userId, weekKey });
-
-  // Calculate today's index using actual current date (not requested date)
-  const todayIdx = (now.getUTCDay() + 6) % 7; // 0..6 Mon..Sun
-
-  if (!progress) {
-    // Check if this is a future week (not allowed)
-    const requestedDate = new Date(dateUtc);
-    if (requestedDate > now) {
-      // Future week - return null
-      return null;
-    }
-
-    progress = await DailyRewardProgress.create({
-      userId,
-      weekKey,
-      weekStart,
-      weekEnd,
-      days: initWeekDays(),
-    });
-
-    // Initialize states based on whether it's current week and user creation date
-    // MID-WEEK JOIN LOGIC: Handle users who joined mid-week
-    let changed = false;
-
-    // Check if this week contains the user's creation date (MID-WEEK JOIN DETECTION)
-    const weekContainsUserCreation =
-      weekStart <= userCreatedAt && weekEnd >= userCreatedAt;
-
-    // Calculate which day of the week the user was created (0-6, Mon-Sun) within this specific week
-    // This is used to mark days before user creation as "missed"
-    let userCreatedDayIdx = -1;
-    if (weekContainsUserCreation) {
-      // Calculate days difference from week start to user creation date
-      const daysDiff = Math.floor(
-        (userCreatedAt - weekStart) / (24 * 60 * 60 * 1000)
-      );
-      userCreatedDayIdx = Math.max(0, Math.min(6, daysDiff)); // Clamp to 0-6
-    }
-
-    if (isCurrentWeek) {
-      // CURRENT WEEK LOGIC (MID-WEEK JOIN HANDLING):
-      // - Days before user creation: Marked as "missed" (user joined mid-week)
-      // - Today: Marked as "claimable" if it's the creation day or later
-      // - Past days (after creation): Marked as "missed"
-      // - Future days: Remain "locked"
-      progress.days.forEach((d, idx) => {
-        // MID-WEEK JOIN: If user was created in this week, mark days before creation as missed
-        if (weekContainsUserCreation && idx < userCreatedDayIdx) {
-          d.status = "missed";
-          changed = true;
-        } else if (idx < todayIdx && d.status === "locked") {
-          // Past days (after creation) are missed
-          d.status = "missed";
-          changed = true;
-        } else if (idx === todayIdx && d.status === "locked") {
-          // Today is claimable (if it's creation day or later)
-          d.status = "claimable";
-          changed = true;
-        }
-        // Future days remain locked (no change needed)
-      });
-    } else {
-      // PREVIOUS WEEK LOGIC (MID-WEEK JOIN HANDLING):
-      // - If user was created in this week: days before creation are missed
-      // - Days after creation in past week are also missed (can't claim past rewards)
-      if (weekContainsUserCreation) {
-        // User was created in this week - mark days before creation as missed
-        progress.days.forEach((d, idx) => {
-          if (idx < userCreatedDayIdx && d.status === "locked") {
-            d.status = "missed";
-            changed = true;
-          } else if (idx >= userCreatedDayIdx && d.status === "locked") {
-            d.status = "missed"; // Past week days after creation are also missed
-            changed = true;
-          }
-        });
-      } else {
-        // Entire week is before or after user creation - all days should be missed
-        progress.days.forEach((d) => {
-          if (d.status === "locked") {
-            d.status = "missed";
-            changed = true;
-          }
-        });
-      }
-    }
-
-    if (changed) await progress.save();
-  }
-
-  // SAFETY NET: Ensure proper status based on actual current date and user creation date
-  // This enforces MID-WEEK JOIN logic consistently
-  // For current week: today is claimable, past days are missed
-  // For previous weeks: all days should be either claimed or missed (never locked or claimable)
-  // Also ensure days before user creation are marked as missed
-  let changed = false;
-
-  // MID-WEEK JOIN DETECTION: Check if this week contains the user's creation date
-  const weekContainsUserCreation =
-    weekStart <= userCreatedAt && weekEnd >= userCreatedAt;
-
-  // Calculate which day of the week the user was created (0-6, Mon-Sun) within this specific week
-  let userCreatedDayIdx = -1;
-  if (weekContainsUserCreation) {
-    // Calculate days difference from week start to user creation date
-    const daysDiff = Math.floor(
-      (userCreatedAt - weekStart) / (24 * 60 * 60 * 1000)
-    );
-    userCreatedDayIdx = Math.max(0, Math.min(6, daysDiff)); // Clamp to 0-6
-  }
-
-  progress.days.forEach((d, idx) => {
-    // Don't change already claimed rewards
-    if (d.status === "claimed") return;
-
-    // MID-WEEK JOIN: First check - days before user creation should always be missed
-    // This ensures users who joined mid-week cannot claim rewards for days before they joined
-    if (weekContainsUserCreation && idx < userCreatedDayIdx) {
-      if (d.status !== "missed") {
-        d.status = "missed";
-        changed = true;
-      }
-      return; // Skip other checks for days before creation
-    }
-
-    if (isCurrentWeek) {
-      // CURRENT WEEK LOGIC (MID-WEEK JOIN HANDLING):
-      // Past days (after creation) missed, today claimable, future days locked
-      if (idx < todayIdx) {
-        // Past day (after creation) - should be missed
-        if (d.status === "locked" || d.status === "claimable") {
-          d.status = "missed";
-          changed = true;
-        }
-      } else if (idx === todayIdx) {
-        // Today (must be creation day or later) - should be claimable
-        if (d.status === "locked") {
-          d.status = "claimable";
-          changed = true;
-        }
-      }
-      // Future days remain locked (no change needed)
-    } else {
-      // PREVIOUS WEEK LOGIC: all days should be either claimed or missed (never locked or claimable)
-      if (d.status === "locked" || d.status === "claimable") {
-        d.status = "missed";
-        changed = true;
-      }
-    }
-  });
-
-  if (changed) await progress.save();
-  return progress;
+  // ADM-DR-001 FIX: Use the fixed progress loader
+  return await loadProgressFixed(userId, dateUtc);
 }
 
 /**
  * Calculate mid-week join metadata for a user in a given week
+ * ADM-DR-001 FIX: This now uses the fixed metadata calculator
  * @param {Date} weekStart - Start of the week (Monday 00:00 UTC)
  * @param {Date} weekEnd - End of the week (Sunday 23:59:59 UTC)
  * @param {Date} userCreatedAt - User account creation date
  * @returns {Object} Mid-week join metadata
  */
 function calculateMidWeekJoinMetadata(weekStart, weekEnd, userCreatedAt) {
-  const weekContainsUserCreation = weekStart <= userCreatedAt && weekEnd >= userCreatedAt;
-  
-  if (!weekContainsUserCreation) {
-    return {
-      isMidWeekJoin: false,
-      userCreatedDayIndex: null,
-      userCreatedDayNumber: null,
-      daysMissedBeforeJoin: 0,
-      daysAvailableAfterJoin: 7,
-    };
-  }
-
-  // Calculate which day of the week the user was created (0-6, Mon-Sun)
-  const daysDiff = Math.floor((userCreatedAt - weekStart) / (24 * 60 * 60 * 1000));
-  const userCreatedDayIdx = Math.max(0, Math.min(6, daysDiff)); // Clamp to 0-6
-  const userCreatedDayNumber = userCreatedDayIdx + 1; // Convert to 1-7 (Mon-Sun)
-
-  return {
-    isMidWeekJoin: userCreatedDayIdx > 0, // True if joined after Monday (Day 0)
-    userCreatedDayIndex: userCreatedDayIdx,
-    userCreatedDayNumber: userCreatedDayNumber,
-    daysMissedBeforeJoin: userCreatedDayIdx, // Days before user creation
-    daysAvailableAfterJoin: 7 - userCreatedDayIdx, // Days available after creation
-    message: userCreatedDayIdx > 0 
-      ? `You joined on Day ${userCreatedDayNumber} of this week. Days 1-${userCreatedDayIdx} are marked as missed. You can claim rewards from Day ${userCreatedDayNumber} onwards.`
-      : "You joined at the start of the week. All days are available.",
-  };
+  // ADM-DR-001 FIX: Use the fixed metadata calculator
+  return calculateMidWeekJoinMetadataFixed(weekStart, weekEnd, userCreatedAt);
 }
 
 async function loadConfig() {
@@ -1072,7 +863,7 @@ router.get("/week", protect, async (req, res) => {
 });
 
 // POST /api/daily-rewards/claim
-router.post("/claim", protect, async (req, res) => {
+router.post("/claim", protect, standardIntegrityVerification, async (req, res) => {
   try {
     const userId = req.user.userId;
     const now = new Date();

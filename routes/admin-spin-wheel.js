@@ -11,6 +11,11 @@ const { adminAuth } = require("../middleware/adminAuth");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const { 
+  validateProbabilityConfiguration, 
+  getProbabilityAnalysis,
+  suggestProbabilityFixes 
+} = require("../utils/spinWheelProbabilityValidator");
 const User = require("../models/User");
 const multer = require("multer");
 const path = require("path");
@@ -226,14 +231,23 @@ router.post(
       };
       type = typeMap[type] || type;
 
-      // Check total probability
-      const probabilityCheck = await SpinWheelReward.validateTotalProbability();
-      if (probabilityCheck.totalProbability + probabilityNum > 100) {
+      // Enhanced probability validation for BUG-063
+      const probabilityValidation = await validateProbabilityConfiguration({
+        name,
+        probability: probabilityNum,
+        eligibleTiers: tiers
+      });
+
+      if (!probabilityValidation.isValid) {
+        const suggestions = suggestProbabilityFixes(probabilityValidation);
         return res.status(400).json({
           success: false,
-          error: "Total probability would exceed 100%",
-          currentTotal: probabilityCheck.totalProbability,
-          newTotal: probabilityCheck.totalProbability + probabilityNum,
+          error: "Probability configuration is invalid",
+          details: probabilityValidation.errors,
+          warnings: probabilityValidation.warnings,
+          suggestions: suggestions.suggestions,
+          tierAnalysis: probabilityValidation.tierAnalysis,
+          message: "Same probability can be used across different tiers, but not within the same tier"
         });
       }
 
@@ -395,27 +409,38 @@ router.put(
         });
       }
 
-      // Check probability if it's being updated
-      if (req.body.probability !== undefined) {
-        const currentProbability = Number(reward.probability) || 0;
-        const newProbability = Number(req.body.probability);
+      // Enhanced probability validation for BUG-063 (for updates)
+      if (req.body.probability !== undefined || req.body.eligibleTiers !== undefined) {
+        const newProbability = req.body.probability !== undefined 
+          ? Number(req.body.probability) 
+          : reward.probability;
+        const newEligibleTiers = req.body.eligibleTiers !== undefined 
+          ? (Array.isArray(req.body.eligibleTiers) ? req.body.eligibleTiers : [req.body.eligibleTiers])
+          : reward.eligibleTiers;
+
         if (Number.isNaN(newProbability)) {
-          return res
-            .status(400)
-            .json({ success: false, error: "Probability must be a number" });
+          return res.status(400).json({ 
+            success: false, 
+            error: "Probability must be a number" 
+          });
         }
-        const probabilityCheck =
-          await SpinWheelReward.validateTotalProbability();
-        const adjustedTotal =
-          Number(probabilityCheck.totalProbability) -
-          currentProbability +
-          newProbability;
-        if (adjustedTotal > 100) {
+
+        const probabilityValidation = await validateProbabilityConfiguration({
+          name: req.body.name || reward.name,
+          probability: newProbability,
+          eligibleTiers: newEligibleTiers
+        }, req.params.id); // Exclude current reward from validation
+
+        if (!probabilityValidation.isValid) {
+          const suggestions = suggestProbabilityFixes(probabilityValidation);
           return res.status(400).json({
             success: false,
-            error: "Total probability would exceed 100%",
-            currentTotal: probabilityCheck.totalProbability,
-            newTotal: adjustedTotal,
+            error: "Probability configuration is invalid",
+            details: probabilityValidation.errors,
+            warnings: probabilityValidation.warnings,
+            suggestions: suggestions.suggestions,
+            tierAnalysis: probabilityValidation.tierAnalysis,
+            message: "Same probability can be used across different tiers, but not within the same tier"
           });
         }
       }
@@ -1078,23 +1103,61 @@ router.get("/rewards/tiers", adminAuth, async (req, res) => {
 
 /**
  * @route   GET /api/admin/spin-wheel/probability/check
- * @desc    Check total probability validation
+ * @desc    Check probability configuration and get detailed analysis (BUG-063 Fix)
  * @access  Admin
  */
 router.get("/probability/check", adminAuth, async (req, res) => {
   try {
-    const probabilityCheck = await SpinWheelReward.validateTotalProbability();
+    const [probabilityCheck, detailedAnalysis] = await Promise.all([
+      SpinWheelReward.validateTotalProbability(),
+      getProbabilityAnalysis()
+    ]);
 
     res.json({
       success: true,
-      data: probabilityCheck,
+      data: {
+        legacy: probabilityCheck, // Keep for backward compatibility
+        analysis: detailedAnalysis,
+        rules: {
+          description: "BUG-063 Fix: Clarified probability rules",
+          rules: [
+            "Same probability CAN be used across different tiers",
+            "Same probability CANNOT be duplicated within the same tier", 
+            "Total probability per tier should not exceed 100%",
+            "Global total probability CAN exceed 100% (tiers are independent)"
+          ],
+          // BUG-063 Fix: Provide per-tier remaining percentages instead of global
+          remainingPerTier: calculateRemainingPerTier(detailedAnalysis),
+          globalLimitEnforced: false // BUG-063 fix: No global limit
+        }
+      },
     });
   } catch (error) {
+    console.error("Error checking probability:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to check probability",
+      error: "Failed to check probability configuration",
     });
   }
 });
+
+/**
+ * Calculate remaining probability percentage for each tier (BUG-063 fix)
+ */
+function calculateRemainingPerTier(analysis) {
+  const allTiers = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
+  const remaining = {};
+  
+  allTiers.forEach(tier => {
+    const tierData = analysis.tierAnalysis[tier];
+    if (tierData) {
+      remaining[tier] = Math.max(0, 100 - tierData.totalProbability);
+    } else {
+      remaining[tier] = 100; // No rewards in this tier yet
+    }
+  });
+  
+  return remaining;
+}
 
 module.exports = router;

@@ -883,11 +883,33 @@ router.get("/games", adminAuth, async (req, res) => {
       .populate("sdkProvider", "name")
       .lean();
 
-    // Add task count for each game
+    // Add task count and completion rate for each game
     const gamesWithTaskCount = await Promise.all(
       games.map(async (game) => {
         const taskCount = await GameTask.countDocuments({ gameId: game._id });
-        return { ...game, taskCount };
+        
+        // Calculate completion rate
+        // Count users who started this game (have game in their games array)
+        const usersStarted = await User.countDocuments({
+          'games.gameId': game.gameId
+        });
+        
+        // Count users who completed this game (have game with completed: true)
+        const usersCompleted = await User.countDocuments({
+          'games.gameId': game.gameId,
+          'games.completed': true
+        });
+        
+        // Calculate completion rate percentage
+        const completionRate = usersStarted > 0 
+          ? ((usersCompleted / usersStarted) * 100).toFixed(1)
+          : 0;
+        
+        return { 
+          ...game, 
+          taskCount,
+          completionRate: parseFloat(completionRate)
+        };
       })
     );
 
@@ -4606,10 +4628,63 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         }
       }
 
+      // Calculate revenue for surveys based on completions
+      // Revenue = CPI × number of completions
+      const SurveyOffer = require("../models/SurveyOffer");
+      
+      // Get all configured survey offers to match with external IDs
+      const configuredSurveys = await SurveyOffer.find({
+        status: { $in: ["live", "paused", "completed"] }
+      }).select("externalId analytics").lean();
+      
+      // Create a map of externalId to analytics data
+      const surveyAnalyticsMap = {};
+      configuredSurveys.forEach(survey => {
+        if (survey.externalId) {
+          surveyAnalyticsMap[survey.externalId.toString()] = {
+            completions: survey.analytics?.completions || 0,
+            coinsIssued: survey.analytics?.coinsIssued || 0
+          };
+        }
+      });
+      
+      // Add revenue to each survey
+      const surveysWithRevenue = filteredOffers.map(offer => {
+        const externalId = (offer.id || offer.surveyId || offer.offerId || "").toString();
+        const analytics = surveyAnalyticsMap[externalId] || { completions: 0, coinsIssued: 0 };
+        
+        // Get CPI from offer (payout from events or cpi field)
+        const payout = offer.events?.[0];
+        const cpi = offer.cpi != null ? parseFloat(offer.cpi) : (payout ? parseFloat(payout.payout) : 0);
+        
+        // Calculate revenue: CPI × completions
+        const revenue = cpi * analytics.completions;
+        
+        return {
+          ...offer,
+          revenue: revenue,
+          completions: analytics.completions,
+          coinsIssued: analytics.coinsIssued
+        };
+      });
+
       const responseData = {
         success: true,
-        data: filteredOffers,
-        categorized: categorized,
+        data: surveysWithRevenue,
+        categorized: {
+          surveys: categorized.surveys.map(offer => {
+            const externalId = (offer.id || offer.surveyId || offer.offerId || "").toString();
+            const analytics = surveyAnalyticsMap[externalId] || { completions: 0, coinsIssued: 0 };
+            const payout = offer.events?.[0];
+            const cpi = offer.cpi != null ? parseFloat(offer.cpi) : (payout ? parseFloat(payout.payout) : 0);
+            const revenue = cpi * analytics.completions;
+            return { ...offer, revenue, completions: analytics.completions, coinsIssued: analytics.coinsIssued };
+          }),
+          cashback: categorized.cashback,
+          shopping: categorized.shopping,
+          magicReceipts: categorized.magicReceipts,
+          other: categorized.other,
+        },
         breakdown: {
           surveys: categorized.surveys.length,
           cashback: categorized.cashback.length,
@@ -4617,7 +4692,7 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
           magicReceipts: categorized.magicReceipts.length,
           other: categorized.other.length,
         },
-        total: filteredOffers.length,
+        total: surveysWithRevenue.length,
         timestamp: result.timestamp || new Date().toISOString(),
       };
       

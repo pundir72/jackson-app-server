@@ -33,12 +33,16 @@ class AffiseService {
     this.apiKey = config.AFFISE_API_KEY;
     this.debug = process.env.AFFISE_DEBUG !== "0" && process.env.AFFISE_DEBUG !== "false";
 
+<<<<<<< HEAD
     console.log("🔵 [AFFISE SERVICE] Initialization:");
     console.log("🔵 [AFFISE SERVICE] - Base URL:", this.baseURL);
     console.log("🔵 [AFFISE SERVICE] - API Version:", this.apiVersion);
     console.log("🔵 [AFFISE SERVICE] - API Key configured:", !!this.apiKey);
     console.log("🔵 [AFFISE SERVICE] - API Key (masked):", maskKey(this.apiKey));
     console.log("🔵 [AFFISE SERVICE] - Debug logging:", this.debug ? "ON" : "OFF");
+=======
+    console.log("Affise base URL:", config.AFFISE_API_KEY || this.baseURL);
+>>>>>>> 4260168f7993d67241a081f4ff6e907fca26fcb8
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
+const { standardIntegrityVerification } = require("../middleware/integrityVerification");
 const User = require("../models/User");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
@@ -518,7 +519,7 @@ router.put("/score", protect, async (req, res) => {
 });
 
 // Complete game
-router.put("/complete", protect, async (req, res) => {
+router.put("/complete", protect, standardIntegrityVerification, async (req, res) => {
   try {
     const { gameId } = req.body;
 
@@ -3279,6 +3280,22 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
     }
 
     await user.save();
+
+    // 🎯 ADJUST TRACKING: Game Task Completion
+    try {
+      const { trackTaskCompletion } = require('../utils/adjustTracker');
+      await trackTaskCompletion(user._id.toString(), {
+        gameId: gameId,
+        taskId: taskId,
+        isBonusTask: isBonusTask,
+        rewardAmount: task.rewardType === "xp" ? calculatedXP : task.rewardValue,
+        taskName: task.name,
+        deviceId: user.deviceId
+      });
+    } catch (adjustError) {
+      console.error('Adjust task tracking failed:', adjustError);
+      // Don't fail task completion due to tracking error
+    }
 
     // Prepare response
     const response = {

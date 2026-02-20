@@ -15,14 +15,17 @@ const adjustService = require('../services/adjust.service');
  * @route   GET /api/admin/adjust-events
  * @desc    Get all Adjust event tokens (with filters)
  * @access  Admin
- * @query   category - Filter by category
- * @query   isS2S - Filter by S2S events (true/false)
+ * @query   category - Filter by category (Adjust dimension / raw data grouping)
+ * @query   isS2S - Filter by S2S events (true/false) - Adjust S2S vs SDK
  * @query   isActive - Filter by active status (true/false)
+ * @query   unique - Filter by unique/deduplication flag (true/false)
+ * @query   environment - Filter by Adjust environment (sandbox|production)
+ * @query   isRevenueEvent - Filter by revenue event (true/false)
  * @query   search - Search by name or token
  */
 router.get('/', adminAuth, async (req, res) => {
   try {
-    const { category, isS2S, isActive, search } = req.query;
+    const { category, isS2S, isActive, unique, environment, isRevenueEvent, search } = req.query;
     
     // Build query
     const query = {};
@@ -37,6 +40,18 @@ router.get('/', adminAuth, async (req, res) => {
     
     if (isActive !== undefined) {
       query.isActive = isActive === 'true';
+    }
+    
+    if (unique !== undefined) {
+      query.unique = unique === 'true';
+    }
+    
+    if (environment) {
+      query.environment = environment;
+    }
+    
+    if (isRevenueEvent !== undefined) {
+      query.isRevenueEvent = isRevenueEvent === 'true';
     }
     
     if (search) {
@@ -121,7 +136,7 @@ router.post('/', adminAuth, [
       });
     }
     
-    const { token, name, unique = false, category, isS2S, description, metadata } = req.body;
+    const { token, name, unique = false, category, isS2S, environment, isRevenueEvent, description, metadata } = req.body;
     
     // Check if token already exists
     const existing = await AdjustEventToken.findOne({ token });
@@ -139,6 +154,8 @@ router.post('/', adminAuth, [
       unique,
       category,
       isS2S,
+      environment: environment === 'sandbox' ? 'sandbox' : 'production',
+      isRevenueEvent: !!isRevenueEvent,
       description,
       metadata: metadata || {}
     });
@@ -190,7 +207,7 @@ router.post('/bulk', adminAuth, [
     
     for (const eventData of events) {
       try {
-        const { token, name, unique = false, category, description, metadata } = eventData;
+        const { token, name, unique = false, category, environment, isRevenueEvent, description, metadata } = eventData;
         
         // Check if exists
         const existing = await AdjustEventToken.findOne({ token });
@@ -204,6 +221,8 @@ router.post('/bulk', adminAuth, [
           name,
           unique,
           category,
+          environment: environment === 'sandbox' ? 'sandbox' : 'production',
+          isRevenueEvent: !!isRevenueEvent,
           description,
           metadata: metadata || {}
         });
@@ -240,7 +259,7 @@ router.post('/bulk', adminAuth, [
  */
 router.put('/:id', adminAuth, async (req, res) => {
   try {
-    const { name, unique, category, isS2S, isActive, description, metadata } = req.body;
+    const { name, unique, category, isS2S, isActive, environment, isRevenueEvent, description, metadata } = req.body;
     
     const event = await AdjustEventToken.findById(req.params.id);
     if (!event) {
@@ -255,6 +274,8 @@ router.put('/:id', adminAuth, async (req, res) => {
     if (category !== undefined) event.category = category;
     if (isS2S !== undefined) event.isS2S = isS2S;
     if (isActive !== undefined) event.isActive = isActive;
+    if (environment !== undefined) event.environment = environment === 'sandbox' ? 'sandbox' : 'production';
+    if (isRevenueEvent !== undefined) event.isRevenueEvent = !!isRevenueEvent;
     if (description !== undefined) event.description = description;
     if (metadata !== undefined) event.metadata = { ...event.metadata, ...metadata };
     

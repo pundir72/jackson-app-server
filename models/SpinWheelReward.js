@@ -150,18 +150,75 @@ spinWheelRewardSchema.statics.getRewardsByType = async function(type) {
 };
 
 /**
- * Validate total probability doesn't exceed 100%
+ * Validate total probability per tier (BUG-063 fix)
+ * Each tier should not exceed 100% and should not have duplicate probabilities
  */
 spinWheelRewardSchema.statics.validateTotalProbability = async function() {
     const activeRewards = await this.find({ isActive: true });
-    const totalProbability = activeRewards.reduce((sum, reward) => sum + reward.probability, 0);
+    
+    // Group rewards by tier
+    const tierAnalysis = {};
+    const globalTotal = activeRewards.reduce((sum, reward) => sum + reward.probability, 0);
+    
+    // Analyze each tier
+    activeRewards.forEach(reward => {
+        reward.eligibleTiers.forEach(tier => {
+            if (!tierAnalysis[tier]) {
+                tierAnalysis[tier] = {
+                    rewards: [],
+                    totalProbability: 0,
+                    probabilities: [],
+                    duplicates: []
+                };
+            }
+            
+            tierAnalysis[tier].rewards.push(reward);
+            tierAnalysis[tier].totalProbability += reward.probability;
+            tierAnalysis[tier].probabilities.push(reward.probability);
+        });
+    });
+    
+    // Check for issues in each tier
+    const issues = [];
+    let isValid = true;
+    
+    Object.keys(tierAnalysis).forEach(tier => {
+        const tierData = tierAnalysis[tier];
+        
+        // Check for duplicates within tier
+        const probCounts = {};
+        tierData.probabilities.forEach(prob => {
+            probCounts[prob] = (probCounts[prob] || 0) + 1;
+        });
+        
+        const duplicates = Object.entries(probCounts)
+            .filter(([prob, count]) => count > 1)
+            .map(([prob, count]) => ({ probability: parseFloat(prob), count }));
+        
+        if (duplicates.length > 0) {
+            isValid = false;
+            duplicates.forEach(dup => {
+                issues.push(`Tier ${tier} has ${dup.count} rewards with ${dup.probability}% probability`);
+            });
+        }
+        
+        // Check if tier exceeds 100%
+        if (tierData.totalProbability > 100) {
+            isValid = false;
+            issues.push(`Tier ${tier} total probability (${tierData.totalProbability}%) exceeds 100%`);
+        }
+        
+        tierAnalysis[tier].duplicates = duplicates;
+    });
     
     return {
-        totalProbability,
-        isValid: totalProbability <= 100,
-        message: totalProbability > 100 
-            ? `Total probability (${totalProbability}%) exceeds 100%` 
-            : `Total probability is ${totalProbability}%`
+        isValid,
+        globalTotalProbability: globalTotal,
+        tierAnalysis,
+        issues,
+        message: isValid 
+            ? `All tiers valid. Global total: ${globalTotal}%`
+            : `Issues found: ${issues.join('; ')}`
     };
 };
 

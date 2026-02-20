@@ -56,7 +56,7 @@ function globalActivityTracker(req, res, next) {
     
     // If we have a user ID, proceed with tracking
     if (userId) {
-      // Skip tracking for certain routes that don't represent user activity
+      // Skip tracking for certain routes that don't represent meaningful user activity
       const skipRoutes = [
         '/api/daily-activity/stats',
         '/api/daily-activity/history',
@@ -68,7 +68,11 @@ function globalActivityTracker(req, res, next) {
         '/api/auth/reset-password',
         '/api/webhooks/',
         '/api/admin/',
-        '/api/test/'
+        '/api/test/',
+        '/api/health',
+        '/api/ready',
+        '/api/performance/',
+        '/api/metrics'
       ];
 
       const shouldSkip = skipRoutes.some(route => {
@@ -79,20 +83,33 @@ function globalActivityTracker(req, res, next) {
       });
 
       if (!shouldSkip) {
-        // COMMENTED OUT: Daily login activity tracking - now handled by challenge completion check in stats endpoint
-        // console.log('Tracking activity for user:', userId, 'on route:', req.path);
-        // // Track activity asynchronously without blocking the request
-        // trackUserActivity(userId, {
-        //   endpoint: req.path,
-        //   method: req.method,
-        //   userAgent: req.headers['user-agent'],
-        //   ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-        //   timestamp: new Date(),
-        //   source: 'global_middleware'
-        // }).catch(error => {
-        //   // Log error but don't fail the request
-        //   console.error('Global activity tracking error:', error);
-        // });
+        console.log('Tracking activity for user:', userId, 'on route:', req.path);
+        
+        // Track activity asynchronously without blocking the request
+        setImmediate(async () => {
+          try {
+            await trackUserActivity(userId, {
+              endpoint: req.path,
+              method: req.method,
+              userAgent: req.headers['user-agent'],
+              ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+              timestamp: new Date(),
+              source: 'global_middleware'
+            });
+          } catch (error) {
+            // Log error but don't fail the request
+            console.error('Global activity tracking error for user:', userId, 'on route:', req.path, 'Error:', error.message);
+            
+            // Log to monitoring system if available
+            if (global.monitoring) {
+              global.monitoring.recordError('activity_tracking_failed', {
+                userId,
+                route: req.path,
+                error: error.message
+              });
+            }
+          }
+        });
       } else {
         console.log('Skipping activity tracking for user:', userId, 'on route:', req.path);
       }
@@ -124,7 +141,11 @@ function globalActivityTrackerWithOptions(options = {}) {
         '/api/auth/reset-password',
         '/api/webhooks/',
         '/api/admin/',
-        '/api/test/'
+        '/api/test/',
+        '/api/health',
+        '/api/ready',
+        '/api/performance/',
+        '/api/metrics'
       ];
 
       const shouldSkip = skipRoutes.some(route => {
@@ -135,20 +156,33 @@ function globalActivityTrackerWithOptions(options = {}) {
       });
 
       if (!shouldSkip) {
-        // COMMENTED OUT: Daily login activity tracking - now handled by challenge completion check in stats endpoint
-        // const trackingData = {
-        //   endpoint: req.path,
-        //   method: req.method,
-        //   userAgent: req.headers['user-agent'],
-        //   ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-        //   timestamp: new Date(),
-        //   source: 'global_middleware',
-        //   ...options
-        // };
+        const trackingData = {
+          endpoint: req.path,
+          method: req.method,
+          userAgent: req.headers['user-agent'],
+          ip: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+          timestamp: new Date(),
+          source: 'global_middleware',
+          ...options
+        };
 
-        // trackUserActivity(req.user.userId, trackingData).catch(error => {
-        //   console.error('Global activity tracking error:', error);
-        // });
+        // Track activity asynchronously without blocking the request
+        setImmediate(async () => {
+          try {
+            await trackUserActivity(req.user.userId, trackingData);
+          } catch (error) {
+            console.error('Global activity tracking error for user:', req.user.userId, 'on route:', req.path, 'Error:', error.message);
+            
+            // Log to monitoring system if available
+            if (global.monitoring) {
+              global.monitoring.recordError('activity_tracking_failed', {
+                userId: req.user.userId,
+                route: req.path,
+                error: error.message
+              });
+            }
+          }
+        });
       }
     }
     

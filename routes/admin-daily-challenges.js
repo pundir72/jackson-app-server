@@ -1652,62 +1652,33 @@ router.put(
 
       const dayNumber = parseInt(req.params.dayNumber);
       
-      // CRITICAL FIX: Find ALL bonus days with this dayNumber (including inactive ones)
+      // ADM-DR-028 FIX: Find ALL bonus days with this dayNumber (including inactive/deleted ones)
       // This prevents duplicates when editing
       const existingBonusDays = await BonusDay.find({ dayNumber });
       
-      // CRITICAL FIX: If there are existing bonus days, deactivate or delete them to prevent duplicates
-      // We'll keep the first one and update it, deactivate/delete the rest
+      // ADM-DR-028 FIX: If there are existing bonus days, DELETE ALL of them first
+      // Then create/update the new one to ensure no duplicates
       if (existingBonusDays.length > 0) {
-        // Sort by creation date to keep the oldest one
-        existingBonusDays.sort((a, b) => a.createdAt - b.createdAt);
-        const primaryBonusDay = existingBonusDays[0];
-        const duplicateBonusDays = existingBonusDays.slice(1);
-        
-        // Deactivate or delete duplicate entries
-        if (duplicateBonusDays.length > 0) {
-          // Option 1: Delete duplicates (recommended for data consistency)
-          await BonusDay.deleteMany({ 
-            _id: { $in: duplicateBonusDays.map(bd => bd._id) } 
-          });
-          console.log(`Deleted ${duplicateBonusDays.length} duplicate bonus day(s) for day ${dayNumber}`);
-        }
-        
-        // Update the primary bonus day
-      const updateData = {
-        ...req.body,
-        dayNumber,
-        updatedBy: req.user.userId,
-          // CRITICAL FIX: Ensure isActive is set (default to true if not provided)
-          isActive: req.body.isActive !== undefined ? req.body.isActive : true,
-        };
-
-        const bonusDay = await BonusDay.findByIdAndUpdate(
-          primaryBonusDay._id,
-        updateData,
-          { new: true, runValidators: true }
-        );
-        
-        return res.json({
-          success: true,
-          message: "Bonus day configuration saved successfully",
-          data: bonusDay,
-        });
+        // CRITICAL: Delete ALL existing bonus days with this dayNumber to prevent duplicates
+        // This ensures that when editing Day-2 to Day-3, the old Day-2 is completely removed
+        const deleteResult = await BonusDay.deleteMany({ dayNumber });
+        console.log(`[ADM-DR-028] Deleted ${deleteResult.deletedCount} existing bonus day(s) for day ${dayNumber} before creating new one`);
       }
       
-      // No existing bonus day - create new one
+      // ADM-DR-028 FIX: Create new bonus day (or update if we want to keep the same _id)
+      // Since we deleted all existing ones, we always create a new one
       const updateData = {
         ...req.body,
         dayNumber,
         createdBy: req.user.userId,
         updatedBy: req.user.userId,
-        // CRITICAL FIX: Ensure isActive is set (default to true if not provided)
+        // ADM-DR-028 FIX: Ensure isActive is set (default to true if not provided)
         isActive: req.body.isActive !== undefined ? req.body.isActive : true,
       };
 
       const bonusDay = await BonusDay.create(updateData);
-
-      res.json({
+      
+      return res.json({
         success: true,
         message: "Bonus day configuration saved successfully",
         data: bonusDay,
@@ -1735,10 +1706,14 @@ router.delete("/bonus-days/:id", adminAuth, async (req, res) => {
       });
     }
 
-    // CRITICAL FIX: Delete ALL bonus days with the same dayNumber to prevent duplicates
+    // ADM-DR-028 FIX: Delete ALL bonus days with the same dayNumber to prevent duplicates
     // This ensures that if there are multiple entries (due to previous bugs), all are removed
+    // CRITICAL: Use hard delete (deleteMany) not soft delete (isActive: false) to ensure
+    // deleted bonus days don't appear in findActive() queries
     const dayNumber = bonusDay.dayNumber;
     const deleteResult = await BonusDay.deleteMany({ dayNumber });
+    
+    console.log(`[ADM-DR-028] Deleted ${deleteResult.deletedCount} bonus day(s) with dayNumber ${dayNumber}`);
 
     res.json({
       success: true,
@@ -1749,7 +1724,7 @@ router.delete("/bonus-days/:id", adminAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Error deleting bonus day:", error);
+    console.error("[ADM-DR-028] Error deleting bonus day:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete bonus day",

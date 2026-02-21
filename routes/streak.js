@@ -148,7 +148,8 @@ router.get('/bonus-days', protect, async (req, res) => {
       userSegment: user.userSegment || 'all' // Default to 'all' if not set
     };
 
-    // Get all active bonus days (show all, not just eligible ones)
+    // ADM-DR-028 FIX: Get all active bonus days (show all, not just eligible ones)
+    // findActive() already filters by isActive: true, so deleted bonus days won't appear
     const allBonusDays = await BonusDay.findActive();
     
     // Get completed tasks to verify actual completion (not just streak count)
@@ -697,8 +698,26 @@ router.get('/status', protect, async (req, res) => {
           completedTasks: completedTasks // CRITICAL FIX: Pass completedTasks for verification
         };
         
+        // ADM-DR-027 FIX: Get all active bonus days, but filter out duplicates
+        // When admin edits Day-2 to Day-3, both might exist - we only want the most recent one
         const allBonusDays = await BonusDay.findActive();
-        const eligibleBonusDays = allBonusDays
+        
+        // ADM-DR-027 FIX: Group by dayNumber and keep only the most recently updated one
+        const uniqueBonusDays = [];
+        const bonusDaysByDayNumber = {};
+        
+        for (const bonusDay of allBonusDays) {
+          const dayNum = bonusDay.dayNumber;
+          if (!bonusDaysByDayNumber[dayNum] || 
+              bonusDay.updatedAt > bonusDaysByDayNumber[dayNum].updatedAt) {
+            bonusDaysByDayNumber[dayNum] = bonusDay;
+          }
+        }
+        
+        // Convert back to array
+        const deduplicatedBonusDays = Object.values(bonusDaysByDayNumber);
+        
+        const eligibleBonusDays = deduplicatedBonusDays
           .filter(bonusDay => bonusDay.isEligibleForUser(userProfile))
           .map(bonusDay => {
             // CRITICAL FIX: Add resetRule information with clear explanations

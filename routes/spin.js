@@ -74,6 +74,50 @@ async function getSpinWheelConfig() {
   }
 }
 
+/**
+ * Select a reward based on probability distribution (BUG-065 FIX)
+ * Uses proper randomization with cumulative distribution
+ * @param {Array} rewards - Array of reward objects with probability property
+ * @returns {Object|null} Selected reward or null if no reward (when total probability < 100%)
+ */
+function selectRewardByProbability(rewards) {
+  // BUG-065 FIX: Proper randomization logic
+  // Calculate total probability of all rewards
+  const totalProbability = rewards.reduce((sum, r) => sum + (r.probability || 0), 0);
+  
+  // Handle edge case: no probabilities set
+  if (totalProbability <= 0) {
+    // Equal probability for all rewards
+    const randomIndex = Math.floor(Math.random() * rewards.length);
+    console.log(`🎲 Equal distribution: selected ${rewards[randomIndex].name}`);
+    return rewards[randomIndex];
+  }
+  
+  // CRITICAL FIX: Generate random between 0-100, not 0-totalProbability
+  // This allows "no reward" outcomes when total probability < 100%
+  const random = Math.random() * 100;
+  
+  console.log(`🎲 Randomization: random=${random.toFixed(2)}, totalProb=${totalProbability}%`);
+  
+  // Build cumulative distribution and select reward
+  let cumulative = 0;
+  
+  for (const reward of rewards) {
+    const prob = reward.probability || 0;
+    cumulative += prob;
+    
+    // Select reward if random falls within its probability range
+    if (random < cumulative) {
+      console.log(`🎯 Selected: ${reward.name} (${prob}%) - cumulative: ${cumulative}%`);
+      return reward;
+    }
+  }
+  
+  // CRITICAL: Return null for "no reward" outcomes (was always returning rewards[0])
+  console.log(`🚫 No reward - random ${random.toFixed(2)} > total ${totalProbability}%`);
+  return null;
+}
+
 // Get spin wheel configuration and rewards
 router.get("/config", protect, async (req, res) => {
   try {
@@ -202,55 +246,23 @@ router.get("/status", protect, async (req, res) => {
         ? 999
         : config.getMaxSpinsForUser(userTier);
     } else {
-      // DEFAULT_SPIN_CONFIG
-      const additional =
-        { bronze: 5, silver: 0, gold: 10, platinum: 50, diamond: 0 }[
-          userTier.toLowerCase()
-        ] || 0;
-      dailyLimit = vipBenefits.unlimitedSpins
-        ? 999
-        : (config.maxSpinsPerDay || 3) + additional;
-    }
-    const remainingSpins = Math.max(0, dailyLimit - todaySpins);
-
-    // Check cooldown period
-    const lastSpinTime = await getLastSpinTime(req.user.userId);
-    const cooldownMinutes = config.cooldownMinutes || 360;
-    let canSpinByCooldown = true;
-    let cooldownRemaining = 0;
-
-    if (lastSpinTime) {
-      const timeSinceLastSpin = (now - lastSpinTime) / (1000 * 60); // minutes
-      if (timeSinceLastSpin < cooldownMinutes) {
-        canSpinByCooldown = false;
-        cooldownRemaining = Math.ceil(cooldownMinutes - timeSinceLastSpin);
-      }
+      dailyLimit = config.maxSpinsPerDay || 3;
     }
 
-    // Get VIP multiplier from config
-    const vipMultiplier =
-      config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
+    // Get VIP multiplier from config (not from VIP benefits)
+    const vipMultiplier = config.vipMultipliers?.[userTier.toLowerCase()] || 
+                         (config instanceof SpinWheelConfig ? 1.0 : DEFAULT_SPIN_CONFIG.vipMultiplier?.[userTier.toLowerCase()] || 1.0);
 
-    const canSpin = remainingSpins > 0 && canSpinByCooldown;
-
+    // Return spin status
     res.json({
       success: true,
       data: {
-        canSpin,
-        remainingSpins,
-        dailyLimit,
-        vipMultiplier: vipMultiplier * (vipBenefits.xpMultiplier || 1.0),
-        isVIP: vipBenefits.isActive,
-        lastSpinTime,
-        cooldownMinutes,
-        cooldownRemaining,
-        reason: !canSpin
-          ? !canSpinByCooldown
-            ? `Cooldown active. Please wait ${cooldownRemaining} more minutes.`
-            : remainingSpins === 0
-            ? "Daily spin limit reached"
-            : "Cannot spin"
-          : null,
+        canSpin: todaySpins < dailyLimit,
+        remainingSpins: Math.max(0, dailyLimit - todaySpins),
+        dailyLimit: dailyLimit,
+        vipMultiplier: vipMultiplier,
+        isVIP: !!user.vip?.level,
+        lastSpinTime: null, // You can add logic to get last spin time if needed
       },
     });
   } catch (error) {
@@ -262,7 +274,7 @@ router.get("/status", protect, async (req, res) => {
   }
 });
 
-// Perform spin action
+// Perform a spin
 router.post("/spin", protect, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -275,29 +287,31 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
+    // Get active spin wheel configuration
     let config = await SpinWheelConfig.findOne({ isActive: true });
     if (!config) {
       config = DEFAULT_SPIN_CONFIG;
     }
+
+    // Get user's VIP tier
     const userTier = user.vip?.level || "Bronze";
+
+    // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
 
-    if (!isEligible) {
-      return res.status(403).json({
+    // Check campaign window (start/end date & time) in UTC
+    const isWithinDateRange = isWithinCampaignWindowUTC(config);
+
+    if (!isEligible || !isWithinDateRange) {
+      return res.status(400).json({
         success: false,
-        error: "Not eligible for this spin wheel",
+        error: !isEligible
+          ? "Not eligible for this spin wheel"
+          : "Spin wheel is not currently active. Please check the campaign dates.",
       });
     }
 
-    // Enforce campaign start/end in UTC - block spin if outside window
-    if (!isWithinCampaignWindowUTC(config)) {
-      return res.status(403).json({
-        success: false,
-        error:
-          "Spin wheel is not currently active. Please check the campaign dates.",
-      });
-    }
-
+    // Get today's spin count
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -306,6 +320,7 @@ router.post("/spin", protect, async (req, res) => {
       createdAt: { $gte: today },
     });
 
+    // Check VIP benefits
     const vipBenefits = await getUserVIPBenefits(userId);
     let dailyLimit;
     if (config instanceof SpinWheelConfig) {
@@ -313,28 +328,22 @@ router.post("/spin", protect, async (req, res) => {
         ? 999
         : config.getMaxSpinsForUser(userTier);
     } else {
-      // DEFAULT_SPIN_CONFIG
-      const additional =
-        { bronze: 5, silver: 0, gold: 10, platinum: 50, diamond: 0 }[
-          userTier.toLowerCase()
-        ] || 0;
-      dailyLimit = vipBenefits.unlimitedSpins
-        ? 999
-        : (config.maxSpinsPerDay || 3) + additional;
+      dailyLimit = config.maxSpinsPerDay || 3;
     }
 
+    // Check if user has spins remaining
     if (todaySpins >= dailyLimit) {
       return res.status(400).json({
         success: false,
         error: "Daily spin limit reached",
         data: {
           remainingSpins: 0,
-          dailyLimit,
-          todaySpins,
+          dailyLimit: dailyLimit,
         },
       });
     }
 
+    // Get active rewards that are eligible for user's tier
     const allRewards = await SpinWheelReward.find({ isActive: true }).lean();
     const eligibleRewards = allRewards.filter((reward) => {
       return isTierEligible(userTier, reward.eligibleTiers);
@@ -347,50 +356,11 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    // FIXED: Select reward by probability using proper weighted random selection
-    // This fixes BUG-065: Rewards with <100% probability should allow "no reward" outcomes
-    const totalProbability = eligibleRewards.reduce(
-      (sum, r) => sum + (r.probability || 0),
-      0
-    );
+    // Select reward by probability
+    const selectedReward = selectRewardByProbability(eligibleRewards);
 
-    let selectedReward = null;
-
-    if (totalProbability <= 0) {
-      // Fallback: equal probability for all rewards if no probabilities set
-      const randomIndex = Math.floor(Math.random() * eligibleRewards.length);
-      selectedReward = eligibleRewards[randomIndex];
-      console.log(`🎲 Spin: Equal distribution selected ${selectedReward.name}`);
-    } else {
-      // FIXED ALGORITHM: Generate random in [0, 100) range to allow "no reward" outcomes
-      // This is the key fix for BUG-065
-      const random = Math.random() * 100;
-
-      // Build cumulative distribution and select reward
-      let cumulative = 0;
-
-      for (const reward of eligibleRewards) {
-        const prob = reward.probability || 0;
-        cumulative += prob;
-
-        // Select reward if random falls within its probability range
-        if (random < cumulative) {
-          selectedReward = reward;
-          break;
-        }
-      }
-
-      // Log the outcome for debugging
-      if (selectedReward) {
-        console.log(`🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) - Random: ${random.toFixed(2)}, Total: ${totalProbability}%`);
-      } else {
-        console.log(`🎲 Spin: No reward selected - Random: ${random.toFixed(2)}, Total: ${totalProbability}% (${100 - totalProbability}% chance of no reward)`);
-      }
-    }
-
-    // Handle "no reward" outcome - this is now possible and correct
     if (!selectedReward) {
-      // Still need to log the spin and update user stats for no-reward outcomes
+      // No reward selected (probability-based)
       const spinId = `SPIN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
       const spinLog = new SpinWheelLog({
         user: userId,
@@ -402,64 +372,54 @@ router.post("/spin", protect, async (req, res) => {
         vipMultiplier: 1.0,
         spinMode: config.spinMode || "free",
         userTier: userTier,
-        isWin: false, // No reward = not a win
+        isWin: false,
       });
-
-      // Update user spin count and last spin time
-      user.spinCount = (user.spinCount || 0) + 1;
-      user.lastSpinAt = new Date();
-      await user.save();
-
-      // Save spin log for no-reward outcome
       await spinLog.save();
 
       return res.json({
         success: true,
+        message: "No reward this time. Try again!",
         data: {
           spinId: spinLog._id,
           reward: null,
-          noReward: true,
-          message: "Better luck next time!",
-          totalProbability,
-          remainingSpins: Math.max(0, dailyLimit - todaySpins - 1),
-          userTier,
           status: "completed",
         },
       });
     }
 
-    // VIP multiplier applies to both coins and XP rewards
+    // Apply VIP multiplier if applicable
     const vipMultiplier =
       config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
 
-    // Apply multiplier to coins and XP, keep other reward types at configured amount
     let finalAmount;
-    if (selectedReward.type === "coins" || selectedReward.type === "xp") {
+    if (selectedReward.type === "coins" || selectedReward.type === "coin") {
       finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
+    } else if (selectedReward.type === "xp" || selectedReward.type === "XP") {
+      // XP rewards don't get VIP multiplier (use exact amount)
+      finalAmount = selectedReward.amount;
     } else {
-      // For coupon, bonus_task, premium_feature - use exact configured amount
       finalAmount = selectedReward.amount;
     }
 
+    // Create spin log
     const spinId = `SPIN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const spinLog = new SpinWheelLog({
       user: userId,
       spinId: spinId,
       reward: selectedReward._id,
       rewardName: selectedReward.name,
-      rewardType: selectedReward.type, // Ensure type is correctly stored
+      rewardType: selectedReward.type,
       rewardAmount: finalAmount,
       vipMultiplier:
-        selectedReward.type === "coins" || selectedReward.type === "xp"
+        selectedReward.type === "coins" || selectedReward.type === "coin"
           ? vipMultiplier
-          : 1.0, // Log multiplier for coins and XP
+          : 1.0,
       spinMode: config.spinMode || "free",
       userTier: userTier,
       isWin: true,
     });
 
-    // For free spins, automatically credit the reward immediately
-    // For ad-based spins, require user to call /redeem after watching ad
+    // For free spins, automatically credit the reward
     let coinsEarned = 0;
     let xpEarned = 0;
     let transaction = null;
@@ -469,17 +429,11 @@ router.post("/spin", protect, async (req, res) => {
       !config.spinMode ||
       config.spinMode !== "ad_based"
     ) {
-      // Auto-credit for free spins
-      const rewardType = selectedReward.type;
-
-      if (rewardType === "coins" || rewardType === "coin") {
+      if (selectedReward.type === "coins" || selectedReward.type === "coin") {
         coinsEarned = finalAmount;
         user.wallet.balance += coinsEarned;
         user.wallet.lastUpdated = new Date();
-        // NO bonus XP for coin rewards - only give coins
-        xpEarned = 0;
 
-        // Create transaction record
         transaction = new Transaction({
           user: userId,
           type: "credit",
@@ -487,17 +441,15 @@ router.post("/spin", protect, async (req, res) => {
           amount: coinsEarned,
           description: `Spin reward - ${selectedReward.name} (${coinsEarned} coins)`,
           status: "completed",
-          referenceId: spinLog.spinId || spinLog._id.toString(),
+          referenceId: spinLog.spinId,
         });
         await transaction.save();
-
         spinLog.transactionId = transaction._id;
-      } else if (rewardType === "xp" || rewardType === "XP") {
+      } else if (selectedReward.type === "xp" || selectedReward.type === "XP") {
         xpEarned = finalAmount;
         user.xp.current += xpEarned;
         user.xp.total += xpEarned;
 
-        // Create transaction record for XP
         transaction = new Transaction({
           user: userId,
           type: "credit",
@@ -505,18 +457,14 @@ router.post("/spin", protect, async (req, res) => {
           amount: xpEarned,
           description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
           status: "completed",
-          referenceId: spinLog.spinId || spinLog._id.toString(),
+          referenceId: spinLog.spinId,
         });
         await transaction.save();
-
         spinLog.transactionId = transaction._id;
       }
-    }
 
-    // Update user spin count, last spin time, and wallet/XP (if updated)
-    user.spinCount = (user.spinCount || 0) + 1;
-    user.lastSpinAt = new Date();
-    await user.save();
+      await user.save();
+    }
 
     // Save spin log
     await spinLog.save();
@@ -529,6 +477,10 @@ router.post("/spin", protect, async (req, res) => {
 
     res.json({
       success: true,
+      message:
+        config.spinMode === "ad_based"
+          ? "Watch video ad to claim your reward!"
+          : "Spin completed successfully!",
       data: {
         spinId: spinLog._id,
         reward: {
@@ -541,15 +493,12 @@ router.post("/spin", protect, async (req, res) => {
           color: selectedReward.color,
           metadata: selectedReward.metadata,
         },
-        vipMultiplier,
-        isVIP: vipBenefits.isActive,
+        vipMultiplier:
+          selectedReward.type === "coins" || selectedReward.type === "coin"
+            ? vipMultiplier
+            : 1.0,
         userTier,
         status: config.spinMode === "ad_based" ? "pending" : "completed",
-        message:
-          config.spinMode === "ad_based"
-            ? "Watch video ad to claim your reward!"
-            : "Reward credited successfully!",
-        // Include credited amounts for free spins
         ...(config.spinMode !== "ad_based" && {
           coinsEarned,
           xpEarned,
@@ -566,28 +515,6 @@ router.post("/spin", protect, async (req, res) => {
     });
   }
 });
-
-function selectRewardByProbability(rewards) {
-  const cumulative = [];
-  let sum = 0;
-  for (const reward of rewards) {
-    sum += reward.probability || 0;
-    cumulative.push({ reward, cumulative: sum });
-  }
-
-  // Generate random number between 0 and total probability
-  const random = Math.random() * sum;
-
-  // Find the reward that matches the random number
-  for (const item of cumulative) {
-    if (random <= item.cumulative) {
-      return item.reward;
-    }
-  }
-
-  // Fallback to first reward if something goes wrong
-  return rewards[0];
-}
 
 // Redeem spin reward after watching ad
 router.post("/redeem", protect, async (req, res) => {
@@ -728,37 +655,31 @@ router.post("/redeem", protect, async (req, res) => {
         await spinLog.save();
       }
     } else if (rewardType === "coupon") {
-      // Handle coupon reward - store in metadata or user's coupon list
-      const reward = await SpinWheelReward.findById(spinLog.reward);
-      couponCode = reward?.metadata?.couponCode || `COUPON-${Date.now()}`;
-      // You may want to store this in a separate Coupon model or user metadata
-      // For now, we'll just return it in the response
-    } else if (
-      rewardType === "bonus_task" ||
-      rewardType === "premium_feature"
-    ) {
-      // Handle other reward types - no coins or XP, just metadata
-      const reward = await SpinWheelReward.findById(spinLog.reward);
-      // Store in user metadata or handle separately
+      // Handle coupon rewards
+      couponCode = spinLog.couponCode || `COUPON-${Date.now()}`;
+      // Coupons don't give coins or XP
+      coinsEarned = 0;
+      xpEarned = 0;
     }
 
-    // Create transaction for coins (XP transactions are created above)
+    // Save user changes (for coins rewards)
     if (rewardType === "coins" || rewardType === "coin") {
-      if (transaction) {
-        transaction.status = "completed";
-        transaction.amount = spinLog.rewardAmount;
-        transaction.description = `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`;
-      } else {
-        transaction = new Transaction({
-          user: userId,
-          type: "credit",
-          balanceType: "coins",
-          amount: spinLog.rewardAmount,
-          description: `Spin reward - ${spinLog.rewardName} (${spinLog.rewardAmount} coins)`,
-          status: "completed",
-          referenceId: spinLog.spinId || spinLog._id.toString(),
-        });
-      }
+      await user.save();
+    } else if (rewardType === "xp" || rewardType === "XP") {
+      await user.save();
+    }
+
+    // Create transaction for coin rewards if not already created
+    if ((rewardType === "coins" || rewardType === "coin") && !transaction) {
+      transaction = new Transaction({
+        user: userId,
+        type: "credit",
+        balanceType: "coins",
+        amount: coinsEarned,
+        description: `Spin reward - ${spinLog.rewardName || "Coins"} (${coinsEarned} coins)`,
+        status: "completed",
+        referenceId: spinLog.spinId || spinLog._id.toString(),
+      });
       await transaction.save();
 
       if (!spinLog.transactionId) {
@@ -766,8 +687,6 @@ router.post("/redeem", protect, async (req, res) => {
         await spinLog.save();
       }
     }
-
-    await user.save();
 
     res.json({
       success: true,

@@ -10,6 +10,7 @@ const tremendous = require('../utils/tremendous');
 const verisoul = require('../utils/verisoul');
 const PayoutMethod = require('../models/PayoutMethod');
 const PayoutRequest = require('../models/PayoutRequest');
+const ConversionSettings = require('../models/ConversionSettings');
 const { sendPayoutRequestConfirmationEmail } = require('../utils/email');
 
 // Get available payout methods
@@ -262,9 +263,16 @@ router.post('/create', protect, async (req, res) => {
       });
     }
 
+    // Get admin-configured conversion rule (e.g. "20 Coins = $5" → coinsPerUnit=20, currencyAmount=5)
+    const conversionSettings = await ConversionSettings.getActiveSettings(currency_code || 'USD');
+    const coinsPerUnit = conversionSettings.coinsPerUnit > 0 ? conversionSettings.coinsPerUnit : 500;
+    const currencyAmount = conversionSettings.currencyAmount > 0 ? conversionSettings.currencyAmount : 5;
+    // Coins per dollar from rule: (coinsPerUnit / currencyAmount); requiredCoins = denomination * that rate
+    const coinsPerDollarFromRule = currencyAmount > 0 ? coinsPerUnit / currencyAmount : (conversionSettings.coinsPerDollar || 100);
+    const requiredCoins = Math.round(denomination * coinsPerDollarFromRule);
+
     // Check user balance (if using internal wallet)
     const userBalance = user.wallet.balance || 0;
-    const requiredCoins = Math.round(denomination * 10); // 10 coins per $1
 
     if (userBalance < requiredCoins) {
       return res.status(400).json({

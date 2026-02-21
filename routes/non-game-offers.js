@@ -71,8 +71,7 @@ function resolveCashbackImageUrl(configuredOffer, rawData, freshOffer) {
     typeof configuredOffer?.metadata?.thumbnail === "string"
       ? configuredOffer.metadata.thumbnail
       : configuredOffer?.metadata?.thumbnail?.url || "";
-  const fromRaw =
-    rawData?.creatives?.icon || rawData?.images?.cardImage || "";
+  const fromRaw = rawData?.creatives?.icon || rawData?.images?.cardImage || "";
   return fromFresh || fromMeta || fromRaw || "";
 }
 
@@ -97,7 +96,7 @@ async function getAdminConfiguredOffers(
   userProfile,
   userId,
   req,
-  category = "all"
+  category = "all",
 ) {
   console.log("\n🟢 ========== getAdminConfiguredOffers DEBUG ==========");
   console.log("🟢 [getAdminConfiguredOffers] Parameters:", {
@@ -119,7 +118,7 @@ async function getAdminConfiguredOffers(
     // Find SDK - try Bitlabs first, then Everflow
     let sdk = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
     let sdkProvider = "bitlabs";
-    
+
     if (!sdk) {
       // Try Everflow SDK
       sdk = await SurveySDK.findOne({ name: { $regex: /everflow/i } });
@@ -127,7 +126,9 @@ async function getAdminConfiguredOffers(
     }
 
     if (!sdk) {
-      console.warn("⚠️ [getAdminConfiguredOffers] No SDK found (Bitlabs or Everflow)");
+      console.warn(
+        "⚠️ [getAdminConfiguredOffers] No SDK found (Bitlabs or Everflow)",
+      );
       return [];
     }
 
@@ -191,7 +192,7 @@ async function getAdminConfiguredOffers(
       // Get configured offers
       console.log(
         "🟢 [getAdminConfiguredOffers] Database query:",
-        JSON.stringify(query, null, 2)
+        JSON.stringify(query, null, 2),
       );
       allOffers = await OfferModel.find(query)
         .populate("sdkId", "name displayName")
@@ -212,7 +213,7 @@ async function getAdminConfiguredOffers(
 
     // Filter by user eligibility
     console.log(
-      "🟢 [getAdminConfiguredOffers] Filtering by user eligibility..."
+      "🟢 [getAdminConfiguredOffers] Filtering by user eligibility...",
     );
     const eligibleOffers = allOffers.filter((offer) => {
       // Determine which model to use for eligibility check
@@ -273,9 +274,8 @@ async function getAdminConfiguredOffers(
           if (offerType && offerType !== "all") {
             publisherQuery.type = offerType;
           }
-          let publisherResult = await bitlabsService.getPublisherOffers(
-            publisherQuery
-          );
+          let publisherResult =
+            await bitlabsService.getPublisherOffers(publisherQuery);
 
           if (
             publisherResult.success &&
@@ -407,7 +407,10 @@ async function getAdminConfiguredOffers(
                   ...o,
                   offerType: "magic_receipt",
                 })),
-                other: categorized.other.map((o) => ({ ...o, offerType: "other" })),
+                other: categorized.other.map((o) => ({
+                  ...o,
+                  offerType: "other",
+                })),
               },
             };
             console.log(
@@ -418,7 +421,7 @@ async function getAdminConfiguredOffers(
                 shopping: apiResult.categorized.shopping.length,
                 magicReceipts: apiResult.categorized.magicReceipts.length,
                 other: apiResult.categorized.other.length,
-              }
+              },
             );
           } else {
             // Fallback: Client API (same as admin fallback) if Publisher returns empty
@@ -461,37 +464,53 @@ async function getAdminConfiguredOffers(
             }
             if (apiResult) {
               console.log(
-                "🟢 [getAdminConfiguredOffers] Publisher empty; using Bitlabs Client API fallback"
+                "🟢 [getAdminConfiguredOffers] Publisher empty; using Bitlabs Client API fallback",
               );
             }
           }
         } else if (sdkProvider === "everflow") {
           // Everflow API calls
           const everflowService = require("../services/everflow.service");
-          
+
           if (everflowService.isConfigured()) {
             const queryParams = {
               offer_status: "active",
               userId: userId, // Pass user ID for user-specific click URLs (sub_id1 tracking)
             };
-            
+
             if (category && category !== "all") {
               queryParams.category = category;
             }
-            
+
             apiResult = await everflowService.getOffers(queryParams);
-            
+
             // Normalize Everflow response to match Bitlabs format
             if (apiResult.success && apiResult.data) {
               apiResult = {
                 success: true,
                 offers: apiResult.data,
                 categorized: {
-                  surveys: apiResult.data.filter(o => (o.offerType || o.type) === "survey"),
-                  cashback: apiResult.data.filter(o => (o.offerType || o.type) === "cashback"),
-                  shopping: apiResult.data.filter(o => (o.offerType || o.type) === "shopping"),
-                  magicReceipts: apiResult.data.filter(o => (o.offerType || o.type) === "magic_receipt"),
-                  other: apiResult.data.filter(o => !["survey", "cashback", "shopping", "magic_receipt"].includes(o.offerType || o.type)),
+                  surveys: apiResult.data.filter(
+                    (o) => (o.offerType || o.type) === "survey",
+                  ),
+                  cashback: apiResult.data.filter(
+                    (o) => (o.offerType || o.type) === "cashback",
+                  ),
+                  shopping: apiResult.data.filter(
+                    (o) => (o.offerType || o.type) === "shopping",
+                  ),
+                  magicReceipts: apiResult.data.filter(
+                    (o) => (o.offerType || o.type) === "magic_receipt",
+                  ),
+                  other: apiResult.data.filter(
+                    (o) =>
+                      ![
+                        "survey",
+                        "cashback",
+                        "shopping",
+                        "magic_receipt",
+                      ].includes(o.offerType || o.type),
+                  ),
                 },
                 totalOffers: apiResult.data.length,
               };
@@ -501,35 +520,41 @@ async function getAdminConfiguredOffers(
 
         // 🔵 RAW API RESPONSE - Direct response from third-party API
         console.log(
-          `\n🔵 [${sdkProvider.toUpperCase()} API] ========== RAW API RESPONSE ==========`
+          `\n🔵 [${sdkProvider.toUpperCase()} API] ========== RAW API RESPONSE ==========`,
         );
-        console.log(`🔵 [${sdkProvider.toUpperCase()} API] Offer Type:`, offerType);
+        console.log(
+          `🔵 [${sdkProvider.toUpperCase()} API] Offer Type:`,
+          offerType,
+        );
         console.log(`🔵 [${sdkProvider.toUpperCase()} API] User ID:`, userId);
-        console.log(`🔵 [${sdkProvider.toUpperCase()} API] Success:`, apiResult?.success);
+        console.log(
+          `🔵 [${sdkProvider.toUpperCase()} API] Success:`,
+          apiResult?.success,
+        );
         console.log(
           `🔵 [${sdkProvider.toUpperCase()} API] Full Response:`,
-          JSON.stringify(apiResult, null, 2).substring(0, 2000)
+          JSON.stringify(apiResult, null, 2).substring(0, 2000),
         );
         if (apiResult?.categorized) {
           console.log(
             `🔵 [${sdkProvider.toUpperCase()} API] Surveys Count:`,
-            apiResult.categorized.surveys?.length || 0
+            apiResult.categorized.surveys?.length || 0,
           );
           console.log(
             `🔵 [${sdkProvider.toUpperCase()} API] Cashback Count:`,
-            apiResult.categorized.cashback?.length || 0
+            apiResult.categorized.cashback?.length || 0,
           );
           console.log(
             `🔵 [${sdkProvider.toUpperCase()} API] Magic Receipts Count:`,
-            apiResult.categorized.magicReceipts?.length || 0
+            apiResult.categorized.magicReceipts?.length || 0,
           );
           console.log(
             `🔵 [${sdkProvider.toUpperCase()} API] Shopping Count:`,
-            apiResult.categorized.shopping?.length || 0
+            apiResult.categorized.shopping?.length || 0,
           );
         }
         console.log(
-          `🔵 [${sdkProvider.toUpperCase()} API] ===========================================\n`
+          `🔵 [${sdkProvider.toUpperCase()} API] ===========================================\n`,
         );
 
         // Match admin config with fresh API response
@@ -543,9 +568,7 @@ async function getAdminConfiguredOffers(
               apiResult.categorized?.surveys || apiResult.surveys || [];
           } else if (offerType === "cashback") {
             freshOffersList =
-              apiResult.categorized?.cashback ||
-              apiResult.cashback ||
-              [];
+              apiResult.categorized?.cashback || apiResult.cashback || [];
             console.log(
               `🟢 [getAdminConfiguredOffers] Fresh cashback offers from ${sdkProvider}:`,
               {
@@ -553,7 +576,7 @@ async function getAdminConfiguredOffers(
                 sampleIds: freshOffersList
                   .slice(0, 5)
                   .map((o) => o.merchant_id || o.offerId || o.externalId),
-              }
+              },
             );
           } else if (
             offerType === "magic_receipt" ||
@@ -574,7 +597,7 @@ async function getAdminConfiguredOffers(
           }
 
           console.log(
-            `🟢 [getAdminConfiguredOffers] Matching admin offers with fresh ${sdkProvider} offers...`
+            `🟢 [getAdminConfiguredOffers] Matching admin offers with fresh ${sdkProvider} offers...`,
           );
           console.log("🟢 [getAdminConfiguredOffers] Matching:", {
             eligibleOffersCount: eligibleOffers.length,
@@ -591,11 +614,15 @@ async function getAdminConfiguredOffers(
               if (sdkProvider === "bitlabs" && offerType === "cashback") {
                 // For Bitlabs cashback, match by merchant_id
                 return (
-                  fresh.merchant_id?.toString() === configuredOffer.externalId ||
+                  fresh.merchant_id?.toString() ===
+                    configuredOffer.externalId ||
                   fresh.id === configuredOffer.externalId ||
                   fresh.offerId === configuredOffer.externalId
                 );
-              } else if (sdkProvider === "bitlabs" && offerType === "shopping") {
+              } else if (
+                sdkProvider === "bitlabs" &&
+                offerType === "shopping"
+              ) {
                 // For Bitlabs shopping, match by product_id, id, offerId
                 return (
                   fresh.product_id?.toString() === configuredOffer.externalId ||
@@ -606,7 +633,8 @@ async function getAdminConfiguredOffers(
               } else if (sdkProvider === "everflow") {
                 // For Everflow, match by network_offer_id or offerId
                 return (
-                  fresh.network_offer_id?.toString() === configuredOffer.externalId ||
+                  fresh.network_offer_id?.toString() ===
+                    configuredOffer.externalId ||
                   fresh.offerId === configuredOffer.externalId ||
                   fresh.id === configuredOffer.externalId ||
                   fresh.externalId === configuredOffer.externalId
@@ -636,7 +664,7 @@ async function getAdminConfiguredOffers(
                       matchingFreshOffer.click_url ||
                       matchingFreshOffer.clickUrl
                     ),
-                  }
+                  },
                 );
               }
 
@@ -652,14 +680,17 @@ async function getAdminConfiguredOffers(
                 const cashbackImageUrl = resolveCashbackImageUrl(
                   configuredOffer,
                   configuredOffer.metadata?.rawBitlabsData,
-                  matchingFreshOffer
+                  matchingFreshOffer,
                 );
                 const rawClickUrl =
                   matchingFreshOffer.click_url ||
                   matchingFreshOffer.clickUrl ||
                   configuredOffer.metadata?.externalUrl ||
                   "";
-                const userClickUrl = injectUserIdIntoClickUrl(rawClickUrl, userId);
+                const userClickUrl = injectUserIdIntoClickUrl(
+                  rawClickUrl,
+                  userId,
+                );
                 freshOffers.push({
                   ...matchingFreshOffer, // Preserve ALL original Bitlabs fields
                   click_url: userClickUrl, // Redirect URL with user ID for tracking
@@ -721,7 +752,7 @@ async function getAdminConfiguredOffers(
                   "";
                 const surveyUserUrl = injectUserIdIntoClickUrl(
                   surveyRawUrl,
-                  userId
+                  userId,
                 );
                 freshOffers.push({
                   // Core identifiers
@@ -758,7 +789,8 @@ async function getAdminConfiguredOffers(
                     configuredOffer.metadata?.thumbnail ||
                     matchingFreshOffer.banner ||
                     "",
-                  creativeBundleUrl: configuredOffer.metadata?.creativeBundleUrl || "",
+                  creativeBundleUrl:
+                    configuredOffer.metadata?.creativeBundleUrl || "",
 
                   // Rewards
                   coinReward: configuredOffer.coinReward || 0,
@@ -850,20 +882,20 @@ async function getAdminConfiguredOffers(
                     title: configuredOffer.title,
                     reason:
                       "Not found in fresh Bitlabs response or no click_url",
-                  }
+                  },
                 );
                 // For cashback: Use stored externalUrl, add user id for tracking, send in response
                 const rawData = configuredOffer.metadata?.rawBitlabsData || {};
                 const cashbackImageUrl = resolveCashbackImageUrl(
                   configuredOffer,
                   rawData,
-                  null
+                  null,
                 );
                 const cashbackStoredUrl =
                   configuredOffer.metadata?.externalUrl || "";
                 const cashbackUserUrl = injectUserIdIntoClickUrl(
                   cashbackStoredUrl,
-                  userId
+                  userId,
                 );
                 freshOffers.push({
                   // Bitlabs structure
@@ -1085,7 +1117,8 @@ async function getAdminConfiguredOffers(
                   type: configuredOffer.offerType,
                   icon: configuredOffer.metadata?.thumbnail || "",
                   banner: configuredOffer.metadata?.thumbnail || "",
-                  creativeBundleUrl: configuredOffer.metadata?.creativeBundleUrl || "",
+                  creativeBundleUrl:
+                    configuredOffer.metadata?.creativeBundleUrl || "",
                   reward: {
                     coins: configuredOffer.coinReward || 0,
                     currency: "points",
@@ -1118,11 +1151,11 @@ async function getAdminConfiguredOffers(
               (o) =>
                 (o.click_url && String(o.click_url).trim().length > 0) ||
                 (o.metadata?.externalUrl &&
-                  String(o.metadata.externalUrl).trim().length > 0)
+                  String(o.metadata.externalUrl).trim().length > 0),
             );
             console.log(
               "🟢 [getAdminConfiguredOffers] Cashback/Shopping: only returning offers with fresh redirect URL:",
-              { total: freshOffers.length, withFreshUrl: withFreshUrl.length }
+              { total: freshOffers.length, withFreshUrl: withFreshUrl.length },
             );
             offersToReturn = withFreshUrl;
           }
@@ -1134,40 +1167,40 @@ async function getAdminConfiguredOffers(
                 available: offersToReturn.filter((o) => o.isAvailable).length,
                 unavailable: offersToReturn.filter((o) => !o.isAvailable)
                   .length,
-              }
+              },
             );
           }
 
           console.log(
-            "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n"
+            "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n",
           );
           return offersToReturn;
         }
       } catch (freshUrlError) {
         console.error(
           "❌ [getAdminConfiguredOffers] Error fetching fresh URLs from Bitlabs:",
-          freshUrlError
+          freshUrlError,
         );
         console.error(
           "❌ [getAdminConfiguredOffers] Error stack:",
-          freshUrlError.stack
+          freshUrlError.stack,
         );
         // Fallback: return offers without fresh URLs
       }
     }
 
     console.log(
-      "🟢 [getAdminConfiguredOffers] No fresh URLs fetched, returning offers without URLs"
+      "🟢 [getAdminConfiguredOffers] No fresh URLs fetched, returning offers without URLs",
     );
     console.log(
       "🟢 [getAdminConfiguredOffers] Eligible offers count:",
-      eligibleOffers.length
+      eligibleOffers.length,
     );
 
     // For cashback and shopping: only return when we have fresh URL with user id; otherwise return empty
     if (offerType === "cashback" || offerType === "shopping") {
       console.log(
-        "🟢 [getAdminConfiguredOffers] Cashback/Shopping: no fresh URLs — returning empty list (require fresh URL with user id)"
+        "🟢 [getAdminConfiguredOffers] Cashback/Shopping: no fresh URLs — returning empty list (require fresh URL with user id)",
       );
       return [];
     }
@@ -1178,11 +1211,10 @@ async function getAdminConfiguredOffers(
       if (offer.offerType === "cashback") {
         const rawData = offer.metadata?.rawBitlabsData || {};
         const cashbackImageUrl = resolveCashbackImageUrl(offer, rawData, null);
-        const fallbackCashbackUrl =
-          offer.metadata?.externalUrl || "";
+        const fallbackCashbackUrl = offer.metadata?.externalUrl || "";
         const fallbackCashbackUserUrl = injectUserIdIntoClickUrl(
           fallbackCashbackUrl,
-          userId
+          userId,
         );
         return {
           merchant_id: parseInt(offer.externalId),
@@ -1301,18 +1333,18 @@ async function getAdminConfiguredOffers(
       offerType,
     });
     console.log(
-      "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n"
+      "🟢 ========== getAdminConfiguredOffers DEBUG END ==========\n",
     );
 
     return fallbackOffers;
   } catch (error) {
     console.error(
       "❌ [getAdminConfiguredOffers] Error getting admin-configured offers:",
-      error
+      error,
     );
     console.error("❌ [getAdminConfiguredOffers] Error stack:", error.stack);
     console.log(
-      "🟢 ========== getAdminConfiguredOffers DEBUG END (ERROR) ==========\n"
+      "🟢 ========== getAdminConfiguredOffers DEBUG END (ERROR) ==========\n",
     );
     return [];
   }
@@ -1354,7 +1386,7 @@ router.get("/", protect, async (req, res) => {
     });
 
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences onboarding"
+      "xp vip profile location preferences onboarding",
     );
 
     if (!user) {
@@ -1417,7 +1449,7 @@ router.get("/", protect, async (req, res) => {
 
     if (useAdminConfig === "true") {
       console.log(
-        "🔵 [MAIN ROUTE] useAdminConfig=true - Fetching admin-configured offers..."
+        "🔵 [MAIN ROUTE] useAdminConfig=true - Fetching admin-configured offers...",
       );
       try {
         // Map type to offerType
@@ -1449,7 +1481,7 @@ router.get("/", protect, async (req, res) => {
           userProfile,
           user._id.toString(),
           req,
-          category
+          category,
         );
 
         console.log("🔵 [MAIN ROUTE] Admin offers received:", {
@@ -1470,12 +1502,12 @@ router.get("/", protect, async (req, res) => {
               t === "magic_receipt" || t === "magic-receipts"
                 ? "magicReceipts"
                 : t === "survey" || t === "surveys"
-                ? "surveys"
-                : t === "cashback"
-                ? "cashback"
-                : t === "shopping"
-                ? "shopping"
-                : "other";
+                  ? "surveys"
+                  : t === "cashback"
+                    ? "cashback"
+                    : t === "shopping"
+                      ? "shopping"
+                      : "other";
             if (categorized[offerTypeKey]) {
               categorized[offerTypeKey].push(offer);
             } else {
@@ -1497,7 +1529,7 @@ router.get("/", protect, async (req, res) => {
           console.log(
             "✅ [MAIN ROUTE] Returning",
             offers.length,
-            "admin-configured offers"
+            "admin-configured offers",
           );
         } else {
           console.warn("⚠️ [MAIN ROUTE] No admin-configured offers found");
@@ -1505,19 +1537,19 @@ router.get("/", protect, async (req, res) => {
       } catch (configError) {
         console.error(
           "❌ [MAIN ROUTE] Error fetching admin-configured offers:",
-          configError
+          configError,
         );
         console.error("❌ [MAIN ROUTE] Error stack:", configError.stack);
         // Fall through to BitLab API
       }
     }
 
-    // Step 2: Fallback to BitLab API if no admin config or if explicitly requested
-    // NOTE: For cashback and survey (when useAdminConfig=true), NO FALLBACK - only return admin-configured data
+    // Step 2: Fallback to BitLab API when no admin offers or when explicitly requested
+    // First priority: admin-configured offers. Fallback: Bitlabs/API when admin returns empty.
+    // For survey and cashback (useAdminConfig=true): no fallback. For non_gaming: fallback when admin returns 0.
     const isCashbackRequest = type === "cashback";
     const isSurveyRequestAdminOnly =
-      useAdminConfig === "true" &&
-      (type === "survey" || type === "surveys");
+      useAdminConfig === "true" && (type === "survey" || type === "surveys");
     console.log("🔵 [MAIN ROUTE] Checking fallback conditions:", {
       offersCount: offers.length,
       useAdminConfig,
@@ -1529,7 +1561,7 @@ router.get("/", protect, async (req, res) => {
         !isSurveyRequestAdminOnly,
     });
 
-    // No fallback when useAdminConfig=true and type=survey — only admin config (SurveyOffer).
+    // Fallback when no admin offers (or useAdminConfig=false). Only skip fallback for survey and cashback when admin-only.
     if (
       (offers.length === 0 || useAdminConfig === "false") &&
       !isCashbackRequest &&
@@ -1550,7 +1582,6 @@ router.get("/", protect, async (req, res) => {
         type,
         category,
       });
-
 
       if (result.success) {
         offers = result.offers || [];
@@ -1579,13 +1610,15 @@ router.get("/", protect, async (req, res) => {
 
       // Step 3: If still no offers, try Everflow API
       if (offers.length === 0 && everflowService.isConfigured()) {
-        console.log("🔵 [MAIN ROUTE] Trying Everflow API as additional fallback...");
+        console.log(
+          "🔵 [MAIN ROUTE] Trying Everflow API as additional fallback...",
+        );
         console.log("🔵 [MAIN ROUTE] Everflow config check:", {
           configured: everflowService.isConfigured(),
           baseURL: config.EVERFLOW_BASE_URL,
           apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
         });
-        
+
         try {
           // Pass userId for user-specific click URLs (Everflow uses sub_id1 for tracking)
           const everflowResult = await everflowService.getPostbacks({
@@ -1601,16 +1634,22 @@ router.get("/", protect, async (req, res) => {
             error: everflowResult.error,
           });
 
-          if (everflowResult.success && everflowResult.data && everflowResult.data.length > 0) {
+          if (
+            everflowResult.success &&
+            everflowResult.data &&
+            everflowResult.data.length > 0
+          ) {
             // Filter offers by type if specified
             let filteredOffers = everflowResult.data;
-            
+
             if (type !== "all") {
               filteredOffers = filteredOffers.filter((offer) => {
                 const offerType = offer.offerType || offer.type || "other";
-                return offerType === type || 
-                       (type === "magic_receipt" && offerType === "magic_receipt") ||
-                       (type === "magic-receipts" && offerType === "magic_receipt");
+                return (
+                  offerType === type ||
+                  (type === "magic_receipt" && offerType === "magic_receipt") ||
+                  (type === "magic-receipts" && offerType === "magic_receipt")
+                );
               });
             }
 
@@ -1631,11 +1670,12 @@ router.get("/", protect, async (req, res) => {
 
             // Merge with existing offers
             offers = [...offers, ...normalizedEverflowOffers];
-            
+
             // Categorize Everflow offers
             normalizedEverflowOffers.forEach((offer) => {
               const offerType = offer.offerType || offer.type || "other";
-              const categoryKey = offerType === "magic_receipt" ? "magicReceipts" : offerType;
+              const categoryKey =
+                offerType === "magic_receipt" ? "magicReceipts" : offerType;
               if (categorized[categoryKey]) {
                 categorized[categoryKey].push(offer);
               } else {
@@ -1644,9 +1684,10 @@ router.get("/", protect, async (req, res) => {
             });
 
             if (normalizedEverflowOffers.length > 0) {
-              source = source === "bitlab_direct" ? "bitlab_everflow" : "everflow";
+              source =
+                source === "bitlab_direct" ? "bitlab_everflow" : "everflow";
               console.log(
-                `✅ [MAIN ROUTE] Added ${normalizedEverflowOffers.length} offers from Everflow`
+                `✅ [MAIN ROUTE] Added ${normalizedEverflowOffers.length} offers from Everflow`,
               );
             }
           }
@@ -1662,7 +1703,7 @@ router.get("/", protect, async (req, res) => {
     ) {
       // For cashback: No fallback, return empty array if no admin config
       console.warn(
-        "⚠️ [MAIN ROUTE] No admin-configured cashback offers found - returning empty array (no fallback)"
+        "⚠️ [MAIN ROUTE] No admin-configured cashback offers found - returning empty array (no fallback)",
       );
       offers = [];
       categorized.cashback = [];
@@ -1687,7 +1728,7 @@ router.get("/", protect, async (req, res) => {
     const totalOffers = offers.length;
     const estimatedEarnings = offers.reduce(
       (sum, o) => sum + (o.reward?.coins || 0),
-      0
+      0,
     );
 
     console.log("🔵 [MAIN ROUTE] Final Response:", {
@@ -1705,7 +1746,7 @@ router.get("/", protect, async (req, res) => {
     });
 
     console.log(
-      "🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG END ==========\n"
+      "🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG END ==========\n",
     );
 
     res.json({
@@ -1756,7 +1797,7 @@ router.get("/surveys", protect, async (req, res) => {
       includeBesitos = "false", // optional flag to always include Besitos along with Bitlabs
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences onboarding"
+      "xp vip profile location preferences onboarding",
     );
 
     if (!user) {
@@ -1815,10 +1856,10 @@ router.get("/surveys", protect, async (req, res) => {
           });
 
           console.log(
-            `\n🔵 [USER BACKEND] ========== ADMIN CONFIGURED SURVEYS ==========`
+            `\n🔵 [USER BACKEND] ========== ADMIN CONFIGURED SURVEYS ==========`,
           );
           console.log(
-            `🔵 [USER BACKEND] Total configured surveys found: ${configuredOffers.length}`
+            `🔵 [USER BACKEND] Total configured surveys found: ${configuredOffers.length}`,
           );
           configuredOffers.forEach((offer, index) => {
             console.log(`🔵 [USER BACKEND] Survey ${index + 1}:`, {
@@ -1830,12 +1871,12 @@ router.get("/surveys", protect, async (req, res) => {
             });
           });
           console.log(
-            `🔵 [USER BACKEND] ===========================================\n`
+            `🔵 [USER BACKEND] ===========================================\n`,
           );
 
           // Filter by user eligibility with detailed logging
           console.log(
-            `\n🔍 [USER BACKEND] ========== ELIGIBILITY CHECK ==========`
+            `\n🔍 [USER BACKEND] ========== ELIGIBILITY CHECK ==========`,
           );
           console.log(`🔍 [USER BACKEND] User Profile:`, {
             age: userProfile.age,
@@ -1856,49 +1897,97 @@ router.get("/surveys", protect, async (req, res) => {
             } else {
               // Log why this offer is not eligible
               const reasons = [];
-              
+
               // Check age requirements
-              if (offer.requirements?.minAge && userProfile.age < offer.requirements.minAge) {
-                reasons.push(`age too low (${userProfile.age} < ${offer.requirements.minAge})`);
+              if (
+                offer.requirements?.minAge &&
+                userProfile.age < offer.requirements.minAge
+              ) {
+                reasons.push(
+                  `age too low (${userProfile.age} < ${offer.requirements.minAge})`,
+                );
               }
-              if (offer.requirements?.maxAge && userProfile.age > offer.requirements.maxAge) {
-                reasons.push(`age too high (${userProfile.age} > ${offer.requirements.maxAge})`);
+              if (
+                offer.requirements?.maxAge &&
+                userProfile.age > offer.requirements.maxAge
+              ) {
+                reasons.push(
+                  `age too high (${userProfile.age} > ${offer.requirements.maxAge})`,
+                );
               }
-              
+
               // Check XP requirements
-              if (offer.targetAudience?.minXP && userProfile.xp < offer.targetAudience.minXP) {
-                reasons.push(`XP too low (${userProfile.xp} < ${offer.targetAudience.minXP})`);
+              if (
+                offer.targetAudience?.minXP &&
+                userProfile.xp < offer.targetAudience.minXP
+              ) {
+                reasons.push(
+                  `XP too low (${userProfile.xp} < ${offer.targetAudience.minXP})`,
+                );
               }
-              if (offer.targetAudience?.maxXP && userProfile.xp > offer.targetAudience.maxXP) {
-                reasons.push(`XP too high (${userProfile.xp} > ${offer.targetAudience.maxXP})`);
+              if (
+                offer.targetAudience?.maxXP &&
+                userProfile.xp > offer.targetAudience.maxXP
+              ) {
+                reasons.push(
+                  `XP too high (${userProfile.xp} > ${offer.targetAudience.maxXP})`,
+                );
               }
-              
+
               // Check age group targeting
-              if (offer.targetAudience?.age && offer.targetAudience.age.length > 0 && !userProfile.hasGoogleId) {
+              if (
+                offer.targetAudience?.age &&
+                offer.targetAudience.age.length > 0 &&
+                !userProfile.hasGoogleId
+              ) {
                 const userAgeGroup = offer.getAgeGroup(userProfile.age);
                 if (!offer.targetAudience.age.includes(userAgeGroup)) {
-                  reasons.push(`age group mismatch (user: ${userAgeGroup}, required: ${offer.targetAudience.age.join(', ')})`);
+                  reasons.push(
+                    `age group mismatch (user: ${userAgeGroup}, required: ${offer.targetAudience.age.join(", ")})`,
+                  );
                 }
               }
-              
+
               // Check gender targeting
-              if (offer.targetAudience?.gender && offer.targetAudience.gender.length > 0 && !userProfile.hasGoogleId) {
+              if (
+                offer.targetAudience?.gender &&
+                offer.targetAudience.gender.length > 0 &&
+                !userProfile.hasGoogleId
+              ) {
                 if (!offer.targetAudience.gender.includes(userProfile.gender)) {
-                  reasons.push(`gender mismatch (user: ${userProfile.gender}, required: ${offer.targetAudience.gender.join(', ')})`);
+                  reasons.push(
+                    `gender mismatch (user: ${userProfile.gender}, required: ${offer.targetAudience.gender.join(", ")})`,
+                  );
                 }
               }
-              
+
               // Check country targeting
-              if (offer.targetAudience?.countries && offer.targetAudience.countries.length > 0) {
-                if (!offer.targetAudience.countries.includes(userProfile.country)) {
-                  reasons.push(`country mismatch (user: ${userProfile.country}, required: ${offer.targetAudience.countries.join(', ')})`);
+              if (
+                offer.targetAudience?.countries &&
+                offer.targetAudience.countries.length > 0
+              ) {
+                if (
+                  !offer.targetAudience.countries.includes(userProfile.country)
+                ) {
+                  reasons.push(
+                    `country mismatch (user: ${userProfile.country}, required: ${offer.targetAudience.countries.join(", ")})`,
+                  );
                 }
               }
-              
+
               // Check device type
-              if (offer.requirements?.deviceType && offer.requirements.deviceType.length > 0) {
-                if (!offer.requirements.deviceType.includes(userProfile.deviceType)) {
-                  reasons.push(`device mismatch (user: ${userProfile.deviceType}, required: ${offer.requirements.deviceType.join(', ')})`);
+              if (
+                offer.requirements?.deviceType &&
+                offer.requirements.deviceType.length > 0
+              ) {
+                if (
+                  !offer.requirements.deviceType.includes(
+                    userProfile.deviceType,
+                  )
+                ) {
+                  reasons.push(
+                    `device mismatch (user: ${userProfile.deviceType}, required: ${offer.requirements.deviceType.join(", ")})`,
+                  );
                 }
               }
 
@@ -1911,10 +2000,10 @@ router.get("/surveys", protect, async (req, res) => {
           });
 
           console.log(
-            `🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`
+            `🟢 [USER BACKEND] ========== ELIGIBLE SURVEYS ==========`,
           );
           console.log(
-            `🟢 [USER BACKEND] Total eligible surveys: ${eligibleOffers.length} (after filtering)`
+            `🟢 [USER BACKEND] Total eligible surveys: ${eligibleOffers.length} (after filtering)`,
           );
           eligibleOffers.forEach((offer, index) => {
             console.log(`🟢 [USER BACKEND] Eligible Survey ${index + 1}:`, {
@@ -1922,13 +2011,13 @@ router.get("/surveys", protect, async (req, res) => {
               title: offer.title,
             });
           });
-          
+
           if (ineligibleOffers.length > 0) {
             console.log(
-              `\n🔴 [USER BACKEND] ========== INELIGIBLE SURVEYS ==========`
+              `\n🔴 [USER BACKEND] ========== INELIGIBLE SURVEYS ==========`,
             );
             console.log(
-              `🔴 [USER BACKEND] Total ineligible surveys: ${ineligibleOffers.length}`
+              `🔴 [USER BACKEND] Total ineligible surveys: ${ineligibleOffers.length}`,
             );
             ineligibleOffers.slice(0, 5).forEach((offer, index) => {
               console.log(`🔴 [USER BACKEND] Ineligible Survey ${index + 1}:`, {
@@ -1938,15 +2027,17 @@ router.get("/surveys", protect, async (req, res) => {
               });
             });
             if (ineligibleOffers.length > 5) {
-              console.log(`🔴 [USER BACKEND] ... and ${ineligibleOffers.length - 5} more`);
+              console.log(
+                `🔴 [USER BACKEND] ... and ${ineligibleOffers.length - 5} more`,
+              );
             }
             console.log(
-              `🔴 [USER BACKEND] ===========================================\n`
+              `🔴 [USER BACKEND] ===========================================\n`,
             );
           }
-          
+
           console.log(
-            `🟢 [USER BACKEND] ===========================================\n`
+            `🟢 [USER BACKEND] ===========================================\n`,
           );
 
           if (eligibleOffers.length > 0) {
@@ -1960,7 +2051,9 @@ router.get("/surveys", protect, async (req, res) => {
               });
 
               // Publisher API returns result.data (array of offers with id, click_url, creatives.icon, etc.)
-              const publisherSurveys = Array.isArray(bitlabsResult?.data) ? bitlabsResult.data : [];
+              const publisherSurveys = Array.isArray(bitlabsResult?.data)
+                ? bitlabsResult.data
+                : [];
 
               // Match admin-configured surveys with Publisher response (same source as admin sync/listing)
               const surveysWithFreshUrls = eligibleOffers
@@ -1972,19 +2065,25 @@ router.get("/surveys", protect, async (req, res) => {
                     {
                       externalId: offer.externalId,
                       title: offer.title,
-                    }
+                    },
                   );
 
                   const extId = String(offer.externalId).trim();
-                  const matchingSurvey = publisherSurveys.find(
-                    (s) => {
-                      const sid = s.id != null ? String(s.id).trim() : "";
-                      const sSurveyId = s.surveyId != null ? String(s.surveyId).trim() : "";
-                      const sOfferId = s.offerId != null ? String(s.offerId).trim() : "";
-                      const sProductId = s.product_id != null ? String(s.product_id).trim() : "";
-                      return sid === extId || sSurveyId === extId || sOfferId === extId || sProductId === extId;
-                    }
-                  );
+                  const matchingSurvey = publisherSurveys.find((s) => {
+                    const sid = s.id != null ? String(s.id).trim() : "";
+                    const sSurveyId =
+                      s.surveyId != null ? String(s.surveyId).trim() : "";
+                    const sOfferId =
+                      s.offerId != null ? String(s.offerId).trim() : "";
+                    const sProductId =
+                      s.product_id != null ? String(s.product_id).trim() : "";
+                    return (
+                      sid === extId ||
+                      sSurveyId === extId ||
+                      sOfferId === extId ||
+                      sProductId === extId
+                    );
+                  });
 
                   console.log(
                     `🔍 [USER BACKEND] Matching result:`,
@@ -1992,22 +2091,31 @@ router.get("/surveys", protect, async (req, res) => {
                       ? {
                           found: true,
                           bitlabsId: matchingSurvey.id,
-                          hasClickUrl: !!(matchingSurvey.click_url || matchingSurvey.clickUrl),
+                          hasClickUrl: !!(
+                            matchingSurvey.click_url || matchingSurvey.clickUrl
+                          ),
                         }
                       : {
                           found: false,
                           reason: "Survey not in Bitlabs Publisher response",
-                        }
+                        },
                   );
 
-                  const freshClickUrl = matchingSurvey?.click_url || matchingSurvey?.clickUrl || null;
-                  const fallbackUrl = offer.metadata?.externalUrl || offer.metadata?.surveyUrl || null;
+                  const freshClickUrl =
+                    matchingSurvey?.click_url ||
+                    matchingSurvey?.clickUrl ||
+                    null;
+                  const fallbackUrl =
+                    offer.metadata?.externalUrl ||
+                    offer.metadata?.surveyUrl ||
+                    null;
                   const rawClickUrl = freshClickUrl || fallbackUrl;
                   // Add user ID to click URL for tracking (s1 param so Bitlabs callbacks attribute to user)
                   const clickUrl = rawClickUrl
                     ? injectUserIdIntoClickUrl(rawClickUrl, user._id.toString())
                     : null;
-                  const iconFromBitlabs = matchingSurvey?.creatives?.icon || matchingSurvey?.icon;
+                  const iconFromBitlabs =
+                    matchingSurvey?.creatives?.icon || matchingSurvey?.icon;
 
                   return {
                     id: offer.externalId,
@@ -2035,10 +2143,10 @@ router.get("/surveys", protect, async (req, res) => {
                 .filter((o) => o !== null);
 
               console.log(
-                `\n🟣 [USER BACKEND] ========== SURVEYS (Publisher API, same as admin) ==========`
+                `\n🟣 [USER BACKEND] ========== SURVEYS (Publisher API, same as admin) ==========`,
               );
               console.log(
-                `🟣 [USER BACKEND] Total surveys with URLs: ${surveysWithFreshUrls.length}`
+                `🟣 [USER BACKEND] Total surveys with URLs: ${surveysWithFreshUrls.length}`,
               );
               surveysWithFreshUrls.forEach((survey, index) => {
                 console.log(`🟣 [USER BACKEND] Survey ${index + 1}:`, {
@@ -2049,110 +2157,109 @@ router.get("/surveys", protect, async (req, res) => {
                 });
               });
               console.log(
-                `🟣 [USER BACKEND] ===========================================\n`
+                `🟣 [USER BACKEND] ===========================================\n`,
               );
 
               // Check if VPN restriction was detected
-              const hasVpnRestriction = bitlabsResult.restrictionReason?.using_vpn === true;
-              
+              const hasVpnRestriction =
+                bitlabsResult.restrictionReason?.using_vpn === true;
+
               // If VPN is detected, return all admin-configured surveys even without fresh URLs
               // This allows users to see surveys even when server IP is flagged as VPN
               if (hasVpnRestriction) {
                 console.warn(
-                  `\n⚠️ [USER BACKEND] ========== VPN RESTRICTION DETECTED ==========`
+                  `\n⚠️ [USER BACKEND] ========== VPN RESTRICTION DETECTED ==========`,
                 );
                 console.warn(
-                  `⚠️ [USER BACKEND] Bitlabs detected VPN on server IP. Returning admin-configured surveys without fresh URLs.`
+                  `⚠️ [USER BACKEND] Bitlabs detected VPN on server IP. Returning admin-configured surveys without fresh URLs.`,
                 );
                 console.warn(
-                  `⚠️ [USER BACKEND] Surveys will be marked as unavailable but still shown to users.`
+                  `⚠️ [USER BACKEND] Surveys will be marked as unavailable but still shown to users.`,
                 );
                 console.warn(
-                  `⚠️ [USER BACKEND] ==================================================\n`
+                  `⚠️ [USER BACKEND] ==================================================\n`,
                 );
-                
+
                 // Return all surveys (including those without click URLs) when VPN is detected
                 surveys = surveysWithFreshUrls;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys (VPN restriction active)`
+                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys (VPN restriction active)`,
                 );
               } else {
                 // When useAdminConfig=true: return ALL admin-configured eligible surveys so they always display.
                 // Surveys with a click URL are available; others show as unavailable (e.g. geo or not in Publisher response).
                 const availableSurveys = surveysWithFreshUrls.filter(
-                  (s) => s.clickUrl !== null
+                  (s) => s.clickUrl !== null,
                 );
-                const unavailableCount = surveysWithFreshUrls.length - availableSurveys.length;
+                const unavailableCount =
+                  surveysWithFreshUrls.length - availableSurveys.length;
 
                 console.log(
-                  `\n✅ [USER BACKEND] ========== FINAL ADMIN-CONFIGURED SURVEYS ==========`
+                  `\n✅ [USER BACKEND] ========== FINAL ADMIN-CONFIGURED SURVEYS ==========`,
                 );
                 console.log(
-                  `✅ [USER BACKEND] Total admin-configured surveys: ${surveysWithFreshUrls.length} (available with click URL: ${availableSurveys.length}, unavailable: ${unavailableCount})`
+                  `✅ [USER BACKEND] Total admin-configured surveys: ${surveysWithFreshUrls.length} (available with click URL: ${availableSurveys.length}, unavailable: ${unavailableCount})`,
                 );
                 surveysWithFreshUrls.forEach((survey, index) => {
-                  console.log(
-                    `✅ [USER BACKEND] Survey ${index + 1}:`,
-                    {
-                      id: survey.id,
-                      title: survey.title,
-                      clickUrl: survey.clickUrl ? "✅" : "❌",
-                      isAvailable: survey.isAvailable,
-                    }
-                  );
+                  console.log(`✅ [USER BACKEND] Survey ${index + 1}:`, {
+                    id: survey.id,
+                    title: survey.title,
+                    clickUrl: survey.clickUrl ? "✅" : "❌",
+                    isAvailable: survey.isAvailable,
+                  });
                 });
                 console.log(
-                  `✅ [USER BACKEND] ===========================================\n`
+                  `✅ [USER BACKEND] ===========================================\n`,
                 );
 
                 // Always return all admin-configured surveys (available and unavailable) so they display in the app
                 surveys = surveysWithFreshUrls;
                 source = "admin_configured";
                 console.log(
-                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys for user ${user._id} (${availableSurveys.length} with click URL, ${unavailableCount} temporarily unavailable)`
+                  `✅ [USER BACKEND] Returning ${surveys.length} admin-configured surveys for user ${user._id} (${availableSurveys.length} with click URL, ${unavailableCount} temporarily unavailable)`,
                 );
               }
             } catch (bitlabsError) {
               // 🔴 ENHANCED ERROR LOGGING: Log full error details
               console.error(
-                "\n🔴 [USER BACKEND] ========== ERROR FETCHING SURVEYS FROM BITLABS =========="
+                "\n🔴 [USER BACKEND] ========== ERROR FETCHING SURVEYS FROM BITLABS ==========",
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ User ID:",
-                user._id.toString()
+                user._id.toString(),
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ Error Status:",
-                bitlabsError.response?.status || bitlabsError.status
+                bitlabsError.response?.status || bitlabsError.status,
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ Error Message:",
-                bitlabsError.message
+                bitlabsError.message,
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ Error Response Data:",
                 JSON.stringify(
                   bitlabsError.response?.data || bitlabsError.data,
                   null,
-                  2
-                )
+                  2,
+                ),
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ Error Details:",
-                bitlabsError.response?.data?.error || bitlabsError.error
+                bitlabsError.response?.data?.error || bitlabsError.error,
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ Trace ID:",
                 bitlabsError.response?.data?.trace_id ||
-                  bitlabsError.data?.trace_id
+                  bitlabsError.data?.trace_id,
               );
               console.error(
                 "🔴 [USER BACKEND] ❌ User Profile:",
-                JSON.stringify(userProfile, null, 2)
+                JSON.stringify(userProfile, null, 2),
               );
               console.error(
-                "🔴 [USER BACKEND] ==================================================\n"
+                "🔴 [USER BACKEND] ==================================================\n",
               );
               // Fall through to direct Bitlabs API call below
             }
@@ -2167,11 +2274,9 @@ router.get("/surveys", protect, async (req, res) => {
 
         if (besitosSDK) {
           console.log(
-            `\n🔵 [USER BACKEND] ========== BESITOS SDK FOUND ==========`
+            `\n🔵 [USER BACKEND] ========== BESITOS SDK FOUND ==========`,
           );
-          console.log(
-            `🔵 [USER BACKEND] Besitos SDK ID: ${besitosSDK._id}`
-          );
+          console.log(`🔵 [USER BACKEND] Besitos SDK ID: ${besitosSDK._id}`);
 
           // Get admin-configured Besitos surveys
           const besitosConfiguredOffers = await SurveyOffer.find({
@@ -2181,17 +2286,17 @@ router.get("/surveys", protect, async (req, res) => {
           });
 
           console.log(
-            `🔵 [USER BACKEND] Total Besitos configured surveys: ${besitosConfiguredOffers.length}`
+            `🔵 [USER BACKEND] Total Besitos configured surveys: ${besitosConfiguredOffers.length}`,
           );
 
           if (besitosConfiguredOffers.length > 0) {
             // Filter by user eligibility
             const besitosEligibleOffers = besitosConfiguredOffers.filter(
-              (offer) => offer.isEligibleForUser(userProfile)
+              (offer) => offer.isEligibleForUser(userProfile),
             );
 
             console.log(
-              `🟢 [USER BACKEND] Besitos eligible surveys: ${besitosEligibleOffers.length}`
+              `🟢 [USER BACKEND] Besitos eligible surveys: ${besitosEligibleOffers.length}`,
             );
 
             if (besitosEligibleOffers.length > 0) {
@@ -2204,14 +2309,15 @@ router.get("/surveys", protect, async (req, res) => {
                   // This avoids VPN detection issues on production servers
                   // Besitos will use the userId parameter for user tracking instead
                   const clientIp = "127.0.0.1";
-                  
+
                   console.log(
-                    "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
+                    "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)",
                   );
 
                   // Map platform to device (REQUIRED by Besitos API)
                   let device = "mobile"; // default
-                  const platform = req.query.platform?.toLowerCase() || "mobile";
+                  const platform =
+                    req.query.platform?.toLowerCase() || "mobile";
                   if (platform === "web") {
                     device = "desktop";
                   } else if (platform === "android" || platform === "ios") {
@@ -2238,7 +2344,8 @@ router.get("/surveys", protect, async (req, res) => {
                   }
 
                   if (user.location?.current?.postalCode) {
-                    besitosQueryParams.postal_code = user.location.current.postalCode;
+                    besitosQueryParams.postal_code =
+                      user.location.current.postalCode;
                   }
 
                   console.log(
@@ -2248,13 +2355,13 @@ router.get("/surveys", protect, async (req, res) => {
                       user_ip: besitosQueryParams.user_ip,
                       gender: besitosQueryParams.gender || "not provided",
                       dob: besitosQueryParams.dob || "not provided",
-                    }
+                    },
                   );
 
                   // Get fresh surveys from Besitos API
                   const besitosResponse = await besitosService.getSurveysWall(
                     user._id.toString(),
-                    besitosQueryParams
+                    besitosQueryParams,
                   );
 
                   // Besitos returns array of surveys
@@ -2263,7 +2370,7 @@ router.get("/surveys", protect, async (req, res) => {
                     : besitosResponse?.data || [];
 
                   console.log(
-                    `🔵 [USER BACKEND] Besitos API returned ${besitosSurveysArray.length} surveys`
+                    `🔵 [USER BACKEND] Besitos API returned ${besitosSurveysArray.length} surveys`,
                   );
 
                   // Match admin-configured surveys with fresh Besitos response
@@ -2273,7 +2380,7 @@ router.get("/surveys", protect, async (req, res) => {
                       const matchingSurvey = besitosSurveysArray.find(
                         (s) =>
                           s.id?.toString() === offer.externalId ||
-                          s.id === offer.externalId
+                          s.id === offer.externalId,
                       );
 
                       if (matchingSurvey && matchingSurvey.url) {
@@ -2300,7 +2407,8 @@ router.get("/surveys", protect, async (req, res) => {
                           },
                           icon: offer.metadata?.thumbnail || "",
                           banner: offer.metadata?.thumbnail || "",
-                          creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
+                          creativeBundleUrl:
+                            offer.metadata?.creativeBundleUrl || "",
                           reward: {
                             coins: rewardCoins,
                             currency: "points",
@@ -2332,7 +2440,8 @@ router.get("/surveys", protect, async (req, res) => {
                           category: offer.category,
                           icon: offer.metadata?.thumbnail,
                           banner: offer.metadata?.thumbnail,
-                          creativeBundleUrl: offer.metadata?.creativeBundleUrl || "",
+                          creativeBundleUrl:
+                            offer.metadata?.creativeBundleUrl || "",
                           reward: {
                             coins: offer.coinReward,
                             currency: "points",
@@ -2352,28 +2461,28 @@ router.get("/surveys", protect, async (req, res) => {
 
                   // Add Besitos surveys to the main surveys array
                   const availableBesitosSurveys = besitosSurveysWithUrls.filter(
-                    (s) => s.clickUrl !== null
+                    (s) => s.clickUrl !== null,
                   );
 
                   if (availableBesitosSurveys.length > 0) {
                     surveys = [...surveys, ...availableBesitosSurveys];
                     console.log(
-                      `✅ [USER BACKEND] Added ${availableBesitosSurveys.length} Besitos surveys to results`
+                      `✅ [USER BACKEND] Added ${availableBesitosSurveys.length} Besitos surveys to results`,
                     );
                   } else {
                     console.log(
-                      `⚠️ [USER BACKEND] No Besitos surveys available with fresh URLs`
+                      `⚠️ [USER BACKEND] No Besitos surveys available with fresh URLs`,
                     );
                   }
                 } else {
                   console.warn(
-                    `⚠️ [USER BACKEND] Besitos service not configured`
+                    `⚠️ [USER BACKEND] Besitos service not configured`,
                   );
                 }
               } catch (besitosError) {
                 console.error(
                   "🔴 [USER BACKEND] Error fetching Besitos surveys:",
-                  besitosError.message
+                  besitosError.message,
                 );
                 // Continue without Besitos surveys
               }
@@ -2389,7 +2498,7 @@ router.get("/surveys", protect, async (req, res) => {
     // Step 2: Fetch Bitlabs surveys directly from API only when useAdminConfig is NOT true
     // When useAdminConfig=true: only return admin-configured offers (matched with Bitlabs for availability) - do not add non-configured Bitlabs surveys
     if (useAdminConfig !== "true") {
-    try {
+      try {
         // CRITICAL: Do NOT send server IP to Bitlabs - it causes VPN detection
         // Bitlabs will detect the production server's IP as VPN and return empty results
         // Only send user profile data, not server IP
@@ -2407,251 +2516,255 @@ router.get("/surveys", protect, async (req, res) => {
           category,
         });
 
-      // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
-      console.log(
-        "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SURVEYS - FALLBACK) =========="
-      );
-      console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-      console.log("🔵 [BITLABS API] User Profile:", {
-        country: userProfile.country,
-        age: userProfile.age,
-        gender: userProfile.gender,
-        xp: userProfile.xp,
-      });
-      console.log("🔵 [BITLABS API] Success:", result?.success);
-      
-      // CRITICAL: Check for VPN/restriction reasons
-      if (result?.restrictionReason) {
-        console.warn(
-          "⚠️ [BITLABS API] RESTRICTION REASON DETECTED:",
-          JSON.stringify(result.restrictionReason, null, 2)
-        );
-        if (result.restrictionReason.using_vpn) {
-          console.warn(
-            "⚠️ [BITLABS API] VPN DETECTED - Bitlabs is blocking server IP"
-          );
-          console.warn(
-            "⚠️ [BITLABS API] Solution: Contact Bitlabs support to whitelist server IP"
-          );
-        }
-      }
-      
-      console.log(
-        "🔵 [BITLABS API] Full Response:",
-        JSON.stringify(result, null, 2)
-      );
-      if (result?.surveys) {
+        // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
         console.log(
-          "🔵 [BITLABS API] Surveys Array Length:",
-          result.surveys.length
+          "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SURVEYS - FALLBACK) ==========",
         );
-        if (result.surveys.length > 0) {
-          console.log(
-            "🔵 [BITLABS API] First Survey ID:",
-            result.surveys[0]?.id || "N/A"
-          );
-          console.log(
-            "🔵 [BITLABS API] First Survey Value:",
-            result.surveys[0]?.value || "N/A"
-          );
-        } else {
-          console.warn(
-            "⚠️ [BITLABS API] Surveys array is EMPTY - checking restrictionReason above"
-          );
-        }
-      }
-      if (result?.categorized?.surveys) {
-        console.log(
-          "🔵 [BITLABS API] Categorized Surveys Count:",
-          result.categorized.surveys.length
-        );
-        if (result.categorized.surveys.length === 0) {
-          console.warn(
-            "⚠️ [BITLABS API] Categorized surveys array is EMPTY"
-          );
-        }
-      }
-      console.log(
-        "🔵 [BITLABS API] ===========================================\n"
-      );
+        console.log("🔵 [BITLABS API] User ID:", user._id.toString());
+        console.log("🔵 [BITLABS API] User Profile:", {
+          country: userProfile.country,
+          age: userProfile.age,
+          gender: userProfile.gender,
+          xp: userProfile.xp,
+        });
+        console.log("🔵 [BITLABS API] Success:", result?.success);
 
-      // Handle both response structures: result.categorized.surveys and result.surveys
-      if (result.success) {
-        const surveysFromResult = result.categorized?.surveys || result.surveys || [];
-        if (surveysFromResult.length > 0) {
-          // Convert Bitlabs survey format to our format
-          const bitlabsDirectSurveys = surveysFromResult.map((s) => ({
-            id: s.id || s.surveyId,
-            surveyId: s.id || s.surveyId,
-            title: s.anchor || s.name || s.title || "Survey",
-            description: s.description || `Complete this survey to earn ${s.value || 0} points`,
-            category: s.category || { name: "Survey", name_internal: "Survey" },
-            icon: s.icon_url || s.icon || "",
-            banner: s.icon_url || s.banner || "",
-            reward: {
-              coins: s.value ? parseFloat(s.value) : 0,
-              currency: "points",
-              xp: s.value ? Math.round(parseFloat(s.value) * 0.5) : 0,
-            },
-            estimatedTime: s.loi || s.estimatedTime || 5,
-            clickUrl: s.click_url || s.url || null,
-            surveyUrl: s.click_url || s.url || null,
-            isAvailable: true,
-            provider: "bitlabs",
-            source: "bitlab_direct",
-            // Bitlabs specific fields
-            value: s.value ? parseFloat(s.value) : 0,
-            cpi: s.cpi ? parseFloat(s.cpi) : 0,
-            loi: s.loi || 5,
-            rating: s.rating || 0,
-            country: s.country || userProfile.country,
-          }));
-          
-          // Merge with existing surveys (admin-configured + direct Bitlabs)
-          surveys = [...surveys, ...bitlabsDirectSurveys];
-          source = surveys.length > 0 ? "mixed" : "bitlab_direct";
-          console.log(
-            `✅ [USER BACKEND] Fetched ${bitlabsDirectSurveys.length} surveys directly from Bitlabs API`
-          );
-          console.log(
-            `✅ [USER BACKEND] Total surveys now: ${surveys.length} (admin-configured + direct Bitlabs)`
-          );
-        } else {
+        // CRITICAL: Check for VPN/restriction reasons
+        if (result?.restrictionReason) {
           console.warn(
-            "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE =========="
+            "⚠️ [BITLABS API] RESTRICTION REASON DETECTED:",
+            JSON.stringify(result.restrictionReason, null, 2),
           );
-          console.warn("⚠️ [USER BACKEND] Result Success:", result.success);
-          console.warn("⚠️ [USER BACKEND] User Profile:", {
+          if (result.restrictionReason.using_vpn) {
+            console.warn(
+              "⚠️ [BITLABS API] VPN DETECTED - Bitlabs is blocking server IP",
+            );
+            console.warn(
+              "⚠️ [BITLABS API] Solution: Contact Bitlabs support to whitelist server IP",
+            );
+          }
+        }
+
+        console.log(
+          "🔵 [BITLABS API] Full Response:",
+          JSON.stringify(result, null, 2),
+        );
+        if (result?.surveys) {
+          console.log(
+            "🔵 [BITLABS API] Surveys Array Length:",
+            result.surveys.length,
+          );
+          if (result.surveys.length > 0) {
+            console.log(
+              "🔵 [BITLABS API] First Survey ID:",
+              result.surveys[0]?.id || "N/A",
+            );
+            console.log(
+              "🔵 [BITLABS API] First Survey Value:",
+              result.surveys[0]?.value || "N/A",
+            );
+          } else {
+            console.warn(
+              "⚠️ [BITLABS API] Surveys array is EMPTY - checking restrictionReason above",
+            );
+          }
+        }
+        if (result?.categorized?.surveys) {
+          console.log(
+            "🔵 [BITLABS API] Categorized Surveys Count:",
+            result.categorized.surveys.length,
+          );
+          if (result.categorized.surveys.length === 0) {
+            console.warn("⚠️ [BITLABS API] Categorized surveys array is EMPTY");
+          }
+        }
+        console.log(
+          "🔵 [BITLABS API] ===========================================\n",
+        );
+
+        // Handle both response structures: result.categorized.surveys and result.surveys
+        if (result.success) {
+          const surveysFromResult =
+            result.categorized?.surveys || result.surveys || [];
+          if (surveysFromResult.length > 0) {
+            // Convert Bitlabs survey format to our format
+            const bitlabsDirectSurveys = surveysFromResult.map((s) => ({
+              id: s.id || s.surveyId,
+              surveyId: s.id || s.surveyId,
+              title: s.anchor || s.name || s.title || "Survey",
+              description:
+                s.description ||
+                `Complete this survey to earn ${s.value || 0} points`,
+              category: s.category || {
+                name: "Survey",
+                name_internal: "Survey",
+              },
+              icon: s.icon_url || s.icon || "",
+              banner: s.icon_url || s.banner || "",
+              reward: {
+                coins: s.value ? parseFloat(s.value) : 0,
+                currency: "points",
+                xp: s.value ? Math.round(parseFloat(s.value) * 0.5) : 0,
+              },
+              estimatedTime: s.loi || s.estimatedTime || 5,
+              clickUrl: s.click_url || s.url || null,
+              surveyUrl: s.click_url || s.url || null,
+              isAvailable: true,
+              provider: "bitlabs",
+              source: "bitlab_direct",
+              // Bitlabs specific fields
+              value: s.value ? parseFloat(s.value) : 0,
+              cpi: s.cpi ? parseFloat(s.cpi) : 0,
+              loi: s.loi || 5,
+              rating: s.rating || 0,
+              country: s.country || userProfile.country,
+            }));
+
+            // Merge with existing surveys (admin-configured + direct Bitlabs)
+            surveys = [...surveys, ...bitlabsDirectSurveys];
+            source = surveys.length > 0 ? "mixed" : "bitlab_direct";
+            console.log(
+              `✅ [USER BACKEND] Fetched ${bitlabsDirectSurveys.length} surveys directly from Bitlabs API`,
+            );
+            console.log(
+              `✅ [USER BACKEND] Total surveys now: ${surveys.length} (admin-configured + direct Bitlabs)`,
+            );
+          } else {
+            console.warn(
+              "\n⚠️ [USER BACKEND] ========== NO SURVEYS IN BITLABS RESPONSE ==========",
+            );
+            console.warn("⚠️ [USER BACKEND] Result Success:", result.success);
+            console.warn("⚠️ [USER BACKEND] User Profile:", {
+              country: userProfile.country,
+              platform: userProfile.platform,
+              userId: user._id.toString(),
+            });
+            console.warn(
+              "⚠️ [USER BACKEND] Possible reasons:",
+              "- Bitlabs API not configured properly",
+              "- User country not supported",
+              "- No surveys available for this user profile",
+              "- API token missing or invalid",
+            );
+            console.warn(
+              "⚠️ [USER BACKEND] ==================================================\n",
+            );
+          }
+        } else {
+          console.error(
+            "\n🔴 [USER BACKEND] ========== FALLBACK SURVEY FETCH FAILED ==========",
+          );
+          console.error("🔴 [USER BACKEND] ❌ Result Success:", result.success);
+          console.error("🔴 [USER BACKEND] ❌ Result Error:", result.error);
+          console.error("🔴 [USER BACKEND] ❌ User Profile:", {
             country: userProfile.country,
             platform: userProfile.platform,
             userId: user._id.toString(),
           });
-          console.warn(
-            "⚠️ [USER BACKEND] Possible reasons:",
-            "- Bitlabs API not configured properly",
-            "- User country not supported",
-            "- No surveys available for this user profile",
-            "- API token missing or invalid"
+          console.error(
+            "🔴 [USER BACKEND] ❌ Surveys Count:",
+            result.categorized?.surveys?.length || result.surveys?.length || 0,
           );
-          console.warn(
-            "⚠️ [USER BACKEND] ==================================================\n"
+          console.error(
+            "🔴 [USER BACKEND] ==================================================\n",
           );
         }
-      } else {
+      } catch (bitlabsDirectError) {
+        // Log error but don't fail - continue with admin-configured surveys
         console.error(
-          "\n🔴 [USER BACKEND] ========== FALLBACK SURVEY FETCH FAILED =========="
-        );
-        console.error("🔴 [USER BACKEND] ❌ Result Success:", result.success);
-        console.error("🔴 [USER BACKEND] ❌ Result Error:", result.error);
-        console.error("🔴 [USER BACKEND] ❌ User Profile:", {
-          country: userProfile.country,
-          platform: userProfile.platform,
-          userId: user._id.toString(),
-        });
-        console.error(
-          "🔴 [USER BACKEND] ❌ Surveys Count:",
-          result.categorized?.surveys?.length || result.surveys?.length || 0
-        );
-        console.error(
-          "🔴 [USER BACKEND] ==================================================\n"
+          "🔴 [USER BACKEND] Error fetching direct Bitlabs surveys:",
+          bitlabsDirectError.message,
         );
       }
-    } catch (bitlabsDirectError) {
-      // Log error but don't fail - continue with admin-configured surveys
-      console.error(
-        "🔴 [USER BACKEND] Error fetching direct Bitlabs surveys:",
-        bitlabsDirectError.message
-      );
-    }
     }
 
     // Step 3: Fetch Besitos surveys directly from API only when useAdminConfig is NOT true
     // When useAdminConfig=true: only return admin-configured offers - do not add non-configured Besitos surveys
     if (useAdminConfig !== "true") {
-    // This ensures both Bitlabs AND Besitos surveys are included
-    // Users will see surveys from both providers
-    try {
-      const SurveySDK = require("../models/SurveySDK");
-      const SurveyOffer = require("../models/SurveyOffer");
-      const besitosService = require("../services/besitos.service");
+      // This ensures both Bitlabs AND Besitos surveys are included
+      // Users will see surveys from both providers
+      try {
+        const SurveySDK = require("../models/SurveySDK");
+        const SurveyOffer = require("../models/SurveyOffer");
+        const besitosService = require("../services/besitos.service");
 
-      // Check if Besitos is configured
-      if (besitosService.isConfigured()) {
-        // Find Besitos SDK (optional - we'll still call API even if no admin config)
-        const besitosSDK = await SurveySDK.findOne({
-          name: { $regex: /besitos/i },
-        });
+        // Check if Besitos is configured
+        if (besitosService.isConfigured()) {
+          // Find Besitos SDK (optional - we'll still call API even if no admin config)
+          const besitosSDK = await SurveySDK.findOne({
+            name: { $regex: /besitos/i },
+          });
 
-        if (besitosSDK) {
+          if (besitosSDK) {
+            console.log(
+              `\n🔵 [USER BACKEND] Besitos fallback: SDK found: ${besitosSDK._id}`,
+            );
+          } else {
+            console.log(
+              `\n⚠️ [USER BACKEND] Besitos fallback: SDK not found, calling API anyway`,
+            );
+          }
+
+          // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
+          // This avoids VPN detection issues on production servers
+          // Besitos will use the userId parameter for user tracking instead
+          const clientIp = "127.0.0.1";
+
           console.log(
-            `\n🔵 [USER BACKEND] Besitos fallback: SDK found: ${besitosSDK._id}`
+            "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)",
           );
-        } else {
+
+          // Map platform to device (android/ios → mobile, web → desktop)
+          let device = "mobile";
+          const platform = req.query.platform?.toLowerCase();
+          if (platform === "web") {
+            device = "desktop";
+          } else if (platform === "android" || platform === "ios") {
+            device = "mobile";
+          }
+
+          const besitosQueryParams = {
+            device,
+            user_ip: clientIp,
+          };
+
+          const userGender = getUserGender(user);
+          if (userGender === "male") {
+            besitosQueryParams.gender = "m";
+          } else if (userGender === "female") {
+            besitosQueryParams.gender = "f";
+          }
+
+          if (user.dateOfBirth) {
+            const dob = new Date(user.dateOfBirth);
+            besitosQueryParams.dob = dob.toISOString().split("T")[0];
+          }
+
+          if (user.location?.current?.postalCode) {
+            besitosQueryParams.postal_code = user.location.current.postalCode;
+          }
+
           console.log(
-            `\n⚠️ [USER BACKEND] Besitos fallback: SDK not found, calling API anyway`
+            "🔵 [USER BACKEND] Besitos fallback params:",
+            besitosQueryParams,
           );
-        }
 
-        // CRITICAL: Always use localhost IP for Besitos (same as admin preview)
-        // This avoids VPN detection issues on production servers
-        // Besitos will use the userId parameter for user tracking instead
-        const clientIp = "127.0.0.1";
-        
-        console.log(
-          "🔵 [USER BACKEND] Using localhost IP (127.0.0.1) for Besitos to avoid VPN detection (same as admin preview)"
-        );
+          // Call Besitos Surveys API using userId (not admin-preview)
+          const besitosResponse = await besitosService.getSurveysWall(
+            user._id.toString(),
+            besitosQueryParams,
+          );
 
-        // Map platform to device (android/ios → mobile, web → desktop)
-        let device = "mobile";
-        const platform = req.query.platform?.toLowerCase();
-        if (platform === "web") {
-          device = "desktop";
-        } else if (platform === "android" || platform === "ios") {
-          device = "mobile";
-        }
+          const besitosSurveysArray = Array.isArray(besitosResponse)
+            ? besitosResponse
+            : besitosResponse?.data || [];
 
-        const besitosQueryParams = {
-          device,
-          user_ip: clientIp,
-        };
+          console.log(
+            `🔵 [USER BACKEND] Besitos fallback returned ${besitosSurveysArray.length} surveys`,
+          );
 
-        const userGender = getUserGender(user);
-        if (userGender === "male") {
-          besitosQueryParams.gender = "m";
-        } else if (userGender === "female") {
-          besitosQueryParams.gender = "f";
-        }
-
-        if (user.dateOfBirth) {
-          const dob = new Date(user.dateOfBirth);
-          besitosQueryParams.dob = dob.toISOString().split("T")[0];
-        }
-
-        if (user.location?.current?.postalCode) {
-          besitosQueryParams.postal_code = user.location.current.postalCode;
-        }
-
-        console.log(
-          "🔵 [USER BACKEND] Besitos fallback params:",
-          besitosQueryParams
-        );
-
-        // Call Besitos Surveys API using userId (not admin-preview)
-        const besitosResponse = await besitosService.getSurveysWall(
-          user._id.toString(),
-          besitosQueryParams
-        );
-
-        const besitosSurveysArray = Array.isArray(besitosResponse)
-          ? besitosResponse
-          : besitosResponse?.data || [];
-
-        console.log(
-          `🔵 [USER BACKEND] Besitos fallback returned ${besitosSurveysArray.length} surveys`
-        );
-
-        if (besitosSurveysArray.length > 0) {
-          const besitosTransformed = besitosSurveysArray.map((survey) => {
+          if (besitosSurveysArray.length > 0) {
+            const besitosTransformed = besitosSurveysArray.map((survey) => {
               const estimatedTime = survey.length
                 ? Math.round(survey.length)
                 : 0;
@@ -2669,7 +2782,8 @@ router.get("/surveys", protect, async (req, res) => {
                 id: survey.id?.toString() || "",
                 surveyId: survey.id?.toString() || "",
                 offerId: survey.id?.toString() || "",
-                title: survey.name || `Survey ${survey.id}` || "Untitled Survey",
+                title:
+                  survey.name || `Survey ${survey.id}` || "Untitled Survey",
                 description: `Complete this survey to earn $${
                   survey.amount || 0
                 }`,
@@ -2702,25 +2816,25 @@ router.get("/surveys", protect, async (req, res) => {
               };
             });
 
-          // Always merge Besitos surveys with existing surveys (Bitlabs + admin-configured)
-          surveys = [...surveys, ...besitosTransformed];
-          source = surveys.length > 0 ? "mixed" : "besitos_direct";
-          
-          console.log(
-            `✅ [USER BACKEND] Merged Besitos surveys: Total ${surveys.length} surveys (Bitlabs + Besitos)`
+            // Always merge Besitos surveys with existing surveys (Bitlabs + admin-configured)
+            surveys = [...surveys, ...besitosTransformed];
+            source = surveys.length > 0 ? "mixed" : "besitos_direct";
+
+            console.log(
+              `✅ [USER BACKEND] Merged Besitos surveys: Total ${surveys.length} surveys (Bitlabs + Besitos)`,
+            );
+          }
+        } else {
+          console.warn(
+            "⚠️ [USER BACKEND] Besitos fallback skipped: service not configured",
           );
         }
-      } else {
-        console.warn(
-          "⚠️ [USER BACKEND] Besitos fallback skipped: service not configured"
+      } catch (besitosFallbackError) {
+        console.error(
+          "🔴 [USER BACKEND] Besitos fallback error:",
+          besitosFallbackError.message,
         );
       }
-    } catch (besitosFallbackError) {
-      console.error(
-        "🔴 [USER BACKEND] Besitos fallback error:",
-        besitosFallbackError.message
-      );
-    }
     }
 
     // Paginate results
@@ -2741,7 +2855,7 @@ router.get("/surveys", protect, async (req, res) => {
         totalSurveys: surveys.length,
         estimatedEarnings: surveys.reduce(
           (sum, s) => sum + (s.reward?.coins || 0),
-          0
+          0,
         ),
         source: source,
       },
@@ -2768,7 +2882,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences onboarding"
+      "xp vip profile location preferences onboarding",
     );
 
     if (!user) {
@@ -2811,7 +2925,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
           userProfile,
           user._id.toString(),
           req,
-          category
+          category,
         );
         // Filter by category if specified
         let filteredOffers = adminOffers;
@@ -2831,7 +2945,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
       } catch (configError) {
         console.error(
           "Error fetching admin-configured magic receipts:",
-          configError
+          configError,
         );
       }
     }
@@ -2851,7 +2965,6 @@ router.get("/magic-receipts", protect, async (req, res) => {
         },
         category,
       });
-
 
       if (result.success && result.categorized?.magicReceipts) {
         // Preserve exact Bitlabs API structure for magic receipts
@@ -2881,7 +2994,7 @@ router.get("/magic-receipts", protect, async (req, res) => {
         totalMagicReceipts: magicReceipts.length,
         estimatedEarnings: magicReceipts.reduce(
           (sum, m) => sum + (m.reward?.coins || 0),
-          0
+          0,
         ),
         source: source,
       },
@@ -2920,7 +3033,7 @@ router.get("/cashback", protect, async (req, res) => {
     });
 
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences onboarding"
+      "xp vip profile location preferences onboarding",
     );
 
     if (!user) {
@@ -2979,7 +3092,7 @@ router.get("/cashback", protect, async (req, res) => {
     //
     if (useAdminConfig === "true") {
       console.log(
-        "🔵 [CASHBACK] useAdminConfig=true - Fetching admin-configured offers..."
+        "🔵 [CASHBACK] useAdminConfig=true - Fetching admin-configured offers...",
       );
       try {
         console.log("🔵 [CASHBACK] Calling getAdminConfiguredOffers with:", {
@@ -2993,7 +3106,7 @@ router.get("/cashback", protect, async (req, res) => {
           userProfile,
           user._id.toString(),
           req,
-          category
+          category,
         );
 
         console.log("🔵 [CASHBACK] Admin offers received:", {
@@ -3034,7 +3147,7 @@ router.get("/cashback", protect, async (req, res) => {
           });
         } else {
           console.log(
-            "🔵 [CASHBACK] No category filter applied (category='all')"
+            "🔵 [CASHBACK] No category filter applied (category='all')",
           );
         }
 
@@ -3046,12 +3159,12 @@ router.get("/cashback", protect, async (req, res) => {
           console.log(
             "✅ [CASHBACK] Returning",
             cashbackOffers.length,
-            "cashback offers"
+            "cashback offers",
           );
         } else {
           // No admin-configured offers found
           console.warn(
-            "⚠️ [CASHBACK] No admin-configured cashback offers found after filtering"
+            "⚠️ [CASHBACK] No admin-configured cashback offers found after filtering",
           );
           cashbackOffers = [];
           source = "admin_configured";
@@ -3059,7 +3172,7 @@ router.get("/cashback", protect, async (req, res) => {
       } catch (configError) {
         console.error(
           "❌ [CASHBACK] Error fetching admin-configured cashback offers:",
-          configError
+          configError,
         );
         console.error("❌ [CASHBACK] Error stack:", configError.stack);
         cashbackOffers = [];
@@ -3068,7 +3181,7 @@ router.get("/cashback", protect, async (req, res) => {
     } else {
       // If useAdminConfig is false, return empty array (no fallback)
       console.warn(
-        "⚠️ useAdminConfig=false: Returning empty cashback offers (admin config only)"
+        "⚠️ useAdminConfig=false: Returning empty cashback offers (admin config only)",
       );
       cashbackOffers = [];
       source = "admin_configured";
@@ -3095,7 +3208,7 @@ router.get("/cashback", protect, async (req, res) => {
       source,
       estimatedEarnings: cashbackOffers.reduce(
         (sum, c) => sum + (c.reward?.coins || 0),
-        0
+        0,
       ),
     });
 
@@ -3114,7 +3227,7 @@ router.get("/cashback", protect, async (req, res) => {
         totalCashback: cashbackOffers.length,
         estimatedEarnings: cashbackOffers.reduce(
           (sum, c) => sum + (c.reward?.coins || 0),
-          0
+          0,
         ),
         source: source,
       },
@@ -3166,7 +3279,7 @@ router.get("/shopping", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
     const user = await User.findById(req.user.userId).select(
-      "xp vip profile location preferences onboarding"
+      "xp vip profile location preferences onboarding",
     );
 
     if (!user) {
@@ -3209,7 +3322,7 @@ router.get("/shopping", protect, async (req, res) => {
           userProfile,
           user._id.toString(),
           req,
-          category
+          category,
         );
         // Filter by category if specified
         let filteredOffers = adminOffers;
@@ -3229,7 +3342,7 @@ router.get("/shopping", protect, async (req, res) => {
       } catch (configError) {
         console.error(
           "Error fetching admin-configured shopping offers:",
-          configError
+          configError,
         );
       }
     }
@@ -3249,7 +3362,6 @@ router.get("/shopping", protect, async (req, res) => {
         },
         category,
       });
-
 
       if (result.success && result.categorized?.shopping) {
         // Preserve exact Bitlabs API structure for shopping
@@ -3279,7 +3391,7 @@ router.get("/shopping", protect, async (req, res) => {
         totalShopping: shoppingOffers.length,
         estimatedEarnings: shoppingOffers.reduce(
           (sum, s) => sum + (s.reward?.coins || 0),
-          0
+          0,
         ),
         source: source,
       },
@@ -3462,11 +3574,11 @@ router.post("/callback/bitlabs", async (req, res) => {
   try {
     // 🔵 DEBUG: Log incoming callback request
     console.log(
-      "\n🔵 [CALLBACK] ========== BITLABS CALLBACK RECEIVED =========="
+      "\n🔵 [CALLBACK] ========== BITLABS CALLBACK RECEIVED ==========",
     );
     console.log(
       "🔵 [CALLBACK] 📥 Raw Request Body:",
-      JSON.stringify(req.body, null, 2)
+      JSON.stringify(req.body, null, 2),
     );
     console.log("🔵 [CALLBACK] 📥 Request Headers:", {
       "content-type": req.headers["content-type"],
@@ -3510,7 +3622,7 @@ router.post("/callback/bitlabs", async (req, res) => {
         verificationResult: verification,
       });
       console.error(
-        "❌ [CALLBACK] ===========================================\n"
+        "❌ [CALLBACK] ===========================================\n",
       );
       return res.status(400).json({
         success: false,
@@ -3537,7 +3649,7 @@ router.post("/callback/bitlabs", async (req, res) => {
     // 🔵 DEBUG: Handle all statuses with detailed logging
     if (!userId || !offerId) {
       console.warn(
-        "⚠️ [CALLBACK] ========== MISSING REQUIRED FIELDS =========="
+        "⚠️ [CALLBACK] ========== MISSING REQUIRED FIELDS ==========",
       );
       console.warn("⚠️ [CALLBACK] Missing userId or offerId:", {
         hasUserId: !!userId,
@@ -3545,7 +3657,7 @@ router.post("/callback/bitlabs", async (req, res) => {
         callbackData,
       });
       console.warn(
-        "⚠️ [CALLBACK] ===========================================\n"
+        "⚠️ [CALLBACK] ===========================================\n",
       );
 
       return res.json({
@@ -3563,7 +3675,7 @@ router.post("/callback/bitlabs", async (req, res) => {
       console.error("❌ [CALLBACK] Survey ID:", offerId);
       console.error("❌ [CALLBACK] Status:", status);
       console.error(
-        "❌ [CALLBACK] ===========================================\n"
+        "❌ [CALLBACK] ===========================================\n",
       );
 
       return res.status(404).json({
@@ -3585,13 +3697,13 @@ router.post("/callback/bitlabs", async (req, res) => {
     // Handle different callback statuses
     if (status === "completed") {
       console.log(
-        "\n🟢 [CALLBACK] ========== PROCESSING COMPLETED OFFER =========="
+        "\n🟢 [CALLBACK] ========== PROCESSING COMPLETED OFFER ==========",
       );
       console.log("🟢 [CALLBACK] Offer Status: COMPLETED");
       console.log("🟢 [CALLBACK] Offer ID:", offerId);
       console.log("🟢 [CALLBACK] User will receive reward");
       console.log(
-        "🟢 [CALLBACK] ===========================================\n"
+        "🟢 [CALLBACK] ===========================================\n",
       );
 
       // Determine reward amount:
@@ -3632,7 +3744,7 @@ router.post("/callback/bitlabs", async (req, res) => {
             coins = configuredOffer.coinReward || 0;
             const offerType = configuredOffer.offerType || "unknown";
             console.log(
-              `✅ Using admin-configured reward: ${coins} coins for ${offerType} offer ${offerId}`
+              `✅ Using admin-configured reward: ${coins} coins for ${offerType} offer ${offerId}`,
             );
           }
         }
@@ -3646,13 +3758,13 @@ router.post("/callback/bitlabs", async (req, res) => {
         if (value) {
           coins = parseFloat(value) || 0;
           console.log(
-            `✅ Using 'value' from callback: ${coins} coins for survey ${offerId}`
+            `✅ Using 'value' from callback: ${coins} coins for survey ${offerId}`,
           );
         } else if (reward) {
           // Fallback to 'reward' field
           coins = Math.round(reward);
           console.log(
-            `✅ Using 'reward' from callback: ${coins} coins for survey ${offerId}`
+            `✅ Using 'reward' from callback: ${coins} coins for survey ${offerId}`,
           );
         }
       }
@@ -3734,7 +3846,7 @@ router.post("/callback/bitlabs", async (req, res) => {
 
         // 🔵 DEBUG: Log final reward summary
         console.log(
-          "🟢 [CALLBACK] ========== REWARD AWARDED SUCCESSFULLY =========="
+          "🟢 [CALLBACK] ========== REWARD AWARDED SUCCESSFULLY ==========",
         );
         console.log("🟢 [CALLBACK] ✅ User:", userId);
         console.log("🟢 [CALLBACK] ✅ Survey:", offerId);
@@ -3752,24 +3864,24 @@ router.post("/callback/bitlabs", async (req, res) => {
         });
         console.log("🟢 [CALLBACK] 📝 Transaction ID:", transaction._id);
         console.log(
-          "🟢 [CALLBACK] ✅ User tracking verified (userId matches X-User-Id from click URL)"
+          "🟢 [CALLBACK] ✅ User tracking verified (userId matches X-User-Id from click URL)",
         );
         console.log(
-          "🟢 [CALLBACK] ===========================================\n"
+          "🟢 [CALLBACK] ===========================================\n",
         );
       } else {
         console.warn(
-          "\n⚠️ [CALLBACK] ========== NO REWARD AMOUNT FOUND =========="
+          "\n⚠️ [CALLBACK] ========== NO REWARD AMOUNT FOUND ==========",
         );
         console.warn("⚠️ [CALLBACK] Survey:", offerId);
         console.warn("⚠️ [CALLBACK] User:", userId);
         console.warn("⚠️ [CALLBACK] Status:", status);
         console.warn("⚠️ [CALLBACK] Callback Data:", callbackData);
         console.warn(
-          "⚠️ [CALLBACK] Reason: No reward amount found (coins = 0)"
+          "⚠️ [CALLBACK] Reason: No reward amount found (coins = 0)",
         );
         console.warn(
-          "⚠️ [CALLBACK] ===========================================\n"
+          "⚠️ [CALLBACK] ===========================================\n",
         );
       }
     } else if (status === "screened_out") {
@@ -3785,11 +3897,11 @@ router.post("/callback/bitlabs", async (req, res) => {
       });
       console.log("🟡 [CALLBACK] ℹ️ User did not qualify for this survey");
       console.log(
-        "🟡 [CALLBACK] ℹ️ No reward will be awarded (expected behavior)"
+        "🟡 [CALLBACK] ℹ️ No reward will be awarded (expected behavior)",
       );
       console.log("🟡 [CALLBACK] ℹ️ User can try other available surveys");
       console.log(
-        "🟡 [CALLBACK] ===========================================\n"
+        "🟡 [CALLBACK] ===========================================\n",
       );
     } else if (status === "rejected") {
       // 🔵 DEBUG: Log rejected status
@@ -3815,16 +3927,16 @@ router.post("/callback/bitlabs", async (req, res) => {
         allCallbackData: callbackData,
       });
       console.log(
-        "🟠 [CALLBACK] ℹ️ Unknown status - no reward will be awarded"
+        "🟠 [CALLBACK] ℹ️ Unknown status - no reward will be awarded",
       );
       console.log(
-        "🟠 [CALLBACK] ===========================================\n"
+        "🟠 [CALLBACK] ===========================================\n",
       );
     }
 
     // 🔵 DEBUG: Log callback processing completion
     console.log(
-      "✅ [CALLBACK] ========== CALLBACK PROCESSING COMPLETE =========="
+      "✅ [CALLBACK] ========== CALLBACK PROCESSING COMPLETE ==========",
     );
     console.log("✅ [CALLBACK] ✅ Callback processed successfully");
     console.log("✅ [CALLBACK] 📋 Summary:", {
@@ -3843,14 +3955,14 @@ router.post("/callback/bitlabs", async (req, res) => {
   } catch (error) {
     // 🔴 DEBUG: Log callback processing error
     console.error(
-      "\n🔴 [CALLBACK] ========== CALLBACK PROCESSING ERROR =========="
+      "\n🔴 [CALLBACK] ========== CALLBACK PROCESSING ERROR ==========",
     );
     console.error("🔴 [CALLBACK] ❌ Error Type:", error.constructor.name);
     console.error("🔴 [CALLBACK] ❌ Error Message:", error.message);
     console.error("🔴 [CALLBACK] ❌ Error Stack:", error.stack);
     console.error(
       "🔴 [CALLBACK] ❌ Request Body:",
-      JSON.stringify(req.body, null, 2)
+      JSON.stringify(req.body, null, 2),
     );
     console.error("🔴 [CALLBACK] ❌ Callback Data:", {
       userId: req.body?.userId,
@@ -3858,7 +3970,7 @@ router.post("/callback/bitlabs", async (req, res) => {
       status: req.body?.status,
     });
     console.error(
-      "🔴 [CALLBACK] ===========================================\n"
+      "🔴 [CALLBACK] ===========================================\n",
     );
 
     res.status(500).json({

@@ -70,15 +70,10 @@ class AffiseService {
         );
 
         if (this.apiKey) {
+          // ONLY send API-Key in header, NOT in query params
           requestConfig.headers["API-Key"] = this.apiKey;
-          if (!requestConfig.params) {
-            requestConfig.params = {};
-          }
-          if (!requestConfig.params["API-Key"]) {
-            requestConfig.params["API-Key"] = this.apiKey;
-          }
           console.log(
-            "🟡 [DEBUG] API-Key added (masked):",
+            "🟡 [DEBUG] API-Key added to header (masked):",
             maskKey(this.apiKey),
           );
         } else {
@@ -589,12 +584,11 @@ class AffiseService {
     }
 
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const params = { date_from: today, date_to: today, limit: 1 };
-      console.log("🟢 [AFFISE] healthCheck request params:", params);
+      // Try partner/offers endpoint first (requires fewer permissions)
+      console.log("🟢 [AFFISE] healthCheck trying /partner/offers endpoint");
       const response = await this.client.get(
-        `/${this.apiVersion}/stats/conversions`,
-        { params },
+        `/${this.apiVersion}/partner/offers`,
+        { params: { limit: 1 } },
       );
       console.log("🟢 [AFFISE] healthCheck success, status:", response.status);
 
@@ -603,10 +597,11 @@ class AffiseService {
         configured: true,
         data: {
           reachable: true,
-          sampleCount:
+          endpoint: "partner/offers",
+          offersCount:
             response.data?.count ||
             response.data?.total ||
-            response.data?.rows?.length ||
+            response.data?.offers?.length ||
             0,
         },
       };
@@ -624,8 +619,9 @@ class AffiseService {
         return {
           status: "unauthorized",
           configured: true,
-          error: "Invalid or unauthorized Affise API key",
+          error: "Invalid or unauthorized Affise API key - Please verify the API key has proper permissions",
           httpStatus: status,
+          details: error.response?.data,
         };
       }
       if (status >= 500) {

@@ -3183,6 +3183,37 @@ router.get(
 
         // Sort by revenue descending
         revenueTable.sort((a, b) => b.revenue - a.revenue)
+        
+        // Deduplicate by title - aggregate games with same title
+        const titleMap = new Map()
+        revenueTable.forEach((game) => {
+          const titleKey = game.title ? game.title.trim().toLowerCase() : game.gameId
+          
+          if (titleMap.has(titleKey)) {
+            // Aggregate data for duplicate titles
+            const existing = titleMap.get(titleKey)
+            existing.revenue += game.revenue
+            existing.rewardCost += game.rewardCost
+            existing.margin += game.margin
+            existing.marginProfit += game.marginProfit
+            // Recalculate margin percent based on aggregated values
+            existing.marginPercent = existing.revenue > 0 
+              ? parseFloat(((existing.margin / existing.revenue) * 100).toFixed(2))
+              : 0
+            // Average the retention rates
+            existing.d7Retention = parseFloat(((existing.d7Retention + game.d7Retention) / 2).toFixed(2))
+            existing.performance = existing.marginPercent > 0 ? 'positive' : 'negative'
+          } else {
+            // First occurrence of this title
+            titleMap.set(titleKey, { ...game })
+          }
+        })
+        
+        // Convert map back to array
+        revenueTable = Array.from(titleMap.values())
+        
+        // Re-sort by revenue descending after deduplication
+        revenueTable.sort((a, b) => b.revenue - a.revenue)
       }
 
       // Calculate total revenue and margin profit for dashboard summary
@@ -3939,13 +3970,13 @@ router.get(
         .sort({ title: 1 })
         .lean()
 
-      // Deduplicate games by gameId to prevent duplicate entries in dropdown
-      // Use a Map to keep only the first occurrence of each gameId
+      // Deduplicate games by title to prevent duplicate entries in dropdown
+      // Use a Map to keep only the first occurrence of each title
       const uniqueGamesMap = new Map();
       
       games.forEach(game => {
-        // Use gameId as the unique key (prefer gameId over _id for deduplication)
-        const key = game.gameId || game._id.toString();
+        // Use normalized title as the unique key (case-insensitive)
+        const key = game.title ? game.title.trim().toLowerCase() : game._id.toString();
         
         // Only add if not already in map (keeps first occurrence)
         if (!uniqueGamesMap.has(key)) {
@@ -4304,21 +4335,14 @@ router.get(
       const userFilter = await buildUserFilter(filters)
       const transactionFilter = buildTransactionFilter(filters)
 
-      // Get total count of active games (fast query)
-      const totalGames = await Game.countDocuments({ isActive: true })
-
-      // Get games for current page only (fast query - only 50 games)
-      // Sort by title for consistent pagination (can't sort by revenue without calculating all)
-      const skip = (parseInt(page) - 1) * parseInt(limit)
-      const gamesWithRevenue = await Game.find({ isActive: true })
+      // Get ALL active games first (we need to deduplicate before pagination)
+      const allGamesWithRevenue = await Game.find({ isActive: true })
         .select('gameId title metadata analytics')
-        .sort({ title: 1 }) // Sort by title for consistent pagination
-        .skip(skip)
-        .limit(parseInt(limit))
+        .sort({ title: 1 })
         .lean()
 
       const revenueTable = await Promise.all(
-        gamesWithRevenue.map(async (game) => {
+        allGamesWithRevenue.map(async (game) => {
           const gameTransactionFilter = { ...transactionFilter }
           if (gameTransactionFilter.$or) {
             delete gameTransactionFilter.$or
@@ -4414,6 +4438,42 @@ router.get(
 
       // Sort by revenue descending
       revenueTable.sort((a, b) => b.revenue - a.revenue)
+      
+      // Deduplicate by title - aggregate games with same title
+      const titleMap = new Map()
+      revenueTable.forEach((game) => {
+        const titleKey = game.title ? game.title.trim().toLowerCase() : game.gameId
+        
+        if (titleMap.has(titleKey)) {
+          // Aggregate data for duplicate titles
+          const existing = titleMap.get(titleKey)
+          existing.revenue += game.revenue
+          existing.rewardCost += game.rewardCost
+          existing.margin += game.margin
+          // Recalculate margin percent based on aggregated values
+          existing.marginPercent = existing.revenue > 0 
+            ? parseFloat(((existing.margin / existing.revenue) * 100).toFixed(2))
+            : 0
+          // Average the retention rates
+          existing.retention = parseFloat(((existing.retention + game.retention) / 2).toFixed(2))
+          existing.d7Retention = existing.retention // Keep for backward compatibility
+          existing.performance = existing.marginPercent > 0 ? 'positive' : 'negative'
+        } else {
+          // First occurrence of this title
+          titleMap.set(titleKey, { ...game })
+        }
+      })
+      
+      // Convert map back to array
+      const deduplicatedRevenueTable = Array.from(titleMap.values())
+      
+      // Re-sort by revenue descending after deduplication
+      deduplicatedRevenueTable.sort((a, b) => b.revenue - a.revenue)
+      
+      // Now apply pagination to deduplicated data
+      const totalGames = deduplicatedRevenueTable.length
+      const skip = (parseInt(page) - 1) * parseInt(limit)
+      const paginatedRevenueTable = deduplicatedRevenueTable.slice(skip, skip + parseInt(limit))
 
       // Calculate pagination metadata
       const totalPages = Math.ceil(totalGames / parseInt(limit))
@@ -4424,7 +4484,7 @@ router.get(
       res.json({
         success: true,
         data: {
-          revenueByGame: revenueTable,
+          revenueByGame: paginatedRevenueTable,
           pagination: {
             currentPage: currentPage,
             totalPages: totalPages,
@@ -4937,13 +4997,43 @@ router.get(
 
       // Sort by revenue descending
       revenueTable.sort((a, b) => b.revenue - a.revenue)
+      
+      // Deduplicate by title - aggregate games with same title
+      const titleMap = new Map()
+      revenueTable.forEach((game) => {
+        const titleKey = game.title ? game.title.trim().toLowerCase() : game.gameId
+        
+        if (titleMap.has(titleKey)) {
+          // Aggregate data for duplicate titles
+          const existing = titleMap.get(titleKey)
+          existing.revenue += game.revenue
+          existing.rewardCost += game.rewardCost
+          existing.margin += game.margin
+          // Recalculate margin percent based on aggregated values
+          existing.marginPercent = existing.revenue > 0 
+            ? parseFloat(((existing.margin / existing.revenue) * 100).toFixed(2))
+            : 0
+          // Average the retention rates
+          existing.d7Retention = parseFloat(((existing.d7Retention + game.d7Retention) / 2).toFixed(2))
+          existing.performance = existing.marginPercent > 0 ? 'positive' : 'negative'
+        } else {
+          // First occurrence of this title
+          titleMap.set(titleKey, { ...game })
+        }
+      })
+      
+      // Convert map back to array
+      const deduplicatedRevenueTable = Array.from(titleMap.values())
+      
+      // Re-sort by revenue descending after deduplication
+      deduplicatedRevenueTable.sort((a, b) => b.revenue - a.revenue)
 
-      // Calculate totals
-      const totalRevenue = revenueTable.reduce(
+      // Calculate totals using deduplicated data
+      const totalRevenue = deduplicatedRevenueTable.reduce(
         (sum, game) => sum + (game.revenue || 0),
         0
       )
-      const totalRewardCost = revenueTable.reduce(
+      const totalRewardCost = deduplicatedRevenueTable.reduce(
         (sum, game) => sum + (game.rewardCost || 0),
         0
       )
@@ -4954,7 +5044,7 @@ router.get(
       res.json({
         success: true,
         data: {
-          revenueByGame: revenueTable,
+          revenueByGame: deduplicatedRevenueTable,
           totals: {
             totalRevenue,
             totalRewardCost,

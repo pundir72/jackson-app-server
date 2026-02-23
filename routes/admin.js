@@ -540,6 +540,7 @@ router.get('/users', adminAuth, async (req, res) => {
       gender = 'all',
       ageRange = 'all',
       search = '',
+      marketingChannel = 'all',
     } = req.query
 
     let query = {}
@@ -688,6 +689,26 @@ router.get('/users', adminAuth, async (req, res) => {
 
       if (Object.keys(dateFilter).length > 0) {
         query.createdAt = dateFilter
+      }
+    }
+
+    // Marketing Channel filter (from Adjust attribution data)
+    if (marketingChannel !== 'all') {
+      // Need to join with AdjustCallback collection to filter by marketing channel
+      const AdjustCallback = require('../models/AdjustCallback')
+      
+      // Find user IDs that have the specified marketing channel
+      const adjustCallbacks = await AdjustCallback.find({
+        activityKind: 'install',
+        network: marketingChannel
+      }).distinct('userId')
+      
+      // Add to query - users must be in the list of user IDs with this marketing channel
+      if (adjustCallbacks.length > 0) {
+        query._id = { $in: adjustCallbacks }
+      } else {
+        // No users found with this marketing channel, return empty result
+        query._id = { $in: [] }
       }
     }
 
@@ -1197,6 +1218,58 @@ router.get('/users/locations', adminAuth, async (req, res) => {
   }
 })
 
+// Get all unique marketing channels from Adjust callbacks (must come before /users/:id route)
+router.get('/users/marketing-channels', adminAuth, async (req, res) => {
+  try {
+    const AdjustCallback = require('../models/AdjustCallback')
+    
+    // Aggregate unique marketing channels (network field) from install callbacks
+    const channels = await AdjustCallback.aggregate([
+      {
+        $match: {
+          activityKind: 'install',
+          network: { $ne: null, $ne: '', $exists: true }
+        }
+      },
+      {
+        $group: {
+          _id: '$network',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          channel: '$_id',
+          count: 1
+        }
+      },
+      {
+        $sort: { count: -1, channel: 1 }
+      }
+    ])
+
+    // Extract just the channel names for the dropdown
+    const channelNames = channels.map(c => c.channel)
+
+    res.json({
+      success: true,
+      data: {
+        channels: channelNames,
+        totalChannels: channelNames.length,
+        details: channels // Include counts for potential future use
+      }
+    })
+  } catch (error) {
+    console.error('Error getting unique marketing channels:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get unique marketing channels',
+      error: error.message,
+    })
+  }
+})
+
 // Get single user details
 router.get('/users/:id', adminAuth, async (req, res) => {
   try {
@@ -1527,6 +1600,71 @@ router.get('/users/:id', adminAuth, async (req, res) => {
       lastRedeemedAt = safeRedemption.lastRedeemedAt || null
     }
 
+    // Fetch Adjust attribution data from AdjustCallback
+    let adjustAttribution = {
+      clickId: null,
+      transactionId: null,
+      marketingChannel: null,
+      campaign: null,
+      adgroup: null,
+      creative: null,
+      network: null,
+      trackerName: null,
+      clickTime: null,
+      installTime: null,
+    }
+    try {
+      const AdjustCallback = require('../models/AdjustCallback')
+      // Find the install callback for this user (most reliable source)
+      const installCallback = await AdjustCallback.findOne({
+        userId: user._id,
+        activityKind: 'install',
+      })
+        .sort({ createdAt: -1 })
+        .select('clickLabel trackerToken network campaign adgroup creative trackerName clickTime installTime')
+        .lean()
+
+      if (installCallback) {
+        adjustAttribution = {
+          clickId: installCallback.clickLabel || null,
+          transactionId: installCallback.trackerToken || null,
+          marketingChannel: installCallback.network || null,
+          campaign: installCallback.campaign || null,
+          adgroup: installCallback.adgroup || null,
+          creative: installCallback.creative || null,
+          network: installCallback.network || null,
+          trackerName: installCallback.trackerName || null,
+          clickTime: installCallback.clickTime || null,
+          installTime: installCallback.installTime || null,
+        }
+      } else {
+        // Fallback: try to find any callback for this user
+        const anyCallback = await AdjustCallback.findOne({
+          userId: user._id,
+        })
+          .sort({ createdAt: -1 })
+          .select('clickLabel trackerToken network campaign adgroup creative trackerName clickTime installTime')
+          .lean()
+
+        if (anyCallback) {
+          adjustAttribution = {
+            clickId: anyCallback.clickLabel || null,
+            transactionId: anyCallback.trackerToken || null,
+            marketingChannel: anyCallback.network || null,
+            campaign: anyCallback.campaign || null,
+            adgroup: anyCallback.adgroup || null,
+            creative: anyCallback.creative || null,
+            network: anyCallback.network || null,
+            trackerName: anyCallback.trackerName || null,
+            clickTime: anyCallback.clickTime || null,
+            installTime: anyCallback.installTime || null,
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching Adjust attribution data:', error)
+    }
+
     const transformedUser = {
       // === Profile Tab ===
       id: user._id,
@@ -1683,6 +1821,11 @@ router.get('/users/:id', adminAuth, async (req, res) => {
       wallet: safeWallet,
       onboarding: safeOnboarding,
       profile: safeProfile,
+
+      // === Marketing Attribution (Adjust) ===
+      clickId: adjustAttribution.clickId || 'N/A',
+      transactionId: adjustAttribution.transactionId || 'N/A',
+      marketingChannel: adjustAttribution.marketingChannel || 'N/A',
     }
 
     res.json({
@@ -3796,14 +3939,31 @@ router.get(
         .sort({ title: 1 })
         .lean()
 
-      res.json({
-        success: true,
-        data: {
-          games: games.map(game => ({
+      // Deduplicate games by gameId to prevent duplicate entries in dropdown
+      // Use a Map to keep only the first occurrence of each gameId
+      const uniqueGamesMap = new Map();
+      
+      games.forEach(game => {
+        // Use gameId as the unique key (prefer gameId over _id for deduplication)
+        const key = game.gameId || game._id.toString();
+        
+        // Only add if not already in map (keeps first occurrence)
+        if (!uniqueGamesMap.has(key)) {
+          uniqueGamesMap.set(key, {
             id: game._id.toString(),
             gameId: game.gameId,
             title: game.title,
-          })),
+          });
+        }
+      });
+
+      // Convert Map values to array
+      const uniqueGames = Array.from(uniqueGamesMap.values());
+
+      res.json({
+        success: true,
+        data: {
+          games: uniqueGames,
         },
       })
     } catch (error) {

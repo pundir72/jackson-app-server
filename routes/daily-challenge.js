@@ -19,8 +19,6 @@ const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const BonusDay = require("../models/BonusDay");
 const besitosService = require("../services/besitos.service");
-const besitosController = require("../controllers/besitos.controller");
-const bitlabsService = require("../services/bitlabs.service");
 const { trackActivity } = require("../middleware/activityTracker");
 const streakRouter = require("./streak");
 const getStreakConfig = streakRouter.getStreakConfig;
@@ -177,7 +175,7 @@ router.get("/calendar", protect, async (req, res) => {
           : null,
         // Milestone flags
         isMilestone: [5, 10, 20, 30].includes(
-          streakData.current >= day ? day : 0
+          streakData.current >= day ? day : 0,
         ),
       };
 
@@ -231,8 +229,8 @@ router.get("/available-games", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -242,8 +240,8 @@ router.get("/available-games", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     // Get today's challenge using UTC dates and status filter
@@ -324,1010 +322,6 @@ router.get("/available-games", protect, async (req, res) => {
   }
 });
 
-// ==================== BESITOS VERIFICATION ====================
-
-/**
- * @route   POST /api/daily-challenge/verify-besitos-download
- * @desc    Verify Besitos game download and completion for daily challenge
- * @access  Private
- */
-router.post("/verify-besitos-download", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { challengeId } = req.body;
-
-    if (!challengeId) {
-      return res.status(400).json({
-        success: false,
-        error: "Challenge ID is required",
-      });
-    }
-
-    // Get the challenge
-    const challenge = await DailyChallenge.findById(challengeId);
-    if (!challenge) {
-      return res.status(404).json({
-        success: false,
-        error: "Challenge not found",
-      });
-    }
-
-    // Verify this is a Besitos challenge
-    if (challenge.sdkProvider !== "besitos" || !challenge.gameId) {
-      return res.status(400).json({
-        success: false,
-        error: "This is not a Besitos game challenge",
-      });
-    }
-
-    // Get user's progress for this challenge
-    const today = new Date();
-    const normalizedStart = new Date(
-      Date.UTC(
-        today.getUTCFullYear(),
-        today.getUTCMonth(),
-        today.getUTCDate(),
-        0,
-        0,
-        0,
-        0
-      )
-    );
-
-    let progress = await UserChallengeProgress.findOne({
-      userId,
-      challengeId,
-      challengeDate: normalizedStart,
-    });
-
-    if (!progress) {
-      return res.status(404).json({
-        success: false,
-        error: "No progress found for this challenge",
-      });
-    }
-
-    // Check if already verified
-    if (progress.progress?.metadata?.gameDownloadVerified) {
-      return res.json({
-        success: true,
-        data: {
-          verified: true,
-          alreadyVerified: true,
-          verifiedAt: progress.progress.metadata.downloadVerifiedAt,
-          message: "Game download already verified",
-        },
-      });
-    }
-
-    // Call Besitos API to check user's data
-    try {
-      const besitosResponse = await besitosService.getUserData(userId);
-      
-      if (!besitosResponse || !besitosResponse.data) {
-        return res.status(500).json({
-          success: false,
-          error: "Failed to fetch Besitos user data",
-        });
-      }
-
-      const offersData = besitosResponse.data;
-      
-      // Check for in_progress games
-      const inProgressGames = offersData.in_progress || [];
-      
-      if (inProgressGames.length === 0) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: "No in-progress games found",
-            inProgressGames: [],
-          },
-        });
-      }
-
-      // Find the specific game by matching the challenge gameId with offer id
-      const targetGame = inProgressGames.find(game => 
-        game.id === challenge.gameId || 
-        game.bundle_id === challenge.gameId ||
-        game.id?.toString() === challenge.gameId?.toString()
-      );
-
-      if (!targetGame) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: `Game with ID ${challenge.gameId} not found in in-progress games`,
-            inProgressGames: inProgressGames.map(game => ({
-              id: game.id,
-              title: game.title,
-              bundleId: game.bundle_id
-            })),
-          },
-        });
-      }
-
-      // Check if the game has completed goals
-      const goals = targetGame.goals || [];
-      const completedGoals = goals.filter(goal => goal.completed === true && goal.completed_datetime);
-      
-      if (completedGoals.length === 0) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: "No completed goals found for this game",
-            gameInfo: {
-              id: targetGame.id,
-              title: targetGame.title,
-              totalGoals: goals.length,
-              completedGoals: 0
-            },
-          },
-        });
-      }
-
-      // Get the first completed goal (usually the install goal)
-      const firstCompletedGoal = completedGoals[0];
-      const completionDatetime = new Date(firstCompletedGoal.completed_datetime);
-      
-      // Verify the completion date matches today's challenge date
-      const completionDate = new Date(completionDatetime);
-      completionDate.setUTCHours(0, 0, 0, 0);
-      const challengeDate = new Date(normalizedStart);
-      
-      const isDateMatch = completionDate.getTime() === challengeDate.getTime();
-      
-      // Also check if any goal was completed within the last 24 hours (for same-day verification)
-      const now = new Date();
-      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const hasRecentCompletion = completedGoals.some(goal => {
-        const goalTime = new Date(goal.completed_datetime);
-        return goalTime >= twentyFourHoursAgo;
-      });
-
-      if (!isDateMatch && !hasRecentCompletion) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: `Game completion date (${completionDate.toISOString().split('T')[0]}) does not match challenge date (${challengeDate.toISOString().split('T')[0]}) and no recent completion found`,
-            completionDate: completionDate.toISOString(),
-            challengeDate: challengeDate.toISOString(),
-            goals: goals,
-          },
-        });
-      }
-
-      // Calculate progress percentage based on completed goals
-      const progressPercentage = Math.round((completedGoals.length / goals.length) * 100);
-
-      // Update progress with verification
-      const verificationData = {
-        gameDownloadVerified: true,
-        downloadVerifiedAt: new Date().toISOString(),
-        besitosOfferId: challenge.gameId,
-        gameTitle: targetGame.title,
-        bundleId: targetGame.bundle_id,
-        firstCompletedGoalId: firstCompletedGoal.goal_id,
-        firstCompletedGoalText: firstCompletedGoal.text,
-        firstCompletedGoalDatetime: firstCompletedGoal.completed_datetime,
-        totalGoals: goals.length,
-        completedGoals: completedGoals.length,
-        progressPercentage: progressPercentage,
-        verificationDate: new Date().toISOString(),
-        goalsSummary: goals.map(goal => ({
-          goalId: goal.goal_id,
-          text: goal.text,
-          completed: goal.completed,
-          completedDatetime: goal.completed_datetime,
-          amount: goal.amount
-        }))
-      };
-
-      // Update progress metadata
-      if (!progress.progress) {
-        progress.progress = {};
-      }
-      if (!progress.progress.metadata) {
-        progress.progress.metadata = {};
-      }
-
-      Object.assign(progress.progress.metadata, verificationData);
-
-      // Mark progress as started if not already
-      if (progress.status === "not_started" || progress.status === "viewed") {
-        await progress.markStarted();
-      }
-
-      // Update progress percentage based on completed goals
-      progress.progress.percentage = progressPercentage;
-      progress.progress.currentStep = completedGoals.length;
-      progress.progress.totalSteps = goals.length;
-
-      // If all goals are completed, mark as completed
-      if (completedGoals.length === goals.length && goals.length > 0) {
-        progress.progress.percentage = 100;
-        await progress.markCompleted();
-      }
-
-      await progress.save();
-
-      // Update challenge analytics
-      await challenge.updateAnalytics("started");
-
-      return res.json({
-        success: true,
-        data: {
-          verified: true,
-          verificationData,
-          message: "Game download verified successfully",
-          progress: {
-            status: progress.status,
-            percentage: progress.progress?.percentage || 0,
-            metadata: progress.progress?.metadata || {},
-          },
-          gameInfo: {
-            id: targetGame.id,
-            title: targetGame.title,
-            totalGoals: goals.length,
-            completedGoals: completedGoals.length,
-            progressPercentage: progressPercentage,
-            allGoalsCompleted: completedGoals.length === goals.length
-          }
-        },
-      });
-
-    } catch (besitosError) {
-      console.error("Besitos API error:", besitosError);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to verify with Besitos API",
-        details: besitosError.message,
-      });
-    }
-
-  } catch (error) {
-    console.error("Error verifying Besitos download:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to verify game download",
-    });
-  }
-});
-
-// ==================== BITLABS VERIFICATION ====================
-
-/**
- * @route   POST /api/daily-challenge/verify-bitlabs-download
- * @desc    Verify Bitlabs game download and completion for daily challenge
- * @access  Private
- */
-router.post("/verify-bitlabs-download", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { challengeId } = req.body;
-
-    if (!challengeId) {
-      return res.status(400).json({
-        success: false,
-        error: "Challenge ID is required",
-      });
-    }
-
-    // Get the challenge
-    const challenge = await DailyChallenge.findById(challengeId);
-    if (!challenge) {
-      return res.status(404).json({
-        success: false,
-        error: "Challenge not found",
-      });
-    }
-
-    // Verify this is a Bitlabs challenge
-    if (challenge.sdkProvider !== "bitlabs" || !challenge.gameId) {
-      return res.status(400).json({
-        success: false,
-        error: "This is not a Bitlabs game challenge",
-      });
-    }
-
-    // Get user's progress for this challenge
-    const today = new Date();
-    const normalizedStart = new Date(
-      Date.UTC(
-        today.getUTCFullYear(),
-        today.getUTCMonth(),
-        today.getUTCDate(),
-        0,
-        0,
-        0,
-        0
-      )
-    );
-
-    let progress = await UserChallengeProgress.findOne({
-      userId,
-      challengeId,
-      challengeDate: normalizedStart,
-    });
-
-    if (!progress) {
-      return res.status(404).json({
-        success: false,
-        error: "No progress found for this challenge",
-      });
-    }
-
-    // Check if already verified
-    if (progress.progress?.metadata?.gameDownloadVerified) {
-      return res.json({
-        success: true,
-        data: {
-          verified: true,
-          alreadyVerified: true,
-          verifiedAt: progress.progress.metadata.downloadVerifiedAt,
-          message: "Game download already verified",
-        },
-      });
-    }
-
-    // Call Bitlabs API to check user's offer history
-    try {
-      const bitlabsResponse = await bitlabsService.getUserOfferHistory(userId, challenge.gameId);
-      
-      if (!bitlabsResponse.success || !bitlabsResponse.data) {
-        return res.status(500).json({
-          success: false,
-          error: "Failed to fetch Bitlabs offer history",
-        });
-      }
-
-      const offerData = bitlabsResponse.data;
-      
-      // Check for completed events
-      const events = offerData.events || [];
-      const completedEvents = events.filter(event => event.status === "completed");
-      
-      if (completedEvents.length === 0) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: "No completed events found for this game",
-            events: events,
-          },
-        });
-      }
-
-      // Find the first completed event (usually the install event)
-      const firstCompletedEvent = completedEvents[0];
-      const eventTimestamp = new Date(firstCompletedEvent.timestamp);
-      
-      // Verify the event date matches today's challenge date
-      const eventDate = new Date(eventTimestamp);
-      eventDate.setUTCHours(0, 0, 0, 0);
-      const challengeDate = new Date(normalizedStart);
-      
-      const isDateMatch = eventDate.getTime() === challengeDate.getTime();
-      
-      if (!isDateMatch) {
-        return res.json({
-          success: true,
-          data: {
-            verified: false,
-            message: `Game completion date (${eventDate.toISOString().split('T')[0]}) does not match challenge date (${challengeDate.toISOString().split('T')[0]})`,
-            eventDate: eventDate.toISOString(),
-            challengeDate: challengeDate.toISOString(),
-            events: events,
-          },
-        });
-      }
-
-      // Update progress with verification
-      const verificationData = {
-        gameDownloadVerified: true,
-        downloadVerifiedAt: new Date().toISOString(),
-        bitlabsOfferId: challenge.gameId,
-        completedEventId: firstCompletedEvent.uuid,
-        completedEventName: firstCompletedEvent.name,
-        completedEventTimestamp: firstCompletedEvent.timestamp,
-        totalCompletedEvents: completedEvents.length,
-        verificationDate: new Date().toISOString(),
-      };
-
-      // Update progress metadata
-      if (!progress.progress) {
-        progress.progress = {};
-      }
-      if (!progress.progress.metadata) {
-        progress.progress.metadata = {};
-      }
-
-      Object.assign(progress.progress.metadata, verificationData);
-
-      // Mark progress as started if not already
-      if (progress.status === "not_started" || progress.status === "viewed") {
-        await progress.markStarted();
-      }
-
-      // For game challenges with time requirements, set initial progress
-      if (challenge.requirements?.timeLimit) {
-        progress.progress.percentage = 10; // Initial progress after download
-        progress.progress.currentStep = 1;
-        progress.progress.totalSteps = 2; // Download + play time
-      }
-
-      await progress.save();
-
-      // Update challenge analytics
-      await challenge.updateAnalytics("started");
-
-      return res.json({
-        success: true,
-        data: {
-          verified: true,
-          verificationData,
-          message: "Game download verified successfully",
-          progress: {
-            status: progress.status,
-            percentage: progress.progress?.percentage || 0,
-            metadata: progress.progress?.metadata || {},
-          },
-        },
-      });
-
-    } catch (bitlabsError) {
-      console.error("Bitlabs API error:", bitlabsError);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to verify with Bitlabs API",
-        details: bitlabsError.message,
-      });
-    }
-
-  } catch (error) {
-    console.error("Error verifying Bitlabs download:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to verify game download",
-    });
-  }
-});
-
-// ==================== GAME CHALLENGE OPERATIONS ====================
-
-/**
- * @route   POST /api/daily-challenge/start
- * @desc    Start a game challenge (user clicks play game)
- * @access  Private
- */
-// router.post("/start", protect, async (req, res) => {
-//   try {
-//     const userId = req.user.userId;
-//     const { challengeId } = req.body;
-
-//     if (!challengeId) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Challenge ID is required",
-//       });
-//     }
-
-//     // Get the challenge
-//     const challenge = await DailyChallenge.findById(challengeId);
-//     if (!challenge) {
-//       return res.status(404).json({
-//         success: false,
-//         error: "Challenge not found",
-//       });
-//     }
-
-//     // Verify this is a game challenge
-//     if (challenge.type !== "game" && challenge.type !== "sdk_game") {
-//       return res.status(400).json({
-//         success: false,
-//         error: "This is not a game challenge",
-//       });
-//     }
-
-//     // Get today's date (normalized)
-//     const today = new Date();
-//     const normalizedStart = new Date(
-//       Date.UTC(
-//         today.getUTCFullYear(),
-//         today.getUTCMonth(),
-//         today.getUTCDate(),
-//         0,
-//         0,
-//         0,
-//         0
-//       )
-//     );
-
-//     // Get user's progress for this challenge
-//     let progress = await UserChallengeProgress.findOne({
-//       userId,
-//       challengeId,
-//       challengeDate: normalizedStart,
-//     });
-
-//     if (!progress) {
-//       // Create progress if it doesn't exist
-//       progress = await UserChallengeProgress.getOrCreateTodayChallenge(
-//         userId,
-//         challengeId,
-//         normalizedStart
-//       );
-//     }
-
-//     // Check if already started
-//     if (progress.status === "started" || progress.status === "in_progress") {
-//       return res.json({
-//         success: true,
-//         data: {
-//           alreadyStarted: true,
-//           message: "Challenge already started",
-//           progress: {
-//             status: progress.status,
-//             percentage: progress.progress?.percentage || 0,
-//             startedAt: progress.startedAt,
-//             timeRemaining: calculateTimeRemaining(progress, challenge),
-//           },
-//         },
-//       });
-//     }
-
-//     // Mark progress as started
-//     await progress.markStarted();
-    
-//     // If this is a game challenge, trigger automatic verification after a delay
-//     if (challenge.sdkProvider) {
-//       // Set a flag to trigger verification on next check
-//       if (!progress.progress) {
-//         progress.progress = {};
-//       }
-//       if (!progress.progress.metadata) {
-//         progress.progress.metadata = {};
-//       }
-//       progress.progress.metadata.gameStarted = true;
-//       progress.progress.metadata.gameStartedAt = new Date().toISOString();
-//       await progress.save();
-//     }
-
-//     // Update challenge analytics
-//     await challenge.updateAnalytics("started");
-
-//     // Calculate time remaining
-//     const timeRemaining = calculateTimeRemaining(progress, challenge);
-
-//     res.json({
-//       success: true,
-//       data: {
-//         message: "Challenge started successfully",
-//         progress: {
-//           status: progress.status,
-//           percentage: progress.progress?.percentage || 0,
-//           startedAt: progress.startedAt,
-//           timeRemaining: timeRemaining,
-//           metadata: progress.progress?.metadata || {},
-//         },
-//         gameInfo: challenge.type === "game" ? {
-//           timeLimit: challenge.requirements?.timeLimit,
-//           needsVerification: !!challenge.sdkProvider,
-//           gameDownloadVerified: progress.progress?.metadata?.gameDownloadVerified || false,
-//         } : null,
-//         timer: {
-//           timeRemaining: timeRemaining,
-//           hours: Math.floor(timeRemaining / (1000 * 60 * 60)),
-//           minutes: Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60)),
-//           seconds: Math.floor((timeRemaining % (1000 * 60)) / 1000),
-//           formatted: formatTimeRemaining(timeRemaining),
-//         },
-//       },
-//     });
-
-//   } catch (error) {
-//     console.error("Error starting challenge:", error);
-//     res.status(500).json({
-//       success: false,
-//       error: "Failed to start challenge",
-//     });
-//   }
-// });
-
-/**
- * Helper function to calculate time remaining for a challenge
- */
-function calculateTimeRemaining(progress, challenge) {
-  const now = new Date();
-  const isCompleted = progress.status === "completed";
-  
-  if (isCompleted) {
-    return 0;
-  }
-
-  const isGameChallenge = challenge.type === "game" || challenge.type === "sdk_game";
-  const gameDownloadVerified = progress.progress?.metadata?.gameDownloadVerified || false;
-  const downloadVerifiedAt = progress.progress?.metadata?.downloadVerifiedAt;
-  
-  if (isGameChallenge && !gameDownloadVerified) {
-    // Game challenge waiting for download - show full day duration
-    const challengeEndTime = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        23,
-        59,
-        59,
-        999
-      )
-    );
-    return Math.max(0, challengeEndTime - now);
-  } else if (isGameChallenge && gameDownloadVerified) {
-    // Game challenge with verified download - use timeLimit
-    const timerStartTime = downloadVerifiedAt ? new Date(downloadVerifiedAt) : progress.startedAt;
-    const timerDuration = challenge.requirements?.timeLimit 
-      ? challenge.requirements.timeLimit * 60 * 1000 
-      : 24 * 60 * 60 * 1000;
-    const timerEndTime = new Date(timerStartTime.getTime() + timerDuration);
-    return Math.max(0, timerEndTime - now);
-  } else {
-    // Non-game challenge - use challenge end time
-    const challengeEndTime = challenge.scheduling?.endTime || new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        23,
-        59,
-        59,
-        999
-      )
-    );
-    return Math.max(0, challengeEndTime - now);
-  }
-}
-
-/**
- * Helper function to format time remaining
- */
-function formatTimeRemaining(milliseconds) {
-  if (milliseconds <= 0) return "00:00:00";
-  
-  const hours = Math.floor(milliseconds / (1000 * 60 * 60));
-  const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((milliseconds % (1000 * 60)) / 1000);
-  
-  return `${hours.toString().padStart(2, "0")}:${minutes
-    .toString()
-    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-}
-
-/**
- * @route   POST /api/daily-challenge/complete
- * @desc    Mark a game challenge as completed (user finishes required play time)
- * @access  Private
- */
-// router.post("/complete", protect, async (req, res) => {
-//   try {
-//     console.log("🎮 DAILY CHALLENGE COMPLETE - Starting validation");
-//     const userId = req.user.userId;
-//     const { challengeId } = req.body;
-    
-//     console.log("📝 Request data:", { userId, challengeId });
-
-//     if (!challengeId) {
-//       console.log("❌ Missing challenge ID");
-//       return res.status(400).json({
-//         success: false,
-//         error: "Challenge ID is required",
-//       });
-//     }
-
-//     // Get the challenge
-//     const challenge = await DailyChallenge.findById(challengeId);
-//     console.log("🔍 Challenge found:", { 
-//       id: challenge?._id, 
-//       type: challenge?.type, 
-//       sdkProvider: challenge?.sdkProvider,
-//       title: challenge?.title 
-//     });
-    
-//     if (!challenge) {
-//       console.log("❌ Challenge not found");
-//       return res.status(404).json({
-//         success: false,
-//         error: "Challenge not found",
-//       });
-//     }
-
-//     // Verify this is a game challenge
-//     if (challenge.type !== "game" && challenge.type !== "sdk_game") {
-//       console.log("❌ Not a game challenge:", challenge.type);
-//       return res.status(400).json({
-//         success: false,
-//         error: "This is not a game challenge",
-//       });
-//     }
-
-//     // Get user's progress for this challenge
-//     const today = new Date();
-//     const normalizedStart = new Date(
-//       Date.UTC(
-//         today.getUTCFullYear(),
-//         today.getUTCMonth(),
-//         today.getUTCDate(),
-//         0,
-//         0,
-//         0,
-//         0
-//       )
-//     );
-
-//     console.log("📅 Looking for progress with date:", normalizedStart.toISOString());
-
-//     console.log("🚀 DEBUG: Using new progress search logic");
-//     console.log("🗓️ Date handling analysis:");
-//     console.log("   Current time:", new Date().toISOString());
-//     console.log("   Normalized start (UTC midnight):", normalizedStart.toISOString());
-//     console.log("   Normalized start (date only):", normalizedStart.toISOString().split('T')[0]);
-    
-//     // First try exact date match
-//     console.log("\n📍 SEARCH 1 - Exact date match:");
-//     console.log("   Query:", { userId, challengeId, challengeDate: normalizedStart });
-//     let progress = await UserChallengeProgress.findOne({
-//       userId,
-//       challengeId,
-//       challengeDate: normalizedStart,
-//     });
-    
-//     console.log("   Result found:", !!progress);
-//     console.log("   Progress date if found:", progress?.challengeDate?.toISOString());
-
-//     // If not found, try to find recent progress for this user/challenge (last 7 days)
-//     if (!progress) {
-//       console.log("\n🔍 SEARCH 2 - Recent progress (last 7 days):");
-//       const sevenDaysAgo = new Date(normalizedStart);
-//       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-//       console.log("   Seven days ago:", sevenDaysAgo.toISOString());
-//       console.log("   Query:", { 
-//         userId, 
-//         challengeId, 
-//         challengeDate: { $gte: sevenDaysAgo } 
-//       });
-      
-//       progress = await UserChallengeProgress.findOne({
-//         userId,
-//         challengeId,
-//         challengeDate: { $gte: sevenDaysAgo }
-//       }).sort({ challengeDate: -1 }); // Get most recent
-      
-//       console.log("   Result found:", !!progress);
-//       if (progress) {
-//         console.log("   Progress date:", progress.challengeDate.toISOString());
-//         console.log("   Progress date (date only):", progress.challengeDate.toISOString().split('T')[0]);
-//         console.log("   Progress time:", progress.challengeDate.toISOString().split('T')[1]);
-        
-//         // Check if it's same date but different time
-//         const progressDateOnly = progress.challengeDate.toISOString().split('T')[0];
-//         const searchDateOnly = normalizedStart.toISOString().split('T')[0];
-//         console.log("   Same date but different time?", progressDateOnly === searchDateOnly);
-//       } else {
-//         console.log("   ❌ No recent progress found either");
-//       }
-//     }
-
-//     console.log("📊 Progress found:", { 
-//       found: !!progress, 
-//       status: progress?.status,
-//       hasProgress: !!progress?.progress,
-//       hasMetadata: !!progress?.progress?.metadata 
-//     });
-
-//     // DEBUG: Let's check if progress exists for this user/challenge with any date
-//     const anyProgress = await UserChallengeProgress.findOne({
-//       userId,
-//       challengeId
-//     });
-//     console.log("🔍 DEBUG - Any progress for this user/challenge:", {
-//       found: !!anyProgress,
-//       challengeDate: anyProgress?.challengeDate,
-//       status: anyProgress?.status
-//     });
-
-//     // DEBUG: Let's check all progress for this user today
-//     const todayAllProgress = await UserChallengeProgress.find({
-//       userId,
-//       challengeDate: normalizedStart
-//     });
-//     console.log("🔍 DEBUG - All user progress for today:", {
-//       count: todayAllProgress.length,
-//       challenges: todayAllProgress.map(p => ({
-//         challengeId: p.challengeId,
-//         status: p.status
-//       }))
-//     });
-
-//     if (!progress) {
-//       console.log("❌ No progress found for this challenge");
-//       return res.status(404).json({
-//         success: false,
-//         error: "No progress found for this challenge",
-//       });
-//     }
-
-//     // Check if already completed
-//     if (progress.status === "completed") {
-//       console.log("✅ Challenge already completed at:", progress.completedAt);
-//       return res.json({
-//         success: true,
-//         data: {
-//           alreadyCompleted: true,
-//           message: "Challenge already completed",
-//           progress: {
-//             status: progress.status,
-//             percentage: 100,
-//             completedAt: progress.completedAt,
-//             rewardsEarned: progress.rewardsEarned,
-//           },
-//         },
-//       });
-//     }
-
-//     // GAME VALIDATION DEBUG - Check all relevant fields
-//     console.log("🎮 GAME DOWNLOAD VALIDATION - STEP BY STEP:");
-//     console.log("================================================");
-    
-//     // Step 1: Check challenge properties
-//     console.log("📋 STEP 1 - Challenge Properties:");
-//     console.log("   Challenge type:", challenge.type);
-//     console.log("   SDK Provider:", challenge.sdkProvider);
-//     console.log("   Has SDK provider:", !!challenge.sdkProvider);
-    
-//     // Step 2: Check progress structure
-//     console.log("\n📊 STEP 2 - Progress Structure:");
-//     console.log("   Has progress object:", !!progress.progress);
-//     console.log("   Has metadata object:", !!progress.progress?.metadata);
-//     console.log("   Full metadata:", JSON.stringify(progress.progress?.metadata, null, 2));
-    
-//     // Step 3: Extract validation variables with detailed checks
-//     console.log("\n🔍 STEP 3 - Extracting Validation Variables:");
-    
-//     const metadata = progress.progress?.metadata || {};
-//     console.log("   Raw metadata object:", metadata);
-    
-//     const gameDownloadVerified = metadata.gameDownloadVerified || false;
-//     console.log("   gameDownloadVerified extraction:");
-//     console.log("     metadata.gameDownloadVerified:", metadata.gameDownloadVerified);
-//     console.log("     fallback to false:", !metadata.gameDownloadVerified);
-//     console.log("     final value:", gameDownloadVerified);
-    
-//     const downloadVerifiedAt = metadata.downloadVerifiedAt;
-//     console.log("   downloadVerifiedAt:", downloadVerifiedAt);
-//     console.log("     type:", typeof downloadVerifiedAt);
-//     console.log("     is valid date:", downloadVerifiedAt instanceof Date);
-    
-//     const needsVerification = metadata.needsVerification;
-//     console.log("   needsVerification:", needsVerification);
-    
-//     const verificationProvider = metadata.verificationProvider;
-//     console.log("   verificationProvider:", verificationProvider);
-    
-//     // Step 4: Validation logic breakdown
-//     console.log("\n🛡️ STEP 4 - VALIDATION LOGIC BREAKDOWN:");
-//     console.log("   Condition 1 - !gameDownloadVerified:", !gameDownloadVerified, "(gameDownloadVerified =", gameDownloadVerified, ")");
-//     console.log("   Condition 2 - challenge.sdkProvider exists:", !!challenge.sdkProvider, "(value =", challenge.sdkProvider, ")");
-//     console.log("   Combined condition (!gameDownloadVerified && challenge.sdkProvider):", !gameDownloadVerified && challenge.sdkProvider);
-    
-//     // Step 5: Decision making
-//     console.log("\n⚖️ STEP 5 - VALIDATION DECISION:");
-//     if (!gameDownloadVerified && challenge.sdkProvider) {
-//       console.log("❌ DECISION: BLOCK COMPLETION");
-//       console.log("   Reason: Game download not verified AND SDK provider required");
-//       console.log("   User action needed: Download/verify game first");
-      
-//       console.log("\n📤 SENDING BLOCKED RESPONSE:");
-//       const blockedResponse = {
-//         success: false,
-//         error: "Please download game first to complete this challenge",
-//         requiresAction: true,
-//         challengeType: "game",
-//         requiredAction: {
-//           endpoint: "Play selected game",
-//           description: "Play game for required time before completing",
-//           message: "You must play the selected game first. The game must be played for the required duration.",
-//         },
-//       };
-//       console.log("   Response:", JSON.stringify(blockedResponse, null, 2));
-      
-//       return res.status(400).json(blockedResponse);
-//     } else {
-//       console.log("✅ DECISION: ALLOW COMPLETION");
-//       if (!gameDownloadVerified) {
-//         console.log("   Reason: No SDK provider required");
-//       } else {
-//         console.log("   Reason: Game download already verified");
-//       }
-//     }
-    
-//     console.log("\n🎯 GAME VALIDATION COMPLETE - Proceeding to completion");
-
-//     // Mark as completed
-//     console.log("🏆 Marking challenge as completed");
-//     await progress.markCompleted();
-//     console.log("✅ Challenge marked as completed at:", progress.completedAt);
-
-//     // Update challenge analytics
-//     console.log("📈 Updating challenge analytics");
-//     await challenge.updateAnalytics("completed");
-//     console.log("✅ Analytics updated");
-
-//     // Get user for streak update
-//     console.log("🔥 Updating user streak");
-//     const user = await User.findById(userId);
-//     if (user && user.streak) {
-//       const today = new Date().toISOString().split("T")[0];
-//       console.log("   Current streak:", user.streak.current);
-//       console.log("   Today's date:", today);
-//       console.log("   Already completed today:", user.streak.completedTasks.includes(today));
-      
-//       if (!user.streak.completedTasks.includes(today)) {
-//         user.streak.completedTasks.push(today);
-//         user.streak.current = (user.streak.current || 0) + 1;
-//         await user.save();
-//         console.log("✅ Streak updated to:", user.streak.current);
-//       } else {
-//         console.log("ℹ️ Today already counted in streak");
-//       }
-//     } else {
-//       console.log("⚠️ No user or streak data found");
-//     }
-
-//     console.log("🎉 SENDING SUCCESS RESPONSE");
-//     const responseData = {
-//       message: "Challenge completed successfully",
-//       progress: {
-//         status: "completed",
-//         percentage: 100,
-//         completedAt: progress.completedAt,
-//         rewardsEarned: progress.rewardsEarned,
-//         rewardsClaimed: progress.rewardsClaimed,
-//       },
-//       rewards: {
-//         coins: challenge.coinReward || 0,
-//         xp: challenge.xpReward || 0,
-//         canClaim: !progress.rewardsClaimed,
-//       },
-//       nextAction: progress.rewardsClaimed ? null : {
-//         type: "claim_rewards",
-//         label: "Claim Your Rewards",
-//         description: "Complete this challenge by claiming your earned rewards",
-//       },
-//     };
-    
-//     console.log("📦 Response data:", JSON.stringify(responseData, null, 2));
-    
-//     res.json({
-//       success: true,
-//       data: responseData,
-//     });
-
-//   } catch (error) {
-//     console.error("💥 DAILY CHALLENGE COMPLETE - ERROR:");
-//     console.error("   Error message:", error.message);
-//     console.error("   Error stack:", error.stack);
-//     console.error("   Request data:", { userId, challengeId });
-//     res.status(500).json({
-//       success: false,
-//       error: "Failed to complete challenge",
-//     });
-//   }
-// });
-
 // ==================== CRUD OPERATIONS ====================
 
 /**
@@ -1372,8 +366,8 @@ router.post("/create", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -1383,8 +377,8 @@ router.post("/create", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     const challengeData = {
@@ -1467,98 +461,7 @@ router.post("/create", protect, async (req, res) => {
       } catch (error) {
         console.warn(
           "Failed to fetch gameDetails from Besitos:",
-          error.message
-        );
-        challengeData.gameDetails = {
-          id: challengeData.gameId || "",
-          name: challengeData.title || "",
-          description: challengeData.description || "",
-          image: "",
-          square_image: "",
-          large_image: "",
-          category: "",
-          downloadUrl: "",
-        };
-      }
-    } else if (gameId && sdkProvider === "bitlabs") {
-      // Add Bitlabs game details fetching
-      try {
-        const bitlabsController = require("../controllers/bitlabs.controller");
-        const mockReq = { query: { is_game: "true" } };
-        const captureGame = () => {
-          let payload = null;
-          return {
-            res: {
-              json: (data) => {
-                payload = data;
-              },
-              status: (code) => ({
-                json: (data) => {
-                  payload = { ...data, statusCode: code };
-                },
-              }),
-            },
-            get: () => payload,
-          };
-        };
-        const cap = captureGame();
-        await bitlabsController.getOffers(mockReq, cap.res);
-        const ext = cap.get();
-
-        if (
-          ext &&
-          ext.success === true &&
-          Array.isArray(ext.data) &&
-          ext.data.length > 0
-        ) {
-          // Find the specific game by ID
-          const external = ext.data.find(offer => 
-            offer.id?.toString() === gameId.toString() || 
-            offer.offerId?.toString() === gameId.toString()
-          );
-
-          if (external) {
-            challengeData.gameDetails = {
-              id: external.id || external.offerId || "",
-              name: external.title || external.anchor || external.product_name || challengeData.title,
-              description: external.description || challengeData.description,
-              image: external.image || external.large_image || "",
-              square_image: external.square_image || "",
-              large_image: external.large_image || external.image || "",
-              category: Array.isArray(external.categories) && external.categories[0]
-                ? external.categories[0]
-                : external.category || "",
-              downloadUrl: external.url || external.downloadUrl || "",
-            };
-          } else {
-            console.warn(`Game with ID ${gameId} not found in Bitlabs offers`);
-            challengeData.gameDetails = {
-              id: challengeData.gameId || "",
-              name: challengeData.title || "",
-              description: challengeData.description || "",
-              image: "",
-              square_image: "",
-              large_image: "",
-              category: "",
-              downloadUrl: "",
-            };
-          }
-        } else {
-          challengeData.gameDetails = {
-            id: challengeData.gameId || "",
-            name: challengeData.title || "",
-            description: challengeData.description || "",
-            image: "",
-            square_image: "",
-            large_image: "",
-            category: "",
-            downloadUrl: "",
-          };
-        }
-      } catch (error) {
-        console.warn(
-          "Failed to fetch gameDetails from Bitlabs:",
-          error.message
+          error.message,
         );
         challengeData.gameDetails = {
           id: challengeData.gameId || "",
@@ -1611,8 +514,8 @@ router.get("/today", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -1622,12 +525,12 @@ router.get("/today", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     const user = await User.findById(userId).select(
-      "xp age dateOfBirth location vip onboarding social"
+      "xp age dateOfBirth location vip onboarding social",
     );
 
     console.log("Querying for challenge:", {
@@ -1653,7 +556,7 @@ router.get("/today", protect, async (req, res) => {
       challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
     }).lean();
     console.log(
-      `DEBUG - Challenges found by date only: ${challengesByDate.length}`
+      `DEBUG - Challenges found by date only: ${challengesByDate.length}`,
     );
     if (challengesByDate.length > 0) {
       challengesByDate.forEach((ch, idx) => {
@@ -1686,7 +589,7 @@ router.get("/today", protect, async (req, res) => {
             schedulingStartTime: challenge.scheduling?.startTime,
             schedulingEndTime: challenge.scheduling?.endTime,
           }
-        : "NO CHALLENGE FOUND"
+        : "NO CHALLENGE FOUND",
     );
 
     if (!challenge) {
@@ -1695,18 +598,18 @@ router.get("/today", protect, async (req, res) => {
 
       // Check visibility filter
       const visibleChallenges = challengesByDate.filter(
-        (ch) => ch.isVisible === true
+        (ch) => ch.isVisible === true,
       );
       console.log(
-        `DEBUG - Challenges with isVisible=true: ${visibleChallenges.length}`
+        `DEBUG - Challenges with isVisible=true: ${visibleChallenges.length}`,
       );
 
       // Check status filter
       const statusChallenges = challengesByDate.filter((ch) =>
-        ["scheduled", "live"].includes(ch.status)
+        ["scheduled", "live"].includes(ch.status),
       );
       console.log(
-        `DEBUG - Challenges with status=scheduled/live: ${statusChallenges.length}`
+        `DEBUG - Challenges with status=scheduled/live: ${statusChallenges.length}`,
       );
 
       // Check endTime filter
@@ -1715,7 +618,7 @@ router.get("/today", protect, async (req, res) => {
         return endTime && new Date(endTime) >= now;
       });
       console.log(
-        `DEBUG - Challenges with endTime >= now: ${endTimeChallenges.length}`
+        `DEBUG - Challenges with endTime >= now: ${endTimeChallenges.length}`,
       );
 
       return res.json({
@@ -1794,7 +697,7 @@ router.get("/today", protect, async (req, res) => {
 
     if (!canAccess) {
       console.log(
-        "DEBUG - Challenge filtered out due to targetAudience restrictions"
+        "DEBUG - Challenge filtered out due to targetAudience restrictions",
       );
       return res.json({
         success: true,
@@ -1809,7 +712,7 @@ router.get("/today", protect, async (req, res) => {
     let progress = await UserChallengeProgress.getOrCreateTodayChallenge(
       userId,
       challenge._id,
-      normalizedStart
+      normalizedStart,
     );
 
     // Mark as viewed if not yet viewed
@@ -1819,51 +722,10 @@ router.get("/today", protect, async (req, res) => {
     }
 
     // Calculate time remaining (use challenge's endTime or normalized end of day, whichever is earlier)
+    // If challenge is completed, timer should stop (timeRemaining = 0)
     const isCompleted = progress.status === "completed";
     const challengeEndTime = challenge.scheduling.endTime || normalizedEnd;
-    
-    // Determine if this is a game-related challenge
-    const isGameChallenge = challenge.type === "game" || challenge.type === "sdk_game";
-
-    // For game challenges with SDK provider, auto-trigger verification if not yet verified
-    if (isGameChallenge && challenge.sdkProvider && !progress.progress?.metadata?.gameDownloadVerified) {
-      // Don't auto-verify here, just add flags for frontend
-      if (!progress.progress) {
-        progress.progress = {};
-      }
-      if (!progress.progress.metadata) {
-        progress.progress.metadata = {};
-      }
-      progress.progress.metadata.needsVerification = true;
-      progress.progress.metadata.verificationProvider = challenge.sdkProvider;
-      await progress.save();
-    }
-    
-    // For game challenges: Timer starts only after game download verification
-    let timeRemaining;
-    if (isGameChallenge && !isCompleted) {
-      const gameDownloadVerified = progress.progress?.metadata?.gameDownloadVerified || false;
-      const downloadVerifiedAt = progress.progress?.metadata?.downloadVerifiedAt;
-      
-      if (!gameDownloadVerified) {
-        // Timer hasn't started yet - show challenge waiting for download
-        timeRemaining = Math.max(0, challengeEndTime - now);
-      } else {
-        // Timer started after download verification - use configured timeLimit
-        const timerStartTime = downloadVerifiedAt ? new Date(downloadVerifiedAt) : now;
-        const timerDuration = challenge.requirements?.timeLimit 
-          ? challenge.requirements.timeLimit * 60 * 1000 // Convert minutes to milliseconds
-          : 24 * 60 * 60 * 1000; // Default 24 hours if no time limit
-        const timerEndTime = new Date(timerStartTime.getTime() + timerDuration);
-        
-        // Use the earlier of challenge end time or timer end time
-        const effectiveEndTime = timerEndTime < new Date(challengeEndTime) ? timerEndTime : new Date(challengeEndTime);
-        timeRemaining = Math.max(0, effectiveEndTime - now);
-      }
-    } else {
-      // Non-game challenges or completed challenges
-      timeRemaining = isCompleted ? 0 : Math.max(0, challengeEndTime - now);
-    }
+    const timeRemaining = isCompleted ? 0 : Math.max(0, challengeEndTime - now);
 
     // Calculate countdown in hours, minutes, seconds
     const hours = isCompleted
@@ -1881,14 +743,15 @@ router.get("/today", protect, async (req, res) => {
     let activeGame = null;
     let gameName = null;
 
-    // Populate game data for game-related challenge types
-    // (isGameChallenge already declared above)
+    // Only populate game data for game-related challenge types
+    const isGameChallenge =
+      challenge.type === "game" || challenge.type === "sdk_game";
 
     if (isGameChallenge) {
       if (progress.selectedGame?.gameId) {
         // User has selected a game
         const selectedGameDoc = await Game.findById(
-          progress.selectedGame.gameId
+          progress.selectedGame.gameId,
         ).lean();
         if (selectedGameDoc) {
           activeGame = {
@@ -1917,76 +780,13 @@ router.get("/today", protect, async (req, res) => {
         gameName = challenge.assignedGame.gameId.title;
       } else if (challenge.gameId && challenge.gameDetails?.name) {
         // Challenge has gameId and gameDetails
-        let deepLink = challenge.gameDetails.downloadUrl;
-        let iconUrl =
-          challenge.gameDetails.image || challenge.gameDetails.square_image || "";
-        // For Bitlabs: if icon or link missing, fetch from same source as admin (getPublisherOffers) to get image and URL
-        if (
-          challenge.sdkProvider === "bitlabs" &&
-          challenge.gameId &&
-          (!iconUrl || !deepLink)
-        ) {
-          try {
-            const publisherResult = await bitlabsService.getPublisherOffers({
-              country: "US",
-              devices: ["android", "iphone"],
-              is_game: "true",
-              type: "game",
-            });
-            const offers = Array.isArray(publisherResult?.data)
-              ? publisherResult.data
-              : [];
-            const offerId = challenge.gameId.toString();
-            const offer = offers.find(
-              (o) =>
-                (o.id && o.id.toString() === offerId) ||
-                (o.offerId && o.offerId.toString() === offerId)
-            );
-            if (offer) {
-              if (!iconUrl) {
-                iconUrl =
-                  offer.creatives?.icon ||
-                  offer.creatives?.images?.["275x275"] ||
-                  offer.creatives?.images?.["400x400"] ||
-                  offer.icon_url ||
-                  "";
-              }
-              if (!deepLink) {
-                deepLink =
-                  offer.continue_url ||
-                  offer.click_url ||
-                  offer.clickUrl ||
-                  offer.deepLink ||
-                  "";
-              }
-            }
-          } catch (err) {
-            console.warn(
-              "[GET /today] Bitlabs enrich icon/deepLink failed:",
-              err.message
-            );
-          }
-        }
-        // Add user ID to deepLink for bitlabs games (matches discover route behavior)
-        if (challenge.sdkProvider === "bitlabs" && deepLink) {
-          deepLink = deepLink
-            .replace(/users\/[^/]+/, `users/${userId}`)
-            .replace(/user_id=[^&]+/, `user_id=${userId}`)
-            .replace(/aff_id=[^&]+/, `aff_id=${userId}`);
-          if (
-            !deepLink.includes(`users/${userId}`) &&
-            !deepLink.includes(`user_id=${userId}`)
-          ) {
-            const separator = deepLink.includes("?") ? "&" : "?";
-            deepLink += `${separator}user_id=${userId}`;
-          }
-        }
         activeGame = {
           id: challenge.gameId,
           name: challenge.gameDetails.name,
           gameId: challenge.gameId,
-          iconUrl: iconUrl,
-          deepLink: deepLink || "",
+          iconUrl:
+            challenge.gameDetails.image || challenge.gameDetails.square_image,
+          deepLink: challenge.gameDetails.downloadUrl,
           isRequired: false,
           isSelected: false,
         };
@@ -2051,7 +851,7 @@ router.get("/today", protect, async (req, res) => {
           const timeLimit = challenge.requirements.timeLimit;
           const playTime = progress.progress?.metadata?.playTimeMinutes || 0;
           return `Play for ${timeLimit} minutes to complete. Current: ${Math.floor(
-            playTime
+            playTime,
           )} min`;
         }
         return "Complete the required actions to finish.";
@@ -2072,14 +872,6 @@ router.get("/today", protect, async (req, res) => {
         return "Completed";
       }
       if (progress.status === "in_progress" || progress.status === "started") {
-        if (isGameChallenge && !progress.progress?.metadata?.gameDownloadVerified) {
-          return progress.progress?.metadata?.timerReverted 
-            ? "Start Timer" 
-            : "Verify Download";
-        }
-        if (isGameChallenge && progress.progress?.metadata?.gameDownloadVerified && challenge.requirements?.timeLimit) {
-          return "Mark as Complete";
-        }
         return "Mark as Complete";
       }
       if (isGameChallenge && !activeGame) {
@@ -2129,12 +921,12 @@ router.get("/today", protect, async (req, res) => {
           challenge.type === "game"
             ? "Game Challenge"
             : challenge.type === "spin"
-            ? "Spin Challenge"
-            : challenge.type === "survey"
-            ? "Survey Challenge"
-            : challenge.type === "watch_ad"
-            ? "Watch Ad Challenge"
-            : "Daily Challenge",
+              ? "Spin Challenge"
+              : challenge.type === "survey"
+                ? "Survey Challenge"
+                : challenge.type === "watch_ad"
+                  ? "Watch Ad Challenge"
+                  : "Daily Challenge",
         instructions: challenge.content?.instructions || null,
         mediaUrl: challenge.content?.mediaUrl || null,
         coinReward: challenge.coinReward || 0,
@@ -2144,8 +936,8 @@ router.get("/today", protect, async (req, res) => {
           challenge.claimType === "auto"
             ? "Auto Claim"
             : challenge.claimType === "watch_ad"
-            ? "Watch Ad to Claim"
-            : "Manual Claim",
+              ? "Watch Ad to Claim"
+              : "Manual Claim",
         // Game information - ONLY for game-related challenge types
         ...(isGameChallenge && {
           game: activeGame,
@@ -2155,8 +947,8 @@ router.get("/today", protect, async (req, res) => {
           gameSelectionLabel: activeGame
             ? `Selected: ${gameName}`
             : challenge.assignedGame?.isRequired
-            ? "Game is required"
-            : "Select a game to play",
+              ? "Game is required"
+              : "Select a game to play",
           // Legacy fields for backward compatibility (deprecated)
           gameId: challenge.gameId || null,
           sdkProvider: challenge.sdkProvider || null,
@@ -2186,8 +978,8 @@ router.get("/today", protect, async (req, res) => {
         progressLabel: isProgressCompleted
           ? "100% Complete"
           : progressData.percentage > 0
-          ? `${Math.round(progressData.percentage)}% Complete`
-          : "0% Complete",
+            ? `${Math.round(progressData.percentage)}% Complete`
+            : "0% Complete",
         // Formatted rewards display
         rewardsEarnedLabel:
           progressData.rewardsEarned.coins > 0 ||
@@ -2220,54 +1012,39 @@ router.get("/today", protect, async (req, res) => {
               ? `${challenge.coinReward} coins, ${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
               : `${challenge.coinReward} coins, ${finalXP} XP`
             : challenge.coinReward > 0
-            ? `${challenge.coinReward} coins`
-            : finalXP > 0
-            ? tierMultiplier > 1.0
-              ? `${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
-              : `${finalXP} XP`
-            : "No rewards",
+              ? `${challenge.coinReward} coins`
+              : finalXP > 0
+                ? tierMultiplier > 1.0
+                  ? `${finalXP} XP (${baseXP} × ${tierMultiplier}x)`
+                  : `${finalXP} XP`
+                : "No rewards",
       },
-        countdown: {
-          timeRemaining, // milliseconds (0 if completed)
-          hours,
-          minutes,
-          seconds,
-          formatted: isCompleted
-            ? "00:00:00"
-            : `${hours.toString().padStart(2, "0")}:${minutes
-                .toString()
-                .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
-          endsAt: challengeEndTime.toISOString(),
-          // Add server timestamp to help client sync timer
-          serverTime: now.toISOString(),
-          // Indicate if timer should be stopped
-          isCompleted: isCompleted,
-          isActive: !isCompleted,
-          // For game challenges: indicate timer status
-          ...(isGameChallenge && {
-            gameDownloadVerified: progress.progress?.metadata?.gameDownloadVerified || false,
-            downloadVerifiedAt: progress.progress?.metadata?.downloadVerifiedAt || null,
-            timerWaitingForDownload: !progress.progress?.metadata?.gameDownloadVerified,
-            timerStarted: progress.progress?.metadata?.gameDownloadVerified || false,
-            gameTimerDuration: challenge.requirements?.timeLimit, // Show the actual game timer duration
-            gameTimerType: progress.progress?.metadata?.gameDownloadVerified ? 'countdown' : 'waiting',
-          }),
-          // User-friendly time labels
-          timeRemainingLabel: isCompleted
-            ? "Challenge Ended"
-            : isGameChallenge && !progress.progress?.metadata?.gameDownloadVerified
-            ? (progress.progress?.metadata?.timerReverted 
-                ? "Please download game to start challenge timer" 
-                : `Download ${activeGame?.name || 'game'} to start ${challenge.requirements?.timeLimit || 60} minute timer`)
-            : isGameChallenge && progress.progress?.metadata?.gameDownloadVerified && challenge.requirements?.timeLimit
-            ? `${minutes}m ${seconds}s remaining`
-            : hours > 0
+      countdown: {
+        timeRemaining, // milliseconds (0 if completed)
+        hours,
+        minutes,
+        seconds,
+        formatted: isCompleted
+          ? "00:00:00"
+          : `${hours.toString().padStart(2, "0")}:${minutes
+              .toString()
+              .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
+        endsAt: challengeEndTime.toISOString(),
+        // Add server timestamp to help client sync timer
+        serverTime: now.toISOString(),
+        // Indicate if timer should be stopped
+        isCompleted: isCompleted,
+        isActive: !isCompleted,
+        // User-friendly time labels
+        timeRemainingLabel: isCompleted
+          ? "Challenge Ended"
+          : hours > 0
             ? `${hours}h ${minutes}m remaining`
             : minutes > 0
-            ? `${minutes}m ${seconds}s remaining`
-            : `${seconds}s remaining`,
-          urgencyLevel: hours < 1 ? "high" : hours < 3 ? "medium" : "low",
-        },
+              ? `${minutes}m ${seconds}s remaining`
+              : `${seconds}s remaining`,
+        urgencyLevel: hours < 1 ? "high" : hours < 3 ? "medium" : "low",
+      },
       actions: {
         // Game-specific actions - ONLY for game-related challenge types
         ...(isGameChallenge && {
@@ -2315,21 +1092,15 @@ router.get("/today", protect, async (req, res) => {
         hintText:
           isGameChallenge && !activeGame
             ? "💡 Select a game from the list to start playing"
-            : isGameChallenge && !progress.progress?.metadata?.gameDownloadVerified
-            ? (progress.progress?.metadata?.timerReverted
-                ? "💡 Please download the game first. Timer has been reset to wait for download verification."
-                : `💡 Download and play ${activeGame?.name || 'the game'} to start the ${challenge.requirements?.timeLimit || 60}-minute challenge timer`)
-            : isGameChallenge && progress.progress?.metadata?.gameDownloadVerified && challenge.requirements?.timeLimit
-            ? `💡 Keep playing for ${challenge.requirements.timeLimit} minutes total. Time remaining: ${Math.max(0, Math.floor((progress.progress?.metadata?.gameTimerRemaining || 0) / 60000))} minutes`
-            : isGameChallenge
-            ? "💡 Download the game to complete this challenge"
-            : challenge.type === "spin"
-            ? "💡 Spin the wheel to complete this challenge"
-            : challenge.type === "watch_ad"
-            ? "💡 Watch an ad to complete this challenge"
-            : challenge.type === "survey"
-            ? "💡 Complete the survey to earn rewards"
-            : "💡 Follow the instructions to complete this challenge",
+            : isGameChallenge && challenge.requirements?.timeLimit
+              ? `💡 Play the selected game for ${challenge.requirements.timeLimit} minutes to complete`
+              : challenge.type === "spin"
+                ? "💡 Spin the wheel to complete this challenge"
+                : challenge.type === "watch_ad"
+                  ? "💡 Watch an ad to complete this challenge"
+                  : challenge.type === "survey"
+                    ? "💡 Complete the survey to earn rewards"
+                    : "💡 Follow the instructions to complete this challenge",
       },
     };
 
@@ -2431,8 +1202,8 @@ router.put("/:id", protect, async (req, res) => {
           0,
           0,
           0,
-          0
-        )
+          0,
+        ),
       );
       const normalizedEnd = new Date(
         Date.UTC(
@@ -2442,8 +1213,8 @@ router.put("/:id", protect, async (req, res) => {
           23,
           59,
           59,
-          999
-        )
+          999,
+        ),
       );
 
       updateData.scheduling = {
@@ -2513,98 +1284,7 @@ router.put("/:id", protect, async (req, res) => {
       } catch (error) {
         console.warn(
           "Failed to fetch gameDetails from Besitos:",
-          error.message
-        );
-        updateData.gameDetails = {
-          id: updateData.gameId || "",
-          name: updateData.title || "",
-          description: updateData.description || "",
-          image: "",
-          square_image: "",
-          large_image: "",
-          category: "",
-          downloadUrl: "",
-        };
-      }
-    } else if (updateData.gameId && updateData.sdkProvider === "bitlabs") {
-      // Add Bitlabs game details fetching for update
-      try {
-        const bitlabsController = require("../controllers/bitlabs.controller");
-        const mockReq = { query: { is_game: "true" } };
-        const captureGame = () => {
-          let payload = null;
-          return {
-            res: {
-              json: (data) => {
-                payload = data;
-              },
-              status: (code) => ({
-                json: (data) => {
-                  payload = { ...data, statusCode: code };
-                },
-              }),
-            },
-            get: () => payload,
-          };
-        };
-        const cap = captureGame();
-        await bitlabsController.getOffers(mockReq, cap.res);
-        const ext = cap.get();
-
-        if (
-          ext &&
-          ext.success === true &&
-          Array.isArray(ext.data) &&
-          ext.data.length > 0
-        ) {
-          // Find the specific game by ID
-          const external = ext.data.find(offer => 
-            offer.id?.toString() === updateData.gameId.toString() || 
-            offer.offerId?.toString() === updateData.gameId.toString()
-          );
-
-          if (external) {
-            updateData.gameDetails = {
-              id: external.id || external.offerId || "",
-              name: external.title || external.anchor || external.product_name || updateData.title,
-              description: external.description || updateData.description,
-              image: external.image || external.large_image || "",
-              square_image: external.square_image || "",
-              large_image: external.large_image || external.image || "",
-              category: Array.isArray(external.categories) && external.categories[0]
-                ? external.categories[0]
-                : external.category || "",
-              downloadUrl: external.url || external.downloadUrl || "",
-            };
-          } else {
-            console.warn(`Game with ID ${updateData.gameId} not found in Bitlabs offers`);
-            updateData.gameDetails = {
-              id: updateData.gameId || "",
-              name: updateData.title || "",
-              description: updateData.description || "",
-              image: "",
-              square_image: "",
-              large_image: "",
-              category: "",
-              downloadUrl: "",
-            };
-          }
-        } else {
-          updateData.gameDetails = {
-            id: updateData.gameId || "",
-            name: updateData.title || "",
-            description: updateData.description || "",
-            image: "",
-            square_image: "",
-            large_image: "",
-            category: "",
-            downloadUrl: "",
-          };
-        }
-      } catch (error) {
-        console.warn(
-          "Failed to fetch gameDetails from Bitlabs:",
-          error.message
+          error.message,
         );
         updateData.gameDetails = {
           id: updateData.gameId || "",
@@ -2622,7 +1302,7 @@ router.put("/:id", protect, async (req, res) => {
     const updatedChallenge = await DailyChallenge.findByIdAndUpdate(
       id,
       { ...updateData, updatedBy: userId },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     res.json({
@@ -2714,7 +1394,7 @@ router.get("/my-challenges", protect, async (req, res) => {
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .select(
-        "title description type coinReward xpReward status challengeDate createdAt"
+        "title description type coinReward xpReward status challengeDate createdAt",
       );
 
     const total = await DailyChallenge.countDocuments(query);
@@ -2772,8 +1452,8 @@ router.post("/select-game", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -2783,8 +1463,8 @@ router.post("/select-game", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     const challenge = await DailyChallenge.findOne({
@@ -2823,14 +1503,14 @@ router.post("/select-game", protect, async (req, res) => {
     // Get user's progress
     let progress = await UserChallengeProgress.getUserChallengeForDate(
       userId,
-      normalizedStart
+      normalizedStart,
     );
 
     if (!progress) {
       progress = await UserChallengeProgress.getOrCreateTodayChallenge(
         userId,
         challenge._id,
-        normalizedStart
+        normalizedStart,
       );
     }
 
@@ -2890,8 +1570,8 @@ router.post("/start", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -2901,8 +1581,8 @@ router.post("/start", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     // Get today's challenge using UTC dates and status filter
@@ -2924,14 +1604,14 @@ router.post("/start", protect, async (req, res) => {
     // Get user's progress
     let progress = await UserChallengeProgress.getUserChallengeForDate(
       userId,
-      normalizedStart
+      normalizedStart,
     );
 
     if (!progress) {
       progress = await UserChallengeProgress.getOrCreateTodayChallenge(
         userId,
         challenge._id,
-        normalizedStart
+        normalizedStart,
       );
     }
 
@@ -2979,62 +1659,6 @@ router.post("/start", protect, async (req, res) => {
       gameToPlay = await Game.findById(progress.selectedGame.gameId);
     }
 
-    // For Bitlabs games: use same Bitlabs function as admin route (getPublisherOffers), match offer, get URL and game title, then add userId
-    let deepLink = gameToPlay?.metadata?.deepLink;
-    let gameTitleFromOffer = null; // Use Bitlabs offer title (game name) instead of challenge/user title
-    const packageName = gameToPlay?.metadata?.packageName ?? gameToPlay?._id;
-    if (
-      challenge.type === "game" &&
-      gameToPlay &&
-      challenge.sdkProvider === "bitlabs" &&
-      challenge.gameId
-    ) {
-      const offerId = challenge.gameId.toString();
-      // Same function as admin GET /api/admin/game-offers/games/by-sdk/bitlabs
-      const publisherResult = await bitlabsService.getPublisherOffers({
-        country: "US",
-        devices: ["android", "iphone"],
-        is_game: "true",
-        type: "game",
-      });
-      const offers = Array.isArray(publisherResult?.data) ? publisherResult.data : [];
-      const offer = offers.find(
-        (o) =>
-          (o.id && o.id.toString() === offerId) ||
-          (o.offerId && o.offerId.toString() === offerId)
-      );
-      if (offer) {
-        gameTitleFromOffer = offer.anchor || offer.title || offer.name || offer.product_name || null;
-        deepLink =
-          offer.continue_url ||
-          offer.click_url ||
-          offer.clickUrl ||
-          offer.deepLink ||
-          offer.deep_link ||
-          "";
-      }
-      console.log("[DAILY-CHALLENGE START] Bitlabs (same as admin: getPublisherOffers):", {
-        offerId,
-        userId,
-        offersCount: offers.length,
-        found: !!offer,
-        deepLink: deepLink || "(none)",
-      });
-      // Attach userId to redirect link for attribution
-      if (deepLink) {
-        deepLink = deepLink
-          .replace(/users\/[^/]+/, `users/${userId}`)
-          .replace(/user_id=[^&]+/, `user_id=${userId}`)
-          .replace(/aff_id=[^&]+/, `aff_id=${userId}`);
-        if (!deepLink.includes(`users/${userId}`) && !deepLink.includes(`user_id=${userId}`)) {
-          const separator = deepLink.includes("?") ? "&" : "?";
-          deepLink += `${separator}user_id=${userId}`;
-        }
-      }
-    } else if (gameToPlay?.metadata?.deepLink) {
-      deepLink = gameToPlay.metadata.deepLink;
-    }
-
     // Only return game info for game type challenges
     const responseData = {
       success: true,
@@ -3047,13 +1671,13 @@ router.post("/start", protect, async (req, res) => {
       },
     };
 
-    // Only include game info for game type challenges (use game title from Bitlabs offer when available, not challenge/user title)
+    // Only include game info for game type challenges
     if (challenge.type === "game" && gameToPlay) {
       responseData.data.game = {
         id: gameToPlay._id,
-        title: gameTitleFromOffer || gameToPlay.title,
-        deepLink: deepLink || "",
-        packageName: packageName || gameToPlay._id,
+        title: gameToPlay.title,
+        deepLink: gameToPlay.metadata?.deepLink,
+        packageName: gameToPlay.metadata?.packageName,
       };
     }
 
@@ -3089,8 +1713,8 @@ router.post("/spin", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -3100,8 +1724,8 @@ router.post("/spin", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     // Get today's challenge - must be spin type
@@ -3124,7 +1748,7 @@ router.post("/spin", protect, async (req, res) => {
     // Get user's progress
     const progress = await UserChallengeProgress.getUserChallengeForDate(
       userId,
-      normalizedStart
+      normalizedStart,
     );
 
     if (!progress) {
@@ -3211,7 +1835,7 @@ router.post("/spin", protect, async (req, res) => {
     // Select reward by probability (same logic as regular spin)
     const totalProbability = allRewards.reduce(
       (sum, r) => sum + (r.probability || 0),
-      0
+      0,
     );
 
     let selectedReward;
@@ -3252,7 +1876,7 @@ router.post("/spin", protect, async (req, res) => {
 
     // Create spin log
     const spinId = `SPIN-DC-${Date.now()}-${Math.floor(
-      Math.random() * 100000
+      Math.random() * 100000,
     )}`;
     const spinLog = new SpinWheelLog({
       user: userId,
@@ -3337,23 +1961,6 @@ router.post("/spin", protect, async (req, res) => {
       $set: { "stats.lastWon": new Date() },
     });
 
-    // Mark daily challenge progress as completed in UserChallengeProgress (same collection used for admin "Daily Challenges Completed" count)
-    if (
-      config.spinMode === "free" ||
-      !config.spinMode ||
-      config.spinMode !== "ad_based"
-    ) {
-      await progress.markCompleted({
-        coins: coinsEarned,
-        xp: xpEarned,
-        bonusCoins: 0,
-        bonusXP: 0,
-      });
-      await progress.claimRewards();
-      const accountOverviewService = require("../utils/accountOverview");
-      await accountOverviewService.incrementChallengesCompletedCounter(userId);
-    }
-
     res.json({
       success: true,
       message: "Spin completed for daily challenge",
@@ -3406,15 +2013,6 @@ router.post("/complete", protect, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { conversionId, adWatched } = req.body; // adWatched indicates if ad was watched for watch_ad claim type
-    // Be tolerant: mobile clients sometimes send "true"/"1" as strings
-    const adWatchedFlag =
-      adWatched === true ||
-      adWatched === "true" ||
-      adWatched === 1 ||
-      adWatched === "1";
-    // Debug matching for game verification (Bitlabs/Besitos) in /complete.
-    // Kept ON by default, but output is capped to small samples to avoid log spam.
-    const DEBUG_GAME_MATCH = process.env.DC_GAME_DEBUG !== "0";
 
     const now = new Date();
 
@@ -3428,8 +2026,8 @@ router.post("/complete", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -3439,8 +2037,8 @@ router.post("/complete", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
     const todayStr = normalizedStart.toISOString().split("T")[0];
 
@@ -3465,7 +2063,7 @@ router.post("/complete", protect, async (req, res) => {
     // Get user's progress
     const progress = await UserChallengeProgress.getUserChallengeForDate(
       userId,
-      normalizedStart
+      normalizedStart,
     );
 
     if (!progress) {
@@ -3482,10 +2080,6 @@ router.post("/complete", protect, async (req, res) => {
         error: "Challenge already completed today",
       });
     }
-
-    // Note: We do NOT hard-block here anymore.
-    // For Bitlabs/Besitos game challenges, /complete will attempt to verify download inline
-    // (via the existing game validation switch below) when needed.
 
     // ========== VALIDATE USER ACTUALLY PERFORMED THE REQUIRED ACTION ==========
     let actionValidated = false;
@@ -3615,533 +2209,17 @@ router.post("/complete", protect, async (req, res) => {
         }
         break;
 
-      case "sdk_game":
       case "game":
-        // FIXED: Proper game download verification for Bitlab and Bestios
-        // Verify game was downloaded by checking third-party API data
-        const gameId =
-          challenge.assignedGame?.gameId ||
-          challenge.gameId ||
-          progress.selectedGame?.gameId;
-
-        if (!gameId) {
-          validationError = "Game not selected or assigned for this challenge";
-        } else {
-          // Get game ID string for comparison
-          const gameIdString = gameId.toString ? gameId.toString() : gameId;
-          let gameDownloaded = false;
-          let gameData = null; // For Besitos
-          let gameHistory = null; // For Bitlabs
-
-          // Check based on SDK provider
-          const providerLower = (challenge.sdkProvider || "").toLowerCase();
-          const progressDownloadVerified =
-            progress.progress?.metadata?.gameDownloadVerified === true;
-
-          console.log("🎮 [DC /complete] Game validation start:", {
-            userId,
-            challengeId: challenge._id?.toString?.() || challenge._id,
-            provider: providerLower,
-            gameIdString,
-            progressDownloadVerified,
-            hasProgressMetadata: !!progress.progress?.metadata,
-            downloadVerifiedAt: progress.progress?.metadata?.downloadVerifiedAt || null,
-          });
-          if (DEBUG_GAME_MATCH) {
-            console.log("🧩 [DC /complete] GameId sources:", {
-              assignedGameId: challenge.assignedGame?.gameId?.toString?.() || null,
-              challengeGameId: challenge.gameId?.toString?.() || null,
-              selectedGameId: progress.selectedGame?.gameId?.toString?.() || null,
-            });
-          }
-
-          // If we've already verified download via the dedicated verify endpoints,
-          // we still need to fetch data to validate first goal/event completion
-          // So we'll fetch the data anyway for validation purposes
-          if (providerLower === "bitlabs") {
-            // For Bitlab: Verify game was downloaded by matching game ID from third-party API
-            try {
-              const bitlabsService = require("../services/bitlabs.service");
-              const userHistory = await bitlabsService.getUserOfferHistory(userId, gameIdString);
-              
-              if (userHistory && userHistory.data) {
-                console.log("🔍 [DC /complete] Bitlabs history received:", {
-                  hasData: !!userHistory.data,
-                  dataType: Array.isArray(userHistory.data) ? "array" : typeof userHistory.data,
-                  hasEvents: !!userHistory.data?.events,
-                  eventsCount: Array.isArray(userHistory.data?.events)
-                    ? userHistory.data.events.length
-                    : undefined,
-                });
-                // Check if the specific game appears in user's offer history
-                // (Bitlabs payloads sometimes use id or offerId)
-                const matchesBitlabsOffer = (offer) => {
-                  const idStr = offer?.id?.toString?.() || offer?.id;
-                  const offerIdStr = offer?.offerId?.toString?.() || offer?.offerId;
-                  return (
-                    idStr?.toString?.() === gameIdString ||
-                    offerIdStr?.toString?.() === gameIdString
-                  );
-                };
-
-                const bitlabsOffers = Array.isArray(userHistory.data)
-                  ? userHistory.data
-                  : [userHistory.data];
-
-                const gameHistoryIndex = bitlabsOffers.findIndex(matchesBitlabsOffer);
-                gameHistory =
-                  gameHistoryIndex >= 0 ? bitlabsOffers[gameHistoryIndex] : null;
-                
-                const bitlabsMatchOn = gameHistory
-                  ? (gameHistory?.id?.toString?.() === gameIdString
-                      ? "id"
-                      : gameHistory?.offerId?.toString?.() === gameIdString
-                      ? "offerId"
-                      : "unknown")
-                  : null;
-                
-                console.log("🔍 [DC /complete] Bitlabs match result:", {
-                  gameIdString,
-                  matched: !!gameHistory,
-                  matchedIndex: gameHistoryIndex >= 0 ? gameHistoryIndex : null,
-                  matchedId: gameHistory?.id?.toString?.() || null,
-                  matchedOfferId: gameHistory?.offerId?.toString?.() || null,
-                  matchOn: bitlabsMatchOn,
-                  status: gameHistory?.status || null,
-                  approved_conversions: gameHistory?.approved_conversions,
-                  eventsCount: Array.isArray(gameHistory?.events)
-                    ? gameHistory.events.length
-                    : undefined,
-                });
-
-                if (DEBUG_GAME_MATCH) {
-                  const sampleLimit = 25;
-                  const offersSample = bitlabsOffers.slice(0, sampleLimit).map((o) => ({
-                    id: o?.id?.toString?.() || o?.id || null,
-                    offerId: o?.offerId?.toString?.() || o?.offerId || null,
-                    anchor: o?.anchor || o?.title || null,
-                    status: o?.status || null,
-                  }));
-
-                  const matchCounts = bitlabsOffers.reduce(
-                    (acc, o) => {
-                      const idStr = o?.id?.toString?.() || o?.id;
-                      const offerIdStr = o?.offerId?.toString?.() || o?.offerId;
-                      if (idStr?.toString?.() === gameIdString) acc.id++;
-                      if (offerIdStr?.toString?.() === gameIdString) acc.offerId++;
-                      return acc;
-                    },
-                    { id: 0, offerId: 0 }
-                  );
-
-                  console.log("🧩 [DC /complete] Bitlabs matching summary:", {
-                    offersCount: bitlabsOffers.length,
-                    gameIdString,
-                    matchCounts,
-                    sampleLimit,
-                    offersSample,
-                  });
-                }
-
-                // Game is considered downloaded if it exists in history and has some activity
-                // OR if we already have saved verification
-                gameDownloaded = progressDownloadVerified || !!(gameHistory && (
-                  gameHistory.status === "installed" ||
-                  gameHistory.status === "completed" ||
-                  (gameHistory.events && gameHistory.events.length > 0) ||
-                  gameHistory.approved_conversions > 0
-                ));
-                
-                if (progressDownloadVerified && !gameHistory) {
-                  console.log("✅ [DC /complete] Using saved download verification flag, but fetching data for goal validation.");
-                }
-              }
-            } catch (error) {
-              console.error("Error verifying Bitlab game download:", error);
-              validationError = "Failed to verify game download from Bitlab";
-            }
-          } else if (providerLower === "besitos") {
-            // For Bestios: Verify game was downloaded by matching user ID
-            try {
-              const besitosService = require("../services/besitos.service");
-              const userData = await besitosService.getUserData(userId);
-
-              // Besitos has been observed returning either:
-              // - { data: { available, in_progress, completed, ... }, status, trace_id, ... }
-              // - { available, in_progress, completed, ... } (no nested .data)
-              const topLevelKeys =
-                userData && typeof userData === "object"
-                  ? Object.keys(userData).slice(0, 30)
-                  : [];
-              const nestedKeys =
-                userData?.data && typeof userData.data === "object"
-                  ? Object.keys(userData.data).slice(0, 30)
-                  : [];
-
-              console.log("🔍 [DC /complete] Besitos raw response shape:", {
-                isNull: userData == null,
-                type: typeof userData,
-                topLevelKeys,
-                hasNestedData: !!userData?.data,
-                nestedKeys,
-              });
-
-              const offersPayload =
-                userData?.data &&
-                (Array.isArray(userData.data.available) ||
-                  Array.isArray(userData.data.in_progress) ||
-                  Array.isArray(userData.data.completed))
-                  ? userData.data
-                  : userData;
-
-              if (offersPayload && typeof offersPayload === "object") {
-                console.log("🔍 [DC /complete] Besitos offers payload extracted:", {
-                  payloadKeys: Object.keys(offersPayload).slice(0, 30),
-                  availableCount: Array.isArray(offersPayload.available)
-                    ? offersPayload.available.length
-                    : 0,
-                  inProgressCount: Array.isArray(offersPayload.in_progress)
-                    ? offersPayload.in_progress.length
-                    : 0,
-                  completedCount: Array.isArray(offersPayload.completed)
-                    ? offersPayload.completed.length
-                    : 0,
-                });
-
-                // Check if the specific game appears in user's data (offers, completed, in_progress)
-                const userOffers = [
-                  ...(offersPayload.available || []),
-                  ...(offersPayload.in_progress || []),
-                  ...(offersPayload.completed || []),
-                ];
-
-                const matchesBesitosOffer = (offer) => {
-                  const idStr = offer?.id?.toString?.() || offer?.id;
-                  const offerIdStr = offer?.offer_id?.toString?.() || offer?.offer_id;
-                  const bundleIdStr = offer?.bundle_id?.toString?.() || offer?.bundle_id;
-                  return (
-                    idStr?.toString?.() === gameIdString ||
-                    offerIdStr?.toString?.() === gameIdString ||
-                    bundleIdStr?.toString?.() === gameIdString
-                  );
-                };
-
-                const besitosMatchIndex = userOffers.findIndex(matchesBesitosOffer);
-                gameData = besitosMatchIndex >= 0 ? userOffers[besitosMatchIndex] : null;
-                
-                const besitosMatchOn = gameData
-                  ? (gameData?.id?.toString?.() === gameIdString
-                      ? "id"
-                      : gameData?.offer_id?.toString?.() === gameIdString
-                      ? "offer_id"
-                      : gameData?.bundle_id?.toString?.() === gameIdString
-                      ? "bundle_id"
-                      : "unknown")
-                  : null;
-                
-                console.log("🔍 [DC /complete] Besitos match result:", {
-                  gameIdString,
-                  matched: !!gameData,
-                  matchedIndex: besitosMatchIndex >= 0 ? besitosMatchIndex : null,
-                  matchedId: gameData?.id?.toString?.() || null,
-                  matchedOfferId: gameData?.offer_id?.toString?.() || null,
-                  bundleId: gameData?.bundle_id || null,
-                  title: gameData?.title || gameData?.name || null,
-                  matchOn: besitosMatchOn,
-                });
-
-                if (DEBUG_GAME_MATCH) {
-                  const sampleLimit = 25;
-                  const offersSample = userOffers.slice(0, sampleLimit).map((o) => ({
-                    id: o?.id?.toString?.() || o?.id || null,
-                    offer_id: o?.offer_id?.toString?.() || o?.offer_id || null,
-                    bundle_id: o?.bundle_id?.toString?.() || o?.bundle_id || null,
-                    title: o?.title || o?.name || null,
-                  }));
-
-                  const matchCounts = userOffers.reduce(
-                    (acc, o) => {
-                      const idStr = o?.id?.toString?.() || o?.id;
-                      const offerIdStr = o?.offer_id?.toString?.() || o?.offer_id;
-                      const bundleIdStr = o?.bundle_id?.toString?.() || o?.bundle_id;
-                      if (idStr?.toString?.() === gameIdString) acc.id++;
-                      if (offerIdStr?.toString?.() === gameIdString) acc.offer_id++;
-                      if (bundleIdStr?.toString?.() === gameIdString) acc.bundle_id++;
-                      return acc;
-                    },
-                    { id: 0, offer_id: 0, bundle_id: 0 }
-                  );
-
-                  console.log("🧩 [DC /complete] Besitos matching summary:", {
-                    offersCount: userOffers.length,
-                    gameIdString,
-                    matchCounts,
-                    sampleLimit,
-                    offersSample,
-                  });
-                }
-
-                // Game is considered downloaded if it exists in user's data
-                // OR if we already have saved verification
-                gameDownloaded = progressDownloadVerified || !!gameData;
-                
-                if (progressDownloadVerified && !gameData) {
-                  console.log("✅ [DC /complete] Using saved download verification flag, but fetching data for goal validation.");
-                }
-              }
-            } catch (error) {
-              console.error("Error verifying Bestios game download:", error);
-              validationError = "Failed to verify game download from Bestios";
-            }
-          } else {
-            // Fallback: Check user's local game database
-            const userWithGames = await User.findById(userId).select("games");
-            gameDownloaded = userWithGames?.games?.some((g) => {
-              const userGameId = g.gameId?.toString ? g.gameId.toString() : g.gameId;
-              return userGameId === gameIdString;
-            });
-          }
-
-          console.log("🎮 [DC /complete] Game download check result:", {
-            provider: providerLower,
-            gameIdString,
-            gameDownloaded,
-            validationError: validationError || null,
-          });
-
-          if (!gameDownloaded) {
-            validationError = "Please download the game first to complete this challenge";
-          } else {
-            // NEW VALIDATION: Check first goal/event completion and date matching
-            let firstGoalCompleted = false;
-            let completionDateMatch = false;
-            let validationDetails = {};
-
-            if (providerLower === "besitos") {
-              if (!gameData) {
-                validationError = "Game data not found in Besitos response. Please ensure the game is installed.";
-                console.log("❌ [DC /complete] Besitos validation failed: gameData is null");
-              } else {
-              // For Besitos: Check first goal (install goal) is completed
-              const goals = gameData.goals || [];
-              const firstGoal = goals.find(g => g.position === 1 || g.goal_id?.endsWith("_0"));
-              
-              console.log("🔍 [DC /complete] Besitos first goal validation:", {
-                gameIdPresent: !!gameData,
-                gameId: gameData?.id || null,
-                totalGoals: goals.length,
-                firstGoalFound: !!firstGoal,
-                firstGoalId: firstGoal?.goal_id || null,
-                firstGoalText: firstGoal?.text || null,
-                firstGoalCompleted: firstGoal?.completed === true,
-                firstGoalCompletedDatetime: firstGoal?.completed_datetime || null,
-              });
-
-              if (firstGoal) {
-                firstGoalCompleted = firstGoal.completed === true;
-                
-                if (firstGoalCompleted && firstGoal.completed_datetime) {
-                  // Extract date only (ignore time) from completed_datetime
-                  // Format: "2026-01-31 02:09:35" -> "2026-01-31"
-                  const completedDateStr = firstGoal.completed_datetime.split(" ")[0];
-                  const challengeDateStr = normalizedStart.toISOString().split("T")[0];
-                  
-                  completionDateMatch = completedDateStr === challengeDateStr;
-                  
-                  console.log("🔍 [DC /complete] Besitos date validation:", {
-                    completedDatetime: firstGoal.completed_datetime,
-                    completedDateOnly: completedDateStr,
-                    challengeDateOnly: challengeDateStr,
-                    dateMatch: completionDateMatch,
-                  });
-                }
-              }
-
-              validationDetails = {
-                gameIdPresent: !!gameData,
-                firstGoalCompleted,
-                completionDateMatch,
-                firstGoalCompletedDatetime: firstGoal?.completed_datetime || null,
-              };
-              }
-            } else if (providerLower === "bitlabs") {
-              if (!gameHistory) {
-                validationError = "Game history not found in Bitlabs response. Please ensure the game is installed.";
-                console.log("❌ [DC /complete] Bitlabs validation failed: gameHistory is null");
-              } else {
-              // For Bitlabs: Check first event (install event) is completed
-              const events = gameHistory.events || [];
-              const firstEvent = events.find(e => e.type_id === 1 || e.name?.toLowerCase().includes("install"));
-              
-              console.log("🔍 [DC /complete] Bitlabs first event validation:", {
-                gameIdPresent: !!gameHistory,
-                gameId: gameHistory?.id || null,
-                totalEvents: events.length,
-                firstEventFound: !!firstEvent,
-                firstEventName: firstEvent?.name || null,
-                firstEventStatus: firstEvent?.status || null,
-                firstEventCompleted: firstEvent?.status === "completed",
-                firstEventTimestamp: firstEvent?.timestamp || null,
-              });
-
-              if (firstEvent) {
-                firstGoalCompleted = firstEvent.status === "completed";
-                
-                if (firstGoalCompleted && firstEvent.timestamp) {
-                  // Extract date only (ignore time) from timestamp
-                  const completedDate = new Date(firstEvent.timestamp);
-                  const completedDateStr = completedDate.toISOString().split("T")[0];
-                  const challengeDateStr = normalizedStart.toISOString().split("T")[0];
-                  
-                  completionDateMatch = completedDateStr === challengeDateStr;
-                  
-                  console.log("🔍 [DC /complete] Bitlabs date validation:", {
-                    eventTimestamp: firstEvent.timestamp,
-                    completedDateOnly: completedDateStr,
-                    challengeDateOnly: challengeDateStr,
-                    dateMatch: completionDateMatch,
-                  });
-                }
-              }
-
-              validationDetails = {
-                gameIdPresent: !!gameHistory,
-                firstGoalCompleted,
-                completionDateMatch,
-                firstEventTimestamp: firstEvent?.timestamp || null,
-              };
-              }
-            } else {
-              // For non-SDK games or other providers, just check download
-              validationDetails = {
-                gameIdPresent: gameDownloaded,
-                firstGoalCompleted: true, // Skip goal validation for non-SDK games
-                completionDateMatch: true, // Skip date validation for non-SDK games
-              };
-            }
-
-            console.log("🎮 [DC /complete] Game completion validation result:", {
-              provider: providerLower,
-              gameIdString,
-              gameDownloaded,
-              ...validationDetails,
-              validationPassed: gameDownloaded && firstGoalCompleted && completionDateMatch,
-            });
-
-            // Validate: Game must be downloaded AND (for SDK providers) first goal/event completed AND date matches
-            const isSdkProvider = providerLower === "bitlabs" || providerLower === "besitos";
-            const needsGoalValidation = isSdkProvider && gameDownloaded;
-            
-            if (needsGoalValidation && !firstGoalCompleted) {
-              validationError = "Please complete the first goal/event (install) to complete this challenge";
-            } else if (needsGoalValidation && !completionDateMatch) {
-              validationError = "The game installation must be completed today to complete this challenge";
-            } else {
-              // All validations passed
-              actionValidated = true;
-              
-              // Persist download verification
-              if (providerLower === "bitlabs" || providerLower === "besitos") {
-                if (!progress.progress) progress.progress = {};
-                if (!progress.progress.metadata) progress.progress.metadata = {};
-                if (progress.progress.metadata.gameDownloadVerified !== true) {
-                  progress.progress.metadata.gameDownloadVerified = true;
-                }
-                if (!progress.progress.metadata.downloadVerifiedAt) {
-                  progress.progress.metadata.downloadVerifiedAt = new Date().toISOString();
-                }
-                progress.progress.metadata.verificationProvider = providerLower;
-                await progress.save();
-                console.log("✅ [DC /complete] Saved download verification to progress metadata.");
-              }
-
-              // Update progress to 100%
-              await progress.updateProgress({
-                percentage: 100,
-                metadata: {
-                  ...progress.progress?.metadata,
-                  gameDownloadVerified: true,
-                  downloadVerifiedAt: new Date().toISOString(),
-                }
-              });
-            }
-
-            /* COMMENTED OUT: Playtime validation - no longer required
-            // Additional verification: Check if game was played today
-            const userWithGames = await User.findById(userId).select("games");
-            const gamePlayed = userWithGames?.games?.find((g) => {
-              const userGameId = g.gameId?.toString ? g.gameId.toString() : g.gameId;
-              return userGameId === gameIdString;
-            });
-
-            let isPlayedToday = false;
-            let actualPlayTime = 0;
-
-            if (gamePlayed) {
-              // Check if game was played today
-              const lastPlayedDate = new Date(gamePlayed.lastPlayed);
-              const todayStart = new Date(normalizedStart);
-              isPlayedToday = lastPlayedDate >= todayStart;
-
-              // Calculate actual play time
-              const playTimeMinutes = progress.progress?.metadata?.playTimeMinutes || 0;
-              const gameTotalDurationMinutes = gamePlayed.totalDuration
-                ? Math.floor((gamePlayed.totalDuration || 0) / 60)
-                : 0;
-
-              // Calculate today's play time
-              let todayPlayTimeMinutes = 0;
-              if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
-                const firstPlayed = new Date(gamePlayed.firstPlayed);
-                const lastPlayed = new Date(gamePlayed.lastPlayed);
-                const todayStart = new Date(normalizedStart);
-
-                if (firstPlayed >= todayStart && lastPlayed >= todayStart) {
-                  const timeDiffMinutes = (lastPlayed - firstPlayed) / (1000 * 60);
-                  todayPlayTimeMinutes = Math.min(timeDiffMinutes, 480);
-                }
-              }
-
-              actualPlayTime = Math.max(playTimeMinutes, gameTotalDurationMinutes, todayPlayTimeMinutes);
-            }
-
-            if (challenge.requirements?.timeLimit) {
-              // Time requirement: Must play for required time
-              const requiredMinutes = challenge.requirements.timeLimit;
-
-              if (!isPlayedToday && actualPlayTime === 0) {
-                validationError = `Please play the game today for at least ${requiredMinutes} minutes to complete this challenge`;
-              } else if (actualPlayTime < requiredMinutes) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(actualPlayTime)} minutes`;
-              } else {
-                actionValidated = true;
-                // Start timer after successful verification
-                await progress.updateProgress({
-                  percentage: 100,
-                  metadata: {
-                    ...progress.progress?.metadata,
-                    gameDownloadVerified: true,
-                    downloadVerifiedAt: new Date().toISOString(),
-                    playTimeMinutes: actualPlayTime,
-                  }
-                });
-              }
-            } else {
-              // No time requirement - just need download verification
-              actionValidated = true;
-              // Start timer after successful verification
-              await progress.updateProgress({
-                percentage: 100,
-                metadata: {
-                  ...progress.progress?.metadata,
-                  gameDownloadVerified: true,
-                  downloadVerifiedAt: new Date().toISOString(),
-                }
-              });
-            }
-            */
-          }
-        }
+        /**
+         * TEMPORARY OVERRIDE:
+         * For game-type daily challenges, skip all gameplay validation and
+         * always allow completion when user hits "Mark complete".
+         *
+         * WARNING: This means users can complete the challenge and earn rewards
+         * without actually playing the game. Re-enable the original validation
+         * below when you want to enforce real gameplay.
+         */
+        actionValidated = true;
 
         /*
         // ORIGINAL STRICT VALIDATION (commented out):
@@ -4279,8 +2357,8 @@ router.post("/complete", protect, async (req, res) => {
 
       case "watch_ad":
         // Verify ad was watched (tracked via progress metadata or separate ad log)
-        const progressAdWatched = progress.progress?.metadata?.adWatched || false;
-        if (!progressAdWatched) {
+        const adWatched = progress.progress?.metadata?.adWatched || false;
+        if (!adWatched) {
           validationError =
             "Please watch the ad first to complete this challenge";
         } else {
@@ -4379,13 +2457,12 @@ router.post("/complete", protect, async (req, res) => {
 
     // Check claim type to determine if rewards should be credited immediately or pending
     const claimType = challenge.claimType || "auto";
-    // HARDCODE: Treat watch_ad like auto-claim (always credit immediately, no pending state).
-    // This matches the requested behavior: rewards are never pending for ad-based daily rewards.
     const adWasWatched =
-      claimType === "watch_ad"
-        ? true
-        : adWatchedFlag === true || progress.progress?.metadata?.adWatched === true;
-    const shouldCreditImmediately = claimType !== "manual"; // only manual remains non-immediate
+      adWatched === true || progress.progress?.metadata?.adWatched === true;
+    const shouldCreditImmediately =
+      claimType === "auto" ||
+      (claimType === "watch_ad" && adWasWatched) ||
+      (claimType === "manual" && false); // Manual claims require separate claim endpoint
 
     // Use same logic as daily rewards - get multiplier from XPTier.accessBenefits
     const currentXp = user.xp?.current || 0;
@@ -4449,10 +2526,10 @@ router.post("/complete", protect, async (req, res) => {
             } else if (reward.type === "xp") {
               // Use same logic as daily rewards for milestone XP
               const milestoneTierMultiplier = await getAccessBenefitsMultiplier(
-                user.xp?.current || 0
+                user.xp?.current || 0,
               );
               const milestoneXP = Math.round(
-                reward.value * milestoneTierMultiplier
+                reward.value * milestoneTierMultiplier,
               );
               user.xp.current = (user.xp.current || 0) + milestoneXP;
               user.xp.total = (user.xp.total || 0) + milestoneXP;
@@ -4499,7 +2576,7 @@ router.post("/complete", protect, async (req, res) => {
       try {
         // CRITICAL FIX: Get completed tasks to verify all required days are completed
         const completedTasks = user.streak?.completedTasks || [];
-        
+
         // Get user profile for eligibility check
         const userProfile = {
           currentStreak: newStreak,
@@ -4517,93 +2594,72 @@ router.post("/complete", protect, async (req, res) => {
 
         // CRITICAL FIX: Only award bonus if all required days are completed
         // isEligibleForUser now checks requiresCompletion and verifies all days are completed
-        if (bonusDay) {
-          const isEligible = bonusDay.isEligibleForUser(userProfile);
-          console.log(`[BONUS-REWARD] Checking Bonus Day ${bonusDay.dayNumber} (minStreak: ${bonusDay.conditions.minStreak}):`, {
-            currentStreak: newStreak,
-            requiresCompletion: bonusDay.conditions.requiresCompletion !== false,
-            completedTasksCount: completedTasks.length,
-            isEligible: isEligible,
-            completedTasks: completedTasks.slice(0, 5) // First 5 for debugging
+        if (bonusDay && bonusDay.isEligibleForUser(userProfile)) {
+          // Check if bonus day reward was already claimed (track in user's metadata or transactions)
+          const existingBonusDayTransaction = await Transaction.findOne({
+            user: userId,
+            "metadata.bonusDayNumber": newStreak,
+            "metadata.source": "bonus_day",
           });
-          
-          if (isEligible) {
-            // Check if bonus day reward was already claimed (track in user's metadata or transactions)
-            const existingBonusDayTransaction = await Transaction.findOne({
-              user: userId,
-              "metadata.bonusDayNumber": newStreak,
-              "metadata.source": "bonus_day",
-            });
 
-            if (!existingBonusDayTransaction) {
-              // Award primary reward
-              const primaryReward = bonusDay.primaryReward;
-              if (primaryReward && primaryReward.type && primaryReward.value) {
-                const bonusRewardsEarned = [];
+          if (!existingBonusDayTransaction) {
+            // Award primary reward
+            const primaryReward = bonusDay.primaryReward;
+            if (primaryReward && primaryReward.type && primaryReward.value) {
+              const bonusRewardsEarned = [];
 
-                if (primaryReward.type === "coins") {
-                  user.wallet.balance =
-                    (user.wallet.balance || 0) + primaryReward.value;
-                  bonusRewardsEarned.push({
-                    type: "coins",
-                    value: primaryReward.value,
-                  });
-                } else if (primaryReward.type === "xp") {
-                  const { finalXP: bonusXP } = await applyTierMultiplierToXP(
-                    user,
-                    primaryReward.value
-                  );
-                  user.xp.current = (user.xp.current || 0) + bonusXP;
-                  user.xp.total = (user.xp.total || 0) + bonusXP;
-                  bonusRewardsEarned.push({
-                    type: "xp",
-                    value: primaryReward.value,
-                  });
-                }
-
-                // Create transaction record for bonus day reward
-                const bonusDayTransaction = new Transaction({
-                  user: userId,
-                  type: "credit",
-                  balanceType: primaryReward.type === "coins" ? "coins" : "xp",
-                  amount: primaryReward.value,
-                  description: `Bonus Day Reward - Day ${newStreak} - ${bonusDay.title}`,
-                  status: "completed",
-                  referenceId: `BONUS-DAY-${newStreak}-${Date.now()}`,
-                  metadata: {
-                    bonusDayNumber: newStreak,
-                    bonusDayId: bonusDay._id,
-                    bonusDayTitle: bonusDay.title,
-                    rewardType: primaryReward.type,
-                    rewardValue: primaryReward.value,
-                    source: "bonus_day",
-                  },
+              if (primaryReward.type === "coins") {
+                user.wallet.balance =
+                  (user.wallet.balance || 0) + primaryReward.value;
+                bonusRewardsEarned.push({
+                  type: "coins",
+                  value: primaryReward.value,
                 });
-
-                await bonusDayTransaction.save();
-
-                // Update bonus day analytics
-                await bonusDay.updateAnalytics("claimed", 1);
-
-                bonusDayRewardEarned = {
-                  day: newStreak,
-                  title: bonusDay.title,
-                  rewards: bonusRewardsEarned,
-                  bonusDayId: bonusDay._id,
-                };
-                
-                console.log(`[BONUS-REWARD] ✅ Bonus Day ${newStreak} reward granted:`, bonusDayRewardEarned);
-              } else {
-                console.log(`[BONUS-REWARD] ⚠️ Bonus Day ${newStreak} has no valid primary reward`);
+              } else if (primaryReward.type === "xp") {
+                const { finalXP: bonusXP } = await applyTierMultiplierToXP(
+                  user,
+                  primaryReward.value,
+                );
+                user.xp.current = (user.xp.current || 0) + bonusXP;
+                user.xp.total = (user.xp.total || 0) + bonusXP;
+                bonusRewardsEarned.push({
+                  type: "xp",
+                  value: primaryReward.value,
+                });
               }
-            } else {
-              console.log(`[BONUS-REWARD] ⚠️ Bonus Day ${newStreak} reward already claimed (transaction exists)`);
+
+              // Create transaction record for bonus day reward
+              const bonusDayTransaction = new Transaction({
+                user: userId,
+                type: "credit",
+                balanceType: primaryReward.type === "coins" ? "coins" : "xp",
+                amount: primaryReward.value,
+                description: `Bonus Day Reward - Day ${newStreak} - ${bonusDay.title}`,
+                status: "completed",
+                referenceId: `BONUS-DAY-${newStreak}-${Date.now()}`,
+                metadata: {
+                  bonusDayNumber: newStreak,
+                  bonusDayId: bonusDay._id,
+                  bonusDayTitle: bonusDay.title,
+                  rewardType: primaryReward.type,
+                  rewardValue: primaryReward.value,
+                  source: "bonus_day",
+                },
+              });
+
+              await bonusDayTransaction.save();
+
+              // Update bonus day analytics
+              await bonusDay.updateAnalytics("claimed", 1);
+
+              bonusDayRewardEarned = {
+                day: newStreak,
+                title: bonusDay.title,
+                rewards: bonusRewardsEarned,
+                bonusDayId: bonusDay._id,
+              };
             }
-          } else {
-            console.log(`[BONUS-REWARD] ❌ Bonus Day ${newStreak} NOT eligible - requirements not met`);
           }
-        } else {
-          console.log(`[BONUS-REWARD] ℹ️ No Bonus Day found for streak ${newStreak}`);
         }
       } catch (error) {
         console.error("Error awarding bonus day reward:", error);
@@ -4620,17 +2676,7 @@ router.post("/complete", protect, async (req, res) => {
       bonusCoins,
       bonusXP,
     });
-    
-    // CRITICAL: Increment continuous challenges completed counter (not daily-based)
-    // Counter resets only after milestone completion
-    const accountOverviewService = require('../utils/accountOverview');
-    await accountOverviewService.incrementChallengesCompletedCounter(userId);
-    
-    // Only mark rewards as claimed if we actually credited them now.
-    // For watch_ad claimType, rewards may remain pending until /claim-reward is called.
-    if (shouldCreditImmediately) {
-      await progress.claimRewards();
-    }
+    await progress.claimRewards();
 
     // Update challenge analytics (log final XP after tier multiplier)
     await challenge.updateAnalytics("complete", {
@@ -4653,9 +2699,8 @@ router.post("/complete", protect, async (req, res) => {
         : null);
 
     if (!linkedGameCode && linkedGameObjectId) {
-      const linkedGameDoc = await Game.findById(linkedGameObjectId).select(
-        "gameId"
-      );
+      const linkedGameDoc =
+        await Game.findById(linkedGameObjectId).select("gameId");
       if (linkedGameDoc?.gameId) {
         linkedGameCode = linkedGameDoc.gameId;
       }
@@ -4670,7 +2715,7 @@ router.post("/complete", protect, async (req, res) => {
       bonusCoins,
       bonusXP,
       tierMultiplier,
-      requiresAd: false,
+      requiresAd: claimType === "watch_ad" && !adWasWatched,
       adWatched: adWasWatched || false,
       source: "daily_challenge", // Required for claim-reward endpoint
     };
@@ -4682,9 +2727,8 @@ router.post("/complete", protect, async (req, res) => {
       transactionMetadata.gameRef = linkedGameObjectId;
     }
 
-    // Transaction log always created with status "completed" (pending commented out)
-    // const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
-    const transactionStatus = "completed";
+    // Determine transaction status based on claim type
+    const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
     const baseReferenceId = `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`;
 
     // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)
@@ -4766,7 +2810,7 @@ router.post("/complete", protect, async (req, res) => {
           tier: userTier,
           claimType: claimType,
           status: transactionStatus, // Show if reward is completed or pending
-          requiresAd: false,
+          requiresAd: claimType === "watch_ad" && !adWasWatched,
           adWatched: adWasWatched || false,
         },
         newBalance: {
@@ -4851,7 +2895,7 @@ router.post("/claim-reward", protect, async (req, res) => {
     // reject user-initiated claim attempts.
     try {
       const challengeForTxn = await DailyChallenge.findById(
-        transaction.metadata?.challengeId
+        transaction.metadata?.challengeId,
       ).select("claimType");
       if (challengeForTxn && challengeForTxn.claimType === "manual") {
         return res.status(403).json({
@@ -4878,7 +2922,7 @@ router.post("/claim-reward", protect, async (req, res) => {
     // Get user and challenge
     const user = await User.findById(userId).select("wallet xp");
     const challenge = await DailyChallenge.findById(
-      transaction.metadata?.challengeId
+      transaction.metadata?.challengeId,
     );
 
     if (!user) {
@@ -4957,8 +3001,8 @@ router.put("/update-progress", protect, async (req, res) => {
         0,
         0,
         0,
-        0
-      )
+        0,
+      ),
     );
     const normalizedEnd = new Date(
       Date.UTC(
@@ -4968,8 +3012,8 @@ router.put("/update-progress", protect, async (req, res) => {
         23,
         59,
         59,
-        999
-      )
+        999,
+      ),
     );
 
     // Get today's challenge
@@ -4989,7 +3033,7 @@ router.put("/update-progress", protect, async (req, res) => {
     // Get user's progress
     let progress = await UserChallengeProgress.getUserChallengeForDate(
       userId,
-      normalizedStart
+      normalizedStart,
     );
 
     if (!progress) {
@@ -5010,7 +3054,7 @@ router.put("/update-progress", protect, async (req, res) => {
       // Only update if new value is greater (prevent decreasing)
       progress.progress.metadata.playTimeMinutes = Math.max(
         currentPlayTime,
-        Number(playTimeMinutes) || 0
+        Number(playTimeMinutes) || 0,
       );
     }
 
@@ -5024,7 +3068,7 @@ router.put("/update-progress", protect, async (req, res) => {
         const currentPlayTime = progress.progress.metadata.playTimeMinutes || 0;
         const progressPercentage = Math.min(
           100,
-          Math.floor((currentPlayTime / requiredMinutes) * 100)
+          Math.floor((currentPlayTime / requiredMinutes) * 100),
         );
         await progress.updateProgress(progressPercentage);
       }

@@ -883,9 +883,24 @@ router.get("/games", adminAuth, async (req, res) => {
       .populate("sdkProvider", "name")
       .lean();
 
-    // Add task count and completion rate for each game
+    // Deduplicate games by gameId to prevent duplicate entries in dropdowns
+    // Use a Map to keep only the first occurrence of each gameId
+    const uniqueGamesMap = new Map();
+    
+    games.forEach(game => {
+      const key = game.gameId || game._id.toString();
+      // Only add if not already in map (keeps first occurrence)
+      if (!uniqueGamesMap.has(key)) {
+        uniqueGamesMap.set(key, game);
+      }
+    });
+    
+    // Convert Map values back to array
+    const uniqueGames = Array.from(uniqueGamesMap.values());
+
+    // Add task count and completion rate for each unique game
     const gamesWithTaskCount = await Promise.all(
-      games.map(async (game) => {
+      uniqueGames.map(async (game) => {
         const taskCount = await GameTask.countDocuments({ gameId: game._id });
         
         // Calculate completion rate
@@ -894,10 +909,17 @@ router.get("/games", adminAuth, async (req, res) => {
           'games.gameId': game.gameId
         });
         
-        // Count users who completed this game (have game with completed: true)
+        // Count users who completed THIS SPECIFIC game
+        // Use $elemMatch to ensure both gameId and completed conditions apply to the SAME array element
+        // Without $elemMatch, MongoDB would match users who have the gameId in one element
+        // and completed:true in a different element, causing incorrect 100% rates
         const usersCompleted = await User.countDocuments({
-          'games.gameId': game.gameId,
-          'games.completed': true
+          games: {
+            $elemMatch: {
+              gameId: game.gameId,
+              completed: true
+            }
+          }
         });
         
         // Calculate completion rate percentage

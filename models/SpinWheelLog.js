@@ -27,7 +27,8 @@ const spinWheelLogSchema = new mongoose.Schema({
     reward: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'SpinWheelReward',
-        required: true
+        required: false, // Allow null for "no reward" outcomes
+        default: null
     },
     
     rewardName: {
@@ -38,7 +39,7 @@ const spinWheelLogSchema = new mongoose.Schema({
     rewardType: {
         type: String,
         required: true,
-        enum: ['coins', 'xp', 'coupon', 'bonus_task', 'premium_feature']
+        enum: ['coins', 'xp', 'coupon', 'bonus_task', 'premium_feature', 'none']
     },
     
     rewardAmount: {

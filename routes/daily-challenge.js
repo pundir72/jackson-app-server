@@ -2499,12 +2499,71 @@ router.post("/complete", protect, async (req, res) => {
     let milestoneRewardEarned = null;
     let bonusDayRewardEarned = null;
 
+    // ADM-DR-027 FIX: Check for gaps in streak before incrementing
+    // If user missed a day (gap in completedTasks), reset streak based on resetRule
     if (!streak.completedTasks.includes(todayStr)) {
+      // Check if there's a gap (yesterday not completed)
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+      // ADM-DR-027 FIX: If yesterday is not completed, check resetRule
+      if (!streak.completedTasks.includes(yesterdayStr) && streak.current > 0) {
+        // Gap detected - check if reset is enabled
+        // Get bonus day resetRule to determine if streak should reset
+        const bonusDayForReset = await BonusDay.findOne({
+          isActive: true,
+          "conditions.minStreak": { $lte: streak.current },
+        }).sort({ dayNumber: -1 }); // Get highest bonus day that applies
+
+        if (bonusDayForReset && bonusDayForReset.resetRule) {
+          const resetRule = bonusDayForReset.resetRule;
+
+          // ADM-DR-027 FIX: Apply reset rule
+          if (resetRule.onMiss !== false) {
+            // Default: true (reset on miss)
+            if (resetRule.gracePeriod > 0) {
+              // Grace period - check if we're still within grace period
+              const missedDays = streak.missedDays || 0;
+              if (missedDays < resetRule.gracePeriod) {
+                // Still in grace period - don't reset, just track missed day
+                streak.missedDays = missedDays + 1;
+                streak.current = streak.current; // Keep current streak
+              } else {
+                // Grace period exhausted - reset streak
+                streak.current = 0;
+                streak.completedTasks = []; // Clear completed tasks
+                streak.missedDays = 0;
+                streak.resetAt = now;
+                streak.resetReason = "missed_day_grace_period_exhausted";
+              }
+            } else {
+              // No grace period - reset immediately
+              streak.current = 0;
+              streak.completedTasks = []; // ADM-DR-027 FIX: Clear completed tasks on reset
+              streak.missedDays = 0;
+              streak.resetAt = now;
+              streak.resetReason = "missed_day_immediate_reset";
+            }
+          }
+          // If onMiss is false, don't reset - continue from current streak
+        } else {
+          // No bonus day config found - apply default reset behavior
+          streak.current = 0;
+          streak.completedTasks = []; // ADM-DR-027 FIX: Clear completed tasks on reset
+          streak.resetAt = now;
+          streak.resetReason = "missed_day_default_reset";
+        }
+      }
+
+      // Add today to completed tasks and increment streak
       streak.completedTasks.push(todayStr);
       newStreak = (streak.current || 0) + 1;
       streak.current = newStreak;
       streak.lastUpdated = new Date();
       streak.lastTaskType = "challenge";
+      streak.missedDays = 0; // Reset missed days counter when completing a task
       user.streak = streak;
 
       // Check for milestone rewards
@@ -2585,12 +2644,15 @@ router.post("/complete", protect, async (req, res) => {
           completedTasks: completedTasks, // CRITICAL: Pass completed tasks for verification
         };
 
-        // Find bonus day for this streak milestone
+        // ADM-DR-028 FIX: Find bonus day for this streak milestone
+        // CRITICAL: Use findOne with sort to get the most recent active bonus day for this dayNumber
+        // This prevents showing both old and new bonus days when admin edits (e.g., Day-2 to Day-3)
+        // findOne with isActive: true ensures deleted bonus days don't appear
         const bonusDay = await BonusDay.findOne({
           dayNumber: newStreak,
           isActive: true,
           "conditions.minStreak": { $lte: newStreak },
-        });
+        }).sort({ updatedAt: -1 }); // ADM-DR-028 FIX: Get most recently updated bonus day to avoid duplicates
 
         // CRITICAL FIX: Only award bonus if all required days are completed
         // isEligibleForUser now checks requiresCompletion and verifies all days are completed
@@ -2616,24 +2678,29 @@ router.post("/complete", protect, async (req, res) => {
                   value: primaryReward.value,
                 });
               } else if (primaryReward.type === "xp") {
-                const { finalXP: bonusXP } = await applyTierMultiplierToXP(
-                  user,
-                  primaryReward.value,
-                );
+                const { finalXP: bonusXP, multiplier: tierMultiplier } =
+                  await applyTierMultiplierToXP(user, primaryReward.value);
                 user.xp.current = (user.xp.current || 0) + bonusXP;
                 user.xp.total = (user.xp.total || 0) + bonusXP;
                 bonusRewardsEarned.push({
                   type: "xp",
                   value: primaryReward.value,
+                  finalValue: bonusXP, // ADM-DR-027 FIX: Include final XP after tier multiplier
+                  tierMultiplier: tierMultiplier,
                 });
               }
 
-              // Create transaction record for bonus day reward
+              // ADM-DR-027 FIX: Create transaction record with correct amount (final XP for XP rewards, base value for coins)
+              const transactionAmount =
+                primaryReward.type === "xp"
+                  ? bonusXP // Use final XP after tier multiplier
+                  : primaryReward.value; // Use base value for coins
+
               const bonusDayTransaction = new Transaction({
                 user: userId,
                 type: "credit",
                 balanceType: primaryReward.type === "coins" ? "coins" : "xp",
-                amount: primaryReward.value,
+                amount: transactionAmount, // ADM-DR-027 FIX: Use final amount (after tier multiplier for XP)
                 description: `Bonus Day Reward - Day ${newStreak} - ${bonusDay.title}`,
                 status: "completed",
                 referenceId: `BONUS-DAY-${newStreak}-${Date.now()}`,
@@ -2642,7 +2709,10 @@ router.post("/complete", protect, async (req, res) => {
                   bonusDayId: bonusDay._id,
                   bonusDayTitle: bonusDay.title,
                   rewardType: primaryReward.type,
-                  rewardValue: primaryReward.value,
+                  rewardValue: primaryReward.value, // Base value
+                  finalRewardValue: transactionAmount, // ADM-DR-027 FIX: Final value (after tier multiplier)
+                  tierMultiplier:
+                    primaryReward.type === "xp" ? tierMultiplier : 1.0, // ADM-DR-027 FIX: Include tier multiplier
                   source: "bonus_day",
                 },
               });

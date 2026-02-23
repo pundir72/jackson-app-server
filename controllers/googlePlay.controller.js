@@ -208,7 +208,7 @@ const verifyPurchase = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error verifying purchase:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error verifying purchase:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to verify purchase',
@@ -257,7 +257,7 @@ const getPurchaseHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting purchase history:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error getting purchase history:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get purchase history',
@@ -314,7 +314,7 @@ const getActiveSubscription = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting active subscription:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error getting active subscription:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get active subscription',
@@ -391,7 +391,7 @@ const refreshSubscription = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error refreshing subscription:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error refreshing subscription:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to refresh subscription',
@@ -426,7 +426,7 @@ const handleWebhook = async (req, res) => {
 
     // Handle test notification
     if (testNotification) {
-      console.log('Received test notification from Google Play');
+      console.log('[GOOGLE-PLAY-IAP] Received test notification from Google Play');
       return res.status(200).json({ success: true });
     }
 
@@ -443,7 +443,7 @@ const handleWebhook = async (req, res) => {
     res.status(200).json({ success: true });
 
   } catch (error) {
-    console.error('Error handling webhook:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error handling webhook:', error);
     res.status(500).json({
       success: false,
       message: 'Webhook processing failed',
@@ -472,7 +472,7 @@ async function linkToVIPSubscription(purchase, userId, productId) {
 
     const mapping = productMapping[productId];
     if (!mapping) {
-      console.log(`No VIP mapping found for product: ${productId}`);
+      console.log(`[GOOGLE-PLAY-IAP] No VIP mapping found for product: ${productId}`);
       return;
     }
 
@@ -515,9 +515,9 @@ async function linkToVIPSubscription(purchase, userId, productId) {
       });
     }
 
-    console.log(`Linked Google Play purchase to VIP subscription: ${vipSubscription._id}`);
+    console.log(`[GOOGLE-PLAY-IAP] Linked Google Play purchase to VIP subscription: ${vipSubscription._id}`);
   } catch (error) {
-    console.error('Error linking to VIP subscription:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error linking to VIP subscription:', error);
   }
 }
 
@@ -534,7 +534,7 @@ async function handleSubscriptionNotification(notification) {
   const purchase = await GooglePlayPurchase.findOne({ purchaseToken });
 
   if (!purchase) {
-    console.log(`Purchase not found for token: ${purchaseToken}`);
+    console.log(`[GOOGLE-PLAY-IAP] Purchase not found for token: ${purchaseToken}`);
     return;
   }
 
@@ -567,7 +567,8 @@ async function handleSubscriptionNotification(notification) {
       purchase.verificationStatus = 'expired';
       break;
     default:
-      console.log(`Unhandled notification type: ${notificationType}`);
+      console.log(`[GOOGLE-PLAY-IAP] Unhandled subscription notification type: ${notificationType}`);
+      break;
   }
 
   await purchase.save();
@@ -586,7 +587,7 @@ async function handleProductNotification(notification) {
   const purchase = await GooglePlayPurchase.findOne({ purchaseToken });
 
   if (!purchase) {
-    console.log(`Purchase not found for token: ${purchaseToken}`);
+    console.log(`[GOOGLE-PLAY-IAP] Purchase not found for token: ${purchaseToken}`);
     return;
   }
 
@@ -604,7 +605,8 @@ async function handleProductNotification(notification) {
       purchase.canceledAt = new Date();
       break;
     default:
-      console.log(`Unhandled notification type: ${notificationType}`);
+      console.log(`[GOOGLE-PLAY-IAP] Unhandled product notification type: ${notificationType}`);
+      break;
   }
 
   await purchase.save();

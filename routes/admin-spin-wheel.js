@@ -243,11 +243,26 @@ router.post(
         return res.status(400).json({
           success: false,
           error: "Probability configuration is invalid",
+          message: "Same probability can be used across different tiers, but not within the same tier",
           details: probabilityValidation.errors,
           warnings: probabilityValidation.warnings,
           suggestions: suggestions.suggestions,
           tierAnalysis: probabilityValidation.tierAnalysis,
-          message: "Same probability can be used across different tiers, but not within the same tier"
+          userFriendlyErrors: probabilityValidation.errors.map(err => ({
+            tier: err.tier,
+            message: err.userFriendlyMessage || err.message,
+            suggestion: err.suggestion,
+            clarification: err.clarification
+          })),
+          rules: {
+            title: "Probability Rules (BUG-063 Clarification)",
+            rules: [
+              "✅ Same probability CAN be used across different tiers (e.g., 10% in Bronze AND 10% in Silver)",
+              "❌ Same probability CANNOT be duplicated within the same tier (e.g., two 10% rewards in Bronze)",
+              "📊 Each tier has its own 100% probability limit",
+              "🌍 Global probability can exceed 100% (tiers are independent)"
+            ]
+          }
         });
       }
 
@@ -1159,5 +1174,127 @@ function calculateRemainingPerTier(analysis) {
   
   return remaining;
 }
+
+/**
+ * @route   GET /api/admin/spin-wheel/probability/rules
+ * @desc    Get detailed probability configuration rules and examples (BUG-063 Fix)
+ * @access  Admin
+ */
+router.get("/probability/rules", adminAuth, async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        title: "Spin Wheel Probability Configuration Rules",
+        subtitle: "BUG-063 Fix: Clarified probability validation rules",
+        rules: {
+          crossTier: {
+            title: "Cross-Tier Probabilities (ALLOWED)",
+            description: "Same probability can be used across different tiers",
+            examples: [
+              {
+                scenario: "✅ ALLOWED",
+                description: "10% probability in Bronze tier AND 10% probability in Silver tier",
+                rewards: [
+                  { name: "Bronze Coins", tier: "Bronze", probability: 10 },
+                  { name: "Silver Coins", tier: "Silver", probability: 10 }
+                ]
+              },
+              {
+                scenario: "✅ ALLOWED", 
+                description: "Multi-tier reward with unique probability per tier",
+                rewards: [
+                  { name: "Universal Bonus", tiers: ["Bronze", "Silver", "Gold"], probability: 15 }
+                ]
+              }
+            ]
+          },
+          withinTier: {
+            title: "Within-Tier Probabilities (RESTRICTED)",
+            description: "Same probability cannot be duplicated within the same tier",
+            examples: [
+              {
+                scenario: "❌ NOT ALLOWED",
+                description: "Two rewards with 10% probability in the same Bronze tier",
+                rewards: [
+                  { name: "Bronze Coins", tier: "Bronze", probability: 10 },
+                  { name: "Bronze XP", tier: "Bronze", probability: 10 }
+                ],
+                error: "Duplicate probability within Bronze tier"
+              },
+              {
+                scenario: "✅ CORRECT ALTERNATIVE",
+                description: "Different probabilities within the same tier",
+                rewards: [
+                  { name: "Bronze Coins", tier: "Bronze", probability: 10 },
+                  { name: "Bronze XP", tier: "Bronze", probability: 15 }
+                ]
+              }
+            ]
+          },
+          tierLimits: {
+            title: "Tier Probability Limits",
+            description: "Each tier has its own 100% probability limit",
+            examples: [
+              {
+                scenario: "✅ ALLOWED",
+                description: "Each tier can independently reach 100%",
+                tiers: {
+                  Bronze: { total: 100, rewards: ["20%", "30%", "50%"] },
+                  Silver: { total: 100, rewards: ["25%", "35%", "40%"] },
+                  Gold: { total: 90, rewards: ["30%", "60%"] }
+                }
+              },
+              {
+                scenario: "❌ NOT ALLOWED",
+                description: "Single tier exceeding 100%",
+                tier: "Bronze",
+                total: 110,
+                rewards: ["50%", "60%"],
+                error: "Bronze tier exceeds 100% limit"
+              }
+            ]
+          }
+        },
+        commonScenarios: [
+          {
+            question: "Can I use 10% probability in both Bronze and Silver tiers?",
+            answer: "✅ YES - Same probability across different tiers is allowed"
+          },
+          {
+            question: "Can I have two 15% rewards in the Gold tier?",
+            answer: "❌ NO - Duplicate probabilities within the same tier are not allowed"
+          },
+          {
+            question: "Can Bronze tier have 100% total and Silver tier also have 100%?",
+            answer: "✅ YES - Each tier has its own independent 100% limit"
+          },
+          {
+            question: "What's the maximum probability I can assign to a single reward?",
+            answer: "100% (but then that tier can't have any other rewards)"
+          }
+        ],
+        troubleshooting: {
+          duplicateInTier: {
+            problem: "Getting 'duplicate probability in tier' error",
+            solution: "Change the probability percentage for one of the conflicting rewards in that tier",
+            example: "If Bronze has 10% and 10%, change one to 11% or 12%"
+          },
+          tierExceeded: {
+            problem: "Getting 'tier probability exceeded' error", 
+            solution: "Reduce probabilities in that tier or remove some rewards",
+            example: "If Bronze total is 95% and you're adding 10%, reduce existing rewards or use max 5%"
+          }
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error getting probability rules:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get probability rules"
+    });
+  }
+});
 
 module.exports = router;

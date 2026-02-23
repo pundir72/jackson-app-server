@@ -295,7 +295,7 @@ router.get("/week", protect, async (req, res) => {
       // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
       const enrichedDays = progress.days.map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
-        // Use admin config V2 values only - check if day is active
+        // ADM-DR-011 FIX: Use admin config V2 values only - check if day is active
         if (!dayConfig || !dayConfig.active) {
           // CRITICAL FIX: If day is inactive, override status to 'locked' (unless already claimed)
           let dayStatus = day.status;
@@ -308,6 +308,9 @@ router.get("/week", protect, async (req, res) => {
             active: false,
             rewardCoins: 0,
             rewardXp: 0,
+            // ADM-DR-011 FIX: Add user-friendly message for inactive rewards
+            message: "This reward is no longer available",
+            disabled: true,
           };
         }
 
@@ -888,6 +891,28 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
         .json({ success: false, error: "Reward not claimable" });
     }
 
+    // ADM-DR-011 FIX: Check if the specific day's reward is active BEFORE processing
+    // This prevents claiming inactive rewards and app crashes
+    const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
+    if (!dayConfig) {
+      return res.status(400).json({
+        success: false,
+        error: "Day configuration not found",
+        message: "This reward is no longer available. Please try again later.",
+      });
+    }
+
+    // ADM-DR-011 FIX: Check if day is active (early validation to prevent crashes)
+    if (dayConfig.active === false) {
+      return res.status(400).json({
+        success: false,
+        error: "This day's reward is not active",
+        message: "This reward has been deactivated and is no longer available for claiming.",
+        dayNumber: day.dayNumber,
+        active: false,
+      });
+    }
+
     // Calculate week number and multiplier
     const weekNumber = await calculateUserWeekNumber(
       userId,
@@ -903,7 +928,8 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    // Get user's accessBenefits multiplier from XPTier (for display/calculation)
+    // ADM-DR-006 FIX: Get user's accessBenefits multiplier from XPTier (for calculation)
+    // This will be used later in the multiplier calculation
     let accessBenefitsMultiplier = 1.0;
     if (user && user.xp && user.xp.current !== undefined) {
       accessBenefitsMultiplier = await getAccessBenefitsMultiplier(
@@ -953,7 +979,7 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
         progress.bigRewardEligible = false;
       }
 
-      // For day 7, use big reward if eligible, otherwise use day 6's values
+      // ADM-DR-011 FIX: Check if big reward is active before using it
       if (progress.bigRewardEligible && cfg.bigReward?.enabled) {
         // Use big reward values
         bigReward = cfg.bigReward;
@@ -975,7 +1001,7 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
         // Weekly multiplier will be applied to baseCoins/baseXP later
         progress.bigRewardGranted = true;
       } else {
-        // Big reward not eligible - use day 6's values as fallback
+        // ADM-DR-011 FIX: Big reward not eligible - use day 6's values as fallback (only if active)
         const day6Config = cfg.days.find((d) => d.dayNumber === 6);
         if (day6Config && day6Config.active) {
           const rewardType = day6Config.rewardType || "Both";
@@ -992,23 +1018,33 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
                 ? day6Config.xpValue
                 : day6Config.xp || 0;
           }
+        } else {
+          // ADM-DR-011 FIX: Day 6 is inactive, so day 7 has no fallback - return error
+          return res.status(400).json({
+            success: false,
+            error: "This day's reward is not active",
+            message: "This reward has been deactivated and is no longer available for claiming.",
+            dayNumber: 7,
+            active: false,
+          });
         }
       }
+      
+      // ADM-DR-011 FIX: Check if day 7 config itself is active (for big reward or fallback)
+      const day7Config = cfg.days.find((d) => d.dayNumber === 7);
+      if (day7Config && day7Config.active === false) {
+        return res.status(400).json({
+          success: false,
+          error: "This day's reward is not active",
+          message: "This reward has been deactivated and is no longer available for claiming.",
+          dayNumber: 7,
+          active: false,
+        });
+      }
     } else {
-      // For days 1-6, use normal day config
-      const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
-      if (!dayConfig) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Day configuration not found" });
-      }
-
-      if (dayConfig.active === false) {
-        return res
-          .status(400)
-          .json({ success: false, error: "This day's reward is not active" });
-      }
-
+      // ADM-DR-011 FIX: For days 1-6, dayConfig is already validated above (line 903)
+      // The dayConfig.active check was already done early to prevent crashes
+      // dayConfig is already available from the early validation
       const rewardType = dayConfig.rewardType || "Both";
 
       if (rewardType === "Coins" || rewardType === "Both") {
@@ -1023,7 +1059,7 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
       }
     }
 
-    // Apply weekly multiplier if enabled and week > 1
+    // ADM-DR-006 FIX: Apply weekly multiplier if enabled and week > 1
     let finalCoins = baseCoins;
     let xpAfterWeekly = baseXP;
     if (weekNumber > 1 && cfg.weeklyMultiplier?.enabled) {
@@ -1031,19 +1067,43 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
       xpAfterWeekly = applyMultiplier(baseXP, weekMultiplier, roundingRule);
     }
 
-    // Store base XP (after weekly multiplier, before accessBenefits multiplier)
-    // This will be used for metadata and passed to applyTierMultiplierToXP
-    const baseXPForTier = xpAfterWeekly;
-
     // CRITICAL FIX: For day 7, baseCoins/baseXP already contain big reward values (if eligible)
     // or day 6 values (if not eligible). bigRewardCoins/bigRewardXP are always 0 in V1 logic.
     // This is correct - we just add 0, which doesn't change the value.
     const coins = finalCoins + bigRewardCoins;
-    // XP before tier multiplier (after weekly multiplier)
-    const baseXPTotal = baseXPForTier + bigRewardXP;
+    // XP after weekly multiplier (before tier/accessBenefits multiplier)
+    const baseXPTotal = xpAfterWeekly + bigRewardXP;
+
+    // ADM-DR-006 FIX: Apply BOTH multipliers in sequence:
+    // 1. Weekly multiplier (already applied above)
+    // 2. Tier/accessBenefits multiplier from XPTier
+    // Final XP = Base XP × Weekly Multiplier × Tier Multiplier (accessBenefits)
+    let finalXPWithTier = baseXPTotal;
+    let tierMultiplier = 1.0;
+
+    if (accessBenefitsMultiplier > 1.0) {
+      // Apply accessBenefits multiplier from XPTier
+      finalXPWithTier = applyMultiplier(baseXPTotal, accessBenefitsMultiplier, roundingRule);
+      tierMultiplier = accessBenefitsMultiplier;
+      console.log('✅ ADM-DR-006: Applied accessBenefits multiplier from XPTier:', {
+        baseXPTotal,
+        accessBenefitsMultiplier,
+        finalXPWithTier
+      });
+    } else {
+      // Fallback: Use applyTierMultiplierToXP if accessBenefits not available
+      const tierResult = await applyTierMultiplierToXP(user, baseXPTotal || 0);
+      finalXPWithTier = tierResult.finalXP;
+      tierMultiplier = tierResult.multiplier;
+      console.log('⚠️ ADM-DR-006: Using XPMultiplier fallback (accessBenefits not found):', {
+        baseXPTotal,
+        tierMultiplier,
+        finalXPWithTier
+      });
+    }
 
     // Debug logging for multiplier calculations
-    console.log('=== DAILY REWARD V1 MULTIPLIER DEBUG ===', {
+    console.log('=== DAILY REWARD V1 MULTIPLIER DEBUG (ADM-DR-006 FIX) ===', {
       userId,
       dayNumber: day.dayNumber,
       weekNumber,
@@ -1057,6 +1117,10 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
       bigRewardXP,
       coins,
       baseXPTotal,
+      accessBenefitsMultiplier,
+      tierMultiplier,
+      finalXPWithTier,
+      calculation: `Base XP (${baseXP}) × Weekly (${weekNumber > 1 && cfg.weeklyMultiplier?.enabled ? weekMultiplier : 1.0}) × Tier (${tierMultiplier}) = ${finalXPWithTier}`,
       bigReward: !!bigReward,
       bigRewardEligible: progress.bigRewardEligible,
     });
@@ -1069,11 +1133,6 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
 
     user.wallet.balance = oldBalance + coins;
     user.wallet.lastUpdated = now;
-
-    // Apply tier multiplier using applyTierMultiplierToXP (uses XPMultiplier)
-    // This applies the accessBenefits multiplier from the tier
-    const { finalXP: finalXPWithTier, multiplier: tierMultiplier } =
-      await applyTierMultiplierToXP(user, baseXPTotal || 0);
 
     user.xp.current = oldXP + finalXPWithTier;
     user.xp.total = (user.xp.total || 0) + finalXPWithTier;
@@ -1125,13 +1184,15 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
         baseXp: baseXPTotal,
         // Final XP value after tier/accessBenefits multiplier (this is what user actually receives)
         finalXp: finalXPWithTier,
-        // Tier multiplier that was applied (from XPMultiplier, same as accessBenefits)
+        // ADM-DR-006 FIX: Tier multiplier that was applied (from XPTier.accessBenefits)
         tierMultiplier: tierMultiplier,
         // Weekly multiplier that was applied
         weekNumber: weekNumber,
         weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
-        // Access benefits multiplier (same as tierMultiplier, for clarity)
+        // ADM-DR-006 FIX: Access benefits multiplier from XPTier (tier-wise XP multiplier)
         accessBenefitsMultiplier: tierMultiplier,
+        // Calculation formula for transparency
+        calculation: `Base XP (${baseXP}) × Weekly (${weekNumber > 1 && cfg.weeklyMultiplier?.enabled ? weekMultiplier : 1.0}) × Tier (${tierMultiplier}) = ${finalXPWithTier}`,
         rewardType:
           coins > 0 && finalXPWithTier > 0
             ? "Both"
@@ -1244,22 +1305,41 @@ router.post("/claim", protect, standardIntegrityVerification, async (req, res) =
       data: {
         day: day.dayNumber,
         coins,
-        xp: finalXPWithTier, // Final XP value after tier multiplier (e.g., 65 = 50 base × 1.3 multiplier)
-        baseXp: baseXPTotal, // Base XP value before tier multiplier (e.g., 50)
-        tierMultiplier: tierMultiplier, // Tier multiplier that was applied (e.g., 1.3)
-        accessBenefitsMultiplier: tierMultiplier, // Same as tierMultiplier (for clarity)
+        xp: finalXPWithTier, // ADM-DR-006 FIX: Final XP value after both multipliers (Base × Weekly × Tier)
+        baseXp: baseXPTotal, // Base XP value after weekly multiplier, before tier multiplier
+        tierMultiplier: tierMultiplier, // ADM-DR-006 FIX: Tier multiplier from XPTier.accessBenefits
+        accessBenefitsMultiplier: tierMultiplier, // Same as tierMultiplier (from XPTier.accessBenefits)
         bigReward: !!bigReward,
         weekNumber,
         weekMultiplier: weekNumber > 1 ? weekMultiplier : 1.0,
         newBalance: user.wallet.balance,
         newXP: user.xp.current,
+        // ADM-DR-006 FIX: Calculation formula for transparency
+        calculation: `Base XP (${baseXP}) × Weekly (${weekNumber > 1 && cfg.weeklyMultiplier?.enabled ? weekMultiplier : 1.0}) × Tier (${tierMultiplier}) = ${finalXPWithTier}`,
       },
     });
   } catch (e) {
-    console.error("Error claiming daily reward:", e);
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to claim daily reward" });
+    console.error("❌ ADM-DR-006: Error claiming daily reward:", e);
+    console.error("Error stack:", e.stack);
+    
+    // ADM-DR-006 FIX: Better error handling to prevent crashes
+    // Return detailed error for debugging, but don't expose sensitive info
+    const errorMessage = e.message || "Failed to claim daily reward";
+    const statusCode = e.statusCode || 500;
+    
+    res.status(statusCode).json({ 
+      success: false, 
+      error: "Failed to claim daily reward",
+      message: process.env.NODE_ENV === 'development' ? errorMessage : "An error occurred while claiming your reward. Please try again.",
+      // Include error details in development only
+      ...(process.env.NODE_ENV === 'development' && {
+        details: {
+          name: e.name,
+          message: e.message,
+          stack: e.stack
+        }
+      })
+    });
   }
 });
 

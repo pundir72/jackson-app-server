@@ -82,6 +82,9 @@ async function validateProbabilityConfiguration(rewardData, excludeRewardId = nu
           tier: tier,
           probability: probability,
           message: `Probability ${probability}% is already used by another reward in tier ${tier}`,
+          userFriendlyMessage: `The probability ${probability}% is already assigned to another reward in the ${tier} tier. Please choose a different percentage for this tier.`,
+          suggestion: `Try using ${probability + 1}%, ${probability + 2}%, or ${probability + 5}% instead.`,
+          clarification: "Note: You CAN use the same probability in different tiers (e.g., 10% in Bronze AND 10% in Silver), but NOT within the same tier.",
           conflictingRewards: duplicateProbabilities.map(r => ({
             id: r._id,
             name: r.name,
@@ -113,7 +116,10 @@ async function validateProbabilityConfiguration(rewardData, excludeRewardId = nu
           type: 'TIER_PROBABILITY_EXCEEDED',
           tier: tier,
           totalProbability: tierTotalProbability,
-          message: `Total probability for tier ${tier} would be ${tierTotalProbability}%, which exceeds 100%`
+          message: `Total probability for tier ${tier} would be ${tierTotalProbability}%, which exceeds 100%`,
+          userFriendlyMessage: `Adding this ${probability}% reward would make the ${tier} tier total ${tierTotalProbability}%, which exceeds the 100% limit.`,
+          suggestion: `Maximum probability you can use for ${tier} tier is ${100 - (tierTotalProbability - probability)}%.`,
+          clarification: "Each tier has its own 100% limit. You can have multiple tiers each reaching 100% independently."
         });
         
         console.log(`❌ Tier ${tier} probability exceeds 100%: ${tierTotalProbability}%`);

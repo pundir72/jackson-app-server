@@ -104,7 +104,7 @@ router.get('/xp-decay-v2', async (req, res) => {
     console.error('Error fetching XP Decay Settings V2:', error)
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP Decay Settings V2',
+      error: 'Failed to fetch XP Decay Settings',
     })
   }
 })
@@ -117,7 +117,7 @@ router.get('/xp-decay-v2/:id', async (req, res) => {
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP Decay Setting V2 not found',
+        error: 'XP Decay Setting not found',
       })
     }
 
@@ -129,7 +129,7 @@ router.get('/xp-decay-v2/:id', async (req, res) => {
     console.error('Error fetching XP Decay Setting V2:', error)
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch XP Decay Setting V2',
+      error: 'Failed to fetch XP Decay Setting',
     })
   }
 })
@@ -346,10 +346,10 @@ router.post('/xp-decay-v2', async (req, res) => {
     res.status(201).json({
       success: true,
       data: newSetting,
-      message: 'XP Decay Setting V2 created successfully',
+      message: 'XP Decay Setting created successfully',
     })
   } catch (error) {
-    console.error('Error creating XP Decay Setting V2:', error)
+    console.error('Error creating XP Decay Setting:', error)
 
     // CRITICAL FIX: Handle validation errors from model pre-save hook
     if (error.name === 'ValidationError' || error.errors) {
@@ -389,7 +389,7 @@ router.post('/xp-decay-v2', async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: 'Failed to create XP Decay Setting V2',
+      error: 'Failed to create XP Decay Setting',
       details: error.message,
     })
   }
@@ -438,7 +438,7 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP Decay Setting V2 not found',
+        error: 'XP Decay Setting not found',
       })
     }
 
@@ -609,10 +609,10 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     res.json({
       success: true,
       data: setting,
-      message: 'XP Decay Setting V2 updated successfully',
+      message: 'XP Decay Setting updated successfully',
     })
   } catch (error) {
-    console.error('Error updating XP Decay Setting V2:', error)
+    console.error('Error updating XP Decay Setting:', error)
 
     // CRITICAL FIX: Handle validation errors from model pre-save hook
     if (error.name === 'ValidationError' || error.errors) {
@@ -652,7 +652,7 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: 'Failed to update XP Decay Setting V2',
+      error: 'Failed to update XP Decay Setting',
       details: error.message,
     })
   }
@@ -666,7 +666,7 @@ router.delete('/xp-decay-v2/:id', async (req, res) => {
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP Decay Setting V2 not found',
+        error: 'XP Decay Setting not found',
       })
     }
 
@@ -674,14 +674,14 @@ router.delete('/xp-decay-v2/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'XP Decay Setting V2 deleted successfully',
+      message: 'XP Decay Setting deleted successfully',
       data: { id: setting._id, tier: setting.tier },
     })
   } catch (error) {
-    console.error('Error deleting XP Decay Setting V2:', error)
+    console.error('Error deleting XP Decay Setting:', error)
     res.status(500).json({
       success: false,
-      error: 'Failed to delete XP Decay Setting V2',
+      error: 'Failed to delete XP Decay Setting',
     })
   }
 })
@@ -694,7 +694,7 @@ router.patch('/xp-decay-v2/:id/status', async (req, res) => {
     if (!setting) {
       return res.status(404).json({
         success: false,
-        error: 'XP Decay Setting V2 not found',
+        error: 'XP Decay Setting not found',
       })
     }
 
@@ -703,14 +703,14 @@ router.patch('/xp-decay-v2/:id/status', async (req, res) => {
 
     res.json({
       success: true,
-      message: `XP Decay Setting V2 ${setting.status ? 'activated' : 'deactivated'} successfully`,
+      message: `XP Decay Setting ${setting.status ? 'activated' : 'deactivated'} successfully`,
       data: { status: setting.status },
     })
   } catch (error) {
-    console.error('Error toggling XP Decay Setting V2 status:', error)
+    console.error('Error toggling XP Decay Setting status:', error)
     res.status(500).json({
       success: false,
-      error: 'Failed to toggle XP Decay Setting V2 status',
+      error: 'Failed to toggle XP Decay Setting status',
     })
   }
 })

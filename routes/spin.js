@@ -36,7 +36,7 @@ function isTierEligible(userTier, eligibleTiers) {
 
   const normalizedUserTier = normalizeTier(userTier);
   return eligibleTiers.some(
-    (tier) => normalizeTier(tier) === normalizedUserTier
+    (tier) => normalizeTier(tier) === normalizedUserTier,
   );
 }
 
@@ -179,8 +179,8 @@ router.get("/status", protect, async (req, res) => {
           reason: !isEligible
             ? "Not eligible for this spin wheel"
             : !isWithinDateRange
-            ? "Spin wheel is not currently active. Please check the campaign dates."
-            : "Spin wheel is not active",
+              ? "Spin wheel is not currently active. Please check the campaign dates."
+              : "Spin wheel is not active",
         },
       });
     }
@@ -248,8 +248,8 @@ router.get("/status", protect, async (req, res) => {
           ? !canSpinByCooldown
             ? `Cooldown active. Please wait ${cooldownRemaining} more minutes.`
             : remainingSpins === 0
-            ? "Daily spin limit reached"
-            : "Cannot spin"
+              ? "Daily spin limit reached"
+              : "Cannot spin"
           : null,
       },
     });
@@ -351,7 +351,7 @@ router.post("/spin", protect, async (req, res) => {
     // This fixes BUG-065: Rewards with <100% probability should allow "no reward" outcomes
     const totalProbability = eligibleRewards.reduce(
       (sum, r) => sum + (r.probability || 0),
-      0
+      0,
     );
 
     let selectedReward = null;
@@ -360,7 +360,9 @@ router.post("/spin", protect, async (req, res) => {
       // Fallback: equal probability for all rewards if no probabilities set
       const randomIndex = Math.floor(Math.random() * eligibleRewards.length);
       selectedReward = eligibleRewards[randomIndex];
-      console.log(`🎲 Spin: Equal distribution selected ${selectedReward.name}`);
+      console.log(
+        `🎲 Spin: Equal distribution selected ${selectedReward.name}`,
+      );
     } else {
       // FIXED ALGORITHM: Generate random in [0, 100) range to allow "no reward" outcomes
       // This is the key fix for BUG-065
@@ -382,9 +384,13 @@ router.post("/spin", protect, async (req, res) => {
 
       // Log the outcome for debugging
       if (selectedReward) {
-        console.log(`🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) - Random: ${random.toFixed(2)}, Total: ${totalProbability}%`);
+        console.log(
+          `🎲 Spin: Selected ${selectedReward.name} (${selectedReward.probability}%) - Random: ${random.toFixed(2)}, Total: ${totalProbability}%`,
+        );
       } else {
-        console.log(`🎲 Spin: No reward selected - Random: ${random.toFixed(2)}, Total: ${totalProbability}% (${100 - totalProbability}% chance of no reward)`);
+        console.log(
+          `🎲 Spin: No reward selected - Random: ${random.toFixed(2)}, Total: ${totalProbability}% (${100 - totalProbability}% chance of no reward)`,
+        );
       }
     }
 
@@ -849,9 +855,8 @@ async function getUserVIPBenefits(userId) {
     const VIPTier = require("../models/VIPTier");
     const VIPSubscription = require("../models/VIPSubscription");
 
-    const activeSubscription = await VIPSubscription.getActiveSubscription(
-      userId
-    );
+    const activeSubscription =
+      await VIPSubscription.getActiveSubscription(userId);
 
     if (!activeSubscription || !activeSubscription.isActive()) {
       return {

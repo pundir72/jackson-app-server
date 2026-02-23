@@ -2,7 +2,9 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const protect = require("../middleware/auth");
-const { standardIntegrityVerification } = require("../middleware/integrityVerification");
+const {
+  standardIntegrityVerification,
+} = require("../middleware/integrityVerification");
 const User = require("../models/User");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
@@ -519,44 +521,49 @@ router.put("/score", protect, async (req, res) => {
 });
 
 // Complete game
-router.put("/complete", protect, standardIntegrityVerification, async (req, res) => {
-  try {
-    const { gameId } = req.body;
+router.put(
+  "/complete",
+  protect,
+  standardIntegrityVerification,
+  async (req, res) => {
+    try {
+      const { gameId } = req.body;
 
-    const user = await User.findById(req.user.userId);
+      const user = await User.findById(req.user.userId);
 
-    // Find game and mark as completed
-    const game = user.games.find((g) => g.gameId === gameId);
-    if (!game) {
-      return res.status(404).json({ message: "Game not found" });
-    }
-
-    game.completed = true;
-    // Set progress to 100% when game is completed
-    game.progress = 100;
-    await user.save();
-
-    // Track achievements for game completion
-    setImmediate(async () => {
-      try {
-        await trackAchievements(req.user.userId, "games", {
-          completed: true,
-          gameId: gameId,
-          category: "game_completion",
-        });
-      } catch (error) {
-        console.error("Error tracking game completion achievements:", error);
+      // Find game and mark as completed
+      const game = user.games.find((g) => g.gameId === gameId);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
       }
-    });
 
-    res.json({
-      message: "Game completed successfully",
-      game,
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+      game.completed = true;
+      // Set progress to 100% when game is completed
+      game.progress = 100;
+      await user.save();
+
+      // Track achievements for game completion
+      setImmediate(async () => {
+        try {
+          await trackAchievements(req.user.userId, "games", {
+            completed: true,
+            gameId: gameId,
+            category: "game_completion",
+          });
+        } catch (error) {
+          console.error("Error tracking game completion achievements:", error);
+        }
+      });
+
+      res.json({
+        message: "Game completed successfully",
+        game,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  },
+);
 
 // Track a game install/download (internal tracking, not Besitos)
 router.post("/install", protect, async (req, res) => {
@@ -1600,23 +1607,6 @@ router.get("/discover", protect, async (req, res) => {
       // If no games found, we previously logged debug information; now it's silent
     }
 
-    // Apply display rule limit when rule matches, for all UI sections EXCEPT "Swipe" and "Most Played"
-    const normalizedUiSection = (uiSection || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-    const skipLimitForSection =
-      normalizedUiSection === "swipe" ||
-      normalizedUiSection === "most played" ||
-      normalizedUiSection === "mostplayed";
-    if (
-      maxGamesFromRule &&
-      !skipLimitForSection &&
-      allGames.length > maxGamesFromRule
-    ) {
-      allGames = allGames.slice(0, maxGamesFromRule);
-    }
-
     // Get user's XP tier from admin configuration (XPTier model)
     const userXp = user.xp?.current || 0;
 
@@ -1798,6 +1788,30 @@ router.get("/discover", protect, async (req, res) => {
 
     const afterAvailabilityCount = allGames.length;
     // ===== END REAL-TIME AVAILABILITY CHECKING =====
+
+    // Apply display rule limit AFTER availability check (for all UI sections EXCEPT listed)
+    const UI_SECTIONS_SKIP_DISPLAY_RULE_LIMIT = [
+      "gametips",
+      "highest earning",
+      "leadership",
+      "most played",
+      "most played screen",
+      "cash coach recommendation",
+    ];
+    const normalizedUiSection = (uiSection || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    const skipLimitForSection =
+      normalizedUiSection &&
+      UI_SECTIONS_SKIP_DISPLAY_RULE_LIMIT.includes(normalizedUiSection);
+    if (
+      maxGamesFromRule &&
+      !skipLimitForSection &&
+      allGames.length > maxGamesFromRule
+    ) {
+      allGames = allGames.slice(0, maxGamesFromRule);
+    }
 
     // Apply pagination
     const total = allGames.length;
@@ -3283,17 +3297,18 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
 
     // 🎯 ADJUST TRACKING: Game Task Completion
     try {
-      const { trackTaskCompletion } = require('../utils/adjustTracker');
+      const { trackTaskCompletion } = require("../utils/adjustTracker");
       await trackTaskCompletion(user._id.toString(), {
         gameId: gameId,
         taskId: taskId,
         isBonusTask: isBonusTask,
-        rewardAmount: task.rewardType === "xp" ? calculatedXP : task.rewardValue,
+        rewardAmount:
+          task.rewardType === "xp" ? calculatedXP : task.rewardValue,
         taskName: task.name,
-        deviceId: user.deviceId
+        deviceId: user.deviceId,
       });
     } catch (adjustError) {
-      console.error('Adjust task tracking failed:', adjustError);
+      console.error("Adjust task tracking failed:", adjustError);
       // Don't fail task completion due to tracking error
     }
 

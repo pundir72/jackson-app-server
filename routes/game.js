@@ -1978,9 +1978,9 @@ router.get("/discover", protect, async (req, res) => {
           sdkProvider: g.sdkProvider || null,
           xpRewardConfig: (() => {
             const rawBaseXP = g.xpRewardConfig?.baseXP ?? 0;
-            // Apply XP tier multiplier into baseXP; response multiplier is always 1
+            // Apply XP tier multiplier into baseXP
             const baseXP = Math.round(rawBaseXP * discoverTierMultiplier);
-            const multiplier = 1;
+            const multiplier = g.xpRewardConfig?.multiplier ?? 1;
             return { baseXP, multiplier };
           })(),
           _id: g._id,

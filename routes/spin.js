@@ -265,6 +265,19 @@ router.get("/status", protect, async (req, res) => {
         ? 1.0
         : DEFAULT_SPIN_CONFIG.vipMultiplier?.[userTier.toLowerCase()] || 1.0);
 
+    // Get last spin time and calculate cooldown remaining
+    const lastSpinTime = await getLastSpinTime(req.user.userId);
+    const cooldownMinutes = config.cooldownMinutes || 360;
+    let cooldownRemaining = 0;
+
+    if (lastSpinTime) {
+      const now = Date.now();
+      const lastSpinMs = lastSpinTime.getTime();
+      const cooldownMs = cooldownMinutes * 60 * 1000;
+      const elapsedMs = now - lastSpinMs;
+      cooldownRemaining = Math.max(0, cooldownMs - elapsedMs);
+    }
+
     // Return spin status
     res.json({
       success: true,
@@ -274,7 +287,9 @@ router.get("/status", protect, async (req, res) => {
         dailyLimit: dailyLimit,
         vipMultiplier: vipMultiplier,
         isVIP: !!user.vip?.level,
-        lastSpinTime: null, // You can add logic to get last spin time if needed
+        lastSpinTime: lastSpinTime,
+        cooldownRemaining: cooldownRemaining,
+        cooldownMinutes: cooldownMinutes,
       },
     });
   } catch (error) {
@@ -320,6 +335,7 @@ router.post("/spin", protect, async (req, res) => {
         error: !isEligible
           ? "Not eligible for this spin wheel"
           : "Spin wheel is not currently active. Please check the campaign dates.",
+        cooldownMinutes: config.cooldownMinutes || 360,
       });
     }
 
@@ -351,6 +367,7 @@ router.post("/spin", protect, async (req, res) => {
         data: {
           remainingSpins: 0,
           dailyLimit: dailyLimit,
+          cooldownMinutes: config.cooldownMinutes || 360,
         },
       });
     }
@@ -404,11 +421,27 @@ router.post("/spin", protect, async (req, res) => {
       config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
 
     let finalAmount;
+    let tierMultiplierValue = 1.0;
+    let tierName = "";
+
     if (selectedReward.type === "coins" || selectedReward.type === "coin") {
       finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
     } else if (selectedReward.type === "xp" || selectedReward.type === "XP") {
-      // XP rewards don't get VIP multiplier (use exact amount)
-      finalAmount = selectedReward.amount;
+      // XP rewards get BOTH VIP multiplier and tier multiplier
+      let xpAmountWithVIP = selectedReward.amount * vipMultiplier;
+
+      // Apply XP tier multiplier based on user's current XP level
+      const tierMultiplierResult = await applyTierMultiplierToXP(
+        user,
+        xpAmountWithVIP,
+      );
+      finalAmount = Math.floor(tierMultiplierResult.finalXP);
+      tierMultiplierValue = tierMultiplierResult.multiplier;
+      tierName = tierMultiplierResult.tier;
+
+      console.log(
+        `📊 XP Spin Multipliers - Base: ${selectedReward.amount}, VIP: ${vipMultiplier}x, Tier: ${tierMultiplierValue}x (${tierName}), Final: ${finalAmount}`,
+      );
     } else {
       finalAmount = selectedReward.amount;
     }
@@ -423,9 +456,20 @@ router.post("/spin", protect, async (req, res) => {
       rewardType: selectedReward.type,
       rewardAmount: finalAmount,
       vipMultiplier:
-        selectedReward.type === "coins" || selectedReward.type === "coin"
+        selectedReward.type === "coins" ||
+        selectedReward.type === "coin" ||
+        selectedReward.type === "xp" ||
+        selectedReward.type === "XP"
           ? vipMultiplier
           : 1.0,
+      tierMultiplier:
+        selectedReward.type === "xp" || selectedReward.type === "XP"
+          ? tierMultiplierValue
+          : 1.0,
+      tierName:
+        selectedReward.type === "xp" || selectedReward.type === "XP"
+          ? tierName
+          : "",
       spinMode: config.spinMode || "free",
       userTier: userTier,
       isWin: true,
@@ -467,7 +511,7 @@ router.post("/spin", protect, async (req, res) => {
           type: "credit",
           balanceType: "xp",
           amount: xpEarned,
-          description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
+          description: `Spin reward - ${selectedReward.name} (Base: ${selectedReward.amount} → VIP: ${vipMultiplier}x → Tier: ${tierMultiplierValue}x (${tierName}) → Total: ${xpEarned} XP)`,
           status: "completed",
           referenceId: spinLog.spinId,
         });
@@ -486,6 +530,10 @@ router.post("/spin", protect, async (req, res) => {
       $inc: { "stats.totalWins": 1 },
       $set: { "stats.lastWon": new Date() },
     });
+
+    // Get cooldown information for response
+    const cooldownMinutes = config.cooldownMinutes || 360;
+    const cooldownMs = cooldownMinutes * 60 * 1000;
 
     res.json({
       success: true,
@@ -506,11 +554,16 @@ router.post("/spin", protect, async (req, res) => {
           metadata: selectedReward.metadata,
         },
         vipMultiplier:
-          selectedReward.type === "coins" || selectedReward.type === "coin"
+          selectedReward.type === "coins" ||
+          selectedReward.type === "coin" ||
+          selectedReward.type === "xp" ||
+          selectedReward.type === "XP"
             ? vipMultiplier
             : 1.0,
         userTier,
         status: config.spinMode === "ad_based" ? "pending" : "completed",
+        cooldownRemaining: cooldownMs,
+        cooldownMinutes: cooldownMinutes,
         ...(config.spinMode !== "ad_based" && {
           coinsEarned,
           xpEarned,
@@ -644,19 +697,19 @@ router.post("/redeem", protect, async (req, res) => {
       // NO bonus XP for coin rewards
       xpEarned = 0;
     } else if (rewardType === "xp" || rewardType === "XP") {
-      // Only give XP for XP rewards - use exact configured amount (no multiplier)
-      xpEarned = spinLog.rewardAmount; // This is the exact configured amount, no multiplier applied
+      // Only give XP for XP rewards - amount already includes VIP and tier multipliers from spin
+      xpEarned = spinLog.rewardAmount; // This includes VIP multiplier and tier multiplier applied
       user.xp.current += xpEarned;
       user.xp.total += xpEarned;
       // Do NOT give coins for XP rewards
 
-      // Create transaction record for XP
+      // Create transaction record for XP (showing final amount with all multipliers)
       transaction = new Transaction({
         user: userId,
         type: "credit",
         balanceType: "xp",
         amount: xpEarned,
-        description: `Spin reward - ${spinLog.rewardName} (${xpEarned} XP)`,
+        description: `Spin reward - ${spinLog.rewardName} (Base: ${spinLog.reward?.amount || 0} → VIP: ${spinLog.vipMultiplier}x → Tier: ${spinLog.tierMultiplier}x (${spinLog.tierName}) → Total: ${xpEarned} XP)`,
         status: "completed",
         referenceId: spinLog.spinId || spinLog._id.toString(),
       });

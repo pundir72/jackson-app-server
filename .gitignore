@@ -143,6 +143,7 @@ package-lock.json
 docs
 Jackson_App_Complete_API_Collection_Updated.json
 scripts/
+JacksonRewardsApp/
 Jackson_App_Complete_API_Collection_Final.json
 Reward_Jackson_Consolidated_Requirements_42Docs.pdf
 complete_requirements.md
@@ -247,3 +248,4 @@ BUG-063-TESTER-CONFIRMATION.md
 BUG-065-TESTER-CONFIRMATION.md
 COMPLETE_IMPLEMENTATION_AND_BUGS_SUMMARY.md
 GOOGLE_PLAY_IAP_ACTION_REQUIRED.md
+JacksonRewardsApp/

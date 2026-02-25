@@ -5,7 +5,9 @@ const daySchema = new mongoose.Schema({
   status: { type: String, enum: ['locked', 'claimable', 'claimed', 'missed'], default: 'locked' },
   claimedAt: { type: Date },
   coins: { type: Number, default: 0 },
-  xp: { type: Number, default: 0 }
+  xp: { type: Number, default: 0 },
+  // ADM-DR-001 FIX: Hidden flag for days before user joined (first week only)
+  hidden: { type: Boolean, default: false }
 }, { _id: false });
 
 const dailyRewardProgressSchema = new mongoose.Schema({

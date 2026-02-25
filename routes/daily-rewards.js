@@ -30,11 +30,13 @@ const { loadProgressFixed, calculateMidWeekJoinMetadataFixed } = require("../uti
 /**
  * Load or create weekly progress for Daily Rewards
  * 
- * ADM-DR-001 FIX: This now uses the fixed logic that ensures new users
- * get a full 7-day reward experience regardless of when they join.
+ * ADM-DR-001 FIX: Correct behavior for mid-week join
  * 
- * NEW BEHAVIOR:
- * - FIRST WEEK: User-relative days starting from join date (Day 1, 2, 3...)
+ * CORRECT BEHAVIOR:
+ * - FIRST WEEK: User-relative days (Day 1, 2, 3... starting from join date)
+ *   - User joins on Wednesday → Wednesday becomes "Day 1"
+ *   - User gets full 7 consecutive days of rewards
+ *   - Days before join are hidden from UI
  * - SUBSEQUENT WEEKS: Calendar-based days (Monday, Tuesday, Wednesday...)
  * 
  * @param {string} userId - User ID
@@ -42,7 +44,7 @@ const { loadProgressFixed, calculateMidWeekJoinMetadataFixed } = require("../uti
  * @returns {Object|null} DailyRewardProgress document or null if access denied
  */
 async function loadProgress(userId, dateUtc = new Date()) {
-  // ADM-DR-001 FIX: Use the fixed progress loader
+  // ADM-DR-001 FIX: Use the fixed progress loader with correct first-week logic
   return await loadProgressFixed(userId, dateUtc);
 }
 
@@ -293,7 +295,10 @@ router.get("/week", protect, async (req, res) => {
       }
 
       // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
-      const enrichedDays = progress.days.map((day) => {
+      // ADM-DR-001 FIX: Filter out hidden days (days before user joined in first week)
+      const enrichedDays = progress.days
+        .filter((day) => !day.hidden) // Remove hidden days from response
+        .map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
         // ADM-DR-011 FIX: Use admin config V2 values only - check if day is active
         if (!dayConfig || !dayConfig.active) {
@@ -491,7 +496,10 @@ router.get("/week", protect, async (req, res) => {
       }
 
       // Enrich days with reward values from config (ONLY from admin config, no fallbacks)
-      const enrichedDays = currentProgress.days.map((day) => {
+      // ADM-DR-001 FIX: Filter out hidden days (days before user joined in first week)
+      const enrichedDays = currentProgress.days
+        .filter((day) => !day.hidden) // Remove hidden days from response
+        .map((day) => {
         const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
         // Use admin config values only - if not found, config is invalid
         if (!dayConfig || !dayConfig.active) {
@@ -650,7 +658,10 @@ router.get("/week", protect, async (req, res) => {
     }
 
     // Enrich days with reward values from config (ONLY from admin config V2, no fallbacks)
-    const enrichedDays = progress.days.map((day) => {
+    // ADM-DR-001 FIX: Filter out hidden days (days before user joined in first week)
+    const enrichedDays = progress.days
+      .filter((day) => !day.hidden) // Remove hidden days from response
+      .map((day) => {
       const dayConfig = cfg.days.find((d) => d.dayNumber === day.dayNumber);
       
       // Special handling for day 7
@@ -855,6 +866,10 @@ router.get("/week", protect, async (req, res) => {
         midWeekJoin: midWeekJoinMetadata,
         // YEAR TRANSITION METADATA: Clarify weekly multiplier behavior across year boundaries
         yearTransition: yearTransitionMetadata,
+        // ADM-DR-001 FIX: Display mode for frontend
+        displayMode: progress._doc?.displayMode || 'CALENDAR',
+        isFirstWeek: progress._doc?.isFirstWeek || false,
+        userJoinDayIndex: progress._doc?.userJoinDayIndex,
       },
     });
   } catch (e) {

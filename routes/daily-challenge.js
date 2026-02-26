@@ -4751,9 +4751,10 @@ router.post("/complete", protect, async (req, res) => {
       transactionMetadata.gameRef = linkedGameObjectId;
     }
 
-    // Transaction log always created with status "completed" (pending commented out)
-    // const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
-    const transactionStatus = "completed";
+    // CRITICAL FIX: Transaction status must match whether rewards were actually credited
+    // If shouldCreditImmediately is false (manual claim type), transaction should be "pending"
+    // until user claims via /claim-reward endpoint
+    const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
     const baseReferenceId = `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`;
 
     // Determine primary balance type and amount (use coins if both exist, otherwise use whichever exists)

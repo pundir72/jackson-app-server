@@ -244,8 +244,13 @@ appLovinRewardedAdSchema.statics.getUserCompletions = async function (
  * Get ad completion stats
  */
 appLovinRewardedAdSchema.statics.getCompletionStats = async function (userId) {
+  // Convert userId to ObjectId if it's a string
+  const userIdObjectId = typeof userId === 'string' 
+    ? new mongoose.Types.ObjectId(userId) 
+    : userId;
+  
   return await this.aggregate([
-    { $match: { userId: mongoose.Types.ObjectId(userId) } },
+    { $match: { userId: userIdObjectId } },
     {
       $group: {
         _id: "$status",

@@ -34,10 +34,10 @@ class AffiseService {
     this.debug =
       process.env.AFFISE_DEBUG !== "0" && process.env.AFFISE_DEBUG !== "false";
 
-    console.log("🔵 [AFFISE SERVICE] Initialization:");
-    console.log("🔵 [AFFISE SERVICE] - Base URL:", this.baseURL);
-    console.log("🔵 [AFFISE SERVICE] - API Version:", this.apiVersion);
-    console.log("🔵 [AFFISE SERVICE] - API Key configured:", !!this.apiKey);
+    // console.log("🔵 [AFFISE SERVICE] Initialization:");
+    // console.log("🔵 [AFFISE SERVICE] - Base URL:", this.baseURL);
+    // console.log("🔵 [AFFISE SERVICE] - API Version:", this.apiVersion);
+    // console.log("🔵 [AFFISE SERVICE] - API Key configured:", !!this.apiKey);
     console.log(
       "🔵 [AFFISE SERVICE] - API Key (masked):",
       maskKey(this.apiKey),

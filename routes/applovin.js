@@ -354,14 +354,36 @@ router.post("/rewarded-ad/complete", protect, async (req, res) => {
     user.xp.current = (user.xp.current || 0) + finalXP;
     user.xp.total = (user.xp.total || 0) + finalXP;
 
+    // Ensure required fields are initialized to prevent validation errors
+    if (!user.onboarding.dailyGoals) {
+      user.onboarding.dailyGoals = {};
+    }
+    if (user.onboarding.dailyGoals.gamesPlayed === undefined || user.onboarding.dailyGoals.gamesPlayed === null || user.onboarding.dailyGoals.gamesPlayed < 1) {
+      user.onboarding.dailyGoals.gamesPlayed = 5; // Default value
+    }
+    if (user.onboarding.dailyGoals.coinsEarned === undefined || user.onboarding.dailyGoals.coinsEarned === null || user.onboarding.dailyGoals.coinsEarned < 100) {
+      user.onboarding.dailyGoals.coinsEarned = 900; // Default value
+    }
+    if (user.onboarding.dailyGoals.challengesCompleted === undefined || user.onboarding.dailyGoals.challengesCompleted === null || user.onboarding.dailyGoals.challengesCompleted < 1) {
+      user.onboarding.dailyGoals.challengesCompleted = 3; // Default value
+    }
+
+    // Ensure biometric.type is set to a valid enum value
+    if (!user.biometric) {
+      user.biometric = {};
+    }
+    if (!user.biometric.type || !['none', 'face_id', 'fingerprint'].includes(user.biometric.type)) {
+      user.biometric.type = 'none'; // Default value
+    }
+
     await user.save();
 
     // Create transaction record
     const transaction = new Transaction({
-      userId: user._id,
+      user: user._id, // Transaction model uses 'user' field, not 'userId'
       type: "credit",
       amount: coinsToCredit,
-      currency: "coins",
+      balanceType: "coins", // Transaction model uses 'balanceType' instead of 'currency'
       description: `AppLovin MAX rewarded ad - ${adRecord.adUnitId}`,
       referenceId: adRecord._id.toString(),
       metadata: {

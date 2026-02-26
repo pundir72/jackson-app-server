@@ -1356,8 +1356,8 @@ async function getAdminConfiguredOffers(
  * Checks admin-configured offers first, then falls back to BitLab API
  */
 router.get("/", protect, async (req, res) => {
-  console.log("\n🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG ==========");
-  console.log("🔵 [MAIN ROUTE] Request received at:", new Date().toISOString());
+  // console.log("\n🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG ==========");
+  // console.log("🔵 [MAIN ROUTE] Request received at:", new Date().toISOString());
 
   try {
     const {
@@ -1374,16 +1374,16 @@ router.get("/", protect, async (req, res) => {
     // Trim whitespace from useAdminConfig to handle cases like "true " or " true"
     const trimmedUseAdminConfig = String(useAdminConfig).trim();
 
-    console.log("🔵 [MAIN ROUTE] Request Parameters:", {
-      type,
-      category,
-      page,
-      limit,
-      useAdminConfig: useAdminConfig,
-      useAdminConfigTrimmed: trimmedUseAdminConfig,
-      useAdminConfigLength: useAdminConfig?.length,
-      userId: req.user?.userId,
-    });
+    // console.log("🔵 [MAIN ROUTE] Request Parameters:", {
+    //   type,
+    //   category,
+    //   page,
+    //   limit,
+    //   useAdminConfig: useAdminConfig,
+    //   useAdminConfigTrimmed: trimmedUseAdminConfig,
+    //   useAdminConfigLength: useAdminConfig?.length,
+    //   userId: req.user?.userId,
+    // });
 
     const user = await User.findById(req.user.userId).select(
       "xp vip profile location preferences onboarding",
@@ -1397,15 +1397,15 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
-    console.log("🔵 [MAIN ROUTE] User found:", {
-      userId: user._id.toString(),
-      hasLocation: !!user.location,
-      hasPreferences: !!user.preferences,
-      hasXP: !!user.xp,
-      hasOnboarding: !!user.onboarding,
-      gender: user.onboarding?.gender || "N/A",
-      ageRange: user.onboarding?.ageRange || "N/A",
-    });
+    // console.log("🔵 [MAIN ROUTE] User found:", {
+    //   userId: user._id.toString(),
+    //   hasLocation: !!user.location,
+    //   hasPreferences: !!user.preferences,
+    //   hasXP: !!user.xp,
+    //   hasOnboarding: !!user.onboarding,
+    //   gender: user.onboarding?.gender || "N/A",
+    //   ageRange: user.onboarding?.ageRange || "N/A",
+    // });
 
     // Device type affects eligibility for admin-configured NonGameOffer.requirements.deviceType
     // Cashback offers are typically web-based, so treat deviceType as "web" for type=cashback
@@ -1421,14 +1421,14 @@ router.get("/", protect, async (req, res) => {
       hasGoogleId: !!user.social?.googleId, // Skip gender restrictions for Google users
     };
 
-    console.log("🔵 [MAIN ROUTE] User Profile:", {
-      age: userProfile.age,
-      gender: userProfile.gender,
-      country: userProfile.country,
-      language: userProfile.language,
-      xp: userProfile.xp,
-      deviceType: userProfile.deviceType,
-    });
+    // console.log("🔵 [MAIN ROUTE] User Profile:", {
+    //   age: userProfile.age,
+    //   gender: userProfile.gender,
+    //   country: userProfile.country,
+    //   language: userProfile.language,
+    //   xp: userProfile.xp,
+    //   deviceType: userProfile.deviceType,
+    // });
 
     let offers = [];
     let categorized = {
@@ -1441,11 +1441,11 @@ router.get("/", protect, async (req, res) => {
     let source = "bitlab_direct";
 
     // Step 1: Check admin-configured offers first
-    console.log("🔵 [MAIN ROUTE] useAdminConfig check:", {
-      original: rawUseAdminConfig,
-      trimmed: useAdminConfig,
-      willExecute: useAdminConfig === "true",
-    });
+    // console.log("🔵 [MAIN ROUTE] useAdminConfig check:", {
+    //   original: rawUseAdminConfig,
+    //   trimmed: useAdminConfig,
+    //   willExecute: useAdminConfig === "true",
+    // });
 
     if (useAdminConfig === "true") {
       console.log(
@@ -1465,16 +1465,16 @@ router.get("/", protect, async (req, res) => {
         };
 
         const offerType = typeMap[type] || "all";
-        console.log("🔵 [MAIN ROUTE] Type mapping:", {
-          requestedType: type,
-          mappedOfferType: offerType,
-        });
+        // console.log("🔵 [MAIN ROUTE] Type mapping:", {
+        //   requestedType: type,
+        //   mappedOfferType: offerType,
+        // });
 
-        console.log("🔵 [MAIN ROUTE] Calling getAdminConfiguredOffers with:", {
-          offerType,
-          userId: user._id.toString(),
-          category,
-        });
+        // console.log("🔵 [MAIN ROUTE] Calling getAdminConfiguredOffers with:", {
+        //   offerType,
+        //   userId: user._id.toString(),
+        //   category,
+        // });
 
         const adminOffers = await getAdminConfiguredOffers(
           offerType,
@@ -1484,15 +1484,15 @@ router.get("/", protect, async (req, res) => {
           category,
         );
 
-        console.log("🔵 [MAIN ROUTE] Admin offers received:", {
-          totalCount: adminOffers.length,
-          sampleOffers: adminOffers.slice(0, 3).map((o) => ({
-            type: o.type || o.offerType,
-            merchant_id: o.merchant_id,
-            merchant_name: o.merchant_name,
-            primary_category: o.primary_category,
-          })),
-        });
+        // console.log("🔵 [MAIN ROUTE] Admin offers received:", {
+        //   totalCount: adminOffers.length,
+        //   sampleOffers: adminOffers.slice(0, 3).map((o) => ({
+        //     type: o.type || o.offerType,
+        //     merchant_id: o.merchant_id,
+        //     merchant_name: o.merchant_name,
+        //     primary_category: o.primary_category,
+        //   })),
+        // });
 
         if (adminOffers.length > 0) {
           // Group by type (use offerType for admin-configured offers; type for API-shaped)
@@ -1515,13 +1515,13 @@ router.get("/", protect, async (req, res) => {
             }
           });
 
-          console.log("🔵 [MAIN ROUTE] Categorized offers:", {
-            surveys: categorized.surveys.length,
-            cashback: categorized.cashback.length,
-            shopping: categorized.shopping.length,
-            magicReceipts: categorized.magicReceipts.length,
-            other: categorized.other.length,
-          });
+          // console.log("🔵 [MAIN ROUTE] Categorized offers:", {
+          //   surveys: categorized.surveys.length,
+          //   cashback: categorized.cashback.length,
+          //   shopping: categorized.shopping.length,
+          //   magicReceipts: categorized.magicReceipts.length,
+          //   other: categorized.other.length,
+          // });
 
           // Flatten all offers
           offers = adminOffers;
@@ -1550,16 +1550,16 @@ router.get("/", protect, async (req, res) => {
     const isCashbackRequest = type === "cashback";
     const isSurveyRequestAdminOnly =
       useAdminConfig === "true" && (type === "survey" || type === "surveys");
-    console.log("🔵 [MAIN ROUTE] Checking fallback conditions:", {
-      offersCount: offers.length,
-      useAdminConfig,
-      isCashbackRequest,
-      isSurveyRequestAdminOnly,
-      willFallback:
-        (offers.length === 0 || useAdminConfig === "false") &&
-        !isCashbackRequest &&
-        !isSurveyRequestAdminOnly,
-    });
+    // console.log("🔵 [MAIN ROUTE] Checking fallback conditions:", {
+    //   offersCount: offers.length,
+    //   useAdminConfig,
+    //   isCashbackRequest,
+    //   isSurveyRequestAdminOnly,
+    //   willFallback:
+    //     (offers.length === 0 || useAdminConfig === "false") &&
+    //     !isCashbackRequest &&
+    //     !isSurveyRequestAdminOnly,
+    // });
 
     // Fallback when no admin offers (or useAdminConfig=false). Only skip fallback for survey and cashback when admin-only.
     if (
@@ -1610,14 +1610,14 @@ router.get("/", protect, async (req, res) => {
 
       // Step 3: If still no offers, try Everflow API
       if (offers.length === 0 && everflowService.isConfigured()) {
-        console.log(
-          "🔵 [MAIN ROUTE] Trying Everflow API as additional fallback...",
-        );
-        console.log("🔵 [MAIN ROUTE] Everflow config check:", {
-          configured: everflowService.isConfigured(),
-          baseURL: config.EVERFLOW_BASE_URL,
-          apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
-        });
+        // console.log(
+        //   "🔵 [MAIN ROUTE] Trying Everflow API as additional fallback...",
+        // );
+        // // console.log("🔵 [MAIN ROUTE] Everflow config check:", {
+        //   configured: everflowService.isConfigured(),
+        //   baseURL: config.EVERFLOW_BASE_URL,
+        //   apiKey: config.EVERFLOW_API_KEY ? "***SET***" : "MISSING",
+        // });
 
         try {
           // Pass userId for user-specific click URLs (Everflow uses sub_id1 for tracking)
@@ -1627,12 +1627,12 @@ router.get("/", protect, async (req, res) => {
             userId: user?._id?.toString(), // Pass user ID for tracking
           });
 
-          console.log("🔵 [MAIN ROUTE] Everflow result:", {
-            success: everflowResult.success,
-            dataLength: everflowResult.data?.length || 0,
-            total: everflowResult.total || 0,
-            error: everflowResult.error,
-          });
+          // console.log("🔵 [MAIN ROUTE] Everflow result:", {
+          //   success: everflowResult.success,
+          //   dataLength: everflowResult.data?.length || 0,
+          //   total: everflowResult.total || 0,
+          //   error: everflowResult.error,
+          // });
 
           if (
             everflowResult.success &&
@@ -1715,14 +1715,14 @@ router.get("/", protect, async (req, res) => {
     const endIndex = startIndex + parseInt(limit);
     const paginatedOffers = offers.slice(startIndex, endIndex);
 
-    console.log("🔵 [MAIN ROUTE] Pagination:", {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      startIndex,
-      endIndex,
-      totalOffers: offers.length,
-      paginatedCount: paginatedOffers.length,
-    });
+    // console.log("🔵 [MAIN ROUTE] Pagination:", {
+    //   page: parseInt(page),
+    //   limit: parseInt(limit),
+    //   startIndex,
+    //   endIndex,
+    //   totalOffers: offers.length,
+    //   paginatedCount: paginatedOffers.length,
+    // });
 
     // Calculate totals
     const totalOffers = offers.length;
@@ -1731,19 +1731,19 @@ router.get("/", protect, async (req, res) => {
       0,
     );
 
-    console.log("🔵 [MAIN ROUTE] Final Response:", {
-      success: true,
-      totalOffers,
-      paginatedCount: paginatedOffers.length,
-      categorized: {
-        surveys: categorized.surveys.length,
-        cashback: categorized.cashback.length,
-        shopping: categorized.shopping.length,
-        magicReceipts: categorized.magicReceipts.length,
-      },
-      source,
-      estimatedEarnings,
-    });
+    // console.log("🔵 [MAIN ROUTE] Final Response:", {
+    //   success: true,
+    //   totalOffers,
+    //   paginatedCount: paginatedOffers.length,
+    //   categorized: {
+    //     surveys: categorized.surveys.length,
+    //     cashback: categorized.cashback.length,
+    //     shopping: categorized.shopping.length,
+    //     magicReceipts: categorized.magicReceipts.length,
+    //   },
+    //   source,
+    //   estimatedEarnings,
+    // });
 
     console.log(
       "🔵 ========== MAIN NON-GAME-OFFERS ROUTE DEBUG END ==========\n",
@@ -2520,14 +2520,14 @@ router.get("/surveys", protect, async (req, res) => {
         console.log(
           "\n🔵 [BITLABS API] ========== RAW API RESPONSE (SURVEYS - FALLBACK) ==========",
         );
-        console.log("🔵 [BITLABS API] User ID:", user._id.toString());
-        console.log("🔵 [BITLABS API] User Profile:", {
-          country: userProfile.country,
-          age: userProfile.age,
-          gender: userProfile.gender,
-          xp: userProfile.xp,
-        });
-        console.log("🔵 [BITLABS API] Success:", result?.success);
+        // console.log("🔵 [BITLABS API] User ID:", user._id.toString());
+        // console.log("🔵 [BITLABS API] User Profile:", {
+        //   country: userProfile.country,
+        //   age: userProfile.age,
+        //   gender: userProfile.gender,
+        //   xp: userProfile.xp,
+        // });
+        // console.log("🔵 [BITLABS API] Success:", result?.success);
 
         // CRITICAL: Check for VPN/restriction reasons
         if (result?.restrictionReason) {
@@ -3013,8 +3013,8 @@ router.get("/magic-receipts", protect, async (req, res) => {
  * Get cashback offers
  */
 router.get("/cashback", protect, async (req, res) => {
-  console.log("\n🔵 ========== CASHBACK ROUTE DEBUG ==========");
-  console.log("🔵 [CASHBACK] Request received at:", new Date().toISOString());
+  // console.log("\n🔵 ========== CASHBACK ROUTE DEBUG ==========");
+  // console.log("🔵 [CASHBACK] Request received at:", new Date().toISOString());
 
   try {
     const {
@@ -3024,13 +3024,13 @@ router.get("/cashback", protect, async (req, res) => {
       useAdminConfig = "true",
     } = req.query;
 
-    console.log("🔵 [CASHBACK] Request Parameters:", {
-      category,
-      page,
-      limit,
-      useAdminConfig,
-      userId: req.user?.userId,
-    });
+    // console.log("🔵 [CASHBACK] Request Parameters:", {
+    //   category,
+    //   page,
+    //   limit,
+    //   useAdminConfig,
+    //   userId: req.user?.userId,
+    // });
 
     const user = await User.findById(req.user.userId).select(
       "xp vip profile location preferences onboarding",
@@ -3044,12 +3044,12 @@ router.get("/cashback", protect, async (req, res) => {
       });
     }
 
-    console.log("🔵 [CASHBACK] User found:", {
-      userId: user._id.toString(),
-      hasLocation: !!user.location,
-      hasPreferences: !!user.preferences,
-      hasXP: !!user.xp,
-    });
+    // console.log("🔵 [CASHBACK] User found:", {
+    //   userId: user._id.toString(),
+    //   hasLocation: !!user.location,
+    //   hasPreferences: !!user.preferences,
+    //   hasXP: !!user.xp,
+    // });
 
     const userAge = getUserAge(user);
     const userGender = getUserGender(user);
@@ -3063,14 +3063,14 @@ router.get("/cashback", protect, async (req, res) => {
       deviceType: "mobile",
     };
 
-    console.log("🔵 [CASHBACK] User Profile:", {
-      age: userProfile.age,
-      gender: userProfile.gender,
-      country: userProfile.country,
-      language: userProfile.language,
-      xp: userProfile.xp,
-      deviceType: userProfile.deviceType,
-    });
+    // console.log("🔵 [CASHBACK] User Profile:", {
+    //   age: userProfile.age,
+    //   gender: userProfile.gender,
+    //   country: userProfile.country,
+    //   language: userProfile.language,
+    //   xp: userProfile.xp,
+    //   deviceType: userProfile.deviceType,
+    // });
 
     let cashbackOffers = [];
     let source = "admin_configured";
@@ -3095,11 +3095,11 @@ router.get("/cashback", protect, async (req, res) => {
         "🔵 [CASHBACK] useAdminConfig=true - Fetching admin-configured offers...",
       );
       try {
-        console.log("🔵 [CASHBACK] Calling getAdminConfiguredOffers with:", {
-          offerType: "cashback",
-          userId: user._id.toString(),
-          category,
-        });
+        // console.log("🔵 [CASHBACK] Calling getAdminConfiguredOffers with:", {
+        //   offerType: "cashback",
+        //   userId: user._id.toString(),
+        //   category,
+        // });
 
         const adminOffers = await getAdminConfiguredOffers(
           "cashback",
@@ -3109,21 +3109,21 @@ router.get("/cashback", protect, async (req, res) => {
           category,
         );
 
-        console.log("🔵 [CASHBACK] Admin offers received:", {
-          totalCount: adminOffers.length,
-          sampleOffers: adminOffers.slice(0, 3).map((o) => ({
-            merchant_id: o.merchant_id,
-            merchant_name: o.merchant_name,
-            primary_category: o.primary_category,
-            category: o.category,
-            isAvailable: o.isAvailable,
-          })),
-        });
+        // console.log("🔵 [CASHBACK] Admin offers received:", {
+        //   totalCount: adminOffers.length,
+        //   sampleOffers: adminOffers.slice(0, 3).map((o) => ({
+        //     merchant_id: o.merchant_id,
+        //     merchant_name: o.merchant_name,
+        //     primary_category: o.primary_category,
+        //     category: o.category,
+        //     isAvailable: o.isAvailable,
+        //   })),
+        // });
 
         // Filter by category if specified (for cashback, use primary_category field)
         let filteredOffers = adminOffers;
         if (category && category !== "all") {
-          console.log("🔵 [CASHBACK] Filtering by category:", category);
+          // console.log("🔵 [CASHBACK] Filtering by category:", category);
           const beforeFilter = adminOffers.length;
           filteredOffers = adminOffers.filter((offer) => {
             const offerCategory =
@@ -3132,19 +3132,19 @@ router.get("/cashback", protect, async (req, res) => {
               .toLowerCase()
               .includes(category.toLowerCase());
             if (!matches) {
-              console.log("🔵 [CASHBACK] Offer filtered out:", {
-                merchant_name: offer.merchant_name,
-                offerCategory,
-                requestedCategory: category,
-              });
+              // console.log("🔵 [CASHBACK] Offer filtered out:", {
+              //   merchant_name: offer.merchant_name,
+              //   offerCategory,
+              //   requestedCategory: category,
+              // });
             }
             return matches;
           });
-          console.log("🔵 [CASHBACK] Category filtering result:", {
-            before: beforeFilter,
-            after: filteredOffers.length,
-            filteredOut: beforeFilter - filteredOffers.length,
-          });
+          // console.log("🔵 [CASHBACK] Category filtering result:", {
+          //   before: beforeFilter,
+          //   after: filteredOffers.length,
+          //   filteredOut: beforeFilter - filteredOffers.length,
+          // });
         } else {
           console.log(
             "🔵 [CASHBACK] No category filter applied (category='all')",
@@ -3192,27 +3192,27 @@ router.get("/cashback", protect, async (req, res) => {
     const endIndex = startIndex + parseInt(limit);
     const paginatedOffers = cashbackOffers.slice(startIndex, endIndex);
 
-    console.log("🔵 [CASHBACK] Pagination:", {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      startIndex,
-      endIndex,
-      totalOffers: cashbackOffers.length,
-      paginatedCount: paginatedOffers.length,
-    });
+    // console.log("🔵 [CASHBACK] Pagination:", {
+    //   page: parseInt(page),
+    //   limit: parseInt(limit),
+    //   startIndex,
+    //   endIndex,
+    //   totalOffers: cashbackOffers.length,
+    //   paginatedCount: paginatedOffers.length,
+    // });
 
-    console.log("🔵 [CASHBACK] Final Response:", {
-      success: true,
-      totalCashback: cashbackOffers.length,
-      paginatedCount: paginatedOffers.length,
-      source,
-      estimatedEarnings: cashbackOffers.reduce(
-        (sum, c) => sum + (c.reward?.coins || 0),
-        0,
-      ),
-    });
+    // console.log("🔵 [CASHBACK] Final Response:", {
+    //   success: true,
+    //   totalCashback: cashbackOffers.length,
+    //   paginatedCount: paginatedOffers.length,
+    //   source,
+    //   estimatedEarnings: cashbackOffers.reduce(
+    //     (sum, c) => sum + (c.reward?.coins || 0),
+    //     0,
+    //   ),
+    // });
 
-    console.log("🔵 ========== CASHBACK ROUTE DEBUG END ==========\n");
+    // console.log("🔵 ========== CASHBACK ROUTE DEBUG END ==========\n");
 
     res.json({
       success: true,
@@ -3580,25 +3580,25 @@ router.post("/callback/bitlabs", async (req, res) => {
       "🔵 [CALLBACK] 📥 Raw Request Body:",
       JSON.stringify(req.body, null, 2),
     );
-    console.log("🔵 [CALLBACK] 📥 Request Headers:", {
-      "content-type": req.headers["content-type"],
-      "user-agent": req.headers["user-agent"],
-      ip: req.ip || req.connection.remoteAddress,
-    });
-    console.log("🔵 [CALLBACK] ⏰ Timestamp:", new Date().toISOString());
-    console.log("🔵 [CALLBACK] ===========================================\n");
+    // console.log("🔵 [CALLBACK] 📥 Request Headers:", {
+    //   "content-type": req.headers["content-type"],
+    //   "user-agent": req.headers["user-agent"],
+    //   ip: req.ip || req.connection.remoteAddress,
+    // });
+    // console.log("🔵 [CALLBACK] ⏰ Timestamp:", new Date().toISOString());
+    // console.log("🔵 [CALLBACK] ===========================================\n");
 
     const { signature, ...callbackData } = req.body;
 
     // 🔵 DEBUG: Log callback data before verification
-    console.log("🔵 [CALLBACK] 📋 Callback Data (before verification):", {
-      userId: callbackData.userId,
-      offerId: callbackData.offerId,
-      status: callbackData.status,
-      value: callbackData.value,
-      reward: callbackData.reward,
-      hasSignature: !!signature,
-    });
+    // console.log("🔵 [CALLBACK] 📋 Callback Data (before verification):", {
+    //   userId: callbackData.userId,
+    //   offerId: callbackData.offerId,
+    //   status: callbackData.status,
+    //   value: callbackData.value,
+    //   reward: callbackData.reward,
+    //   hasSignature: !!signature,
+    // });
 
     // Verify callback signature (HMAC verification prevents fraud)
     const verification = await bitlabsNonGames.verifyCallback({
@@ -3607,11 +3607,11 @@ router.post("/callback/bitlabs", async (req, res) => {
     });
 
     // 🔵 DEBUG: Log verification result
-    console.log("🔵 [CALLBACK] 🔐 Signature Verification Result:", {
-      success: verification.success,
-      isValid: verification.isValid,
-      message: verification.message,
-    });
+    // console.log("🔵 [CALLBACK] 🔐 Signature Verification Result:", {
+    //   success: verification.success,
+    //   isValid: verification.isValid,
+    //   message: verification.message,
+    // });
 
     if (!verification.success || !verification.isValid) {
       console.error("❌ [CALLBACK] ========== INVALID SIGNATURE ==========");

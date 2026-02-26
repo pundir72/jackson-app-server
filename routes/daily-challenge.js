@@ -2045,6 +2045,76 @@ router.post("/complete", protect, async (req, res) => {
 
     const user = await User.findById(userId).select("wallet xp streak badges vip");
 
+    // VIP BENEFIT: Check if user has active VIP subscription
+    // Query VIPSubscription collection directly with multiple fallback checks
+    const VIPSubscription = require("../models/VIPSubscription");
+    
+    // Try multiple ways to find active subscription
+    let activeSubscription = null;
+    
+    // Method 1: Use static method
+    try {
+      activeSubscription = await VIPSubscription.getActiveSubscription(userId);
+    } catch (error) {
+      console.log("⚠️ [VIP CHECK] getActiveSubscription failed:", error.message);
+    }
+    
+    // Method 2: Direct query if method 1 failed
+    if (!activeSubscription) {
+      try {
+        activeSubscription = await VIPSubscription.findOne({
+          userId: userId,
+          status: 'active',
+          endDate: { $gt: new Date() }
+        });
+      } catch (error) {
+        console.log("⚠️ [VIP CHECK] Direct query failed:", error.message);
+      }
+    }
+    
+    // Method 3: Try with ObjectId conversion
+    if (!activeSubscription) {
+      try {
+        const mongoose = require('mongoose');
+        const userObjectId = mongoose.Types.ObjectId.isValid(userId) 
+          ? new mongoose.Types.ObjectId(userId) 
+          : userId;
+        
+        activeSubscription = await VIPSubscription.findOne({
+          userId: userObjectId,
+          status: 'active',
+          endDate: { $gt: new Date() }
+        });
+      } catch (error) {
+        console.log("⚠️ [VIP CHECK] ObjectId query failed:", error.message);
+      }
+    }
+    
+    const hasActiveVIP = activeSubscription && activeSubscription.isActive();
+    
+    // FALLBACK: If no subscription found, check user.vip field as last resort
+    const hasUserVipActive = !hasActiveVIP && user.vip?.isActive === true && 
+                             user.vip?.expires && 
+                             new Date(user.vip.expires) > new Date();
+    
+    const finalHasActiveVIP = hasActiveVIP || hasUserVipActive;
+    
+    // Log VIP check for debugging
+    console.log("💎 [VIP CHECK]", {
+      userId,
+      userIdType: typeof userId,
+      hasUserVipField: !!user.vip,
+      userVipIsActive: user.vip?.isActive,
+      userVipExpires: user.vip?.expires,
+      hasActiveSubscription: !!activeSubscription,
+      subscriptionId: activeSubscription?._id?.toString(),
+      subscriptionStatus: activeSubscription?.status,
+      subscriptionEndDate: activeSubscription?.endDate,
+      subscriptionIsActiveMethod: activeSubscription ? activeSubscription.isActive() : null,
+      hasUserVipActive,
+      finalHasActiveVIP
+    });
+
     // Get today's challenge using UTC dates and status filter
     const challenge = await DailyChallenge.findOne({
       challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
@@ -2442,8 +2512,25 @@ router.post("/complete", protect, async (req, res) => {
     let bonusCoins = 0;
     let bonusXP = 0;
 
-    // Apply VIP multipliers
-    if (user.vip?.isActive) {
+    // Apply VIP multipliers based on active subscription tier
+    if (finalHasActiveVIP && activeSubscription) {
+      const vipTier = activeSubscription.tier;
+      if (vipTier === "gold") {
+        bonusXP = Math.floor(xpReward * 0.5); // 50% bonus
+      } else if (vipTier === "platinum") {
+        bonusXP = Math.floor(xpReward); // 100% bonus
+        bonusCoins = Math.floor(coinReward * 0.25); // 25% bonus
+      }
+      
+      console.log("💎 [VIP MULTIPLIER]", {
+        vipTier,
+        baseXP: xpReward,
+        bonusXP,
+        baseCoins: coinReward,
+        bonusCoins
+      });
+    } else if (finalHasActiveVIP && user.vip) {
+      // Fallback to user.vip if subscription not found
       const vipLevel = user.vip.level;
       if (vipLevel === "gold") {
         bonusXP = Math.floor(xpReward * 0.5); // 50% bonus
@@ -2451,35 +2538,50 @@ router.post("/complete", protect, async (req, res) => {
         bonusXP = Math.floor(xpReward); // 100% bonus
         bonusCoins = Math.floor(coinReward * 0.25); // 25% bonus
       }
+      
+      console.log("💎 [VIP MULTIPLIER - FALLBACK]", {
+        vipLevel,
+        baseXP: xpReward,
+        bonusXP,
+        baseCoins: coinReward,
+        bonusCoins
+      });
     }
 
     const totalCoins = coinReward + bonusCoins;
     const baseXP = xpReward + bonusXP;
 
     // Check claim type to determine if rewards should be credited immediately or pending
-    const claimType = challenge.claimType || "auto";
+    let claimType = challenge.claimType || "auto";
+    
+    // VIP OVERRIDE: If user has active VIP, force claimType to "auto"
+    if (finalHasActiveVIP) {
+      claimType = "auto";
+      console.log("💎 [VIP OVERRIDE] Forcing claimType to 'auto' for VIP member");
+    }
+    
     const adWasWatched =
       adWatched === true || progress.progress?.metadata?.adWatched === true;
     
-    // VIP BENEFIT: Check if user has active VIP membership
-    const hasActiveVIP = user.vip?.isActive === true && 
-                         user.vip?.expires && 
-                         new Date(user.vip.expires) > new Date();
+    // Simplified logic - auto always credits immediately
+    const shouldCreditImmediately = claimType === "auto";
     
-    // VIP members get auto credit even for watch_ad challenges
-    const shouldCreditImmediately =
-      claimType === "auto" ||
-      (claimType === "watch_ad" && adWasWatched) ||
-      (claimType === "watch_ad" && hasActiveVIP) || // VIP BENEFIT: Skip ad requirement
-      (claimType === "manual" && false); // Manual claims require separate claim endpoint
+    console.log("💎 [SHOULD CREDIT CHECK]", {
+      userId,
+      originalClaimType: challenge.claimType || "auto",
+      finalClaimType: claimType,
+      finalHasActiveVIP,
+      vipOverrideApplied: finalHasActiveVIP && challenge.claimType !== "auto",
+      FINAL_shouldCreditImmediately: shouldCreditImmediately
+    });
     
     console.log("💎 [VIP CHECK] Claim type evaluation:", {
       userId,
       claimType,
       adWasWatched,
-      hasActiveVIP,
-      vipLevel: user.vip?.level,
-      vipExpires: user.vip?.expires,
+      finalHasActiveVIP,
+      vipLevel: finalHasActiveVIP && activeSubscription ? activeSubscription.tier : (finalHasActiveVIP && user.vip ? user.vip.level : null),
+      vipExpires: finalHasActiveVIP && activeSubscription ? activeSubscription.endDate : (user.vip?.expires || null),
       shouldCreditImmediately
     });
 
@@ -2909,8 +3011,9 @@ router.post("/complete", protect, async (req, res) => {
       tierMultiplier,
       requiresAd: claimType === "watch_ad" && !adWasWatched && !hasActiveVIP, // VIP members don't require ad
       adWatched: adWasWatched || false,
-      vipBenefitUsed: hasActiveVIP && claimType === "watch_ad" && !adWasWatched, // Track VIP benefit usage
-      vipLevel: hasActiveVIP ? user.vip?.level : null,
+      vipBenefitUsed: finalHasActiveVIP && claimType === "watch_ad" && !adWasWatched, // Track VIP benefit usage
+      vipLevel: finalHasActiveVIP && activeSubscription ? activeSubscription.tier : (finalHasActiveVIP && user.vip ? user.vip.level : null),
+      vipSubscriptionId: finalHasActiveVIP && activeSubscription ? activeSubscription._id : null,
       source: "daily_challenge", // Required for claim-reward endpoint
     };
 

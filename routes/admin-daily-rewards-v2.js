@@ -341,6 +341,290 @@ router.post(
   }
 );
 
+// PUT /api/admin/v2/daily-rewards/config/:id - Update existing config
+router.put(
+  "/config/:id",
+  adminAuth,
+  [
+    body("version")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Version must be a positive integer"),
+    body("days")
+      .optional()
+      .isArray({ min: 7, max: 7 })
+      .withMessage("Must provide exactly 7 days"),
+    body("days.*.dayNumber")
+      .optional()
+      .isInt({ min: 1, max: 7 })
+      .withMessage("Day number must be 1-7"),
+    body("days.*.rewardType")
+      .optional()
+      .isIn(["Coins", "XP", "Both"])
+      .withMessage("Reward type must be Coins, XP, or Both"),
+    body("days.*.coinValue")
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage("Coin value must be non-negative"),
+    body("days.*.xpValue")
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage("XP value must be non-negative"),
+    body("bigReward.enabled").optional().isBoolean(),
+    body("bigReward.rewardType").optional().isIn(["Coins", "XP", "Both"]),
+    body("bigReward.coinValue").optional().isFloat({ min: 0 }),
+    body("bigReward.xpValue").optional().isFloat({ min: 0 }),
+    body("weeklyMultiplier.enabled").optional().isBoolean(),
+    body("weeklyMultiplier.week2").optional().isFloat({ min: 1.0 }),
+    body("weeklyMultiplier.week3").optional().isFloat({ min: 1.0 }),
+    body("weeklyMultiplier.week4").optional().isFloat({ min: 1.0 }),
+    body("weeklyMultiplier.additionalWeeks").optional().isArray(),
+    body("weeklyMultiplier.additionalWeeks.*.weekNumber")
+      .optional()
+      .isInt({ min: 5 }),
+    body("weeklyMultiplier.additionalWeeks.*.multiplier")
+      .optional()
+      .isFloat({ min: 1.0 }),
+    body("weeklyMultiplier.roundingRule")
+      .optional()
+      .isIn(["Round Nearest", "Round Down"]),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const config = await DailyRewardConfigV2.findById(req.params.id);
+
+      if (!config) {
+        return res.status(404).json({
+          success: false,
+          error: "V2 configuration not found",
+        });
+      }
+
+      const {
+        version,
+        days,
+        bigReward,
+        fallbackReward,
+        weeklyMultiplier,
+        isActive,
+      } = req.body;
+
+      // Validate days if provided
+      if (days) {
+        if (days.length !== 7) {
+          return res.status(400).json({
+            success: false,
+            error: "Must provide exactly 7 days",
+          });
+        }
+
+        const dayNumbers = days.map((d) => d.dayNumber).sort();
+        if (dayNumbers.join(",") !== "1,2,3,4,5,6,7") {
+          return res.status(400).json({
+            success: false,
+            error: "Must provide exactly days 1-7 with unique dayNumber values",
+          });
+        }
+
+        // Validate each day based on rewardType
+        for (const day of days) {
+          const rewardType = day.rewardType || "Both";
+
+          if (rewardType === "Coins" || rewardType === "Both") {
+            const coinValue =
+              day.coinValue !== undefined ? day.coinValue : day.coins;
+            if (coinValue === undefined || coinValue === null || coinValue < 0) {
+              return res.status(400).json({
+                success: false,
+                error: `Day ${day.dayNumber}: Coin value is required when reward type is Coins or Both`,
+              });
+            }
+          }
+
+          if (rewardType === "XP" || rewardType === "Both") {
+            const xpValue = day.xpValue !== undefined ? day.xpValue : day.xp;
+            if (xpValue === undefined || xpValue === null || xpValue < 0) {
+              return res.status(400).json({
+                success: false,
+                error: `Day ${day.dayNumber}: XP value is required when reward type is XP or Both`,
+              });
+            }
+          }
+        }
+
+        // Validate Day-1 when active
+        if (isActive !== false) {
+          const day1 = days.find((d) => d.dayNumber === 1);
+          if (!day1 || day1.active === false) {
+            return res.status(400).json({
+              success: false,
+              error:
+                "Day-1 must be configured and active if Daily Reward V2 is ON",
+            });
+          }
+        }
+      }
+
+      // Validate Big Reward when enabled
+      if (bigReward && bigReward.enabled !== false) {
+        const bigRewardType = bigReward.rewardType || "Both";
+
+        if (bigRewardType === "Coins" || bigRewardType === "Both") {
+          const coinValue =
+            bigReward.coinValue !== undefined
+              ? bigReward.coinValue
+              : bigReward.coins;
+          if (coinValue === undefined || coinValue === null || coinValue < 0) {
+            return res.status(400).json({
+              success: false,
+              error:
+                "Big Reward coin value is required when Big Reward Type is Coins or Both",
+            });
+          }
+        }
+
+        if (bigRewardType === "XP" || bigRewardType === "Both") {
+          const xpValue =
+            bigReward.xpValue !== undefined ? bigReward.xpValue : bigReward.xp;
+          if (xpValue === undefined || xpValue === null || xpValue < 0) {
+            return res.status(400).json({
+              success: false,
+              error:
+                "Big Reward XP value is required when Big Reward Type is XP or Both",
+            });
+          }
+        }
+      }
+
+      // Validate Weekly Multiplier
+      if (weeklyMultiplier && weeklyMultiplier.enabled) {
+        if (!weeklyMultiplier.week2 || weeklyMultiplier.week2 < 1.0) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Week 2 multiplier is required and must be >= 1.0 when Weekly Multiplier is enabled",
+          });
+        }
+
+        if (!weeklyMultiplier.roundingRule) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Rounding rule is required when Weekly Multiplier is enabled",
+          });
+        }
+
+        // Validate additionalWeeks if provided
+        if (
+          weeklyMultiplier.additionalWeeks &&
+          Array.isArray(weeklyMultiplier.additionalWeeks)
+        ) {
+          // Check for duplicate weekNumbers
+          const weekNumbers = weeklyMultiplier.additionalWeeks
+            .map((w) => w && w.weekNumber ? parseInt(w.weekNumber) : null)
+            .filter((num) => num !== null);
+          
+          const uniqueWeekNumbers = [...new Set(weekNumbers)];
+          if (weekNumbers.length !== uniqueWeekNumbers.length) {
+            const duplicates = weekNumbers.filter((num, index) => weekNumbers.indexOf(num) !== index);
+            return res.status(400).json({
+              success: false,
+              error: `Duplicate week numbers are not allowed in additional weeks. Found duplicate: Week ${duplicates[0]}`,
+            });
+          }
+
+          // Validate each week entry
+          for (const week of weeklyMultiplier.additionalWeeks) {
+            if (!week.weekNumber || week.weekNumber < 5) {
+              return res.status(400).json({
+                success: false,
+                error: `Additional week number must be >= 5, got ${week.weekNumber}`,
+              });
+            }
+            if (!week.multiplier || week.multiplier < 1.0) {
+              return res.status(400).json({
+                success: false,
+                error: `Week ${week.weekNumber} multiplier must be >= 1.0`,
+              });
+            }
+          }
+        }
+      }
+
+      // Update fields
+      if (version !== undefined) config.version = version;
+      if (days) config.days = days;
+      if (bigReward !== undefined) config.bigReward = bigReward;
+      if (fallbackReward !== undefined) config.fallbackReward = fallbackReward;
+      if (weeklyMultiplier !== undefined) {
+        // Format additionalWeeks properly
+        let formattedWeeklyMultiplier = weeklyMultiplier;
+        if (
+          formattedWeeklyMultiplier.enabled &&
+          formattedWeeklyMultiplier.additionalWeeks
+        ) {
+          const validWeeks = formattedWeeklyMultiplier.additionalWeeks
+            .filter((w) => w && w.weekNumber && w.multiplier)
+            .map((w) => ({
+              weekNumber: parseInt(w.weekNumber) || w.weekNumber,
+              multiplier: parseFloat(w.multiplier) || w.multiplier,
+            }));
+
+          const seenWeekNumbers = new Set();
+          const uniqueWeeks = validWeeks.filter((w) => {
+            if (seenWeekNumbers.has(w.weekNumber)) {
+              return false;
+            }
+            seenWeekNumbers.add(w.weekNumber);
+            return true;
+          });
+
+          formattedWeeklyMultiplier = {
+            ...formattedWeeklyMultiplier,
+            additionalWeeks: uniqueWeeks,
+          };
+        }
+        config.weeklyMultiplier = formattedWeeklyMultiplier;
+      }
+      if (isActive !== undefined) {
+        // If activating this config, deactivate others
+        if (isActive && !config.isActive) {
+          await DailyRewardConfigV2.updateMany(
+            { _id: { $ne: config._id }, isActive: true },
+            { $set: { isActive: false } }
+          );
+        }
+        config.isActive = isActive;
+      }
+
+      config.updatedBy = req.user.userId;
+      await config.save();
+
+      res.json({
+        success: true,
+        message: "V2 configuration updated successfully",
+        data: config,
+      });
+    } catch (error) {
+      console.error("Error updating V2 config:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to update V2 configuration",
+        message: error.message,
+      });
+    }
+  }
+);
+
 router.patch("/config/:id/toggle", adminAuth, async (req, res) => {
   try {
     const config = await DailyRewardConfigV2.findById(req.params.id);

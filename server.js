@@ -239,6 +239,7 @@ mongoose
     const applovinRoutes = require("./routes/applovin");
     const dailyRewardsRoutes = require("./routes/daily-rewards");
     const dailyRewardsV2Routes = require("./routes/daily-rewards-v2");
+    const dailyRewardsV3Routes = require("./routes/daily-rewards-v3"); // User-based week system
     const adminDailyRewardsRoutes = require("./routes/admin-daily-rewards");
     const adminDailyRewardsV2Routes = require("./routes/admin-daily-rewards-v2");
     const adminCreativesRoutes = require("./routes/admin-creatives");
@@ -350,6 +351,7 @@ mongoose
     app.use("/api/applovin", applovinRoutes);
     app.use("/api/daily-rewards", dailyRewardsRoutes);
     app.use("/api/v2/daily-rewards", dailyRewardsV2Routes);
+    app.use("/api/v3/daily-rewards", dailyRewardsV3Routes); // User-based week system
     app.use("/api/admin/daily-rewards", adminDailyRewardsRoutes);
     app.use("/api/admin/daily-rewards-v2", adminDailyRewardsV2Routes);
     app.use("/api/admin/creatives", adminCreativesRoutes);

@@ -2797,7 +2797,9 @@ router.post("/complete", protect, async (req, res) => {
       transactionMetadata.gameRef = linkedGameObjectId;
     }
 
-    // Determine transaction status based on claim type
+    // CRITICAL FIX: Transaction status must match whether rewards were actually credited
+    // If shouldCreditImmediately is false (manual claim type), transaction should be "pending"
+    // until user claims via /claim-reward endpoint
     const transactionStatus = shouldCreditImmediately ? "completed" : "pending";
     const baseReferenceId = `DAILY-CHALLENGE-${challenge._id}-${Date.now()}`;
 

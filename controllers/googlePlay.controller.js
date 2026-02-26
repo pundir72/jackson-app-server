@@ -1,5 +1,4 @@
 const GooglePlayPurchase = require('../models/GooglePlayPurchase');
-const VIPSubscription = require('../models/VIPSubscription');
 const User = require('../models/User');
 const VIPTier = require('../models/VIPTier');
 const googlePlayService = require('../services/googlePlay.service');
@@ -18,6 +17,7 @@ const verifyPurchase = async (req, res) => {
     const {
       purchaseToken,
       productId,
+      subscriptionId,
       orderId,
       purchaseTime,
       packageName,
@@ -91,7 +91,7 @@ const verifyPurchase = async (req, res) => {
         await existingPurchase.save();
 
         // Update user VIP status for re-verified subscription
-        await linkToVIPSubscription(existingPurchase, userId, productId);
+        await linkToVIPSubscription(existingPurchase, userId, subscriptionId);
       }
 
       return res.json({
@@ -165,7 +165,7 @@ const verifyPurchase = async (req, res) => {
 
     // Add subscription-specific fields
     if (purchaseType === 'subscription') {
-      purchase.subscriptionId = productId;
+      purchase.subscriptionId = subscriptionId; // Keep the specific plan ID (e.g., "platinumyearly")
       purchase.expiryTime = verifiedData.expiryTime;
       purchase.autoRenewing = verifiedData.autoRenewing;
     }
@@ -193,7 +193,7 @@ const verifyPurchase = async (req, res) => {
 
     // Link to VIP subscription if applicable
     if (purchaseType === 'subscription') {
-      await linkToVIPSubscription(purchase, userId, productId);
+      await linkToVIPSubscription(purchase, userId, subscriptionId);
     }
 
     res.status(201).json({
@@ -457,70 +457,58 @@ const handleWebhook = async (req, res) => {
 
 /**
  * Helper: Link Google Play purchase to VIP subscription
+ * Updates user.vip based on the subscription purchase
  */
-async function linkToVIPSubscription(purchase, userId, productId) {
+async function linkToVIPSubscription(purchase, userId, subscriptionId) {
   try {
-    // Map product ID to VIP tier and plan
-    const productMapping = {
-      'vip_bronze_weekly': { tier: 'bronze', plan: 'weekly' },
-      'vip_bronze_monthly': { tier: 'bronze', plan: 'monthly' },
-      'vip_bronze_yearly': { tier: 'bronze', plan: 'yearly' },
-      'vip_gold_weekly': { tier: 'gold', plan: 'weekly' },
-      'vip_gold_monthly': { tier: 'gold', plan: 'monthly' },
-      'vip_gold_yearly': { tier: 'gold', plan: 'yearly' },
-      'vip_platinum_weekly': { tier: 'platinum', plan: 'weekly' },
-      'vip_platinum_monthly': { tier: 'platinum', plan: 'monthly' },
-      'vip_platinum_yearly': { tier: 'platinum', plan: 'yearly' }
-    };
+    // Extract tier from subscriptionId (e.g., "platinumyearly" -> "platinum", "bronzeweekly" -> "bronze", "monthly" -> "gold")
+    let tier = 'free';
 
-    const mapping = productMapping[productId];
-    if (!mapping) {
-      console.log(`[GOOGLE-PLAY-IAP] No VIP mapping found for product: ${productId}`);
+    if (subscriptionId) {
+      const lowerSubscriptionId = subscriptionId.toLowerCase();
+
+      // Check tier based on subscriptionId
+      if (lowerSubscriptionId.includes('platinum')) {
+        tier = 'platinum';
+      } else if (lowerSubscriptionId.includes('gold')) {
+        tier = 'gold';
+      } else if (lowerSubscriptionId.includes('bronze')) {
+        tier = 'bronze';
+      } else if (lowerSubscriptionId === 'monthly') {
+        // Special case: "monthly" is gold_monthly plan
+        tier = 'gold';
+      }
+    }
+
+    if (tier === 'free') {
+      console.log(`[GOOGLE-PLAY-IAP] No VIP tier found for subscriptionId: ${subscriptionId}`);
       return;
     }
 
-    // Create or update VIP subscription
-    const vipSubscription = new VIPSubscription({
-      userId,
-      tier: mapping.tier,
-      plan: mapping.plan,
-      status: 'active',
-      amount: purchase.amount,
-      currency: purchase.currency,
-      startDate: purchase.purchaseTime,
-      endDate: purchase.expiryTime,
-      nextBillingDate: purchase.expiryTime,
-      autoRenew: purchase.autoRenewing,
-      metadata: {
-        source: 'google_play',
-        googlePlayOrderId: purchase.orderId,
-        googlePlayPurchaseToken: purchase.purchaseToken,
-        ...purchase.metadata
+    // Get tier benefits if VIPTier model exists
+    let benefits = [];
+    try {
+      const vipTier = await VIPTier.getTierById(tier);
+      if (vipTier) {
+        benefits = vipTier.getBenefitsSummary();
+      }
+    } catch (error) {
+      console.log(`[GOOGLE-PLAY-IAP] VIPTier not found for tier: ${tier}, using empty benefits`);
+    }
+
+    // Update user VIP status directly
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'vip.level': tier,
+        'vip.isActive': true,
+        'vip.expires': purchase.expiryTime,
+        'vip.benefits': benefits
       }
     });
 
-    await vipSubscription.save();
-
-    // Link purchase to VIP subscription
-    purchase.vipSubscriptionId = vipSubscription._id;
-    await purchase.save();
-
-    // Update user VIP status
-    const tier = await VIPTier.getTierById(mapping.tier);
-    if (tier) {
-      await User.findByIdAndUpdate(userId, {
-        $set: {
-          'vip.level': mapping.tier,
-          'vip.isActive': true,
-          'vip.expires': purchase.expiryTime,
-          'vip.benefits': tier.getBenefitsSummary()
-        }
-      });
-    }
-
-    console.log(`[GOOGLE-PLAY-IAP] Linked Google Play purchase to VIP subscription: ${vipSubscription._id}`);
+    console.log(`[GOOGLE-PLAY-IAP] Updated user VIP status to ${tier} (expires: ${purchase.expiryTime})`);
   } catch (error) {
-    console.error('[GOOGLE-PLAY-IAP] Error linking to VIP subscription:', error);
+    console.error('[GOOGLE-PLAY-IAP] Error updating user VIP status:', error);
   }
 }
 

@@ -92,13 +92,31 @@ router.get("/undo-usage", protect, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    // Get user's real VIP tier from DB
-    const user = await User.findById(userId).select("vip").lean();
+    // Get user's real VIP tier and downloaded games from DB
+    const user = await User.findById(userId).select("vip games").lean();
     const rawLevel = user?.vip?.level || "free";
 
     // Normalize to match UNDO_LIMITS keys: "bronze" → "Bronze"
     const tierKey =
       rawLevel.charAt(0).toUpperCase() + rawLevel.slice(1).toLowerCase();
+
+    // If user has never downloaded any game → grant unlimited undos
+    const hasDownloadedGame =
+      Array.isArray(user?.games) && user.games.length > 0;
+
+    if (!hasDownloadedGame) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          tier: tierKey,
+          undoCount: 0,
+          maxUndoLimit: null,
+          remaining: null,
+          unlimited: true,
+        },
+      });
+    }
+
     const maxUndoLimit = UNDO_LIMITS[tierKey] ?? UNDO_LIMITS.Free;
 
     // Count undo documents created today — 1 POST = 1 undo used (source of truth)
@@ -118,6 +136,7 @@ router.get("/undo-usage", protect, async (req, res) => {
         undoCount,
         maxUndoLimit,
         remaining: remaining >= 0 ? remaining : 0,
+        unlimited: false,
       },
     });
   } catch (error) {

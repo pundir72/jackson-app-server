@@ -73,7 +73,7 @@ async function generateBiometricToken(user) {
       },
       {
         new: true,
-      }
+      },
     );
 
     return token;
@@ -196,7 +196,7 @@ router.post("/send-otp", async (req, res) => {
 
     if (pendingVerification) {
       const timeRemaining = Math.ceil(
-        (pendingVerification.expiresAt - new Date()) / 1000
+        (pendingVerification.expiresAt - new Date()) / 1000,
       );
       return res.status(400).json({
         error: "OTP already sent",
@@ -267,7 +267,7 @@ router.post("/verify-otp", async (req, res) => {
     const OTPVerification = require("../models/OTPVerification");
     const otpVerification = await findOTPByPhone(
       OTPVerification,
-      standardizedMobile
+      standardizedMobile,
     );
 
     if (!otpVerification) {
@@ -551,15 +551,15 @@ router.post(
 
       // 🎯 ADJUST TRACKING: User Registration
       try {
-        const { trackRegistration } = require('../utils/adjustTracker');
+        const { trackRegistration } = require("../utils/adjustTracker");
         await trackRegistration(user._id.toString(), {
-          method: 'mobile',
-          source: req.body.referralSource || 'direct',
-          platform: req.body.platform || 'mobile',
-          deviceId: req.body.deviceId || user.deviceId
+          method: "mobile",
+          source: req.body.referralSource || "direct",
+          platform: req.body.platform || "mobile",
+          deviceId: req.body.deviceId || user.deviceId,
         });
       } catch (adjustError) {
-        console.error('Adjust registration tracking failed:', adjustError);
+        console.error("Adjust registration tracking failed:", adjustError);
         // Don't fail registration due to tracking error
       }
 
@@ -578,7 +578,7 @@ router.post(
                 ip: req.ip,
                 userAgent: req.headers["user-agent"],
               },
-            }
+            },
           );
           // console.log("Referral processed successfully:", referralResult);
         } catch (referralError) {
@@ -656,7 +656,7 @@ router.post(
       // Handle validation errors
       if (error.name === "ValidationError") {
         const validationErrors = Object.values(error.errors).map(
-          (err) => err.message
+          (err) => err.message,
         );
         return res.status(400).json({
           error: "Validation failed",
@@ -670,7 +670,7 @@ router.post(
         message: "Failed to register user. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Rate limiting for login attempts
@@ -757,16 +757,16 @@ router.post(
         });
       }
 
-      // Check biometric requirement
-      const shouldRequireBiometric = await checkBiometricRequirement(user);
-      if (shouldRequireBiometric) {
-        const biometricToken = await generateBiometricToken(user);
-        return res.status(200).json({
-          biometricRequired: true,
-          biometricToken,
-          message: "Please complete biometric verification",
-        });
-      }
+      // Check biometric requirement (temporarily disabled)
+      // const shouldRequireBiometric = await checkBiometricRequirement(user);
+      // if (shouldRequireBiometric) {
+      //   const biometricToken = await generateBiometricToken(user);
+      //   return res.status(200).json({
+      //     biometricRequired: true,
+      //     biometricToken,
+      //     message: "Please complete biometric verification",
+      //   });
+      // }
 
       // Generate JWT token
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -864,7 +864,7 @@ router.post(
       console.error("Login error:", error);
       res.status(500).json({ error: "Failed to login" });
     }
-  }
+  },
 );
 
 // Admin Login
@@ -1066,7 +1066,7 @@ router.post(
       console.error("Login error:", error);
       res.status(500).json({ error: "Failed to login" });
     }
-  }
+  },
 );
 
 // ========================================
@@ -1076,7 +1076,7 @@ router.post(
 // Google OAuth Routes
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  passport.authenticate("google", { scope: ["profile", "email"] }),
 );
 
 router.get(
@@ -1113,7 +1113,7 @@ router.get(
 
         const errorMessage = encodeURIComponent(message);
         return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`
+          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
         );
       }
 
@@ -1157,7 +1157,7 @@ router.get(
       } catch (updateError) {
         console.error(
           "Error updating login analytics for Google login:",
-          updateError
+          updateError,
         );
         // Continue even if update fails
       }
@@ -1173,10 +1173,10 @@ router.get(
     } catch (error) {
       console.error("Google OAuth callback error:", error);
       res.redirect(
-        `com.jackson.app://auth/error?message=Google authentication failed`
+        `com.jackson.app://auth/error?message=Google authentication failed`,
       );
     }
-  }
+  },
 );
 
 // ========================================
@@ -1217,24 +1217,24 @@ router.get(
       if (err) {
         console.error(
           "[Facebook Mobile Callback] Passport authentication error:",
-          err
+          err,
         );
         // Redirect to mobile app error deep link
         const errorMessage = encodeURIComponent(
-          err.message || "Facebook authentication failed"
+          err.message || "Facebook authentication failed",
         );
         return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}`
+          `com.jackson.app://auth/error?message=${errorMessage}`,
         );
       }
       if (!req.user) {
         console.error(
-          "[Facebook Mobile Callback] No user after authentication"
+          "[Facebook Mobile Callback] No user after authentication",
         );
         return res.redirect(
           `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "Facebook authentication failed - no user data"
-          )}`
+            "Facebook authentication failed - no user data",
+          )}`,
         );
       }
       next(); // Continue to the callback handler
@@ -1248,8 +1248,8 @@ router.get(
         console.error("[Facebook Mobile Callback] User is null");
         return res.redirect(
           `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "User not found after Facebook authentication"
-          )}`
+            "User not found after Facebook authentication",
+          )}`,
         );
       }
 
@@ -1275,7 +1275,7 @@ router.get(
 
         const errorMessage = encodeURIComponent(message);
         return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`
+          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
         );
       }
 
@@ -1314,7 +1314,7 @@ router.get(
       } catch (updateError) {
         console.error(
           "Error updating login analytics for Facebook mobile login:",
-          updateError
+          updateError,
         );
         // Continue even if update fails
       }
@@ -1326,7 +1326,7 @@ router.get(
 
       // Redirect to mobile app with token
       const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(
-        token
+        token,
       )}&provider=facebook&userId=${user._id.toString()}`;
 
       console.log(
@@ -1336,14 +1336,14 @@ router.get(
           email: user.email,
           hasToken: !!token,
           tokenLength: token.length,
-        }
+        },
       );
 
       return res.redirect(redirectUrl);
     } catch (error) {
       console.error(
         "[Facebook Mobile Callback] Error in callback handler:",
-        error
+        error,
       );
       console.error("[Facebook Mobile Callback] Error stack:", error.stack);
       console.error("[Facebook Mobile Callback] Error details:", {
@@ -1356,11 +1356,11 @@ router.get(
       const errorMessage = error.message || "Facebook authentication failed";
       return res.redirect(
         `com.jackson.app://auth/error?message=${encodeURIComponent(
-          errorMessage
-        )}`
+          errorMessage,
+        )}`,
       );
     }
-  }
+  },
 );
 
 // Social login status check
@@ -1413,7 +1413,7 @@ router.post("/social/disconnect", async (req, res) => {
     const user = await User.findByIdAndUpdate(
       userId,
       { $unset: updateField },
-      { new: true }
+      { new: true },
     );
 
     if (!user) {
@@ -1522,7 +1522,7 @@ router.post(
           await sendPasswordResetEmail(
             user.email,
             resetUrl,
-            user.firstName || "User"
+            user.firstName || "User",
           );
 
           res.json({
@@ -1574,7 +1574,7 @@ router.post(
           "Failed to process password reset request. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Verify Reset Token
@@ -1627,10 +1627,10 @@ router.post(
       .isLength({ min: 8 })
       .withMessage("Password must be at least 8 characters long")
       .matches(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
       )
       .withMessage(
-        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
+        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
       ),
   ],
   async (req, res) => {
@@ -1689,7 +1689,7 @@ router.post(
         message: "Failed to reset password. Please try again later.",
       });
     }
-  }
+  },
 );
 
 module.exports = router;

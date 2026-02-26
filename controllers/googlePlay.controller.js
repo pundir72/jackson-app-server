@@ -84,11 +84,14 @@ const verifyPurchase = async (req, res) => {
 
       // Update existing purchase with verification data
       await existingPurchase.markAsVerified(verificationResult.data.rawResponse);
-      
+
       if (purchaseType === 'subscription') {
         existingPurchase.expiryTime = verificationResult.data.expiryTime;
         existingPurchase.autoRenewing = verificationResult.data.autoRenewing;
         await existingPurchase.save();
+
+        // Update user VIP status for re-verified subscription
+        await linkToVIPSubscription(existingPurchase, userId, productId);
       }
 
       return res.json({
@@ -556,15 +559,30 @@ async function handleSubscriptionNotification(notification) {
       );
       if (renewResult.success) {
         purchase.expiryTime = renewResult.data.expiryTime;
+        // Extend user VIP expiry to match renewed subscription
+        await User.findByIdAndUpdate(purchase.userId, {
+          $set: {
+            'vip.expires': renewResult.data.expiryTime,
+            'vip.isActive': true
+          }
+        });
       }
       break;
     case 3: // SUBSCRIPTION_CANCELED
       purchase.purchaseState = 1;
       purchase.canceledAt = new Date();
       purchase.autoRenewing = false;
+      // Deactivate user VIP on cancellation
+      await User.findByIdAndUpdate(purchase.userId, {
+        $set: { 'vip.isActive': false }
+      });
       break;
     case 13: // SUBSCRIPTION_EXPIRED
       purchase.verificationStatus = 'expired';
+      // Deactivate user VIP on expiry
+      await User.findByIdAndUpdate(purchase.userId, {
+        $set: { 'vip.isActive': false }
+      });
       break;
     default:
       console.log(`[GOOGLE-PLAY-IAP] Unhandled subscription notification type: ${notificationType}`);

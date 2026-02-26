@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const MasterData = require('../models/MasterData');
-const { body, validationResult } = require('express-validator');
 const analytics = require('../utils/analytics');
 const logOnboardingEvent = require('../utils/onboardingEvents');
+const auth = require('../middleware/auth');
 
 // Helper function to get next onboarding step
 function getNextOnboardingStep(user) {
@@ -23,31 +23,12 @@ function getNextOnboardingStep(user) {
     return 'completed';
 }
 
-// Get onboarding status
-router.get('/status', async (req, res) => {
+// Get onboarding status (auth required)
+router.get('/status', auth, async (req, res) => {
   try {
-    const mobile = req.query.mobile;
-    if (!mobile) {
-      return res.status(400).json({ 
-        error: 'Mobile number is required',
-        example: '/api/onboarding/status?mobile=911234567890'
-      });
-    }
-
-    const user = await User.findOne({ mobile });
+    const user = await User.findById(req.user.userId);
     if (!user) {
-      return res.status(200).json({
-        completed: {
-          primaryGoal: false,
-          gender: false,
-          ageRange: false,
-          gamePreferences: false,
-          gameStyle: false,
-          improvementArea: false,
-          dailyGoal: false
-        },
-        nextStep: 'primary_goal'
-      });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const onboardingStatus = {
@@ -294,6 +275,77 @@ router.put('/daily-earning-goal', async (req, res) => {
       step: 'daily_earning_goal'
     });
     res.status(500).json({ error: 'Failed to update daily earning goal' });
+  }
+});
+
+/**
+ * POST /api/onboarding/submit
+ * Submit all onboarding answers at once (same shape as signup stores them).
+ * Auth required; user identified by JWT. Body: primaryGoal?, gender?, ageRange?, gamePreferences?, gameStyle?, improvementArea?, dailyEarningGoal?
+ */
+router.post('/submit', auth, async (req, res) => {
+  try {
+    const {
+      primaryGoal,
+      gender,
+      ageRange,
+      gamePreferences,
+      gameStyle,
+      improvementArea,
+      dailyEarningGoal,
+    } = req.body;
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Same structure as signup route (auth.js register)
+    const onboardingUpdate = {
+      'onboarding.completed': true,
+      'onboarding.step': 7, // all steps done
+      'onboarding.primaryGoal': primaryGoal || undefined,
+      'onboarding.gender': gender || undefined,
+      'onboarding.ageRange': ageRange || undefined,
+      'onboarding.gamePreferences': Array.isArray(gamePreferences) ? gamePreferences : [],
+      'onboarding.gameStyle': gameStyle || undefined,
+      'onboarding.improvementArea': improvementArea || undefined,
+      'onboarding.dailyEarningGoal': typeof dailyEarningGoal === 'number' ? dailyEarningGoal : undefined,
+      'onboarding.dailyGoals': {
+        gamesPlayed: 5,
+        coinsEarned: typeof dailyEarningGoal === 'number' ? dailyEarningGoal : 900,
+        challengesCompleted: 3,
+      },
+    };
+
+    const updated = await User.findByIdAndUpdate(
+      req.user.userId,
+      { $set: onboardingUpdate },
+      { new: true }
+    ).select('onboarding');
+
+    await logOnboardingEvent(updated, 'onboarding_submitted', {
+      primaryGoal: !!primaryGoal,
+      gender: !!gender,
+      ageRange: !!ageRange,
+      gamePreferences: Array.isArray(gamePreferences) ? gamePreferences.length : 0,
+      gameStyle: !!gameStyle,
+      improvementArea: !!improvementArea,
+      dailyEarningGoal: typeof dailyEarningGoal === 'number',
+    });
+
+    res.status(200).json({
+      message: 'Onboarding saved successfully',
+      onboarding: updated.onboarding,
+    });
+  } catch (error) {
+    console.error('Error submitting onboarding:', error);
+    await analytics.log('onboarding_error', {
+      error: error.message,
+      stack: error.stack,
+      step: 'submit',
+    });
+    res.status(500).json({ error: 'Failed to save onboarding', message: error.message });
   }
 });
 

@@ -1,3 +1,11 @@
+const User = require("../models/User");
+const DailyRewardProgress = require("../models/DailyRewardProgress");
+const {
+  getISOWeekKey,
+  getWeekBoundsUtc,
+  initWeekDays,
+} = require("./dailyRewardHelpers");
+
 /**
  * Fixed Daily Reward Progress Loader for ADM-DR-001
  * 
@@ -13,10 +21,6 @@
  * @param {Date} dateUtc - Date to load progress for (defaults to current date)
  * @returns {Object|null} DailyRewardProgress document or null if access denied
  */
-
-const DailyRewardProgress = require('../models/DailyRewardProgress');
-const User = require('../models/User');
-const { getISOWeekKey, getWeekBoundsUtc, initWeekDays } = require('./dailyRewardHelpers');
 
 /**
  * Determine if a given week is the user's first week
@@ -52,9 +56,9 @@ function getCurrentDayIndex(now) {
 async function loadProgressFixed(userId, dateUtc = new Date()) {
   try {
     const now = new Date();
-    
+
     // Get user account creation date
-    const user = await User.findById(userId).select('createdAt');
+    const user = await User.findById(userId).select("createdAt");
     if (!user) {
       console.log('❌ User not found');
       return null;
@@ -74,7 +78,7 @@ async function loadProgressFixed(userId, dateUtc = new Date()) {
 
     // Check if requested week is before user account creation
     if (weekEnd < userCreatedAt) {
-      console.log('   ❌ Requested week is before user creation');
+      console.log("   ❌ Requested week is before user creation");
       return null;
     }
 
@@ -86,7 +90,7 @@ async function loadProgressFixed(userId, dateUtc = new Date()) {
     console.log(`   📅 Week Type: ${isFirstWeek ? 'FIRST WEEK (User-Relative Days)' : 'SUBSEQUENT WEEK (Calendar Days)'}`);
     if (isFirstWeek) {
       const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      console.log(`   📍 User joined on ${dayNames[userJoinDayIdx]} (calendar day ${userJoinDayIdx + 1})`);
+      console.log(`   � User joined on ${dayNames[userJoinDayIdx]} (calendar day ${userJoinDayIdx + 1})`);
       console.log(`   ✅ Join day becomes "Day 1" - User gets full 7-day experience`);
     }
 
@@ -162,8 +166,8 @@ async function loadProgressFixed(userId, dateUtc = new Date()) {
         } else {
           // Past week: all unclaimed days are missed
           progress.days.forEach((d) => {
-            if (d.status === 'locked') {
-              d.status = 'missed';
+            if (d.status === "locked") {
+              d.status = "missed";
               changed = true;
             }
           });
@@ -253,9 +257,8 @@ async function loadProgressFixed(userId, dateUtc = new Date()) {
     }
 
     return progress;
-    
   } catch (error) {
-    console.error('❌ Error in loadProgressFixed:', error);
+    console.error("❌ Error in loadProgressFixed:", error);
     return null;
   }
 }

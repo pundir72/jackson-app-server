@@ -36,7 +36,7 @@ function isTierEligible(userTier, eligibleTiers) {
 
   const normalizedUserTier = normalizeTier(userTier);
   return eligibleTiers.some(
-    (tier) => normalizeTier(tier) === normalizedUserTier
+    (tier) => normalizeTier(tier) === normalizedUserTier,
   );
 }
 
@@ -83,8 +83,11 @@ async function getSpinWheelConfig() {
 function selectRewardByProbability(rewards) {
   // BUG-065 FIX: Proper randomization logic
   // Calculate total probability of all rewards
-  const totalProbability = rewards.reduce((sum, r) => sum + (r.probability || 0), 0);
-  
+  const totalProbability = rewards.reduce(
+    (sum, r) => sum + (r.probability || 0),
+    0,
+  );
+
   // Handle edge case: no probabilities set
   if (totalProbability <= 0) {
     // Equal probability for all rewards
@@ -92,29 +95,35 @@ function selectRewardByProbability(rewards) {
     console.log(`🎲 Equal distribution: selected ${rewards[randomIndex].name}`);
     return rewards[randomIndex];
   }
-  
+
   // CRITICAL FIX: Generate random between 0-100, not 0-totalProbability
   // This allows "no reward" outcomes when total probability < 100%
   const random = Math.random() * 100;
-  
-  console.log(`🎲 Randomization: random=${random.toFixed(2)}, totalProb=${totalProbability}%`);
-  
+
+  console.log(
+    `🎲 Randomization: random=${random.toFixed(2)}, totalProb=${totalProbability}%`,
+  );
+
   // Build cumulative distribution and select reward
   let cumulative = 0;
-  
+
   for (const reward of rewards) {
     const prob = reward.probability || 0;
     cumulative += prob;
-    
+
     // Select reward if random falls within its probability range
     if (random < cumulative) {
-      console.log(`🎯 Selected: ${reward.name} (${prob}%) - cumulative: ${cumulative}%`);
+      console.log(
+        `🎯 Selected: ${reward.name} (${prob}%) - cumulative: ${cumulative}%`,
+      );
       return reward;
     }
   }
-  
+
   // CRITICAL: Return null for "no reward" outcomes (was always returning rewards[0])
-  console.log(`🚫 No reward - random ${random.toFixed(2)} > total ${totalProbability}%`);
+  console.log(
+    `🚫 No reward - random ${random.toFixed(2)} > total ${totalProbability}%`,
+  );
   return null;
 }
 
@@ -223,8 +232,8 @@ router.get("/status", protect, async (req, res) => {
           reason: !isEligible
             ? "Not eligible for this spin wheel"
             : !isWithinDateRange
-            ? "Spin wheel is not currently active. Please check the campaign dates."
-            : "Spin wheel is not active",
+              ? "Spin wheel is not currently active. Please check the campaign dates."
+              : "Spin wheel is not active",
         },
       });
     }
@@ -250,8 +259,24 @@ router.get("/status", protect, async (req, res) => {
     }
 
     // Get VIP multiplier from config (not from VIP benefits)
-    const vipMultiplier = config.vipMultipliers?.[userTier.toLowerCase()] || 
-                         (config instanceof SpinWheelConfig ? 1.0 : DEFAULT_SPIN_CONFIG.vipMultiplier?.[userTier.toLowerCase()] || 1.0);
+    const vipMultiplier =
+      config.vipMultipliers?.[userTier.toLowerCase()] ||
+      (config instanceof SpinWheelConfig
+        ? 1.0
+        : DEFAULT_SPIN_CONFIG.vipMultiplier?.[userTier.toLowerCase()] || 1.0);
+
+    // Get last spin time and calculate cooldown remaining
+    const lastSpinTime = await getLastSpinTime(req.user.userId);
+    const cooldownMinutes = config.cooldownMinutes || 360;
+    let cooldownRemaining = 0;
+
+    if (lastSpinTime) {
+      const now = Date.now();
+      const lastSpinMs = lastSpinTime.getTime();
+      const cooldownMs = cooldownMinutes * 60 * 1000;
+      const elapsedMs = now - lastSpinMs;
+      cooldownRemaining = Math.max(0, cooldownMs - elapsedMs);
+    }
 
     // Return spin status
     res.json({
@@ -262,7 +287,9 @@ router.get("/status", protect, async (req, res) => {
         dailyLimit: dailyLimit,
         vipMultiplier: vipMultiplier,
         isVIP: !!user.vip?.level,
-        lastSpinTime: null, // You can add logic to get last spin time if needed
+        lastSpinTime: lastSpinTime,
+        cooldownRemaining: cooldownRemaining,
+        cooldownMinutes: cooldownMinutes,
       },
     });
   } catch (error) {
@@ -308,6 +335,7 @@ router.post("/spin", protect, async (req, res) => {
         error: !isEligible
           ? "Not eligible for this spin wheel"
           : "Spin wheel is not currently active. Please check the campaign dates.",
+        cooldownMinutes: config.cooldownMinutes || 360,
       });
     }
 
@@ -339,6 +367,7 @@ router.post("/spin", protect, async (req, res) => {
         data: {
           remainingSpins: 0,
           dailyLimit: dailyLimit,
+          cooldownMinutes: config.cooldownMinutes || 360,
         },
       });
     }
@@ -392,11 +421,27 @@ router.post("/spin", protect, async (req, res) => {
       config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
 
     let finalAmount;
+    let tierMultiplierValue = 1.0;
+    let tierName = "";
+
     if (selectedReward.type === "coins" || selectedReward.type === "coin") {
       finalAmount = Math.floor(selectedReward.amount * vipMultiplier);
     } else if (selectedReward.type === "xp" || selectedReward.type === "XP") {
-      // XP rewards don't get VIP multiplier (use exact amount)
-      finalAmount = selectedReward.amount;
+      // XP rewards get BOTH VIP multiplier and tier multiplier
+      let xpAmountWithVIP = selectedReward.amount * vipMultiplier;
+
+      // Apply XP tier multiplier based on user's current XP level
+      const tierMultiplierResult = await applyTierMultiplierToXP(
+        user,
+        xpAmountWithVIP,
+      );
+      finalAmount = Math.floor(tierMultiplierResult.finalXP);
+      tierMultiplierValue = tierMultiplierResult.multiplier;
+      tierName = tierMultiplierResult.tier;
+
+      console.log(
+        `📊 XP Spin Multipliers - Base: ${selectedReward.amount}, VIP: ${vipMultiplier}x, Tier: ${tierMultiplierValue}x (${tierName}), Final: ${finalAmount}`,
+      );
     } else {
       finalAmount = selectedReward.amount;
     }
@@ -411,9 +456,20 @@ router.post("/spin", protect, async (req, res) => {
       rewardType: selectedReward.type,
       rewardAmount: finalAmount,
       vipMultiplier:
-        selectedReward.type === "coins" || selectedReward.type === "coin"
+        selectedReward.type === "coins" ||
+        selectedReward.type === "coin" ||
+        selectedReward.type === "xp" ||
+        selectedReward.type === "XP"
           ? vipMultiplier
           : 1.0,
+      tierMultiplier:
+        selectedReward.type === "xp" || selectedReward.type === "XP"
+          ? tierMultiplierValue
+          : 1.0,
+      tierName:
+        selectedReward.type === "xp" || selectedReward.type === "XP"
+          ? tierName
+          : "",
       spinMode: config.spinMode || "free",
       userTier: userTier,
       isWin: true,
@@ -455,7 +511,7 @@ router.post("/spin", protect, async (req, res) => {
           type: "credit",
           balanceType: "xp",
           amount: xpEarned,
-          description: `Spin reward - ${selectedReward.name} (${xpEarned} XP)`,
+          description: `Spin reward - ${selectedReward.name} (Base: ${selectedReward.amount} → VIP: ${vipMultiplier}x → Tier: ${tierMultiplierValue}x (${tierName}) → Total: ${xpEarned} XP)`,
           status: "completed",
           referenceId: spinLog.spinId,
         });
@@ -474,6 +530,10 @@ router.post("/spin", protect, async (req, res) => {
       $inc: { "stats.totalWins": 1 },
       $set: { "stats.lastWon": new Date() },
     });
+
+    // Get cooldown information for response
+    const cooldownMinutes = config.cooldownMinutes || 360;
+    const cooldownMs = cooldownMinutes * 60 * 1000;
 
     res.json({
       success: true,
@@ -494,11 +554,16 @@ router.post("/spin", protect, async (req, res) => {
           metadata: selectedReward.metadata,
         },
         vipMultiplier:
-          selectedReward.type === "coins" || selectedReward.type === "coin"
+          selectedReward.type === "coins" ||
+          selectedReward.type === "coin" ||
+          selectedReward.type === "xp" ||
+          selectedReward.type === "XP"
             ? vipMultiplier
             : 1.0,
         userTier,
         status: config.spinMode === "ad_based" ? "pending" : "completed",
+        cooldownRemaining: cooldownMs,
+        cooldownMinutes: cooldownMinutes,
         ...(config.spinMode !== "ad_based" && {
           coinsEarned,
           xpEarned,
@@ -632,19 +697,19 @@ router.post("/redeem", protect, async (req, res) => {
       // NO bonus XP for coin rewards
       xpEarned = 0;
     } else if (rewardType === "xp" || rewardType === "XP") {
-      // Only give XP for XP rewards - use exact configured amount (no multiplier)
-      xpEarned = spinLog.rewardAmount; // This is the exact configured amount, no multiplier applied
+      // Only give XP for XP rewards - amount already includes VIP and tier multipliers from spin
+      xpEarned = spinLog.rewardAmount; // This includes VIP multiplier and tier multiplier applied
       user.xp.current += xpEarned;
       user.xp.total += xpEarned;
       // Do NOT give coins for XP rewards
 
-      // Create transaction record for XP
+      // Create transaction record for XP (showing final amount with all multipliers)
       transaction = new Transaction({
         user: userId,
         type: "credit",
         balanceType: "xp",
         amount: xpEarned,
-        description: `Spin reward - ${spinLog.rewardName} (${xpEarned} XP)`,
+        description: `Spin reward - ${spinLog.rewardName} (Base: ${spinLog.reward?.amount || 0} → VIP: ${spinLog.vipMultiplier}x → Tier: ${spinLog.tierMultiplier}x (${spinLog.tierName}) → Total: ${xpEarned} XP)`,
         status: "completed",
         referenceId: spinLog.spinId || spinLog._id.toString(),
       });
@@ -768,9 +833,8 @@ async function getUserVIPBenefits(userId) {
     const VIPTier = require("../models/VIPTier");
     const VIPSubscription = require("../models/VIPSubscription");
 
-    const activeSubscription = await VIPSubscription.getActiveSubscription(
-      userId
-    );
+    const activeSubscription =
+      await VIPSubscription.getActiveSubscription(userId);
 
     if (!activeSubscription || !activeSubscription.isActive()) {
       return {

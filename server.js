@@ -147,7 +147,7 @@ mongoose
       .on("error", (error) => {
         if (error.code === "EADDRINUSE") {
           console.error(
-            `Port ${config.PORT} is already in use. Please try a different port or kill the process using this port.`
+            `Port ${config.PORT} is already in use. Please try a different port or kill the process using this port.`,
           );
           process.exit(1);
         } else {
@@ -189,6 +189,7 @@ mongoose
     const vipRoutes = require("./routes/vip");
     const payment = require("./routes/payment");
     const gameRoutes = require("./routes/game");
+    const swipeRoutes = require("./routes/swipe");
     const profileRoutes = require("./routes/profile");
     const dashboardRoutes = require("./routes/dashboard");
     const cashCoachRoutes = require("./routes/cashCoach");
@@ -280,6 +281,7 @@ mongoose
     app.use("/api/vip", vipRoutes);
     app.use("/api/payment", payment);
     app.use("/api/game", gameRoutes);
+    app.use("/api/game/swipe", swipeRoutes);
     app.use("/api/profile", profileRoutes);
     app.use("/api/dashboard", dashboardRoutes);
     app.use("/api/cash-coach", cashCoachRoutes);

@@ -1981,6 +1981,16 @@ router.get("/discover", protect, async (req, res) => {
             // Apply XP tier multiplier into baseXP
             const baseXP = Math.round(rawBaseXP * discoverTierMultiplier);
             const multiplier = g.xpRewardConfig?.multiplier ?? 1;
+            console.log("[DISCOVER] xpRewardConfig calc:", {
+              gameId: g._id,
+              gameName: g.name || g.title,
+              rawBaseXP,
+              discoverTierMultiplier,
+              discoverTierKey,
+              baseXP_formula: `Math.round(${rawBaseXP} * ${discoverTierMultiplier}) = ${baseXP}`,
+              baseXP,
+              multiplier,
+            });
             return { baseXP, multiplier };
           })(),
           _id: g._id,

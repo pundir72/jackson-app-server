@@ -2043,7 +2043,7 @@ router.post("/complete", protect, async (req, res) => {
     );
     const todayStr = normalizedStart.toISOString().split("T")[0];
 
-    const user = await User.findById(userId).select("wallet xp streak badges");
+    const user = await User.findById(userId).select("wallet xp streak badges vip");
 
     // Get today's challenge using UTC dates and status filter
     const challenge = await DailyChallenge.findOne({
@@ -2460,10 +2460,28 @@ router.post("/complete", protect, async (req, res) => {
     const claimType = challenge.claimType || "auto";
     const adWasWatched =
       adWatched === true || progress.progress?.metadata?.adWatched === true;
+    
+    // VIP BENEFIT: Check if user has active VIP membership
+    const hasActiveVIP = user.vip?.isActive === true && 
+                         user.vip?.expires && 
+                         new Date(user.vip.expires) > new Date();
+    
+    // VIP members get auto credit even for watch_ad challenges
     const shouldCreditImmediately =
       claimType === "auto" ||
       (claimType === "watch_ad" && adWasWatched) ||
+      (claimType === "watch_ad" && hasActiveVIP) || // VIP BENEFIT: Skip ad requirement
       (claimType === "manual" && false); // Manual claims require separate claim endpoint
+    
+    console.log("💎 [VIP CHECK] Claim type evaluation:", {
+      userId,
+      claimType,
+      adWasWatched,
+      hasActiveVIP,
+      vipLevel: user.vip?.level,
+      vipExpires: user.vip?.expires,
+      shouldCreditImmediately
+    });
 
     // Use same logic as daily rewards - get multiplier from XPTier.accessBenefits
     const currentXp = user.xp?.current || 0;
@@ -2757,6 +2775,15 @@ router.post("/complete", protect, async (req, res) => {
                 ? bonusRewardsEarned[0].finalValue // Use final XP after tier multiplier
                 : primaryReward.value; // Use base value for coins
 
+            console.log("🎁 [BONUS DAY TRANSACTION] Creating transaction:", {
+              userId,
+              primaryRewardType: primaryReward.type,
+              primaryRewardValue: primaryReward.value,
+              transactionAmount,
+              balanceType: primaryReward.type === "coins" ? "coins" : "xp",
+              bonusRewardsEarned
+            });
+
             const bonusDayTransaction = new Transaction({
               user: userId,
               type: "credit",
@@ -2880,8 +2907,10 @@ router.post("/complete", protect, async (req, res) => {
       bonusCoins,
       bonusXP,
       tierMultiplier,
-      requiresAd: claimType === "watch_ad" && !adWasWatched,
+      requiresAd: claimType === "watch_ad" && !adWasWatched && !hasActiveVIP, // VIP members don't require ad
       adWatched: adWasWatched || false,
+      vipBenefitUsed: hasActiveVIP && claimType === "watch_ad" && !adWasWatched, // Track VIP benefit usage
+      vipLevel: hasActiveVIP ? user.vip?.level : null,
       source: "daily_challenge", // Required for claim-reward endpoint
     };
 

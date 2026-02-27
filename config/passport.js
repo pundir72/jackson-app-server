@@ -42,6 +42,9 @@ passport.use(new GoogleStrategy({
 
         if (user) {
             // Update existing user's Google info
+            if (!user.social) {
+                user.social = {};
+            }
             if (!user.social.googleId) {
                 user.social.googleId = profile.id;
                 user.social.googleAccessToken = accessToken;

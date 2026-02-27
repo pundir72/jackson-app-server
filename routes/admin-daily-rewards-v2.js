@@ -18,13 +18,9 @@ const {
 
 router.get("/config", adminAuth, async (req, res) => {
   try {
-    let config = await DailyRewardConfigV2.findOne({ isActive: true }).sort({
+    const config = await DailyRewardConfigV2.findOne({ isActive: true }).sort({
       version: -1,
     });
-
-    if (!config) {
-      config = await DailyRewardConfigV2.findOne().sort({ version: -1 });
-    }
 
     if (!config) {
       return res.json({
@@ -243,14 +239,12 @@ router.post(
           // This prevents duplicate weekNumbers in the same submission
           // But allows re-adding after deletion (since we only check current request, not existing config)
           const weekNumbers = weeklyMultiplier.additionalWeeks
-            .map((w) => (w && w.weekNumber ? parseInt(w.weekNumber) : null))
+            .map((w) => w && w.weekNumber ? parseInt(w.weekNumber) : null)
             .filter((num) => num !== null);
-
+          
           const uniqueWeekNumbers = [...new Set(weekNumbers)];
           if (weekNumbers.length !== uniqueWeekNumbers.length) {
-            const duplicates = weekNumbers.filter(
-              (num, index) => weekNumbers.indexOf(num) !== index,
-            );
+            const duplicates = weekNumbers.filter((num, index) => weekNumbers.indexOf(num) !== index);
             return res.status(400).json({
               success: false,
               error: `Duplicate week numbers are not allowed in additional weeks. Found duplicate: Week ${duplicates[0]}`,
@@ -279,7 +273,7 @@ router.post(
       if (isActive !== false) {
         await DailyRewardConfigV2.updateMany(
           { isActive: true },
-          { $set: { isActive: false } },
+          { $set: { isActive: false } }
         );
       }
 
@@ -302,9 +296,7 @@ router.post(
         const seenWeekNumbers = new Set();
         const uniqueWeeks = validWeeks.filter((w) => {
           if (seenWeekNumbers.has(w.weekNumber)) {
-            console.warn(
-              `Duplicate weekNumber ${w.weekNumber} detected after formatting, removing duplicate`,
-            );
+            console.warn(`Duplicate weekNumber ${w.weekNumber} detected after formatting, removing duplicate`);
             return false;
           }
           seenWeekNumbers.add(w.weekNumber);
@@ -317,7 +309,7 @@ router.post(
         };
         console.log(
           "Formatted weeklyMultiplier with additionalWeeks:",
-          JSON.stringify(formattedWeeklyMultiplier, null, 2),
+          JSON.stringify(formattedWeeklyMultiplier, null, 2)
         );
       }
 
@@ -346,7 +338,7 @@ router.post(
         message: error.message,
       });
     }
-  },
+  }
 );
 
 // PUT /api/admin/v2/daily-rewards/config/:id - Update existing config
@@ -450,11 +442,7 @@ router.put(
           if (rewardType === "Coins" || rewardType === "Both") {
             const coinValue =
               day.coinValue !== undefined ? day.coinValue : day.coins;
-            if (
-              coinValue === undefined ||
-              coinValue === null ||
-              coinValue < 0
-            ) {
+            if (coinValue === undefined || coinValue === null || coinValue < 0) {
               return res.status(400).json({
                 success: false,
                 error: `Day ${day.dayNumber}: Coin value is required when reward type is Coins or Both`,
@@ -542,14 +530,12 @@ router.put(
         ) {
           // Check for duplicate weekNumbers
           const weekNumbers = weeklyMultiplier.additionalWeeks
-            .map((w) => (w && w.weekNumber ? parseInt(w.weekNumber) : null))
+            .map((w) => w && w.weekNumber ? parseInt(w.weekNumber) : null)
             .filter((num) => num !== null);
-
+          
           const uniqueWeekNumbers = [...new Set(weekNumbers)];
           if (weekNumbers.length !== uniqueWeekNumbers.length) {
-            const duplicates = weekNumbers.filter(
-              (num, index) => weekNumbers.indexOf(num) !== index,
-            );
+            const duplicates = weekNumbers.filter((num, index) => weekNumbers.indexOf(num) !== index);
             return res.status(400).json({
               success: false,
               error: `Duplicate week numbers are not allowed in additional weeks. Found duplicate: Week ${duplicates[0]}`,
@@ -574,55 +560,50 @@ router.put(
         }
       }
 
-      // If deactivating, only update isActive — do not overwrite existing values
-      if (isActive === false) {
-        config.isActive = false;
-      } else {
-        // Update fields
-        if (version !== undefined) config.version = version;
-        if (days) config.days = days;
-        if (bigReward !== undefined) config.bigReward = bigReward;
-        if (fallbackReward !== undefined) config.fallbackReward = fallbackReward;
-        if (weeklyMultiplier !== undefined) {
-          // Format additionalWeeks properly
-          let formattedWeeklyMultiplier = weeklyMultiplier;
-          if (
-            formattedWeeklyMultiplier.enabled &&
-            formattedWeeklyMultiplier.additionalWeeks
-          ) {
-            const validWeeks = formattedWeeklyMultiplier.additionalWeeks
-              .filter((w) => w && w.weekNumber && w.multiplier)
-              .map((w) => ({
-                weekNumber: parseInt(w.weekNumber) || w.weekNumber,
-                multiplier: parseFloat(w.multiplier) || w.multiplier,
-              }));
+      // Update fields
+      if (version !== undefined) config.version = version;
+      if (days) config.days = days;
+      if (bigReward !== undefined) config.bigReward = bigReward;
+      if (fallbackReward !== undefined) config.fallbackReward = fallbackReward;
+      if (weeklyMultiplier !== undefined) {
+        // Format additionalWeeks properly
+        let formattedWeeklyMultiplier = weeklyMultiplier;
+        if (
+          formattedWeeklyMultiplier.enabled &&
+          formattedWeeklyMultiplier.additionalWeeks
+        ) {
+          const validWeeks = formattedWeeklyMultiplier.additionalWeeks
+            .filter((w) => w && w.weekNumber && w.multiplier)
+            .map((w) => ({
+              weekNumber: parseInt(w.weekNumber) || w.weekNumber,
+              multiplier: parseFloat(w.multiplier) || w.multiplier,
+            }));
 
-            const seenWeekNumbers = new Set();
-            const uniqueWeeks = validWeeks.filter((w) => {
-              if (seenWeekNumbers.has(w.weekNumber)) {
-                return false;
-              }
-              seenWeekNumbers.add(w.weekNumber);
-              return true;
-            });
+          const seenWeekNumbers = new Set();
+          const uniqueWeeks = validWeeks.filter((w) => {
+            if (seenWeekNumbers.has(w.weekNumber)) {
+              return false;
+            }
+            seenWeekNumbers.add(w.weekNumber);
+            return true;
+          });
 
-            formattedWeeklyMultiplier = {
-              ...formattedWeeklyMultiplier,
-              additionalWeeks: uniqueWeeks,
-            };
-          }
-          config.weeklyMultiplier = formattedWeeklyMultiplier;
+          formattedWeeklyMultiplier = {
+            ...formattedWeeklyMultiplier,
+            additionalWeeks: uniqueWeeks,
+          };
         }
-        if (isActive !== undefined) {
-          // If activating this config, deactivate others
-          if (isActive && !config.isActive) {
-            await DailyRewardConfigV2.updateMany(
-              { _id: { $ne: config._id }, isActive: true },
-              { $set: { isActive: false } },
-            );
-          }
-          config.isActive = isActive;
+        config.weeklyMultiplier = formattedWeeklyMultiplier;
+      }
+      if (isActive !== undefined) {
+        // If activating this config, deactivate others
+        if (isActive && !config.isActive) {
+          await DailyRewardConfigV2.updateMany(
+            { _id: { $ne: config._id }, isActive: true },
+            { $set: { isActive: false } }
+          );
         }
+        config.isActive = isActive;
       }
 
       config.updatedBy = req.user.userId;
@@ -641,7 +622,7 @@ router.put(
         message: error.message,
       });
     }
-  },
+  }
 );
 
 router.patch("/config/:id/toggle", adminAuth, async (req, res) => {
@@ -658,7 +639,7 @@ router.patch("/config/:id/toggle", adminAuth, async (req, res) => {
     if (!config.isActive) {
       await DailyRewardConfigV2.updateMany(
         { _id: { $ne: config._id }, isActive: true },
-        { $set: { isActive: false } },
+        { $set: { isActive: false } }
       );
     }
 

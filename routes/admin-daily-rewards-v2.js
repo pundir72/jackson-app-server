@@ -18,15 +18,24 @@ const {
 
 router.get("/config", adminAuth, async (req, res) => {
   try {
-    const config = await DailyRewardConfigV2.findOne({ isActive: true }).sort({
+    // First try to find active config
+    let config = await DailyRewardConfigV2.findOne({ isActive: true }).sort({
       version: -1,
     });
+
+    // If no active config, return the most recent one (even if inactive)
+    if (!config) {
+      config = await DailyRewardConfigV2.findOne().sort({
+        updatedAt: -1,
+        createdAt: -1,
+      });
+    }
 
     if (!config) {
       return res.json({
         success: true,
         data: null,
-        message: "No active V2 configuration found. Please create one.",
+        message: "No V2 configuration found. Please create one.",
       });
     }
 
@@ -603,6 +612,29 @@ router.put(
             { $set: { isActive: false } }
           );
         }
+        
+        // If deactivating, also deactivate all nested features
+        if (isActive === false) {
+          // Deactivate all days and their claimableOnLoginOnly
+          if (config.days && config.days.length > 0) {
+            config.days = config.days.map(day => ({
+              ...day,
+              active: false,
+              claimableOnLoginOnly: false
+            }));
+          }
+          
+          // Deactivate big reward
+          if (config.bigReward) {
+            config.bigReward.enabled = false;
+          }
+          
+          // Deactivate weekly multiplier
+          if (config.weeklyMultiplier) {
+            config.weeklyMultiplier.enabled = false;
+          }
+        }
+        
         config.isActive = isActive;
       }
 
@@ -636,14 +668,34 @@ router.patch("/config/:id/toggle", adminAuth, async (req, res) => {
       });
     }
 
-    if (!config.isActive) {
+    const newActiveState = !config.isActive;
+    
+    if (newActiveState) {
+      // If activating, deactivate other configs
       await DailyRewardConfigV2.updateMany(
         { _id: { $ne: config._id }, isActive: true },
         { $set: { isActive: false } }
       );
+    } else {
+      // If deactivating, also deactivate all nested features
+      if (config.days && config.days.length > 0) {
+        config.days = config.days.map(day => ({
+          ...day,
+          active: false,
+          claimableOnLoginOnly: false
+        }));
+      }
+      
+      if (config.bigReward) {
+        config.bigReward.enabled = false;
+      }
+      
+      if (config.weeklyMultiplier) {
+        config.weeklyMultiplier.enabled = false;
+      }
     }
 
-    config.isActive = !config.isActive;
+    config.isActive = newActiveState;
     config.updatedBy = req.user.userId;
     await config.save();
 

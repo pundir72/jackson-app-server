@@ -25,6 +25,13 @@ router.get("/health", affiseController.healthCheck);
 router.get("/offers", protect, affiseController.getOffers);
 
 /**
+ * @route   GET /api/affise/admin/offers
+ * @desc    Get all active Affise offers via Admin API (for admin panel configuration)
+ * @access  Private (Admin only)
+ */
+router.get("/admin/offers", adminAuth, affiseController.getAdminOffers);
+
+/**
  * @route   GET /api/affise/stats/custom
  * @desc    Get custom Affise statistics (Admin only)
  * @access  Private (Admin only)

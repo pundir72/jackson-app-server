@@ -4270,7 +4270,7 @@ router.get("/games/by-sdk/bitlabs/debug", adminAuth, async (req, res) => {
  * Query: {
  *   offerType: 'survey' | 'cashback' | 'shopping' | 'magic_receipt' | 'all',
  *   status: 'live' | 'paused' | 'all',
- *   sdk: 'bitlabs' | 'besitos' | 'everflow' | 'all'  // optional; default 'bitlabs'. Use sdk=everflow to get synced Everflow offers.
+ *   sdk: 'bitlabs' | 'besitos' | 'everflow' | 'affise' | 'all'  // optional; default 'bitlabs'.
  * }
  */
 router.get(
@@ -4285,22 +4285,26 @@ router.get(
       const { offerType = "all", status = "all", sdk: sdkFilter } = req.query;
       const sdkParam = typeof sdkFilter === "string" ? sdkFilter.trim().toLowerCase() : "";
 
-      // Resolve which SDK(s) to query: bitlabs, besitos, everflow, or all
+      // Resolve which SDK(s) to query: bitlabs, besitos, everflow, affise, or all
       const bitlabSDK = await SurveySDK.findOne({ name: { $regex: /bitlab/i } });
       const besitosSDK = await SurveySDK.findOne({ name: { $regex: /besitos/i } });
       const everflowSDK = await SurveySDK.findOne({ name: { $regex: /everflow/i } });
+      const affiseSDK = await SurveySDK.findOne({ name: { $regex: /affise/i } });
 
       let sdkIds = [];
       if (sdkParam === "besitos") {
         if (besitosSDK) sdkIds = [besitosSDK._id];
       } else if (sdkParam === "everflow") {
         if (everflowSDK) sdkIds = [everflowSDK._id];
+      } else if (sdkParam === "affise") {
+        if (affiseSDK) sdkIds = [affiseSDK._id];
       } else if (sdkParam === "bitlabs" || !sdkParam) {
         if (bitlabSDK) sdkIds = [bitlabSDK._id];
       } else if (sdkParam === "all") {
         if (bitlabSDK) sdkIds.push(bitlabSDK._id);
         if (besitosSDK) sdkIds.push(besitosSDK._id);
         if (everflowSDK) sdkIds.push(everflowSDK._id);
+        if (affiseSDK) sdkIds.push(affiseSDK._id);
       }
 
       if (sdkIds.length === 0) {
@@ -4960,10 +4964,14 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
           timestamp: new Date().toISOString(),
         });
       }
+    } else if (sdk === "affise") {
+      // Delegate to the dedicated Affise controller (admin API)
+      const affiseController = require("../controllers/affise.controller");
+      return affiseController.getAdminOffers(req, res);
     } else {
-      res.status(404).json({
+      res.status(400).json({
         success: false,
-        message: `Non-game offers are only available from Bitlabs or Everflow SDK. Received: ${sdk}`,
+        message: `Unsupported SDK: "${sdk}". Supported SDKs are: bitlabs, besitos, everflow, affise.`,
       });
     }
   } catch (error) {
@@ -6521,6 +6529,160 @@ router.post("/non-game-offers/sync/besitos", adminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to sync Besitos offers",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Sync Affise non-gaming offers to database
+ * POST /api/admin/game-offers/non-game-offers/sync/affise
+ * Body: {
+ *   offerIds: ['123', '456', ...], // Optional: specific offer IDs to sync (empty = all active)
+ *   autoActivate: true,            // Auto set status to 'live'
+ *   targetAudience: [...]          // Optional per-offer targeting
+ * }
+ */
+router.post("/non-game-offers/sync/affise", adminAuth, async (req, res) => {
+  try {
+    const SurveySDK = require("../models/SurveySDK");
+    const NonGameOffer = require("../models/NonGameOffer");
+    const affiseService = require("../services/affise.service");
+
+    if (!affiseService.isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        message: "Affise API is not configured. Set AFFISE_API_KEY and AFFISE_BASE_URL.",
+      });
+    }
+
+    const { offerIds = [], autoActivate = true, targetAudience: targetAudienceList = [] } = req.body;
+
+    // Get or create Affise SDK record
+    let affiseSDK = await SurveySDK.findOne({ name: { $regex: /affise/i } });
+    if (!affiseSDK) {
+      affiseSDK = new SurveySDK({
+        name: "Affise",
+        displayName: "Affise",
+        apiKey: process.env.AFFISE_API_KEY || "",
+        baseUrl: process.env.AFFISE_BASE_URL || "https://api.affise.com",
+        isActive: true,
+        createdBy: req.user?.userId || req.user?.id,
+      });
+      await affiseSDK.save();
+    }
+
+    // Fetch all active offers from Affise admin API
+    const result = await affiseService.getOffers({ "status[]": "active" }, { admin: true });
+    let allOffers = result?.data || [];
+
+    // Filter by provided offerIds if specified
+    if (Array.isArray(offerIds) && offerIds.length > 0) {
+      const offerIdSet = new Set(offerIds.map((id) => String(id)));
+      allOffers = allOffers.filter(
+        (o) => offerIdSet.has(String(o.id)) || offerIdSet.has(String(o.offer_id))
+      );
+    }
+
+    if (allOffers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: offerIds.length > 0
+          ? "None of the specified offer IDs were found in Affise"
+          : "No active offers returned from Affise",
+      });
+    }
+
+    const stripHtml = (str) => (str ? str.replace(/<[^>]*>/g, "").trim() : "");
+
+    const categoryEnums = ["finance", "shopping", "entertainment", "technology", "health", "travel", "education", "other"];
+    const offerTypeEnums = ["cashback", "shopping", "magic_receipt", "other"];
+
+    let syncedCount = 0;
+    let updatedCount = 0;
+    const errors = [];
+
+    for (const raw of allOffers) {
+      try {
+        const externalId = String(raw.id || raw.offer_id).trim();
+        if (!externalId) continue;
+
+        const cpi = parseFloat(raw.payments?.[0]?.revenue ?? 0) || 0;
+        const userRewardCoins = Math.round(cpi * 0.5);
+        const userRewardXP = Math.round(userRewardCoins * 0.5);
+
+        const rawCategory = (raw.categories?.[0] || "other").toLowerCase();
+        const category = categoryEnums.includes(rawCategory) ? rawCategory : "other";
+        const offerTypeEnum = "cashback"; // Affise offers are treated as cashback
+
+        const offerTargetAudience = Array.isArray(targetAudienceList) && targetAudienceList.length > 0
+          ? targetAudienceList.find((t) => String(t.offerId) === externalId)
+          : null;
+        const selectedAges = offerTargetAudience?.targetAudience?.age || [];
+        const selectedGenders = offerTargetAudience?.targetAudience?.gender || [];
+        const allowedCountries = raw.targeting?.[0]?.country?.allow ?? [];
+
+        const doc = {
+          sdkId: affiseSDK._id,
+          externalId,
+          title: raw.title || `Affise Offer ${externalId}`,
+          description: stripHtml(raw.description_lang?.en || raw.description || ""),
+          category,
+          offerType: offerTypeEnum,
+          coinReward: userRewardCoins,
+          estimatedTime: 0,
+          status: autoActivate ? "live" : "paused",
+          targetAudience: {
+            age: selectedAges.length === 0 || selectedAges.includes("all")
+              ? []
+              : selectedAges.filter((a) => a !== "all"),
+            gender: selectedGenders.length === 0 || selectedGenders.includes("all")
+              ? []
+              : selectedGenders.filter((g) => g !== "all"),
+            countries: allowedCountries,
+            minXP: 0,
+          },
+          metadata: {
+            externalUrl: raw.link || raw.links?.[0]?.url || "",
+            previewUrl: raw.preview_url || "",
+            thumbnail: raw.logo || raw.logo_source || "",
+            userRewardCoins,
+            userRewardXP,
+            notes: `CPI: $${cpi.toFixed(2)}`,
+          },
+          updatedBy: req.user?.userId || req.user?.id,
+        };
+
+        const existing = await NonGameOffer.findOne({ sdkId: affiseSDK._id, externalId });
+        if (existing) {
+          await NonGameOffer.findByIdAndUpdate(existing._id, { ...doc, updatedAt: new Date() });
+          updatedCount++;
+        } else {
+          await NonGameOffer.create({ ...doc, createdBy: req.user?.userId || req.user?.id });
+          syncedCount++;
+        }
+      } catch (err) {
+        console.error("❌ [AFFISE SYNC] Error saving offer:", { offerId: raw.id, error: err.message });
+        errors.push({ offerId: raw.id, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Synced Affise offers: ${syncedCount} added, ${updatedCount} updated`,
+      data: {
+        syncedCount,
+        updatedCount,
+        errorCount: errors.length,
+        totalProcessed: allOffers.length,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+  } catch (error) {
+    console.error("Error syncing Affise offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to sync Affise offers",
       error: error.message,
     });
   }

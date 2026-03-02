@@ -89,6 +89,24 @@ function injectUserIdIntoClickUrl(url, userId) {
   }
 }
 
+// Affise uses sub1= for user tracking (Affise docs: ?pid=X&offer_id=Y&sub1={clickid})
+// Also handles {sub1} macro if already present in the URL
+function injectAffiseClickUrl(url, userId) {
+  if (!url || typeof url !== "string" || !userId) return url || "";
+  // Replace {sub1} macro if Affise has pre-filled it as a placeholder
+  if (/\{sub1\}/i.test(url)) {
+    return url.replace(/\{sub1\}/gi, encodeURIComponent(String(userId)));
+  }
+  try {
+    const u = new URL(url);
+    u.searchParams.set("sub1", String(userId));
+    return u.toString();
+  } catch {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}sub1=${encodeURIComponent(userId)}`;
+  }
+}
+
 // Helper function to get admin-configured offers with fresh URLs from Bitlabs
 // INDUSTRIAL-LEVEL SOLUTION: Fetches fresh click URLs per user (same as surveys)
 async function getAdminConfiguredOffers(
@@ -125,37 +143,53 @@ async function getAdminConfiguredOffers(
       sdkProvider = "everflow";
     }
 
-    if (!sdk) {
+    // Also look up Affise SDK so its synced non-game offers are included
+    const affiseSDKRecord = await SurveySDK.findOne({ name: { $regex: /affise/i } });
+
+    if (!sdk && !affiseSDKRecord) {
       console.warn(
-        "⚠️ [getAdminConfiguredOffers] No SDK found (Bitlabs or Everflow)",
+        "⚠️ [getAdminConfiguredOffers] No SDK found (Bitlabs, Everflow, or Affise)",
       );
       return [];
     }
 
+    // Build a multi-SDK query for NonGameOffer (cashback/shopping/etc.)
+    // Surveys come from the main SDK only; non-game offers can come from any configured SDK
+    const nonGameSdkIds = [];
+    if (sdk) nonGameSdkIds.push(sdk._id);
+    if (affiseSDKRecord) nonGameSdkIds.push(affiseSDKRecord._id);
+    const nonGameSdkFilter = nonGameSdkIds.length === 1
+      ? { sdkId: nonGameSdkIds[0] }
+      : { sdkId: { $in: nonGameSdkIds } };
+
     console.log("🟢 [getAdminConfiguredOffers] SDK found:", {
-      sdkId: sdk._id.toString(),
-      name: sdk.name,
+      sdkId: sdk?._id?.toString() || null,
+      name: sdk?.name || null,
       provider: sdkProvider,
+      affise: affiseSDKRecord ? affiseSDKRecord.name : null,
     });
 
     let allOffers = [];
 
     // Handle "all" type - fetch from both models
     if (offerType === "all") {
-      // Fetch surveys from SurveyOffer
-      const surveyQuery = {
-        sdkId: sdk._id,
-        offerType: "survey",
-        status: "live",
-      };
-      const surveys = await SurveyOffer.find(surveyQuery)
-        .populate("sdkId", "name displayName")
-        .sort({ createdAt: -1 })
-        .lean();
+      // Fetch surveys from SurveyOffer (surveys come from main SDK only: bitlabs/besitos)
+      let surveys = [];
+      if (sdk) {
+        const surveyQuery = {
+          sdkId: sdk._id,
+          offerType: "survey",
+          status: "live",
+        };
+        surveys = await SurveyOffer.find(surveyQuery)
+          .populate("sdkId", "name displayName")
+          .sort({ createdAt: -1 })
+          .lean();
+      }
 
-      // Fetch non-gaming offers from NonGameOffer
+      // Fetch non-gaming offers from NonGameOffer (include all SDKs: bitlabs, everflow, affise)
       const nonGameQuery = {
-        sdkId: sdk._id,
+        ...nonGameSdkFilter,
         status: "live",
       };
       const nonGameOffers = await NonGameOffer.find(nonGameQuery)
@@ -170,13 +204,11 @@ async function getAdminConfiguredOffers(
       const OfferModel = isSurvey ? SurveyOffer : NonGameOffer;
 
       // Build query
-      const query = {
-        sdkId: sdk._id,
-        status: "live",
-      };
-
-      if (!isSurvey) {
-        // Map type for NonGameOffer (surveys handled separately)
+      // Surveys use the main SDK only; non-game offers (cashback/shopping/etc.) use all SDKs
+      let query;
+      if (isSurvey) {
+        query = { sdkId: sdk?._id, status: "live", offerType: "survey" };
+      } else {
         const typeMap = {
           cashback: "cashback",
           shopping: "shopping",
@@ -184,9 +216,7 @@ async function getAdminConfiguredOffers(
           "magic-receipts": "magic_receipt",
           magicReceipts: "magic_receipt",
         };
-        query.offerType = typeMap[offerType] || offerType;
-      } else {
-        query.offerType = "survey";
+        query = { ...nonGameSdkFilter, status: "live", offerType: typeMap[offerType] || offerType };
       }
 
       // Get configured offers
@@ -893,10 +923,10 @@ async function getAdminConfiguredOffers(
                 );
                 const cashbackStoredUrl =
                   configuredOffer.metadata?.externalUrl || "";
-                const cashbackUserUrl = injectUserIdIntoClickUrl(
-                  cashbackStoredUrl,
-                  userId,
-                );
+                const isAffiseOffer = (configuredOffer.sdkId?.name || "").toLowerCase().includes("affise");
+                const cashbackUserUrl = isAffiseOffer
+                  ? injectAffiseClickUrl(cashbackStoredUrl, userId)
+                  : injectUserIdIntoClickUrl(cashbackStoredUrl, userId);
                 freshOffers.push({
                   // Bitlabs structure
                   merchant_id: parseInt(configuredOffer.externalId),
@@ -1212,10 +1242,10 @@ async function getAdminConfiguredOffers(
         const rawData = offer.metadata?.rawBitlabsData || {};
         const cashbackImageUrl = resolveCashbackImageUrl(offer, rawData, null);
         const fallbackCashbackUrl = offer.metadata?.externalUrl || "";
-        const fallbackCashbackUserUrl = injectUserIdIntoClickUrl(
-          fallbackCashbackUrl,
-          userId,
-        );
+        const isAffiseFallback = (offer.sdkId?.name || "").toLowerCase().includes("affise");
+        const fallbackCashbackUserUrl = isAffiseFallback
+          ? injectAffiseClickUrl(fallbackCashbackUrl, userId)
+          : injectUserIdIntoClickUrl(fallbackCashbackUrl, userId);
         return {
           merchant_id: parseInt(offer.externalId),
           merchant_name: offer.title || rawData.merchant_name || "",

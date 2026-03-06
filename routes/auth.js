@@ -143,11 +143,15 @@ function formatUserResponse(user) {
   // Permission status (using disclosureAccepted as permission status)
   const permissionStatus = user.disclosureAccepted || false;
 
+  // Face verification status
+  const faceVerificationStatus = user.biometric?.faceVerification?.verified || false;
+
   return {
     age,
     gender,
     location,
     permissionStatus,
+    faceVerificationStatus,
   };
 }
 
@@ -620,6 +624,7 @@ router.post(
           gender: additionalFields.gender,
           location: additionalFields.location,
           permissionStatus: additionalFields.permissionStatus,
+          faceVerificationStatus: additionalFields.faceVerificationStatus,
         },
         referral: referralResult
           ? {
@@ -858,6 +863,7 @@ router.post(
           gender: additionalFields.gender,
           location: additionalFields.location,
           permissionStatus: additionalFields.permissionStatus,
+          faceVerificationStatus: additionalFields.faceVerificationStatus,
         },
       });
     } catch (error) {

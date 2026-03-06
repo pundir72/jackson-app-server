@@ -541,9 +541,15 @@ router.get('/users', adminAuth, async (req, res) => {
       ageRange = 'all',
       search = '',
       marketingChannel = 'all',
+      id,
     } = req.query
 
     let query = {}
+
+    // If id is provided, filter by specific user
+    if (id) {
+      query._id = id
+    }
 
     // Search functionality
     if (search) {

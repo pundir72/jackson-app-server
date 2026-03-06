@@ -866,8 +866,14 @@ router.post(
       if (!eligibleTiers)
         eligibleTiers = req.body.eligibleTiers || req.body.tiers || [];
       if (typeof eligibleTiers === "string") eligibleTiers = [eligibleTiers];
-      if (eligibleTiers.includes("All Tiers") || eligibleTiers.length === 0)
+      if (eligibleTiers.includes("All Tiers")) {
         eligibleTiers = TIER_LIST;
+      } else if (eligibleTiers.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "At least one eligible tier must be selected"
+        });
+      }
 
       const vipMultipliers = req.body.vipMultipliers;
       const additionalSpinsPerTier = req.body.additionalSpinsPerTier;

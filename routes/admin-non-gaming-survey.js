@@ -37,6 +37,9 @@ const SurveySDK = require("../models/SurveySDK");
 // Coin conversion
 const ConversionSettings = require("../models/ConversionSettings");
 
+// User model — for loading age/gender at request time (JWT only carries userId)
+const User = require("../models/User");
+
 // User always gets 40% of publisher revenue; admin keeps 60%.
 const USER_SHARE = 0.40;
 
@@ -693,6 +696,73 @@ function injectUserId(url, sdkName, userId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// USER PROFILE HELPER
+// Fetches age/gender from DB — JWT only carries userId, not profile fields.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function calcAge(dateOfBirth) {
+  if (!dateOfBirth) return null;
+  const today = new Date();
+  const dob   = new Date(dateOfBirth);
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+  return age;
+}
+
+async function getUserProfile(userId) {
+  try {
+    const u = await User.findById(userId).select("dateOfBirth onboarding gender").lean();
+    if (!u) return { age: null, ageRange: null, gender: null };
+    // Prefer numeric age from dateOfBirth; fall back to onboarding.ageRange string
+    const age      = u.dateOfBirth ? calcAge(u.dateOfBirth) : null;
+    const ageRange = u.onboarding?.ageRange || null; // e.g. "18-24"
+    const gender   = u.onboarding?.gender || u.gender || null;
+    return { age, ageRange, gender };
+  } catch (_) {
+    return { age: null, ageRange: null, gender: null };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIENCE ELIGIBILITY HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function isAgeInRange(userAge, rangeStr) {
+  if (!userAge) return true;
+  if (rangeStr === "65+") return userAge >= 65;
+  const [min, max] = rangeStr.split("-").map(Number);
+  return userAge >= min && userAge <= max;
+}
+
+function isEligible(user, ta) {
+  if (!ta) return true;
+
+  // Gender — empty array or ["all"] = all genders allowed
+  if (ta.gender && ta.gender.length > 0 && !ta.gender.includes("all")) {
+    if (!user.gender || !ta.gender.includes(user.gender)) return false;
+  }
+
+  // Age — empty array or ["all"] = all ages allowed
+  if (ta.age && ta.age.length > 0 && !ta.age.includes("all")) {
+    let matches = false;
+    if (user.age) {
+      // Numeric age from dateOfBirth — check if falls within any configured range
+      matches = ta.age.some(range => isAgeInRange(user.age, range));
+    } else if (user.ageRange) {
+      // String range from onboarding (e.g. "18-24") — direct match
+      matches = ta.age.includes(user.ageRange);
+    } else {
+      // No age info on user — show to them (can't restrict)
+      matches = true;
+    }
+    if (!matches) return false;
+  }
+
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // USER: Live non-gaming offers from nongamingofferconfigs
 // GET /api/non-gaming-survey/user/non-gaming-offers
 // Fetches fresh offers from each SDK with userId for tracking,
@@ -703,6 +773,7 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
   try {
     const { offerType, page = 1, limit = 20 } = req.query;
     const userId  = req.user.userId || req.user.id;
+    const userProfile = await getUserProfile(userId);
     const pageNum  = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
@@ -780,8 +851,8 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
       };
     });
 
-    // 5. Only return offers currently live in the SDK
-    const available = result.filter(o => o.isAvailable);
+    // 5. Only return offers currently live in the SDK AND matching user's audience segment
+    const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
     const paginated  = available.slice((pageNum - 1) * limitNum, pageNum * limitNum);
     res.json({ success: true, data: paginated, total: available.length, page: pageNum, limit: limitNum });
   } catch (error) {
@@ -801,6 +872,7 @@ router.get("/user/surveys", protect, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const userId  = req.user.userId || req.user.id;
+    const userProfile = await getUserProfile(userId);
     const pageNum  = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
@@ -880,8 +952,8 @@ router.get("/user/surveys", protect, async (req, res) => {
       };
     });
 
-    // 4. Only return surveys currently live in the SDK
-    const available = result.filter(o => o.isAvailable);
+    // 4. Only return surveys currently live in the SDK AND matching user's audience segment
+    const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
     const paginated  = available.slice((pageNum - 1) * limitNum, pageNum * limitNum);
     res.json({ success: true, data: paginated, total: available.length, page: pageNum, limit: limitNum });
   } catch (error) {

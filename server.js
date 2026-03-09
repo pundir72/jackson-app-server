@@ -268,6 +268,7 @@ mongoose
     const affiseRoutes = require("./routes/affise");
     const integrityRoutes = require("./routes/integrity");
     const googlePlayIAPRoutes = require("./routes/google-play-iap");
+    const nonGamingSurveyRoutes = require("./routes/admin-non-gaming-survey");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
@@ -374,6 +375,7 @@ mongoose
     app.use("/api/game-tips", gameTipsRoutes);
     app.use("/api/admin/game-tips", adminGameTipsRoutes);
     app.use("/api/zoho", zohoRoutes);
+    app.use("/api/non-gaming-survey", nonGamingSurveyRoutes);
 
     // Error handling middleware
     app.use((err, req, res, next) => {

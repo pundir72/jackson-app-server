@@ -5,6 +5,7 @@ const PayoutRequest = require("../models/PayoutRequest");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const TremendousOrder = require("../models/TremendousOrder");
+const WalletAuditLog = require("../models/WalletAuditLog");
 const tremendous = require("../utils/tremendous");
 const {
   sendPayoutApprovedEmail,
@@ -379,6 +380,30 @@ router.post("/:requestId/approve", adminAuth, async (req, res) => {
       await user.save();
     }
 
+    // Log to audit trail
+    try {
+      await WalletAuditLog.logAction({
+        adminId: adminId,
+        targetUserId: userId,
+        action: "APPROVE_REDEMPTION",
+        details: {
+          transactionId: payoutRequest._id,
+          amount: payoutRequest.reward.value.denomination,
+          balanceType: "cash",
+          reason: `Payout approved via Tremendous. Order ID: ${tremendousOrderId}`,
+        },
+        metadata: {
+          additionalData: {
+            payoutRequestId: payoutRequest._id,
+            tremendousOrderId,
+            deliveryMethod: payoutRequest.reward.delivery.method,
+          },
+        },
+      });
+    } catch (auditError) {
+      console.error("Error logging audit trail for approve:", auditError);
+    }
+
     // Send approval email to user
     try {
       const user = await User.findById(userId)
@@ -482,6 +507,30 @@ router.post("/:requestId/reject", adminAuth, async (req, res) => {
         description: `Payout request rejected - ${reason.trim()}`,
       }
     );
+
+    // Log to audit trail
+    try {
+      await WalletAuditLog.logAction({
+        adminId: adminId,
+        targetUserId: userId,
+        action: "REJECT_REDEMPTION",
+        details: {
+          transactionId: payoutRequest._id,
+          amount: payoutRequest.reward.value.denomination,
+          balanceType: "cash",
+          reason: reason.trim(),
+        },
+        metadata: {
+          additionalData: {
+            payoutRequestId: payoutRequest._id,
+            coinsRefunded: payoutRequest.coinsDeducted,
+            deliveryMethod: payoutRequest.reward.delivery.method,
+          },
+        },
+      });
+    } catch (auditError) {
+      console.error("Error logging audit trail for reject:", auditError);
+    }
 
     // Send rejection email to recipient email (the email user provided in payout request)
     try {

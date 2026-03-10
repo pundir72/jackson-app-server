@@ -40,6 +40,39 @@ const ConversionSettings = require("../models/ConversionSettings");
 // User model — for loading age/gender at request time (JWT only carries userId)
 const User = require("../models/User");
 
+// XP tier multiplier — same logic as admin GET /xp-tiers-v2 endpoint
+const XPMultiplier = require("../models/XPMultiplier");
+
+// Default multipliers (same hardcoded fallbacks as admin-xp-tier-v2.js)
+const TIER_DEFAULTS = { JUNIOR: 1.0, MID: 1.5, SENIOR: 2.0 };
+
+function getTierKeyFromXP(xp) {
+  const n = Number(xp) || 0;
+  if (n >= 5000) return "SENIOR";
+  if (n >= 1000) return "MID";
+  return "JUNIOR";
+}
+
+async function getAccessBenefitsMultiplier(userXp) {
+  const tierKey = getTierKeyFromXP(userXp);
+  console.log(`[XP-MULTIPLIER] userXP=${userXp} → tierKey=${tierKey}`);
+  try {
+    const config = await XPMultiplier.findOne({ tier: tierKey, isActive: true }).lean();
+    console.log(`[XP-MULTIPLIER] XPMultiplier DB result:`, config ? { tier: config.tier, multiplier: config.multiplier, isActive: config.isActive } : null);
+    if (config && config.multiplier > 0) {
+      console.log(`[XP-MULTIPLIER] Using DB multiplier: ${config.multiplier}`);
+      return Number(config.multiplier);
+    }
+    // No active config — use same hardcoded defaults as admin endpoint
+    const defaultMultiplier = TIER_DEFAULTS[tierKey] || 1.0;
+    console.log(`[XP-MULTIPLIER] No active XPMultiplier for tier=${tierKey} — using default: ${defaultMultiplier}`);
+    return defaultMultiplier;
+  } catch (err) {
+    console.error(`[XP-MULTIPLIER] ERROR reading XPMultiplier: ${err.message}`);
+    return TIER_DEFAULTS[tierKey] || 1.0;
+  }
+}
+
 // User always gets 40% of publisher revenue; admin keeps 60%.
 const USER_SHARE = 0.40;
 
@@ -127,7 +160,26 @@ router.get("/admin/non-gaming/fetch", adminAuth, async (req, res) => {
       const result = await bitlabsService.getPublisherOffers({ is_game: false, country: country || "US", devices });
       if (!result.success) return res.status(500).json({ success: false, message: result.error || "Failed to fetch Bitlabs offers", data: [] });
 
-      const offers      = result.data || [];
+      let offers = result.data || [];
+
+      // Client-side device filter — BitLabs Publisher API does not filter by device server-side
+      if (devices && devices.length > 0) {
+        const requestedDevices = devices.map(d => String(d).toLowerCase());
+        const beforeCount = offers.length;
+        offers = offers.filter(offer => {
+          // Check all possible device fields BitLabs may return
+          const offerDevices = [
+            ...(offer.devices           || []),
+            ...(offer.platforms         || []),
+            ...(offer.webToMobileDevices || offer.web_to_mobile_devices || []),
+          ].map(d => String(d).toLowerCase());
+          // If offer has no device info, include it (cannot restrict)
+          if (offerDevices.length === 0) return true;
+          return offerDevices.some(d => requestedDevices.includes(d));
+        });
+        console.log(`[device-filter] requested=${JSON.stringify(requestedDevices)} | before=${beforeCount} | after=${offers.length}`);
+      }
+
       const categorized = categoriseOffers(offers);
       let filtered = offers;
       if (type && type !== "all") {
@@ -189,7 +241,24 @@ router.get("/admin/surveys/fetch", adminAuth, async (req, res) => {
       const bitlabsService = require("../services/bitlabs.service");
       const result = await bitlabsService.getSurveys({ country, platform: "mobile" });
       if (!result.success) return res.status(500).json({ success: false, message: result.error || "Failed to fetch Bitlabs surveys", data: [] });
-      const surveys  = result.data || [];
+      let surveys = result.data || [];
+
+      // Client-side device filter — BitLabs may not filter surveys by device server-side
+      if (devices && devices.length > 0) {
+        const requestedDevices = devices.map(d => String(d).toLowerCase());
+        const beforeCount = surveys.length;
+        surveys = surveys.filter(s => {
+          const surveyDevices = [
+            ...(s.devices            || []),
+            ...(s.platforms          || []),
+            ...(s.webToMobileDevices || s.web_to_mobile_devices || []),
+          ].map(d => String(d).toLowerCase());
+          if (surveyDevices.length === 0) return true;
+          return surveyDevices.some(d => requestedDevices.includes(d));
+        });
+        console.log(`[device-filter][surveys] requested=${JSON.stringify(requestedDevices)} | before=${beforeCount} | after=${surveys.length}`);
+      }
+
       const pageNum  = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       return res.json({ success: true, data: surveys.slice((pageNum - 1) * limitNum, pageNum * limitNum), total: surveys.length, timestamp: result.timestamp || new Date().toISOString() });
@@ -712,15 +781,15 @@ function calcAge(dateOfBirth) {
 
 async function getUserProfile(userId) {
   try {
-    const u = await User.findById(userId).select("dateOfBirth onboarding gender").lean();
-    if (!u) return { age: null, ageRange: null, gender: null };
+    const u = await User.findById(userId).select("dateOfBirth onboarding gender xp").lean();
+    if (!u) return { age: null, ageRange: null, gender: null, xp: { current: 0 } };
     // Prefer numeric age from dateOfBirth; fall back to onboarding.ageRange string
     const age      = u.dateOfBirth ? calcAge(u.dateOfBirth) : null;
     const ageRange = u.onboarding?.ageRange || null; // e.g. "18-24"
     const gender   = u.onboarding?.gender || u.gender || null;
-    return { age, ageRange, gender };
+    return { age, ageRange, gender, xp: u.xp || { current: 0 } };
   } catch (_) {
-    return { age: null, ageRange: null, gender: null };
+    return { age: null, ageRange: null, gender: null, xp: { current: 0 } };
   }
 }
 
@@ -853,8 +922,24 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
 
     // 5. Only return offers currently live in the SDK AND matching user's audience segment
     const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
-    const paginated  = available.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-    res.json({ success: true, data: paginated, total: available.length, page: pageNum, limit: limitNum });
+
+    // 6. Apply XP tier multiplier — fetch once for this user, apply to all offers
+    const userCurrentXP = userProfile.xp?.current || 0;
+    console.log(`\n===== [XP-MULTIPLIER DEBUG][non-gaming-offers] =====`);
+    console.log(`[XP-MULTIPLIER] Step 1 — User info | userId=${userId} | userXP=${userCurrentXP}`);
+    const xpMultiplier = await getAccessBenefitsMultiplier(userCurrentXP);
+    console.log(`[XP-MULTIPLIER] Step 2 — Multiplier resolved | multiplier=${xpMultiplier} | availableOffers=${available.length}`);
+    const withXP = available.map((o, i) => {
+      const originalXP = o.userRewardXP;
+      const adjustedXP = originalXP > 0 ? Math.round(originalXP * xpMultiplier) : originalXP;
+      console.log(`[XP-MULTIPLIER] Step 3 — Offer[${i}] "${o.title}" | baseXP=${originalXP} | ${originalXP} x ${xpMultiplier} = ${adjustedXP} | changed=${originalXP !== adjustedXP}`);
+      return { ...o, userRewardXP: adjustedXP };
+    });
+    console.log(`[XP-MULTIPLIER] Step 4 — Done | totalProcessed=${withXP.length}`);
+    console.log(`===== [XP-MULTIPLIER DEBUG END] =====\n`);
+
+    const paginated = withXP.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    res.json({ success: true, data: paginated, total: withXP.length, page: pageNum, limit: limitNum });
   } catch (error) {
     console.error("[user/non-gaming-offers]", error.message);
     res.status(500).json({ success: false, message: "Failed to get non-gaming offers", error: error.message });
@@ -954,8 +1039,20 @@ router.get("/user/surveys", protect, async (req, res) => {
 
     // 4. Only return surveys currently live in the SDK AND matching user's audience segment
     const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
-    const paginated  = available.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-    res.json({ success: true, data: paginated, total: available.length, page: pageNum, limit: limitNum });
+
+    // 5. Apply XP tier multiplier — fetch once for this user, apply to all surveys
+    const userCurrentXP = userProfile.xp?.current || 0;
+    const xpMultiplier = await getAccessBenefitsMultiplier(userCurrentXP);
+    console.log(`[XP-MULTIPLIER][surveys] userId=${userId} | userXP=${userCurrentXP} | multiplier=${xpMultiplier}`);
+    const withXP = available.map(o => {
+      const originalXP = o.userRewardXP;
+      const adjustedXP = originalXP > 0 ? Math.round(originalXP * xpMultiplier) : originalXP;
+      console.log(`[XP-MULTIPLIER][surveys] survey="${o.title}" | baseXP=${originalXP} | finalXP=${adjustedXP} | multiplier=${xpMultiplier}`);
+      return { ...o, userRewardXP: adjustedXP };
+    });
+
+    const paginated = withXP.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    res.json({ success: true, data: paginated, total: withXP.length, page: pageNum, limit: limitNum });
   } catch (error) {
     console.error("[user/surveys]", error.message);
     res.status(500).json({ success: false, message: "Failed to get surveys", error: error.message });

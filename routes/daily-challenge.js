@@ -2844,6 +2844,15 @@ router.post("/complete", protect, async (req, res) => {
 
     await transaction.save();
 
+    // Increment account overview challenges completed counter (real-time progress update)
+    try {
+      const accountOverviewService = require('../utils/accountOverview');
+      await accountOverviewService.incrementChallengesCompletedCounter(userId);
+    } catch (overviewErr) {
+      console.error('[ACCOUNT-OVERVIEW] Failed to increment challenges counter:', overviewErr);
+      // Non-blocking — challenge completion still succeeds
+    }
+
     // Get configured streak milestones for display
     let configuredMilestones = [7, 14, 21, 30]; // Default fallback
     try {

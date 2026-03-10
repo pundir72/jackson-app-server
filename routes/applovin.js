@@ -24,7 +24,7 @@ const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 router.get("/health", async (req, res) => {
   try {
     const isConfigured = !!config.APPLOVIN_MAX_SDK_KEY;
-    
+
     res.json({
       success: true,
       data: {
@@ -291,97 +291,73 @@ router.post("/rewarded-ad/complete", protect, async (req, res) => {
 
     await adRecord.save();
 
-    // Check if it's part of a daily challenge
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // NOTE: Coin crediting and transaction creation is handled exclusively by
+    // POST /api/account-overview/ad-reward/claim to ensure only ONE transaction entry.
+    // Challenge/reward logic below is commented out to prevent duplicate entries.
 
-    const challenge = await DailyChallenge.findOne({
-      challengeDate: today,
-      isVisible: true,
-      status: "live",
-      "sdkTask.provider": "applovin_max",
-      "sdkTask.adUnitId": adRecord.adUnitId,
-    });
+    // const today = new Date();
+    // today.setHours(0, 0, 0, 0);
+    // const challenge = await DailyChallenge.findOne({
+    //   challengeDate: today, isVisible: true, status: "live",
+    //   "sdkTask.provider": "applovin_max", "sdkTask.adUnitId": adRecord.adUnitId,
+    // });
 
     let coinsToCredit = 0;
     let xpToCredit = 0;
 
-    if (challenge) {
-      // Get user's progress for this challenge
-      let progress = await UserChallengeProgress.getUserChallengeForDate(
-        user._id,
-        today
-      );
-
-      if (!progress) {
-        progress = await UserChallengeProgress.getOrCreateTodayChallenge(
-          user._id,
-          challenge._id,
-          today
-        );
-      }
-
-      // Update SDK task progress
-      progress.sdkTaskProgress = {
-        taskStarted: true,
-        taskCompleted: true,
-        externalTaskId: adRecord._id.toString(),
-        adRecordId: adRecord._id,
-      };
-
-      // Mark challenge as completed
-      await progress.markCompleted({
-        coins: challenge.coinReward,
-        xp: challenge.xpReward,
-      });
-
-      coinsToCredit = challenge.coinReward;
-      xpToCredit = challenge.xpReward;
-
-      console.log(
-        `✅ Daily challenge completed via AppLovin MAX for user ${user._id}`
-      );
-    } else {
-      // No challenge, use default rewards or reward from ad
-      // Default: 100 coins per rewarded ad (adjust as needed)
-      coinsToCredit = reward?.amount || 100;
-      xpToCredit = Math.floor(coinsToCredit / 10); // 1 XP per 10 coins
-    }
+    // if (challenge) {
+    //   let progress = await UserChallengeProgress.getUserChallengeForDate(user._id, today);
+    //   if (!progress) {
+    //     progress = await UserChallengeProgress.getOrCreateTodayChallenge(user._id, challenge._id, today);
+    //   }
+    //   progress.sdkTaskProgress = {
+    //     taskStarted: true, taskCompleted: true,
+    //     externalTaskId: adRecord._id.toString(), adRecordId: adRecord._id,
+    //   };
+    //   await progress.markCompleted({ coins: challenge.coinReward, xp: challenge.xpReward });
+    //   coinsToCredit = challenge.coinReward;
+    //   xpToCredit = challenge.xpReward;
+    //   console.log(`✅ Daily challenge completed via AppLovin MAX for user ${user._id}`);
+    // } else {
+    //   coinsToCredit = reward?.amount || 100;
+    //   xpToCredit = Math.floor(coinsToCredit / 10);
+    // }
 
     // Credit rewards to user
-    user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
-    const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);
-    user.xp.current = (user.xp.current || 0) + finalXP;
-    user.xp.total = (user.xp.total || 0) + finalXP;
+    // user.wallet.balance = (user.wallet.balance || 0) + coinsToCredit;
+    // const { finalXP } = await applyTierMultiplierToXP(user, xpToCredit);
+    // user.xp.current = (user.xp.current || 0) + finalXP;
+    // user.xp.total = (user.xp.total || 0) + finalXP;
 
-    await user.save();
+    // await user.save();
 
     // Create transaction record
-    const transaction = new Transaction({
-      userId: user._id,
-      type: "credit",
-      amount: coinsToCredit,
-      currency: "coins",
-      description: `AppLovin MAX rewarded ad - ${adRecord.adUnitId}`,
-      referenceId: adRecord._id.toString(),
-      metadata: {
-        source: "applovin_max",
-        adRecordId: adRecord._id,
-        adUnitId: adRecord.adUnitId,
-        adNetwork: adRecord.adNetwork,
-        networkName: adRecord.metadata.networkName,
-        revenue: adRecord.metadata.revenue?.amount || 0,
-        challengeId: challenge?._id,
-      },
-    });
-    await transaction.save();
+    // const transaction = new Transaction({
+    //   user: user._id,
+    //   type: "credit",
+    //   amount: coinsToCredit,
+    //   balanceType: "coins",
+    //   description: `AppLovin MAX rewarded ad - ${adRecord.adUnitId}`,
+    //   referenceId: adRecord._id.toString(),
+    //   metadata: {
+    //     source: "applovin_max",
+    //     adRecordId: adRecord._id,
+    //     adUnitId: adRecord.adUnitId,
+    //     adNetwork: adRecord.adNetwork,
+    //     networkName: adRecord.metadata.networkName,
+    //     revenue: adRecord.metadata.revenue?.amount || 0,
+    //     challengeId: challenge?._id,
+    //   },
+    // });
+    // await transaction.save();
 
     // Mark ad record as credited
-    await adRecord.creditRewards(coinsToCredit, finalXP);
+    // await adRecord.creditRewards(coinsToCredit, finalXP);
 
-    console.log(
-      `✅ Rewards credited via AppLovin MAX: ${coinsToCredit} coins, ${finalXP} XP`
-    );
+    const finalXP = 0;
+    // console.log(
+    //   `✅ Rewards credited via AppLovin MAX: ${coinsToCredit} coins, ${finalXP} XP`
+    // );
 
     res.json({
       success: true,
@@ -564,7 +540,7 @@ router.get("/admin/stats", protect, adminAuth, async (req, res) => {
     // Get network stats
     const networkStats = await AppLovinRewardedAd.getNetworkStats(
       startDate,
-      endDate
+      endDate,
     );
 
     // Get overall stats
@@ -745,7 +721,7 @@ router.get("/admin/pending-rewards", protect, adminAuth, async (req, res) => {
     const { limit = 100 } = req.query;
 
     const pendingRewards = await AppLovinRewardedAd.getPendingRewards(
-      parseInt(limit)
+      parseInt(limit),
     );
 
     res.json({

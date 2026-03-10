@@ -189,6 +189,15 @@ router.get('/user/history/magic-receipts/:receiptOfferId?', protect, async (req,
 });
 
 /**
+ * @route   GET /api/bitlabs/my-games/:userId
+ * @desc    Get all BitLabs downloaded games with full details (two-step API call)
+ *          Step 1: GET /v1/client/user/history?filter=offers  → list of interacted offer IDs
+ *          Step 2: GET /v1/client/user/history/offers/{id}    → full event details per offer
+ * @access  Private
+ */
+router.get('/my-games/:userId', protect, bitlabsController.getMyGames);
+
+/**
  * @route   GET /api/bitlabs/user-history/:userId
  * @desc    Get user offer history with admin-configured progression rules
  * @access  Private

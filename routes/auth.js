@@ -1672,6 +1672,15 @@ router.post(
         });
       }
 
+      // Check new password is not the same as old password
+      const isSamePassword = await user.comparePassword(newPassword);
+      if (isSamePassword) {
+        return res.status(400).json({
+          error: "Password not changed",
+          message: "New password cannot be the same as your current password. Please choose a different password.",
+        });
+      }
+
       // Update password
       user.password = newPassword;
       user.clearPasswordResetToken();

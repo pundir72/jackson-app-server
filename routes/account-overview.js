@@ -282,32 +282,17 @@ router.get('/ad-reward/cooldown', protect, async (req, res) => {
  */
 router.post('/ad-reward/claim', protect, async (req, res) => {
   try {
-    const { userId, rewardAmount, ads } = req.body;
-    
-    // Validate input
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId is required'
-      });
-    }
-
-    // Verify userId matches authenticated user
-    if (userId !== req.user.userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Unauthorized: userId does not match authenticated user'
-      });
-    }
+    const { rewardAmount, ads } = req.body;
+    const userId = req.user.userId;
 
     // Configuration: 4 hour cooldown, 50 coins reward
     const COOLDOWN_HOURS = 4;
     const REWARD_COINS = 50;
     const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
 
-    // Get user
-    const user = await User.findById(userId).select('wallet adRewardTracking');
-    
+    // Get user (include name fields for transaction log)
+    const user = await User.findById(userId).select('wallet adRewardTracking firstName lastName username');
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -315,27 +300,43 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
       });
     }
 
+    // Build display name for logging
+    const userDisplayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || userId;
+
     // Check cooldown
     const lastAdRewardAt = user.adRewardTracking?.lastAdRewardAt || null;
     const now = new Date();
-    
+
     if (lastAdRewardAt) {
       const lastRewardTime = new Date(lastAdRewardAt);
       const timeSinceLastReward = now.getTime() - lastRewardTime.getTime();
-      
-      // if (timeSinceLastReward < COOLDOWN_MS) {
-      //   const timeRemaining = COOLDOWN_MS - timeSinceLastReward;
-      //   return res.status(429).json({
-      //     success: false,
-      //     error: 'Ad reward is on cooldown',
-      //     cooldown: {
-      //       hours: COOLDOWN_HOURS,
-      //       timeRemainingMs: timeRemaining,
-      //       timeRemainingFormatted: formatTimeRemaining(timeRemaining),
-      //       nextRewardAt: new Date(lastRewardTime.getTime() + COOLDOWN_MS).toISOString()
-      //     }
-      //   });
-      // }
+
+      // Duplicate guard: block if claimed within last 30 seconds (prevents multiple entries from retries)
+      const DUPLICATE_GUARD_MS = 30 * 1000;
+      if (timeSinceLastReward < DUPLICATE_GUARD_MS) {
+        // Return last transaction info without creating a new one
+        const lastTransaction = await Transaction.findOne({
+          user: userId,
+          'metadata.source': 'ad_reward'
+        }).sort({ createdAt: -1 }).select('_id referenceId status description amount');
+
+        return res.json({
+          success: true,
+          message: 'Ad reward already claimed recently',
+          data: {
+            user: { name: userDisplayName, id: userId },
+            coinsRewarded: lastTransaction?.amount || 0,
+            newBalance: user.wallet.balance,
+            transaction: lastTransaction ? {
+              id: lastTransaction._id,
+              referenceId: lastTransaction.referenceId,
+              status: lastTransaction.status,
+              description: lastTransaction.description
+            } : null,
+            alreadyClaimed: true
+          }
+        });
+      }
     }
 
     // Use provided rewardAmount or default to 50 coins
@@ -349,6 +350,7 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
     // Credit coins to user
     user.wallet.balance = (user.wallet.balance || 0) + coinsToReward;
     user.wallet.lastUpdated = now;
+    user.markModified('wallet');
 
     // Update ad reward tracking
     if (!user.adRewardTracking) {
@@ -356,51 +358,71 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
     }
     user.adRewardTracking.lastAdRewardAt = now;
     user.adRewardTracking.totalAdRewardsClaimed = (user.adRewardTracking.totalAdRewardsClaimed || 0) + 1;
+    user.markModified('adRewardTracking');
 
-    // Create transaction log
+    const totalClaimed = user.adRewardTracking.totalAdRewardsClaimed;
+    const referenceId = `AD-REWARD-${userId}-${Date.now()}`;
+
+    // Create transaction log with user name
     const transaction = new Transaction({
       user: userId,
-      type: 'credit',
+      type: 'reward',
       balanceType: 'coins',
       amount: coinsToReward,
-      description: `Ad Reward - ${coinsToReward} coins`,
+      description: `Ad Reward - ${userDisplayName} watched ad and earned ${coinsToReward} coins`,
       status: 'completed',
-      referenceId: `AD-REWARD-${userId}-${Date.now()}`,
+      referenceId,
       metadata: {
         source: 'ad_reward',
+        userName: userDisplayName,
+        userId,
         rewardAmount: coinsToReward,
-        ads: ads || null, // Store ads payload if provided
+        ads: ads || null,
         cooldownHours: COOLDOWN_HOURS,
-        claimedAt: now.toISOString()
+        claimedAt: now.toISOString(),
+        totalAdRewardsClaimed: totalClaimed
       }
     });
 
     // Save user and transaction
     await Promise.all([user.save(), transaction.save()]);
 
-    // Get updated account overview to return fresh progress data
-    const accountOverview = await accountOverviewService.getAccountOverview(userId);
+    // Log reward claim
+    console.log(`[AD-REWARD] CLAIMED | User: ${userDisplayName} (${userId}) | Coins: +${coinsToReward} | New Balance: ${user.wallet.balance} | Ref: ${referenceId} | Total Claims: ${totalClaimed} | Time: ${now.toISOString()}`);
+
+    // Get updated account overview to return fresh progress data (non-blocking)
+    let accountOverview = null;
+    try {
+      accountOverview = await accountOverviewService.getAccountOverview(userId);
+    } catch (overviewError) {
+      console.error('Error fetching account overview after ad reward:', overviewError);
+    }
 
     res.json({
       success: true,
       message: 'Ad reward claimed successfully',
       data: {
+        user: {
+          name: userDisplayName,
+          id: userId
+        },
         coinsRewarded: coinsToReward,
         newBalance: user.wallet.balance,
         transaction: {
           id: transaction._id,
           referenceId: transaction.referenceId,
-          status: transaction.status
+          status: transaction.status,
+          description: transaction.description
         },
         cooldown: {
           hours: COOLDOWN_HOURS,
           nextRewardAt: new Date(now.getTime() + COOLDOWN_MS).toISOString()
         },
-        // Return updated account overview progress
-        accountOverview: {
+        totalAdRewardsClaimed: totalClaimed,
+        accountOverview: accountOverview ? {
           progress: accountOverview.progress,
           totalEarnings: accountOverview.totalEarnings
-        }
+        } : null
       }
     });
   } catch (error) {

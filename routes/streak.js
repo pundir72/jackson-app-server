@@ -208,7 +208,7 @@ router.get('/bonus-days', protect, async (req, res) => {
         
         // CRITICAL FIX: Calculate progress percentage based on CONSECUTIVE completed days ending today
         // Progress should ONLY show consecutive days with NO gaps ending today
-        // If user skips ANY required day, progress should reset or show only consecutive days ending today
+        // CLIENT REQUIREMENT: If user misses ANY day, progress should restart from beginning
         let progressPercentage = 0;
         if (bonusDay.conditions.requiresCompletion !== false) {
           // CRITICAL: Must start from today - if today is not completed, progress is 0
@@ -239,10 +239,11 @@ router.get('/bonus-days', protect, async (req, res) => {
             }
             
             // CRITICAL FIX: Progress should ONLY be calculated based on consecutive days ending today
-            // If there's a gap, we only count the consecutive days ending today (not partial progress from before gap)
+            // CLIENT REQUIREMENT: If there's a gap (foundGap=true), progress should show ONLY the consecutive days from the gap forward
+            // This means if user had 3 days, missed 1, then completed 2 more, progress shows 2 (not 3+2)
             if (consecutiveCompletedDays > 0) {
               progressPercentage = Math.min(100, Math.round((consecutiveCompletedDays / bonusDay.conditions.minStreak) * 100));
-              console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: ${consecutiveCompletedDays}/${bonusDay.conditions.minStreak} consecutive days ending today = ${progressPercentage}%${foundGap ? ' (gap found, showing only consecutive days ending today)' : ''}`);
+              console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: ${consecutiveCompletedDays}/${bonusDay.conditions.minStreak} consecutive days ending today = ${progressPercentage}%${foundGap ? ' (gap found, progress restarted from gap)' : ''}`);
             } else {
               progressPercentage = 0; // No progress if no consecutive days ending today
               console.log(`[BONUS-PROGRESS] Bonus Day ${bonusDay.dayNumber}: Progress = 0% (no consecutive days ending today)`);

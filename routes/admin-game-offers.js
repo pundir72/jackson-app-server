@@ -4770,23 +4770,23 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         // Note: According to Besitos docs, user_ip is required, so we use localhost for admin preview
         surveysParams.user_ip = "127.0.0.1"; // Use localhost for admin preview to avoid VPN detection
 
-        console.log("🔵 [BESITOS ADMIN] Fetching surveys for admin preview with params:", {
-          device: surveysParams.device,
-          user_ip: surveysParams.user_ip,
-          note: "Using localhost IP for admin preview to avoid VPN detection"
-        });
+        // console.log("🔵 [BESITOS ADMIN] Fetching surveys for admin preview with params:", {
+        //   device: surveysParams.device,
+        //   user_ip: surveysParams.user_ip,
+        //   note: "Using localhost IP for admin preview to avoid VPN detection"
+        // });
 
         besitosResponse = await besitosService.getSurveys(
           surveysParams,
           "admin-preview"
         );
 
-        console.log("🔵 [BESITOS ADMIN] Survey response received:", {
-          isArray: Array.isArray(besitosResponse),
-          count: Array.isArray(besitosResponse) ? besitosResponse.length : 0,
-          hasData: !!besitosResponse?.data,
-          responseType: typeof besitosResponse
-        });
+        // console.log("🔵 [BESITOS ADMIN] Survey response received:", {
+        //   isArray: Array.isArray(besitosResponse),
+        //   count: Array.isArray(besitosResponse) ? besitosResponse.length : 0,
+        //   hasData: !!besitosResponse?.data,
+        //   responseType: typeof besitosResponse
+        // });
 
         // Log if response is empty (possible VPN detection)
         if ((Array.isArray(besitosResponse) && besitosResponse.length === 0) ||
@@ -6149,7 +6149,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     currentSDK.analytics.lastSyncAt = new Date();
     await currentSDK.save();
 
-    // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
+    // // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
     //   syncedCount,
     //   updatedCount,
     //   skippedCount,

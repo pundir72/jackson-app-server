@@ -204,3 +204,15 @@ test-adm-dr-044-api-endpoints.js
 verify-fixes-adm-dr-006-027.js
 
 app/
+
+BONUS-DAY-DEBUG-GUIDE.md
+BONUS-DAY-FIX-COMPLETE.md
+BONUS-DAY-FIX-SUMMARY.md
+CLIENT-ISSUES-SUMMARY.md
+CLIENT-MESSAGE-HINDI.md
+DAILY-CHALLENGE-PENDING-ISSUE.md
+DAILY-CHALLENGE-PENDING-SUMMARY.md
+PRODUCTION-READINESS-CHECKLIST.md
+diagnose-daily-challenge-pending.js
+fix-pending-daily-challenge-transactions.js
+test-bonus-day-fix.js

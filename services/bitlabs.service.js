@@ -1796,6 +1796,67 @@ class BitlabsService {
    * @param {string} offerId - Offer ID (optional)
    * @returns {Promise<Object>} User offer history
    */
+  /**
+   * Get all downloaded games with full event details (two-step)
+   * Step 1: GET /v1/client/user/history?filter=offers  → list of offer_ids user interacted with
+   * Step 2: GET /v1/client/user/history/offers/{offerId} for each → full event details
+   * @param {string} userId - User ID
+   * @returns {Promise<Array>} Array of detailed offer objects
+   */
+  async getUserDownloadedGamesWithDetails(userId) {
+    if (!this.isConfigured()) {
+      throw { status: 500, message: "Bitlabs API is not properly configured", data: null };
+    }
+
+    const headers = {
+      "X-Api-Token": this.apiToken,
+      "X-User-Id": userId,
+      Accept: "application/json",
+    };
+
+    // Step 1: Get list of all offers user has interacted with
+    console.log(`[BITLABS] Step 1 — fetching user history list for userId=${userId}`);
+    const listResponse = await this.client.get("/v1/client/user/history", {
+      headers,
+      params: { filter: "offers" },
+    });
+
+    const historyList = listResponse.data?.data || listResponse.data || [];
+    const offerList = Array.isArray(historyList) ? historyList : [];
+    console.log(`[BITLABS] Step 1 — found ${offerList.length} offers in user history`);
+
+    if (offerList.length === 0) return [];
+
+    // Step 2: Fetch full details for each offer in parallel
+    console.log(`[BITLABS] Step 2 — fetching full details for ${offerList.length} offers`);
+    const detailResults = await Promise.allSettled(
+      offerList.map(async (item) => {
+        const offerId = item.offer_id || item.id;
+        if (!offerId) return null;
+        try {
+          const detailResponse = await this.client.get(
+            `/v1/client/user/history/offers/${offerId}`,
+            { headers, params: {} }
+          );
+          const detail = detailResponse.data?.data || detailResponse.data;
+          // Merge list-level fields into detail object
+          return { ...item, ...detail, offer_id: offerId, id: offerId };
+        } catch (err) {
+          console.warn(`[BITLABS] Step 2 — failed to fetch details for offerId=${offerId}:`, err.message);
+          // Fall back to list-level data if detail fetch fails
+          return { ...item, offer_id: offerId, id: offerId };
+        }
+      })
+    );
+
+    const details = detailResults
+      .filter(r => r.status === "fulfilled" && r.value !== null)
+      .map(r => r.value);
+
+    console.log(`[BITLABS] Step 2 — successfully fetched details for ${details.length} offers`);
+    return details;
+  }
+
   async getUserOfferHistory(userId, offerId = null) {
     if (!this.isConfigured()) {
       throw {
@@ -1806,9 +1867,17 @@ class BitlabsService {
     }
 
     try {
-      let endpoint = "/v1/client/user/history/offers";
+      let endpoint;
+      let params = {};
+
       if (offerId) {
-        endpoint += `/${offerId}`;
+        // Single offer details — /v1/client/user/history/offers/{offerId}
+        endpoint = `/v1/client/user/history/offers/${offerId}`;
+      } else {
+        // User's interacted offers list — /v1/client/user/history?filter=offers
+        // This only returns offers the user has ACTUALLY interacted with (not all offers)
+        endpoint = "/v1/client/user/history";
+        params = { filter: "offers" };
       }
 
       const response = await this.client.get(endpoint, {
@@ -1817,7 +1886,7 @@ class BitlabsService {
           "X-User-Id": userId || "static-inventory",
           Accept: "application/json",
         },
-        params: {},
+        params,
       });
 
       // Return full Bitlabs response structure (data, status, trace_id) for frontend compatibility

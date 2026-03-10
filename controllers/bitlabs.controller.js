@@ -52,22 +52,31 @@ exports.getOffers = async (req, res) => {
 
     // Check if Bitlabs is configured
     if (!bitlabsService.isConfigured()) {
-      console.warn("⚠️ Bitlabs API is not configured. Missing BITLABS_API_TOKEN or BITLABS_BASE_URL.");
+      console.warn(
+        "⚠️ Bitlabs API is not configured. Missing BITLABS_API_TOKEN or BITLABS_BASE_URL.",
+      );
       return res.json({
         success: true,
         data: [],
         total: 0,
         timestamp: new Date().toISOString(),
-        warning: "Bitlabs API is not configured. Please set BITLABS_API_TOKEN and BITLABS_BASE_URL environment variables.",
+        warning:
+          "Bitlabs API is not configured. Please set BITLABS_API_TOKEN and BITLABS_BASE_URL environment variables.",
       });
     }
 
     // Admin game list: use Publisher API for full catalog (not user-specific started offers)
-    const usePublisherCatalog = queryParams.usePublisherCatalog === "true" || queryParams.usePublisherCatalog === true;
+    const usePublisherCatalog =
+      queryParams.usePublisherCatalog === "true" ||
+      queryParams.usePublisherCatalog === true;
     let data;
     if (isGameRequest && usePublisherCatalog) {
       const { usePublisherCatalog: _, ...paramsForPublisher } = queryParams;
-      data = await bitlabsService.getPublisherOffers({ ...paramsForPublisher, is_game: "true", type: "game" });
+      data = await bitlabsService.getPublisherOffers({
+        ...paramsForPublisher,
+        is_game: "true",
+        type: "game",
+      });
     } else {
       // Use getGameOffers if this is a game request, otherwise use getOffers
       data = isGameRequest
@@ -99,8 +108,8 @@ exports.getOffers = async (req, res) => {
           totalPayout > 0
             ? totalPayout
             : totalPoints > 0
-            ? totalPoints / 1000 // Rough estimate: 1000 points ≈ $1
-            : 0;
+              ? totalPoints / 1000 // Rough estimate: 1000 points ≈ $1
+              : 0;
 
         // Extract device info from categories (BitLabs uses categories like "iPhone", "iPad", "Android")
         const categories = offer.categories || [];
@@ -166,7 +175,8 @@ exports.getOffers = async (req, res) => {
     // Add restriction reason if present (helps debug empty results)
     if (data?.restrictionReason) {
       response.restrictionReason = data.restrictionReason;
-      response.warning = "Bitlabs API returned restriction reason. Check restrictionReason field for details.";
+      response.warning =
+        "Bitlabs API returned restriction reason. Check restrictionReason field for details.";
     }
 
     res.json(response);
@@ -229,6 +239,320 @@ exports.getGameOffers = async (req, res) => {
 };
 
 /**
+ * Get all downloaded games with full details (two-step: list → per-offer details)
+ * Step 1: GET /v1/client/user/history?filter=offers
+ * Step 2: GET /v1/client/user/history/offers/{offerId} for each
+ * Returns same format as getUserOfferHistory (in_progress, available, completed)
+ * @route GET /api/bitlabs/my-games/:userId
+ */
+exports.getMyGames = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    logger.info("Fetching Bitlabs my-games (two-step)", { targetUserId: userId });
+
+    // ── Step 1 & 2: fetch all downloaded games with full event details ──
+    const offers = await bitlabsService.getUserDownloadedGamesWithDetails(userId);
+    console.log(`[MY-GAMES] Two-step fetch complete: ${offers.length} offers`);
+
+    // ── Load user from DB (same as getUserOfferHistory) ──
+    const user = await User.findById(userId)
+      .select("taskProgression games tasks xp vip")
+      .lean();
+
+    if (!user) {
+      return res.json({
+        data: { in_progress: [], available: [], completed: [],
+          userXpTier: null, totalDownloadedGames: 0,
+          gamesSummary: { total: 0, available: 0, inProgress: 0, completed: 0 },
+          taskProgressionRule: null },
+        status: "success",
+        trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      });
+    }
+
+    if (offers.length === 0) {
+      return res.json({
+        data: { in_progress: [], available: [], completed: [],
+          userXpTier: getUserXpTier(user), totalDownloadedGames: user.games?.length || 0,
+          gamesSummary: { total: 0, available: 0, inProgress: 0, completed: 0 },
+          taskProgressionRule: null },
+        status: "success",
+        trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      });
+    }
+
+    // ── Progression rule (same as getUserOfferHistory) ──
+    const gamesDownloaded = user.games?.length || 0;
+    const membershipTier  = getUserMembershipTier(user);
+    const userProfile     = { xp: user.xp?.current || 0, gamesPlayed: gamesDownloaded, membershipTier: membershipTier ?? "free" };
+
+    const progressionRuleLean = await TaskProgressionRule.findBestMatchForUser(userProfile);
+    let progressionRule = null;
+    if (progressionRuleLean) {
+      progressionRule = new TaskProgressionRule(progressionRuleLean);
+    }
+
+    // ── Task progression map ──
+    const userTaskProgression = user.taskProgression || {};
+    let taskProgressionMap = {};
+    if (userTaskProgression instanceof Map) {
+      for (const [k, v] of userTaskProgression.entries()) taskProgressionMap[k] = v;
+    } else {
+      taskProgressionMap = userTaskProgression;
+    }
+
+    // ── Sorted games for bonus eligibility ──
+    const userGames   = user.games || [];
+    const sortedGames = [...userGames].sort((a, b) => {
+      return new Date(a.installedAt || a.date || 0) - new Date(b.installedAt || b.date || 0);
+    });
+
+    // ── Bonus rule ──
+    const bonusRule = await WelcomeBonusTimer.findOne({
+      isActive: true,
+      "gameBonusTasks.bonusTasks.0": { $exists: true },
+      "gameBonusTasks.isEnabled": true,
+    }).populate("gameBonusTasks.bonusTasks.taskId", "name description completionRule rewardType rewardValue").lean();
+
+    const maxGamesWithBonus    = bonusRule?.maxGamesWithBonusTasks || 3;
+    const eligibleGameIdsForBonus = sortedGames.slice(0, maxGamesWithBonus).map(g => String(g.gameId));
+
+    const userTasks      = user.tasks || [];
+    const bonusTaskUnlocks = {};
+    userTasks.forEach(t => { if (t.isBonusTask && t.unlockedAt) bonusTaskUnlocks[t.taskId] = t.unlockedAt; });
+
+    // ── Process each offer through the SAME pipeline as getUserOfferHistory ──
+    const offersWithoutGame = [];
+
+    for (const offer of offers) {
+      if (!offer) continue;
+      const offerIdValue = offer.offer_id || offer.id || offer._id;
+      if (!offerIdValue) continue;
+      if (!offer.id) offer.id = offerIdValue;
+
+      const offerIdStr = offer.id.toString();
+      const offerIdNum = typeof offer.id === "number" ? offer.id : parseInt(offer.id, 10);
+
+      const idConditions = [
+        { gameId: offerIdStr }, { "gameDetails.id": offerIdStr },
+        { "gameDetails.offer_id": offerIdStr }, { "metadata.externalId": offerIdStr },
+      ];
+      if (!Number.isNaN(offerIdNum)) {
+        idConditions.push(
+          { gameId: offerIdNum }, { "gameDetails.id": offerIdNum },
+          { "gameDetails.offer_id": offerIdNum }, { "metadata.externalId": offerIdNum }
+        );
+      }
+      const gameDoc = await Game.findOne({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] }, $or: idConditions }).lean();
+
+      if (!gameDoc) { offersWithoutGame.push(offer); continue; }
+
+      offer.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
+      const gameIdString = gameDoc._id.toString();
+
+      const isEligibleForBonus = eligibleGameIdsForBonus.some(id => id === gameIdString);
+      const userGame = userGames.find(g => String(g.gameId) === gameIdString);
+
+      if (offer.events && Array.isArray(offer.events)) {
+        let progression = taskProgressionMap[gameIdString];
+        const payableEvents = offer.events.filter(e => e.payable === true);
+        const sortedEvents  = [...payableEvents].sort((a, b) => {
+          const diff = (a.type_id || 999) - (b.type_id || 999);
+          return diff !== 0 ? diff : (a.name || "").localeCompare(b.name || "");
+        });
+
+        let sequentialCompletedCount = 0;
+        for (const ev of sortedEvents) {
+          if (ev.status === "completed" || ev.approved_conversions > 0) sequentialCompletedCount++;
+          else break;
+        }
+
+        let completedTasksCount = progression?.completedTasks || sequentialCompletedCount;
+        if (!progression) {
+          progression = { completedTasks: completedTasksCount, thresholdReached: false, rewardTransferred: false, coinBoxBalance: 0 };
+        } else {
+          progression.completedTasks = Math.max(progression.completedTasks || 0, sequentialCompletedCount);
+          completedTasksCount = progression.completedTasks;
+        }
+
+        offer.events = offer.events.map((event, index) => {
+          if (!event.payable) return event;
+          const taskOrder   = sortedEvents.findIndex(e => e.uuid === event.uuid) + 1 || index + 1;
+          const isCompleted = event.status === "completed" || event.approved_conversions > 0;
+          let isUnlocked = true, unlockReason = "", isLocked = false;
+          if (isCompleted) {
+            unlockReason = "Completed";
+          } else if (progressionRule) {
+            const check = progressionRule.canUnlockTask(completedTasksCount, taskOrder, progression.rewardTransferred || false);
+            isUnlocked   = check.canUnlock;
+            unlockReason = check.reason || "";
+            isLocked     = !isUnlocked;
+          }
+          return { ...event, progression: {
+            isUnlocked, isLocked, unlockReason,
+            batchNumber: progressionRule
+              ? taskOrder <= progressionRule.firstBatchSize ? 1
+                : Math.ceil((taskOrder - progressionRule.firstBatchSize) / progressionRule.nextBatchSize) + 1
+              : null
+          }};
+        });
+
+        if (progressionRule && completedTasksCount >= (progressionRule.firstBatchSize || 0)) {
+          progression.thresholdReached = true;
+        }
+
+        offer.taskProgression = {
+          hasProgressionRule: !!progressionRule,
+          ruleId: progressionRule?._id || progressionRuleLean?._id || null,
+          ruleName: progressionRule?.ruleName || progressionRuleLean?.ruleName || null,
+          appliedMilestones: progressionRule?.userMilestones || progressionRuleLean?.userMilestones || null,
+          firstBatchSize: progressionRule?.firstBatchSize || null,
+          nextBatchSize:  progressionRule?.nextBatchSize  || null,
+          maxBatches:     progressionRule?.maxBatches     || null,
+          completedTasks: completedTasksCount,
+          thresholdReached:  progression.thresholdReached,
+          rewardTransferred: progression.rewardTransferred || false,
+          coinBoxBalance:    progression.coinBoxBalance    || 0,
+          canTransfer:       progression.thresholdReached && !progression.rewardTransferred && (progression.coinBoxBalance || 0) > 0,
+          canUnlockNextTasks: progression.thresholdReached && progression.rewardTransferred,
+        };
+      }
+
+      // ── Bonus tasks ──
+      if (isEligibleForBonus && bonusRule?.gameBonusTasks) {
+        const gameBonusConfig = bonusRule.gameBonusTasks.find(c => c.isEnabled && c.bonusTasks?.length > 0);
+        if (gameBonusConfig) {
+          const userInternalEvents     = userGame?.playCount || 0;
+          const minimumEventThreshold  = gameBonusConfig.minimumEventThreshold;
+          const completionDeadlineHours = gameBonusConfig.completionDeadlineHours || 24;
+          const gameDownloadTime       = userGame?.installedAt || userGame?.firstPlayed || userGame?.date || new Date();
+
+          const firstTask       = gameBonusConfig.bonusTasks.filter(bt => bt.isEnabled).sort((a,b) => a.order - b.order)[0];
+          const firstTaskId     = firstTask ? (firstTask.taskId._id || firstTask.taskId).toString() : null;
+          let sharedDeadlineStartTime = firstTaskId ? (bonusTaskUnlocks[firstTaskId] || null) : null;
+          if (!sharedDeadlineStartTime && firstTaskId) sharedDeadlineStartTime = new Date();
+
+          const formattedBonusTasks = gameBonusConfig.bonusTasks.filter(bt => bt.isEnabled).sort((a,b) => a.order - b.order).map((bt, index) => {
+            const taskId     = (bt.taskId._id || bt.taskId).toString();
+            const userTask   = userTasks.find(t => t.taskId === taskId);
+            const isCompleted = userTask?.completed || false;
+            let isUnlocked = false, unlockReason = "", unlockTime = bonusTaskUnlocks[taskId] || null;
+
+            if (index === 0) {
+              isUnlocked   = true;
+              if (!unlockTime) unlockTime = new Date();
+              unlockReason = unlockTime ? "Unlocked" : "Unlocks immediately";
+              if (!sharedDeadlineStartTime) sharedDeadlineStartTime = unlockTime;
+            } else {
+              const prevTask   = gameBonusConfig.bonusTasks.find(t => t.order === bt.order - 1);
+              const prevId     = (prevTask?.taskId._id || prevTask?.taskId).toString();
+              const prevDone   = userTasks.find(t => t.taskId === prevId)?.completed || false;
+              const thresholdMet = userInternalEvents >= minimumEventThreshold;
+              if (unlockTime)                           { isUnlocked = true; unlockReason = "Unlocked"; }
+              else if (prevDone && thresholdMet)        { isUnlocked = true; unlockTime = new Date(); unlockReason = "Previous task completed and event threshold met"; }
+              else if (!prevDone)                       { unlockReason = `Complete Bonus Task ${bt.order - 1} first`; }
+              else                                      { unlockReason = `Reach ${minimumEventThreshold} internal events (current: ${userInternalEvents})`; }
+            }
+
+            const completionDeadline = sharedDeadlineStartTime
+              ? new Date(sharedDeadlineStartTime.getTime() + completionDeadlineHours * 3600000) : null;
+            const now = new Date();
+            const isExpired      = completionDeadline ? now > completionDeadline : false;
+            const timeRemaining  = completionDeadline ? Math.max(0, completionDeadline.getTime() - now.getTime()) : null;
+
+            return { taskId, order: bt.order, isUnlocked, isCompleted, completedAt: userTask?.completedAt || null,
+              unlockTime, unlockReason, isExpired, timeRemaining,
+              completionDeadline: completionDeadline?.toISOString() || null,
+              task: { name: bt.taskId?.name || null, description: bt.taskId?.description || null,
+                rewardType: bt.taskId?.rewardType || null, rewardValue: bt.taskId?.rewardValue || null } };
+          });
+
+          offer.bonusTasks = {
+            hasBonusTasks: true, isEligible: true,
+            minimumEventThreshold, completionDeadlineHours, taskLogic: "sequential",
+            bonusTasks: formattedBonusTasks,
+            userProgress: { internalEvents: userInternalEvents,
+              eventThresholdMet: userInternalEvents >= minimumEventThreshold, gameDownloadTime },
+            maxGamesWithBonusTasks: maxGamesWithBonus,
+            userDownloadOrder: sortedGames.findIndex(g => String(g.gameId) === gameIdString) + 1,
+          };
+        } else {
+          offer.bonusTasks = { hasBonusTasks: false, isEligible: true, bonusTasks: [], message: "No bonus tasks configured" };
+        }
+      } else {
+        offer.bonusTasks = { hasBonusTasks: false, isEligible: false, bonusTasks: [],
+          message: `Bonus tasks are only available for your first ${maxGamesWithBonus} downloaded games`,
+          maxGamesWithBonusTasks: maxGamesWithBonus };
+      }
+    }
+
+    // ── Process offers without matching game doc ──
+    for (const offer of offersWithoutGame) {
+      if (!offer?.id) continue;
+      const payableEvents   = offer.events?.filter(e => e.payable === true) || [];
+      const completedEvents = payableEvents.filter(e => e.status === "completed" || e.approved_conversions > 0);
+      offer.taskProgression = {
+        hasProgressionRule: false, ruleId: null, ruleName: null, appliedMilestones: null,
+        firstBatchSize: null, nextBatchSize: null, maxBatches: null,
+        completedTasks: completedEvents.length, thresholdReached: false,
+        rewardTransferred: false, coinBoxBalance: 0, canTransfer: false, canUnlockNextTasks: false,
+      };
+      offer.bonusTasks = { hasBonusTasks: false, isEligible: false, bonusTasks: [], message: "Game not found in database" };
+      if (offer.events) {
+        offer.events = offer.events.map(e => e.payable ? { ...e, progression: { isUnlocked: true, isLocked: false, unlockReason: "No progression rules applied", batchNumber: null } } : e);
+      }
+    }
+
+    // ── Categorize ──
+    const allProcessed    = [...offers.filter(o => o?.id && !offersWithoutGame.includes(o)), ...offersWithoutGame];
+    const inProgressOffers = [], availableOffers = [], completedOffers = [];
+
+    for (const offer of allProcessed) {
+      if (!offer?.id) continue;
+      const payableEvents   = offer.events?.filter(e => e.payable === true) || [];
+      const completedEvents = payableEvents.filter(e => e.status === "completed" || e.approved_conversions > 0);
+      const isCompleted     = payableEvents.length > 0 && completedEvents.length === payableEvents.length;
+      const hasStarted      = completedEvents.length > 0;
+      if (isCompleted)        completedOffers.push(offer);
+      else if (hasStarted)    inProgressOffers.push(offer);
+      else                    availableOffers.push(offer);
+    }
+
+    const userXpTier = getUserXpTier(user);
+
+    return res.json({
+      data: {
+        in_progress: inProgressOffers,
+        available:   availableOffers,
+        completed:   completedOffers,
+        userXpTier,
+        totalDownloadedGames: user.games?.length || 0,
+        gamesSummary: { total: user.games?.length || 0, available: availableOffers.length, inProgress: inProgressOffers.length, completed: completedOffers.length },
+        taskProgressionRule: progressionRule || progressionRuleLean ? {
+          ruleId:            progressionRule?._id            || progressionRuleLean?._id            || null,
+          ruleName:          progressionRule?.ruleName        || progressionRuleLean?.ruleName        || null,
+          appliedMilestones: progressionRule?.userMilestones  || progressionRuleLean?.userMilestones  || null,
+          firstBatchSize:    progressionRule?.firstBatchSize  || progressionRuleLean?.firstBatchSize  || null,
+          nextBatchSize:     progressionRule?.nextBatchSize   || progressionRuleLean?.nextBatchSize   || null,
+          maxBatches:        progressionRule?.maxBatches      || progressionRuleLean?.maxBatches      || null,
+          priority:          progressionRule?.priority        || progressionRuleLean?.priority        || null,
+        } : null,
+      },
+      status: "success",
+      trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    });
+
+  } catch (error) {
+    logger.error("Error fetching Bitlabs my-games", { error: error.message, userId: req.params.userId });
+    res.status(error.status || 500).json({
+      success: false,
+      error: { message: error.message || "Failed to fetch my games", code: "BITLABS_MY_GAMES_ERROR" }
+    });
+  }
+};
+
+/**
  * Get user offer history with admin-configured progression rules
  * Applies same logic as Besitos user-data endpoint
  * @route GET /api/bitlabs/user-history/:userId
@@ -247,8 +571,11 @@ exports.getUserOfferHistory = async (req, res) => {
     });
 
     // Fetch raw Bitlabs data
-    const bitlabsResult = await bitlabsService.getUserOfferHistory(userId, offerId);
-    
+    const bitlabsResult = await bitlabsService.getUserOfferHistory(
+      userId,
+      offerId,
+    );
+
     // Debug logging
     // console.log("🔵 [BITLABS CONTROLLER] Raw Bitlabs result:", {
     //   hasData: !!bitlabsResult?.data,
@@ -258,17 +585,17 @@ exports.getUserOfferHistory = async (req, res) => {
     //   keys: bitlabsResult ? Object.keys(bitlabsResult) : [],
     //   offerId: offerId,
     // });
-    
+
     // Extract the actual offer data from Bitlabs response
     // Bitlabs returns: { data: {...}, status: "success", trace_id: "..." }
     // Or directly: { id: ..., ... } for single offer
     let bitlabsData = bitlabsResult?.data || bitlabsResult;
-    
+
     // If bitlabsData is still wrapped, try to extract it
-    if (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.data) {
+    if (bitlabsData && typeof bitlabsData === "object" && bitlabsData.data) {
       bitlabsData = bitlabsData.data;
     }
-    
+
     // console.log("🔵 [BITLABS CONTROLLER] Extracted bitlabsData:", {
     //   hasId: !!bitlabsData?.id,
     //   bitlabsDataId: bitlabsData?.id,
@@ -287,23 +614,30 @@ exports.getUserOfferHistory = async (req, res) => {
       logger.warn("Bitlabs user-history: user not found in local DB", {
         targetUserId: userId,
       });
-      
+
       // Transform to Besitos structure even without user data
-      const offers = offerId 
-        ? (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.id ? [bitlabsData] : [])
-        : (Array.isArray(bitlabsData) ? bitlabsData : []);
-      
+      const offers = offerId
+        ? bitlabsData && typeof bitlabsData === "object" && bitlabsData.id
+          ? [bitlabsData]
+          : []
+        : Array.isArray(bitlabsData)
+          ? bitlabsData
+          : [];
+
       const inProgressOffers = [];
       const availableOffers = [];
       const completedOffers = [];
 
       for (const offer of offers) {
         if (!offer || !offer.id) continue;
-        const payableEvents = offer.events?.filter((e) => e.payable === true) || [];
+        const payableEvents =
+          offer.events?.filter((e) => e.payable === true) || [];
         const completedEvents = payableEvents.filter(
-          (e) => e.status === "completed" || e.approved_conversions > 0
+          (e) => e.status === "completed" || e.approved_conversions > 0,
         );
-        const isCompleted = payableEvents.length > 0 && completedEvents.length === payableEvents.length;
+        const isCompleted =
+          payableEvents.length > 0 &&
+          completedEvents.length === payableEvents.length;
         const hasStarted = completedEvents.length > 0;
 
         if (isCompleted) {
@@ -333,7 +667,7 @@ exports.getUserOfferHistory = async (req, res) => {
       return res.json({
         data: responseData,
         status: "success",
-        trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       });
     }
 
@@ -355,20 +689,19 @@ exports.getUserOfferHistory = async (req, res) => {
     };
 
     // Get user-based progression rule
-    const progressionRuleLean = await TaskProgressionRule.findBestMatchForUser(
-      userProfile
-    );
+    const progressionRuleLean =
+      await TaskProgressionRule.findBestMatchForUser(userProfile);
 
     // Convert lean document to Mongoose instance if found
     let progressionRule = null;
     if (progressionRuleLean) {
       progressionRule = new TaskProgressionRule(progressionRuleLean);
       console.log(
-        `✅ Found progression rule: ${progressionRule.ruleName} (XP Tier: ${progressionRule.xpTier}, First Batch: ${progressionRule.firstBatchSize}, Next Batch: ${progressionRule.nextBatchSize})`
+        `✅ Found progression rule: ${progressionRule.ruleName} (XP Tier: ${progressionRule.xpTier}, First Batch: ${progressionRule.firstBatchSize}, Next Batch: ${progressionRule.nextBatchSize})`,
       );
     } else {
       console.log(
-        `⚠️ No progression rule found for user (XP: ${userProfile.xp}, Games: ${userProfile.gamesPlayed}, Membership: ${userProfile.membershipTier})`
+        `⚠️ No progression rule found for user (XP: ${userProfile.xp}, Games: ${userProfile.gamesPlayed}, Membership: ${userProfile.membershipTier})`,
       );
     }
 
@@ -402,7 +735,7 @@ exports.getUserOfferHistory = async (req, res) => {
     })
       .populate(
         "gameBonusTasks.bonusTasks.taskId",
-        "name description completionRule rewardType rewardValue"
+        "name description completionRule rewardType rewardValue",
       )
       .lean();
 
@@ -443,8 +776,22 @@ exports.getUserOfferHistory = async (req, res) => {
     if (offerId) {
       // Single offer - wrap in array for processing
       // Check multiple possible structures
-      if (bitlabsData && typeof bitlabsData === 'object') {
-        if (bitlabsData.id) {
+      if (bitlabsData && typeof bitlabsData === "object") {
+
+        // KEY FIX: Use BitLabs official `started_at` field to check if user actually started this game.
+        // Per BitLabs docs: started_at is null if user never interacted with the offer.
+        const startedAt = bitlabsData.started_at || bitlabsData.data?.started_at || null;
+        const completedEvents = bitlabsData.completed_events || bitlabsData.data?.completed_events || 0;
+        const hasPendingConversions = bitlabsData.has_pending_conversions || bitlabsData.data?.has_pending_conversions || false;
+        const userHasStarted = startedAt !== null || completedEvents > 0 || hasPendingConversions;
+
+        console.log(`[MY-GAMES] offerId=${offerId} | started_at=${startedAt} | completed_events=${completedEvents} | has_pending=${hasPendingConversions} | userHasStarted=${userHasStarted}`);
+
+        if (!userHasStarted) {
+          console.log(`[MY-GAMES] EXCLUDED offerId=${offerId} — started_at is null, user never started this game`);
+          // Return empty My Games — user has not downloaded/started this game
+          offers = [];
+        } else if (bitlabsData.id) {
           // Direct offer object with id
           offers = [bitlabsData];
         } else if (bitlabsData.data && bitlabsData.data.id) {
@@ -453,7 +800,10 @@ exports.getUserOfferHistory = async (req, res) => {
         } else if (Object.keys(bitlabsData).length > 0) {
           // Might be an offer object without explicit id check - include it anyway
           // Bitlabs offers should have at least some properties
-          console.log("⚠️ [BITLABS CONTROLLER] Single offer without explicit id, but has properties:", Object.keys(bitlabsData));
+          console.log(
+            "⚠️ [BITLABS CONTROLLER] Single offer without explicit id, but has properties:",
+            Object.keys(bitlabsData),
+          );
           offers = [bitlabsData];
         }
       }
@@ -468,7 +818,11 @@ exports.getUserOfferHistory = async (req, res) => {
         offers = bitlabsData;
       } else if (bitlabsData && Array.isArray(bitlabsData.data)) {
         offers = bitlabsData.data;
-      } else if (bitlabsData && typeof bitlabsData === 'object' && bitlabsData.offers) {
+      } else if (
+        bitlabsData &&
+        typeof bitlabsData === "object" &&
+        bitlabsData.offers
+      ) {
         // Some APIs return { offers: [...] }
         offers = Array.isArray(bitlabsData.offers) ? bitlabsData.offers : [];
       }
@@ -476,7 +830,7 @@ exports.getUserOfferHistory = async (req, res) => {
       //   offersCount: offers.length,
       // });
     }
-    
+
     // console.log("🔵 [BITLABS CONTROLLER] Final offers array:", {
     //   count: offers.length,
     //   firstOfferId: offers[0]?.id,
@@ -497,9 +851,10 @@ exports.getUserOfferHistory = async (req, res) => {
         console.log("⚠️ [BITLABS CONTROLLER] Skipping null/undefined offer");
         continue;
       }
-      
+
       // Check for id field - Bitlabs might use 'id' or 'offer_id'; use route param if single-offer response has no id
-      const offerIdValue = offer.id || offer.offer_id || offer._id || (offerId && String(offerId));
+      const offerIdValue =
+        offer.id || offer.offer_id || offer._id || (offerId && String(offerId));
       // console.log("🔵 [BITLABS CONTROLLER] Offer id resolution:", {
       //   "offer.id": offer.id,
       //   "offer.offer_id": offer.offer_id,
@@ -515,7 +870,7 @@ exports.getUserOfferHistory = async (req, res) => {
         });
         continue;
       }
-      
+
       // Normalize the id for consistency
       if (!offer.id) {
         offer.id = offerIdValue;
@@ -530,7 +885,8 @@ exports.getUserOfferHistory = async (req, res) => {
 
       // Normalize offer id to string and number (DB may store either)
       const offerIdStr = offer.id.toString();
-      const offerIdNum = typeof offer.id === "number" ? offer.id : parseInt(offer.id, 10);
+      const offerIdNum =
+        typeof offer.id === "number" ? offer.id : parseInt(offer.id, 10);
 
       // Find matching game in our database (sdkProvider may be "Bitlabs" or "bitlabs")
       // Match both string and number id - admin may store gameId/gameDetails.id as either
@@ -545,7 +901,7 @@ exports.getUserOfferHistory = async (req, res) => {
           { gameId: offerIdNum },
           { "gameDetails.id": offerIdNum },
           { "gameDetails.offer_id": offerIdNum },
-          { "metadata.externalId": offerIdNum }
+          { "metadata.externalId": offerIdNum },
         );
       }
       const gameQuery = {
@@ -559,7 +915,7 @@ exports.getUserOfferHistory = async (req, res) => {
       //   querySummary: JSON.stringify(gameQuery),
       // });
       const gameDoc = await Game.findOne(gameQuery).lean();
-      
+
       // console.log("🔵 [BITLABS CONTROLLER] Game lookup result:", {
       //   offerId: offer.id,
       //   gameFound: !!gameDoc,
@@ -570,12 +926,18 @@ exports.getUserOfferHistory = async (req, res) => {
       // If game not found in database, mark for later processing without progression rules
       if (!gameDoc) {
         console.warn(
-          `⚠️ [BITLABS CONTROLLER] Game not found for offer ID: ${offer.id} (str: "${offerIdStr}", num: ${offerIdNum}). Will include without progression rules.`
+          `⚠️ [BITLABS CONTROLLER] Game not found for offer ID: ${offer.id} (str: "${offerIdStr}", num: ${offerIdNum}). Will include without progression rules.`,
         );
         // Debug: show what Bitlabs games exist in DB (sample)
-        const bitlabsGamesCount = await Game.countDocuments({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] } });
-        const bitlabsGamesSample = await Game.find({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] } })
-          .select("gameId gameDetails.id gameDetails.offer_id metadata.externalId sdkProvider title")
+        const bitlabsGamesCount = await Game.countDocuments({
+          sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+        });
+        const bitlabsGamesSample = await Game.find({
+          sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+        })
+          .select(
+            "gameId gameDetails.id gameDetails.offer_id metadata.externalId sdkProvider title",
+          )
           .limit(5)
           .lean();
         console.warn("🔍 [BITLABS CONTROLLER] DEBUG - Bitlabs games in DB:", {
@@ -594,7 +956,10 @@ exports.getUserOfferHistory = async (req, res) => {
       }
 
       // Each game has its own admin XP (different games can have different baseXP/multiplier) - same as Besitos user-data
-      offer.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
+      offer.xpRewardConfig = gameDoc.xpRewardConfig || {
+        baseXP: 0,
+        multiplier: 1.0,
+      };
 
       const gameIdString = gameDoc._id.toString();
       const currentGameIdString = String(gameDoc._id);
@@ -614,7 +979,7 @@ exports.getUserOfferHistory = async (req, res) => {
       console.log(
         "\n=== BONUS RULE CHECK FOR GAME:",
         gameDoc.title || offer.id,
-        "==="
+        "===",
       );
       console.log("Game ID (DB):", currentGameIdString);
       console.log("Is Eligible for Bonus:", isEligibleForBonus);
@@ -638,7 +1003,7 @@ exports.getUserOfferHistory = async (req, res) => {
 
         // Filter payable events (these are the tasks we track)
         const payableEvents = offer.events.filter((e) => e.payable === true);
-        
+
         // Sort events by type_id (1 = Install, 2+ = Steps/Levels)
         const sortedEvents = [...payableEvents].sort((a, b) => {
           const typeA = a.type_id || 999;
@@ -652,7 +1017,10 @@ exports.getUserOfferHistory = async (req, res) => {
         let sequentialCompletedCount = 0;
         for (let i = 0; i < sortedEvents.length; i++) {
           const eventStatus = sortedEvents[i].status;
-          if (eventStatus === "completed" || sortedEvents[i].approved_conversions > 0) {
+          if (
+            eventStatus === "completed" ||
+            sortedEvents[i].approved_conversions > 0
+          ) {
             sequentialCompletedCount++;
           } else {
             // Stop counting if we hit an incomplete event (sequential requirement)
@@ -676,7 +1044,7 @@ exports.getUserOfferHistory = async (req, res) => {
           // Use the maximum between database count and sequential bitlabs count
           progression.completedTasks = Math.max(
             progression.completedTasks || 0,
-            sequentialCompletedCount
+            sequentialCompletedCount,
           );
           completedTasksCount = progression.completedTasks;
         }
@@ -689,9 +1057,8 @@ exports.getUserOfferHistory = async (req, res) => {
           }
 
           // Find event order in payable events list
-          const eventOrder = sortedEvents.findIndex(
-            (e) => e.uuid === event.uuid
-          ) + 1;
+          const eventOrder =
+            sortedEvents.findIndex((e) => e.uuid === event.uuid) + 1;
           const taskOrder = eventOrder || index + 1;
 
           let isUnlocked = true;
@@ -699,7 +1066,8 @@ exports.getUserOfferHistory = async (req, res) => {
           let isLocked = false;
 
           // If event is already completed, it's always unlocked
-          const isCompleted = event.status === "completed" || event.approved_conversions > 0;
+          const isCompleted =
+            event.status === "completed" || event.approved_conversions > 0;
           if (isCompleted) {
             isUnlocked = true;
             unlockReason = "Completed";
@@ -709,7 +1077,7 @@ exports.getUserOfferHistory = async (req, res) => {
             const unlockCheck = progressionRule.canUnlockTask(
               completedTasksCount,
               taskOrder,
-              progression.rewardTransferred || false
+              progression.rewardTransferred || false,
             );
 
             isUnlocked = unlockCheck.canUnlock;
@@ -730,7 +1098,7 @@ exports.getUserOfferHistory = async (req, res) => {
                   ? 1
                   : Math.ceil(
                       (taskOrder - progressionRule.firstBatchSize) /
-                        progressionRule.nextBatchSize
+                        progressionRule.nextBatchSize,
                     ) + 1
                 : null,
             },
@@ -750,9 +1118,7 @@ exports.getUserOfferHistory = async (req, res) => {
           hasProgressionRule: !!progressionRule,
           ruleId: progressionRule?._id || progressionRuleLean?._id || null,
           ruleName:
-            progressionRule?.ruleName ||
-            progressionRuleLean?.ruleName ||
-            null,
+            progressionRule?.ruleName || progressionRuleLean?.ruleName || null,
           appliedMilestones:
             progressionRule?.userMilestones ||
             progressionRuleLean?.userMilestones ||
@@ -780,20 +1146,18 @@ exports.getUserOfferHistory = async (req, res) => {
             (config) =>
               config.isEnabled &&
               config.bonusTasks &&
-              config.bonusTasks.length > 0
+              config.bonusTasks.length > 0,
           );
 
           if (gameBonusConfig) {
             console.log("✅ Bonus config found for game:", {
               gameId: gameBonusConfig.gameId,
               minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
-              completionDeadlineHours:
-                gameBonusConfig.completionDeadlineHours,
+              completionDeadlineHours: gameBonusConfig.completionDeadlineHours,
               bonusTasksCount: gameBonusConfig.bonusTasks?.length || 0,
             });
             const userInternalEvents = userGame?.playCount || 0;
-            const minimumEventThreshold =
-              gameBonusConfig.minimumEventThreshold;
+            const minimumEventThreshold = gameBonusConfig.minimumEventThreshold;
             const completionDeadlineHours =
               gameBonusConfig.completionDeadlineHours || 24;
 
@@ -830,7 +1194,7 @@ exports.getUserOfferHistory = async (req, res) => {
                 const taskId = bt.taskId._id || bt.taskId;
                 const taskIdString = taskId.toString();
                 const userTask = userTasks.find(
-                  (t) => t.taskId === taskIdString
+                  (t) => t.taskId === taskIdString,
                 );
                 const isCompleted = userTask?.completed || false;
                 const completedAt = userTask?.completedAt || null;
@@ -856,13 +1220,13 @@ exports.getUserOfferHistory = async (req, res) => {
                 } else {
                   // Task 2 and 3: Require previous task completion AND event threshold
                   const previousTask = gameBonusConfig.bonusTasks.find(
-                    (t) => t.order === bt.order - 1
+                    (t) => t.order === bt.order - 1,
                   );
                   const previousTaskId =
                     previousTask?.taskId._id || previousTask?.taskId;
                   const previousTaskIdString = previousTaskId.toString();
                   const previousUserTask = userTasks.find(
-                    (t) => t.taskId === previousTaskIdString
+                    (t) => t.taskId === previousTaskIdString,
                   );
                   const previousTaskCompleted =
                     previousUserTask?.completed || false;
@@ -878,9 +1242,7 @@ exports.getUserOfferHistory = async (req, res) => {
                     unlockReason =
                       "Previous task completed and event threshold met";
                   } else if (!previousTaskCompleted) {
-                    unlockReason = `Complete Bonus Task ${
-                      bt.order - 1
-                    } first`;
+                    unlockReason = `Complete Bonus Task ${bt.order - 1} first`;
                   } else if (!eventThresholdMet) {
                     unlockReason = `Reach ${minimumEventThreshold} internal events (current: ${userInternalEvents})`;
                   }
@@ -890,7 +1252,7 @@ exports.getUserOfferHistory = async (req, res) => {
                 const completionDeadline = sharedDeadlineStartTime
                   ? new Date(
                       sharedDeadlineStartTime.getTime() +
-                        completionDeadlineHours * 60 * 60 * 1000
+                        completionDeadlineHours * 60 * 60 * 1000,
                     )
                   : null;
                 const now = new Date();
@@ -936,23 +1298,21 @@ exports.getUserOfferHistory = async (req, res) => {
               bonusTasks: formattedBonusTasks,
               userProgress: {
                 internalEvents: userInternalEvents,
-                eventThresholdMet:
-                  userInternalEvents >= minimumEventThreshold,
+                eventThresholdMet: userInternalEvents >= minimumEventThreshold,
                 gameDownloadTime: gameDownloadTime,
               },
               maxGamesWithBonusTasks: maxGamesWithBonus,
               userDownloadOrder:
                 sortedGames.findIndex(
-                  (g) => String(g.gameId) === currentGameIdString
+                  (g) => String(g.gameId) === currentGameIdString,
                 ) + 1,
             };
             console.log("✅ Bonus tasks added to offer:", {
               bonusTasksCount: formattedBonusTasks.length,
               unlockedCount: formattedBonusTasks.filter((bt) => bt.isUnlocked)
                 .length,
-              completedCount: formattedBonusTasks.filter(
-                (bt) => bt.isCompleted
-              ).length,
+              completedCount: formattedBonusTasks.filter((bt) => bt.isCompleted)
+                .length,
             });
           } else {
             offer.bonusTasks = {
@@ -983,9 +1343,10 @@ exports.getUserOfferHistory = async (req, res) => {
       if (!offer || !offer.id) continue;
 
       // Add basic progression structure (no rules applied)
-      const payableEvents = offer.events?.filter((e) => e.payable === true) || [];
+      const payableEvents =
+        offer.events?.filter((e) => e.payable === true) || [];
       const completedEvents = payableEvents.filter(
-        (e) => e.status === "completed" || e.approved_conversions > 0
+        (e) => e.status === "completed" || e.approved_conversions > 0,
       );
 
       // Add basic taskProgression structure
@@ -1028,14 +1389,15 @@ exports.getUserOfferHistory = async (req, res) => {
           };
         });
       }
-
     }
 
     // Combine all processed offers (with and without game matching)
     // Offers with game matching are already in the offers array (modified in place)
     // Offers without game matching are in offersWithoutGame (now processed)
     // Filter out offers that are in offersWithoutGame from the original offers array
-    const offersWithGame = offers.filter(o => o && o.id && !offersWithoutGame.includes(o));
+    const offersWithGame = offers.filter(
+      (o) => o && o.id && !offersWithoutGame.includes(o),
+    );
     const allProcessedOffers = [...offersWithGame, ...offersWithoutGame];
 
     // Transform Bitlabs offers to match Besitos structure: in_progress, available, completed
@@ -1048,11 +1410,14 @@ exports.getUserOfferHistory = async (req, res) => {
       if (!offer || !offer.id) continue;
 
       // Check if offer is completed (all payable events completed)
-      const payableEvents = offer.events?.filter((e) => e.payable === true) || [];
+      const payableEvents =
+        offer.events?.filter((e) => e.payable === true) || [];
       const completedEvents = payableEvents.filter(
-        (e) => e.status === "completed" || e.approved_conversions > 0
+        (e) => e.status === "completed" || e.approved_conversions > 0,
       );
-      const isCompleted = payableEvents.length > 0 && completedEvents.length === payableEvents.length;
+      const isCompleted =
+        payableEvents.length > 0 &&
+        completedEvents.length === payableEvents.length;
 
       // Check if offer has been started (at least one event completed)
       const hasStarted = completedEvents.length > 0;
@@ -1079,31 +1444,36 @@ exports.getUserOfferHistory = async (req, res) => {
         inProgress: inProgressOffers.length,
         completed: completedOffers.length,
       },
-      taskProgressionRule: progressionRule || progressionRuleLean
-        ? {
-            ruleId: progressionRule?._id || progressionRuleLean?._id || null,
-            ruleName:
-              progressionRule?.ruleName || progressionRuleLean?.ruleName || null,
-            appliedMilestones:
-              progressionRule?.userMilestones ||
-              progressionRuleLean?.userMilestones ||
-              null,
-            firstBatchSize:
-              progressionRule?.firstBatchSize ||
-              progressionRuleLean?.firstBatchSize ||
-              null,
-            nextBatchSize:
-              progressionRule?.nextBatchSize ||
-              progressionRuleLean?.nextBatchSize ||
-              null,
-            maxBatches:
-              progressionRule?.maxBatches ||
-              progressionRuleLean?.maxBatches ||
-              null,
-            priority:
-              progressionRule?.priority || progressionRuleLean?.priority || null,
-          }
-        : null,
+      taskProgressionRule:
+        progressionRule || progressionRuleLean
+          ? {
+              ruleId: progressionRule?._id || progressionRuleLean?._id || null,
+              ruleName:
+                progressionRule?.ruleName ||
+                progressionRuleLean?.ruleName ||
+                null,
+              appliedMilestones:
+                progressionRule?.userMilestones ||
+                progressionRuleLean?.userMilestones ||
+                null,
+              firstBatchSize:
+                progressionRule?.firstBatchSize ||
+                progressionRuleLean?.firstBatchSize ||
+                null,
+              nextBatchSize:
+                progressionRule?.nextBatchSize ||
+                progressionRuleLean?.nextBatchSize ||
+                null,
+              maxBatches:
+                progressionRule?.maxBatches ||
+                progressionRuleLean?.maxBatches ||
+                null,
+              priority:
+                progressionRule?.priority ||
+                progressionRuleLean?.priority ||
+                null,
+            }
+          : null,
     };
 
     // Return same structure as Besitos: { data: {...}, status: "success", trace_id: "..." }
@@ -1111,7 +1481,7 @@ exports.getUserOfferHistory = async (req, res) => {
     res.json({
       data: responseData,
       status: "success",
-      trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      trace_id: `bitlabs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     });
   } catch (error) {
     logger.error("Error fetching Bitlabs user offer history", {

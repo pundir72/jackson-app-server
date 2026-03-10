@@ -15,21 +15,21 @@ const FACE_VERIFICATION_THRESHOLD = 0.7; // 70% confidence for face match
 // Normalizes mobile numbers to handle +91, 91, 919999988888, etc.
 const normalizeMobile = (mobile) => {
   if (!mobile) return null;
-  
+
   // Remove all non-digit characters except +
   let normalized = mobile.toString().trim();
-  
+
   // Remove leading + if present
   if (normalized.startsWith("+")) {
     normalized = normalized.substring(1);
   }
-  
+
   // For Indian numbers (+91), remove country code if present
   // If number starts with 91 and has 12 digits, remove leading 91
   if (normalized.startsWith("91") && normalized.length === 12) {
     normalized = normalized.substring(2);
   }
-  
+
   // Return normalized number (should be 10 digits for Indian numbers)
   return normalized;
 };
@@ -37,17 +37,17 @@ const normalizeMobile = (mobile) => {
 // 🔥 FIX: Helper to find user by mobile with normalization
 const findUserByMobile = async (mobile) => {
   if (!mobile) return null;
-  
+
   const normalized = normalizeMobile(mobile);
-  
+
   // Try exact match first
   let user = await User.findOne({ mobile: normalized });
-  
+
   // If not found, try with + prefix
   if (!user) {
     user = await User.findOne({ mobile: `+${normalized}` });
   }
-  
+
   // If still not found, try with country code
   if (!user && normalized.length === 10) {
     user = await User.findOne({ mobile: `91${normalized}` });
@@ -55,7 +55,7 @@ const findUserByMobile = async (mobile) => {
       user = await User.findOne({ mobile: `+91${normalized}` });
     }
   }
-  
+
   return user;
 };
 
@@ -139,7 +139,10 @@ router.post("/verify", async (req, res) => {
     }
 
     // Check if user is locked out due to too many attempts
-    if (user.biometric?.lockedUntil && user.biometric.lockedUntil > new Date()) {
+    if (
+      user.biometric?.lockedUntil &&
+      user.biometric.lockedUntil > new Date()
+    ) {
       return res.status(403).json({
         error: "Account locked. Please try again later",
         unlockTime: user.biometric.lockedUntil,
@@ -230,25 +233,26 @@ router.post("/verify", async (req, res) => {
     }
 
     // 🔥 FIX: Add logging before update
-    console.log(`[BIOMETRIC-VERIFY] Updating user ${user._id} with:`, JSON.stringify(update, null, 2));
-    
-    // 🔥 FIX: Use strict: false to allow saving fields not in schema
-    const updateResult = await User.findByIdAndUpdate(
-      user._id, 
-      update, 
-      { 
-        new: true,
-        strict: false, // 🔥 CRITICAL: Allow saving fields not in schema
-        runValidators: false
-      }
+    console.log(
+      `[BIOMETRIC-VERIFY] Updating user ${user._id} with:`,
+      JSON.stringify(update, null, 2),
     );
-    
+
+    // 🔥 FIX: Use strict: false to allow saving fields not in schema
+    const updateResult = await User.findByIdAndUpdate(user._id, update, {
+      new: true,
+      strict: false, // 🔥 CRITICAL: Allow saving fields not in schema
+      runValidators: false,
+    });
+
     // 🔥 FIX: Verify update was successful
     if (!updateResult) {
       console.error(`[BIOMETRIC-VERIFY] Failed to update user ${user._id}`);
-      return res.status(500).json({ error: "Failed to update biometric status" });
+      return res
+        .status(500)
+        .json({ error: "Failed to update biometric status" });
     }
-    
+
     // 🔥 FIX: Log updated user for debugging
     const updatedUser = await User.findById(user._id);
     console.log(`[BIOMETRIC-VERIFY] User after update:`, {
@@ -264,7 +268,7 @@ router.post("/verify", async (req, res) => {
     } catch (e) {
       console.warn(
         "Failed to invalidate user caches after face verification:",
-        e.message
+        e.message,
       );
     }
 
@@ -345,9 +349,11 @@ router.post("/setup", async (req, res) => {
 
     // 🔥 FIX: Use normalized mobile lookup
     const user = await findUserByMobile(mobile);
-    
+
     if (!user) {
-      console.error(`[BIOMETRIC-SETUP] User not found for mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`);
+      console.error(
+        `[BIOMETRIC-SETUP] User not found for mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`,
+      );
       return res.status(404).json({ error: "User not found" });
     }
 
@@ -387,7 +393,9 @@ router.post("/setup", async (req, res) => {
     }
 
     // 🔥 FIX: Log user found
-    console.log(`[BIOMETRIC-SETUP] Found user ${user._id} with mobile: ${user.mobile}`);
+    console.log(
+      `[BIOMETRIC-SETUP] Found user ${user._id} with mobile: ${user.mobile}`,
+    );
 
     // Log verification attempt
     await analytics.log("face_verification_started", {
@@ -432,12 +440,17 @@ router.post("/setup", async (req, res) => {
 
     // 🔥 FIX: Use save() method instead of findByIdAndUpdate for better reliability with nested objects
     // This ensures nested biometric fields are properly saved to the database
-    console.log(`[BIOMETRIC-SETUP] Using save() method to ensure data persistence`);
-    console.log(`[BIOMETRIC-SETUP] Current user biometric state before update:`, {
-      hasBiometric: !!user.biometric,
-      hasFaceVerification: !!user.biometric?.faceVerification,
-      hasLivenessCheck: !!user.biometric?.livenessCheck,
-    });
+    console.log(
+      `[BIOMETRIC-SETUP] Using save() method to ensure data persistence`,
+    );
+    console.log(
+      `[BIOMETRIC-SETUP] Current user biometric state before update:`,
+      {
+        hasBiometric: !!user.biometric,
+        hasFaceVerification: !!user.biometric?.faceVerification,
+        hasLivenessCheck: !!user.biometric?.livenessCheck,
+      },
+    );
 
     // Fetch fresh user document
     const userDoc = await User.findById(user._id);
@@ -450,7 +463,7 @@ router.post("/setup", async (req, res) => {
     if (!userDoc.biometric) {
       userDoc.biometric = {
         enabled: false,
-        attempts: 0
+        attempts: 0,
       };
     }
 
@@ -472,19 +485,21 @@ router.post("/setup", async (req, res) => {
     // Set nested verification fields
     if (verificationData) {
       userDoc.biometric.faceVerification.verified = true;
-      userDoc.biometric.faceVerification.confidenceScore = verificationData.faceMatchScore || 1.0;
+      userDoc.biometric.faceVerification.confidenceScore =
+        verificationData.faceMatchScore || 1.0;
       userDoc.biometric.faceVerification.lastVerified = new Date();
       userDoc.biometric.faceVerification.verificationAttempts = 0;
-      
+
       userDoc.biometric.livenessCheck.lastChecked = new Date();
-      userDoc.biometric.livenessCheck.lastScore = verificationData.livenessScore || 1.0;
+      userDoc.biometric.livenessCheck.lastScore =
+        verificationData.livenessScore || 1.0;
       userDoc.biometric.livenessCheck.lastDeviceId = deviceId;
       userDoc.biometric.livenessCheck.lastScanType = type;
     } else {
       // Initialize even without verificationData
       userDoc.biometric.faceVerification.verified = false;
       userDoc.biometric.faceVerification.verificationAttempts = 0;
-      
+
       userDoc.biometric.livenessCheck.lastChecked = null;
       userDoc.biometric.livenessCheck.lastScore = null;
       userDoc.biometric.livenessCheck.lastDeviceId = deviceId || null;
@@ -500,9 +515,9 @@ router.post("/setup", async (req, res) => {
     });
 
     // Mark biometric as modified to ensure Mongoose saves nested fields
-    userDoc.markModified('biometric');
-    userDoc.markModified('biometric.faceVerification');
-    userDoc.markModified('biometric.livenessCheck');
+    userDoc.markModified("biometric");
+    userDoc.markModified("biometric.faceVerification");
+    userDoc.markModified("biometric.livenessCheck");
 
     // Save the document - this is more reliable than findByIdAndUpdate for nested objects
     try {
@@ -512,9 +527,9 @@ router.post("/setup", async (req, res) => {
       console.error(`[BIOMETRIC-SETUP] ❌ Save error:`, saveError);
       console.error(`[BIOMETRIC-SETUP] Save error message:`, saveError.message);
       console.error(`[BIOMETRIC-SETUP] Save error stack:`, saveError.stack);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: "Failed to save biometric data",
-        details: saveError.message 
+        details: saveError.message,
       });
     }
 
@@ -528,21 +543,34 @@ router.post("/setup", async (req, res) => {
       hasLivenessCheck: !!updatedUser.biometric?.livenessCheck,
       mobile: updatedUser.mobile,
     });
-    
+
     // 🔥 CRITICAL: Log full biometric object to see what was actually saved
-    console.log(`[BIOMETRIC-SETUP] Full biometric object from database:`, JSON.stringify(updatedUser.biometric, null, 2));
-    
+    console.log(
+      `[BIOMETRIC-SETUP] Full biometric object from database:`,
+      JSON.stringify(updatedUser.biometric, null, 2),
+    );
+
     // Verify save was successful
     if (!updatedUser.biometric?.setup) {
-      console.error(`[BIOMETRIC-SETUP] ❌ CRITICAL: Save completed but biometric.setup is NOT true in database!`);
-      console.error(`[BIOMETRIC-SETUP] This indicates a serious database/schema issue.`);
-      console.error(`[BIOMETRIC-SETUP] Current biometric state:`, JSON.stringify(updatedUser.biometric, null, 2));
-      return res.status(500).json({ 
-        error: "Biometric data was not saved to database. Please check backend logs and schema configuration.",
-        details: "Setup field is missing after save operation"
+      console.error(
+        `[BIOMETRIC-SETUP] ❌ CRITICAL: Save completed but biometric.setup is NOT true in database!`,
+      );
+      console.error(
+        `[BIOMETRIC-SETUP] This indicates a serious database/schema issue.`,
+      );
+      console.error(
+        `[BIOMETRIC-SETUP] Current biometric state:`,
+        JSON.stringify(updatedUser.biometric, null, 2),
+      );
+      return res.status(500).json({
+        error:
+          "Biometric data was not saved to database. Please check backend logs and schema configuration.",
+        details: "Setup field is missing after save operation",
       });
     } else {
-      console.log(`[BIOMETRIC-SETUP] ✅ Verification successful - biometric.setup is true in database`);
+      console.log(
+        `[BIOMETRIC-SETUP] ✅ Verification successful - biometric.setup is true in database`,
+      );
     }
 
     // Invalidate profile cache so GET /api/profile reflects latest face verification status
@@ -552,7 +580,7 @@ router.post("/setup", async (req, res) => {
     } catch (e) {
       console.warn(
         "Failed to invalidate user caches after biometric setup:",
-        e.message
+        e.message,
       );
     }
 
@@ -583,7 +611,8 @@ router.post("/setup", async (req, res) => {
         setup: updatedUser.biometric?.setup || true,
         type: updatedUser.biometric?.type || type,
         verified: updatedUser.biometric?.faceVerification?.verified || false,
-        lastVerified: updatedUser.biometric?.faceVerification?.lastVerified || new Date(),
+        lastVerified:
+          updatedUser.biometric?.faceVerification?.lastVerified || new Date(),
       },
     });
   } catch (error) {
@@ -607,7 +636,7 @@ router.post("/reset", async (req, res) => {
 
     // 🔥 FIX: Use normalized mobile lookup
     const user = await findUserByMobile(mobile);
-    
+
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -664,7 +693,9 @@ router.get("/status", async (req, res) => {
     // 🔥 FIX: Use normalized mobile lookup
     if (mobile) {
       user = await findUserByMobile(mobile);
-      console.log(`[BIOMETRIC-STATUS] Searching by mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`);
+      console.log(
+        `[BIOMETRIC-STATUS] Searching by mobile: ${mobile} (normalized: ${normalizeMobile(mobile)})`,
+      );
     }
     // Find user by email if mobile not found
     else if (email && !user) {
@@ -703,7 +734,7 @@ router.get("/status", async (req, res) => {
     // Check if biometric is set up and verified
     const isSetup = user.biometric?.setup === true;
     const biometricType = user.biometric?.type || "none";
-    
+
     // 🔥 FIX: Less strict verification logic
     // For face_id: require faceVerification.verified OR fallback to isVerified
     // For fingerprint: always considered verified (no face scan needed)
@@ -737,7 +768,10 @@ router.get("/status", async (req, res) => {
         checkMethod: mobile ? "mobile" : email ? "email" : "deviceId",
       });
     } catch (analyticsError) {
-      console.warn("Failed to log biometric status check:", analyticsError.message);
+      console.warn(
+        "Failed to log biometric status check:",
+        analyticsError.message,
+      );
     }
 
     res.status(200).json({
@@ -804,7 +838,7 @@ router.post("/biometric-login", async (req, res) => {
     }
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: "User not found",
         success: false,
       });
@@ -842,7 +876,8 @@ router.post("/biometric-login", async (req, res) => {
     // Check if biometric is set up
     if (!user.biometric?.setup) {
       return res.status(403).json({
-        error: "Biometric authentication is not set up. Please register Face ID first.",
+        error:
+          "Biometric authentication is not set up. Please register Face ID first.",
         success: false,
       });
     }
@@ -858,7 +893,7 @@ router.post("/biometric-login", async (req, res) => {
     ) {
       // Log mismatch but don't block - device may support multiple types
       console.warn(
-        `Biometric type mismatch for user ${user._id}: Expected ${expectedType}, Got ${biometricType}`
+        `Biometric type mismatch for user ${user._id}: Expected ${expectedType}, Got ${biometricType}`,
       );
     }
 
@@ -905,7 +940,7 @@ router.post("/biometric-login", async (req, res) => {
     } catch (e) {
       console.warn(
         "Failed to invalidate user caches after biometric login:",
-        e.message
+        e.message,
       );
     }
 
@@ -932,7 +967,7 @@ router.post("/biometric-login", async (req, res) => {
     } catch (analyticsError) {
       // Ignore analytics errors
     }
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to authenticate with biometric",
       success: false,
     });

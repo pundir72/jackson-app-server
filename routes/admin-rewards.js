@@ -38,9 +38,9 @@ const fileFilter = (req, file, cb) => {
   } else {
     cb(
       new Error(
-        "Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges"
+        "Only PNG, SVG, JPG, JPEG, and WebP files are allowed for badges",
       ),
-      false
+      false,
     );
   }
 };
@@ -98,11 +98,11 @@ async function syncAccessBenefitsToMultiplier(accessBenefits, tierName) {
         upsert: true,
         new: true,
         setDefaultsOnInsert: true,
-      }
+      },
     );
 
     console.log(
-      `Synced accessBenefits "${accessBenefits}" to XPMultiplier: ${multiplierTier} = ${multiplierValue}x`
+      `Synced accessBenefits "${accessBenefits}" to XPMultiplier: ${multiplierTier} = ${multiplierValue}x`,
     );
   } catch (error) {
     console.error("Error syncing accessBenefits to XPMultiplier:", error);
@@ -549,7 +549,7 @@ router.patch("/xp-decay/bulk-status", async (req, res) => {
 
     const result = await XPDecaySetting.updateMany(
       { _id: { $in: ids } },
-      { status: status }
+      { status: status },
     );
 
     res.json({
@@ -991,7 +991,7 @@ router.patch("/xp-tiers/bulk-status", async (req, res) => {
 
     const result = await XPTier.updateMany(
       { _id: { $in: ids } },
-      { status: status }
+      { status: status },
     );
 
     res.json({
@@ -1389,7 +1389,7 @@ router.patch("/bonus-logic/bulk-status", async (req, res) => {
 
     const result = await BonusLogic.updateMany(
       { _id: { $in: ids } },
-      { status: status }
+      { status: status },
     );
 
     res.json({

@@ -180,15 +180,19 @@ router.get("/:id", adminAuth, async (req, res) => {
       });
     }
 
-    // Log view action
-    await WalletAuditLog.logAction({
-      adminId: req.user.userId,
-      targetUserId: transaction.user._id,
-      action: "VIEW_TRANSACTION",
-      details: {
-        transactionId: transaction._id,
-      },
-    });
+    // Log view action (non-blocking)
+    try {
+      await WalletAuditLog.logAction({
+        adminId: req.user.userId,
+        targetUserId: transaction.user._id,
+        action: "VIEW_TRANSACTION",
+        details: {
+          transactionId: transaction._id,
+        },
+      });
+    } catch (auditError) {
+      console.error("Error logging VIEW_TRANSACTION audit:", auditError);
+    }
 
     res.json({
       success: true,
@@ -348,17 +352,21 @@ router.post("/redemptions/:id/approve", adminAuth, async (req, res) => {
       await user.save();
     }
 
-    // Log to audit trail
-    await WalletAuditLog.logAction({
-      adminId: req.user.userId,
-      targetUserId: transaction.user,
-      action: "APPROVE_REDEMPTION",
-      details: {
-        transactionId: transaction._id,
-        amount: transaction.amount,
-        balanceType: transaction.balanceType,
-      },
-    });
+    // Log to audit trail (non-blocking)
+    try {
+      await WalletAuditLog.logAction({
+        adminId: req.user.userId,
+        targetUserId: transaction.user,
+        action: "APPROVE_REDEMPTION",
+        details: {
+          transactionId: transaction._id,
+          amount: transaction.amount,
+          balanceType: transaction.balanceType,
+        },
+      });
+    } catch (auditError) {
+      console.error("Error logging APPROVE_REDEMPTION audit:", auditError);
+    }
 
     res.json({
       success: true,
@@ -433,17 +441,21 @@ router.post(
         await user.save();
       }
 
-      // Log to audit trail
-      await WalletAuditLog.logAction({
-        adminId: req.user.userId,
-        targetUserId: transaction.user,
-        action: "REJECT_REDEMPTION",
-        details: {
-          transactionId: transaction._id,
-          amount: transaction.amount,
-          reason,
-        },
-      });
+      // Log to audit trail (non-blocking)
+      try {
+        await WalletAuditLog.logAction({
+          adminId: req.user.userId,
+          targetUserId: transaction.user,
+          action: "REJECT_REDEMPTION",
+          details: {
+            transactionId: transaction._id,
+            amount: transaction.amount,
+            reason,
+          },
+        });
+      } catch (auditError) {
+        console.error("Error logging REJECT_REDEMPTION audit:", auditError);
+      }
 
       res.json({
         success: true,
@@ -680,30 +692,50 @@ router.post(
 
       await transaction.save();
 
-      // Log to audit trail
-      const action =
-        balanceType === "coins"
-          ? adjustmentType === "add"
-            ? "ADD_COINS"
-            : "SUBTRACT_COINS"
-          : adjustmentType === "add"
-          ? "ADD_XP"
-          : "SUBTRACT_XP";
+      // Log to audit trail (non-blocking — wallet is already updated)
+      try {
+        const action =
+          balanceType === "coins"
+            ? adjustmentType === "add"
+              ? "ADD_COINS"
+              : "SUBTRACT_COINS"
+            : adjustmentType === "add"
+            ? "ADD_XP"
+            : "SUBTRACT_XP";
 
-      await WalletAuditLog.logAction({
-        adminId: req.user.userId,
-        targetUserId: userId,
-        action,
-        details: {
-          balanceType,
-          adjustmentType,
-          amount,
-          previousBalance,
-          newBalance,
-          reason,
-          transactionId: transaction._id,
-        },
-      });
+        await WalletAuditLog.logAction({
+          adminId: req.user.userId,
+          targetUserId: userId,
+          action,
+          details: {
+            balanceType,
+            adjustmentType,
+            amount,
+            previousBalance,
+            newBalance,
+            reason,
+            transactionId: transaction._id,
+          },
+        });
+
+        // Also log a WALLET_SETTLEMENT entry to capture the final settled balance
+        await WalletAuditLog.logAction({
+          adminId: req.user.userId,
+          targetUserId: userId,
+          action: "WALLET_SETTLEMENT",
+          details: {
+            balanceType,
+            adjustmentType,
+            amount,
+            previousBalance,
+            newBalance,
+            reason,
+            transactionId: transaction._id,
+          },
+        });
+      } catch (auditError) {
+        console.error("Error logging audit trail for wallet adjust:", auditError);
+      }
 
       res.json({
         success: true,
@@ -757,12 +789,16 @@ router.get("/wallet/:userId", adminAuth, async (req, res) => {
       .limit(20)
       .lean();
 
-    // Log view action
-    await WalletAuditLog.logAction({
-      adminId: req.user.userId,
-      targetUserId: user._id,
-      action: "VIEW_USER_WALLET",
-    });
+    // Log view action (non-blocking)
+    try {
+      await WalletAuditLog.logAction({
+        adminId: req.user.userId,
+        targetUserId: user._id,
+        action: "VIEW_USER_WALLET",
+      });
+    } catch (auditError) {
+      console.error("Error logging VIEW_USER_WALLET audit:", auditError);
+    }
 
     // Resolve tier name from admin XP Tiers config (same ranges as Rewards Management)
     const currentXp = user.xp?.current ?? 0;
@@ -1170,6 +1206,7 @@ router.get("/audit/actions", adminAuth, async (req, res) => {
       "VIEW_TRANSACTION",
       "VIEW_USER_WALLET",
       "EXPORT_DATA",
+      "WALLET_SETTLEMENT",
     ];
 
     res.json({

@@ -268,6 +268,7 @@ mongoose
     const affiseRoutes = require("./routes/affise");
     const integrityRoutes = require("./routes/integrity");
     const googlePlayIAPRoutes = require("./routes/google-play-iap");
+    const appleIAPRoutes = require("./routes/apple-iap");
     const nonGamingSurveyRoutes = require("./routes/admin-non-gaming-survey");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
@@ -343,6 +344,7 @@ mongoose
     app.use("/api/affise", affiseRoutes);
     app.use("/api/integrity", integrityRoutes);
     app.use("/api/google-play-iap", googlePlayIAPRoutes);
+    app.use("/api/apple-iap", appleIAPRoutes);
     app.use("/api/adjust", adjustRoutes);
     app.use("/api/v2/adjust", adjustV2Routes);
     app.use("/api/admin/adjust-events", adminAdjustEventsRoutes);

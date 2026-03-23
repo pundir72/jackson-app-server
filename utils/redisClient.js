@@ -27,7 +27,13 @@ try {
 
     client.on('ready', () => {
         isReady = true;
+        logger.info('Redis: ready');
     });
+
+    // Check if already connected at module load time
+    if (client.status === 'ready') {
+        isReady = true;
+    }
 
     client.on('error', (err) => {
         isReady = false;
@@ -44,5 +50,5 @@ try {
 
 module.exports = {
     get client() { return client; },
-    get isReady() { return isReady && client !== null; },
+    get isReady() { return client !== null && (isReady || client.status === 'ready'); },
 };

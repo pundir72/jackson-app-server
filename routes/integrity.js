@@ -72,7 +72,7 @@ const verifyRateLimit = userRateLimiter({
 // ---------------------------------------------------------------------------
 router.post('/challenge', protect, challengeRateLimit, async (req, res) => {
     try {
-        const userId = req.user.id.toString();
+        const userId = (req.user.userId || req.user._id || req.user.id).toString();
 
         // Issue a cryptographically secure, Redis-backed single-use nonce.
         // crypto.randomBytes(32) is used internally — Math.random() is not involved.
@@ -92,6 +92,7 @@ router.post('/challenge', protect, challengeRateLimit, async (req, res) => {
 
         // Distinguish Redis-down from other errors
         const isRedisDown = err.message.includes('unavailable') || err.message.includes('Redis');
+        console.log(err)
         res.status(isRedisDown ? 503 : 500).json({
             success: false,
             error: {
@@ -142,7 +143,7 @@ router.post('/verify', protect, verifyRateLimit, async (req, res) => {
         }
 
         // Validate and consume the nonce embedded in the token
-        const userId = req.user.id.toString();
+        const userId = (req.user.userId || req.user._id || req.user.id).toString();
         const tokenNonce = verificationResult.requestDetails?.nonce;
 
         if (!tokenNonce) {

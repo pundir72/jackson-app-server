@@ -60,6 +60,7 @@ module.exports = {
   EXPECTED_CERT_DIGESTS: process.env.EXPECTED_CERT_DIGESTS,
   // How long a challenge nonce stays valid (seconds). Default: 300 (5 minutes).
   INTEGRITY_NONCE_TTL_SECONDS: process.env.INTEGRITY_NONCE_TTL_SECONDS || 300,
+  INTEGRITY_TEST_TOKEN: process.env.INTEGRITY_TEST_TOKEN || null,
 
   // Google Play In-App Purchase (IAP)
   GOOGLE_PLAY_SERVICE_ACCOUNT: process.env.GOOGLE_PLAY_SERVICE_ACCOUNT, // JSON string of service account credentials

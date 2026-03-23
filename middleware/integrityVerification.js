@@ -71,6 +71,17 @@ const verifyIntegrity = (options = {}) => {
             });
         }
 
+        // ------------------------------------------------------------------
+        // 3. Test token bypass — for local Postman testing only.
+        //    Set INTEGRITY_TEST_TOKEN in .env. Never set this in production.
+        // ------------------------------------------------------------------
+        const testToken = config.INTEGRITY_TEST_TOKEN;
+        if (testToken && integrityToken === testToken) {
+            logger.debug(`[${label}] Test token bypass used`);
+            req.integrityVerification = { verified: true, skipped: true, testBypass: true };
+            return next();
+        }
+
         try {
             // --------------------------------------------------------------
             // 3. Verify token with Google Play Integrity API
@@ -86,7 +97,7 @@ const verifyIntegrity = (options = {}) => {
             // --------------------------------------------------------------
             if (!verificationResult.isValid) {
                 logger.warn(`[${label}] Integrity verification failed`, {
-                    userId: req.user?.id,
+                    userId: req.user?.userId || req.user?._id,
                     endpoint: req.originalUrl,
                     reason: verificationResult.reason,
                     ip: req.ip,
@@ -108,7 +119,7 @@ const verifyIntegrity = (options = {}) => {
             //    for this specific user, and must not have been used before.
             // --------------------------------------------------------------
             const tokenNonce = verificationResult.requestDetails?.nonce;
-            const userId = req.user?.id?.toString();
+            const userId = req.user?.userId || req.user?._id?.toString();
 
             if (!tokenNonce || !userId) {
                 logger.warn(`[${label}] Nonce or userId missing`, {
@@ -162,7 +173,7 @@ const verifyIntegrity = (options = {}) => {
             //    Never allow an attacker-triggered exception to open a bypass.
             // --------------------------------------------------------------
             logger.error(`[${label}] Integrity verification error`, {
-                userId: req.user?.id,
+                userId: req.user?.userId || req.user?._id,
                 endpoint: req.originalUrl,
                 message: err.message,
             });

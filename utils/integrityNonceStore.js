@@ -15,7 +15,7 @@
 
 const crypto = require('crypto');
 const config = require('../config/config');
-const { client: redis, isReady } = require('./redisClient');
+const redisClient = require('./redisClient');
 const logger = require('./logger');
 
 const TTL_SECONDS = parseInt(config.INTEGRITY_NONCE_TTL_SECONDS, 10) || 300;
@@ -37,7 +37,7 @@ function buildKey(userId, nonce) {
  * @throws {Error} if Redis is unavailable
  */
 async function issueNonce(userId) {
-    if (!isReady) {
+    if (!redisClient.isReady) {
         throw new Error('Nonce store unavailable: Redis not connected');
     }
 
@@ -45,7 +45,7 @@ async function issueNonce(userId) {
     const key = buildKey(userId, nonce);
 
     // SET key '1' EX ttl NX — only set if not already present (collision guard)
-    const result = await redis.set(key, '1', 'EX', TTL_SECONDS, 'NX');
+    const result = await redisClient.client.set(key, '1', 'EX', TTL_SECONDS, 'NX');
     if (result !== 'OK') {
         // Astronomically unlikely with 32 random bytes, but handle it safely
         throw new Error('Nonce collision — please retry');
@@ -64,7 +64,7 @@ async function issueNonce(userId) {
  * @returns {Promise<boolean>}
  */
 async function consumeNonce(userId, nonce) {
-    if (!isReady) {
+    if (!redisClient.isReady) {
         throw new Error('Nonce store unavailable: Redis not connected');
     }
 
@@ -76,7 +76,7 @@ async function consumeNonce(userId, nonce) {
     const key = buildKey(userId, nonce);
 
     // DEL returns the number of keys deleted (0 = never existed / already consumed)
-    const deleted = await redis.del(key);
+    const deleted = await redisClient.client.del(key);
     const valid = deleted === 1;
 
     if (!valid) {

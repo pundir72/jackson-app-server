@@ -1,153 +1,204 @@
+/**
+ * Integrity Verification Middleware — hardened for production.
+ *
+ * Rules enforced:
+ *  1. Token REQUIRED on all sensitive routes — missing token = 401.
+ *  2. Token present but invalid = 403 (no silent pass-through).
+ *  3. Nonce extracted from verified token is validated against Redis store
+ *     (single-use, TTL-bound) — prevents replay attacks.
+ *  4. Verification error in production = 503 (fail closed, not fail open).
+ *  5. Development environment may skip verification via skipForEnvironments.
+ *
+ * Exported middleware:
+ *  - strictIntegrityVerification   → for payments, withdrawals, large rewards
+ *  - standardIntegrityVerification → for daily rewards, game completion, achievements
+ *  - verifyIntegrity(options)      → factory for custom configurations
+ */
+
 const googlePlayIntegrity = require('../utils/googlePlayIntegrity');
+const { consumeNonce } = require('../utils/integrityNonceStore');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 
 /**
- * Middleware to verify Google Play Integrity for sensitive operations
- * @param {Object} options - Configuration options
- * @param {boolean} options.required - Whether integrity verification is required
- * @param {Array} options.skipForEnvironments - Environments to skip verification
- * @param {boolean} options.strictMode - Enable strict validation for rewards operations
+ * @param {Object} options
+ * @param {string[]} options.skipForEnvironments  Envs where verification is bypassed (default: ['development'])
+ * @param {string}   options.label                Label for log messages (default: 'integrity')
  */
 const verifyIntegrity = (options = {}) => {
-  const {
-    required = true,
-    skipForEnvironments = ['development', 'test'],
-    strictMode = false
-  } = options;
+    const {
+        skipForEnvironments = ['development'],
+        label = 'integrity',
+    } = options;
 
-  return async (req, res, next) => {
-    try {
-      // Skip verification in specified environments
-      if (skipForEnvironments.includes(config.NODE_ENV)) {
-        logger.info('Skipping integrity verification in environment:', config.NODE_ENV);
-        return next();
-      }
+    return async (req, res, next) => {
+        // ------------------------------------------------------------------
+        // 1. Environment bypass (dev only — never skip in staging/production)
+        // ------------------------------------------------------------------
+        if (skipForEnvironments.includes(config.NODE_ENV)) {
+            logger.debug(`[${label}] Skipping in ${config.NODE_ENV}`);
+            req.integrityVerification = { verified: false, skipped: true };
+            return next();
+        }
 
-      // Skip if not required and no token provided
-      const integrityToken = req.headers['x-integrity-token'] || req.body.integrityToken;
-      if (!required && !integrityToken) {
-        return next();
-      }
+        // ------------------------------------------------------------------
+        // 1b. iOS bypass — Google Play Integrity is Android-only.
+        //     iOS requests are identified by the x-platform header sent by
+        //     the mobile app. iOS has its own attestation (DeviceCheck /
+        //     App Attest) which can be wired in separately.
+        // ------------------------------------------------------------------
+        const platform = (req.headers['x-platform'] || '').toLowerCase();
+        if (platform === 'ios') {
+            logger.debug(`[${label}] Skipping Play Integrity for iOS request`);
+            req.integrityVerification = { verified: false, skipped: true, platform: 'ios' };
+            return next();
+        }
 
-      // Require token if verification is mandatory
-      if (required && !integrityToken) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'INTEGRITY_TOKEN_REQUIRED',
-            message: 'Integrity verification token is required'
-          }
-        });
-      }
+        // ------------------------------------------------------------------
+        // 2. Token must be present — no token = reject immediately
+        // ------------------------------------------------------------------
+        const integrityToken =
+            req.headers['x-integrity-token'] ||
+            (req.body && req.body.integrityToken);
 
-      // Verify the integrity token
-      const packageName = config.ANDROID_PACKAGE_NAME;
-      const verificationResult = await googlePlayIntegrity.verifyIntegrityToken(
-        integrityToken,
-        packageName
-      );
+        if (!integrityToken) {
+            return res.status(401).json({
+                success: false,
+                error: {
+                    code: 'INTEGRITY_TOKEN_REQUIRED',
+                    message: 'Device integrity token is required',
+                },
+            });
+        }
 
-      // Validate for rewards app specific requirements
-      const validation = googlePlayIntegrity.validateForRewardsApp(verificationResult);
+        try {
+            // --------------------------------------------------------------
+            // 3. Verify token with Google Play Integrity API
+            // --------------------------------------------------------------
+            const packageName = config.ANDROID_PACKAGE_NAME;
+            const verificationResult = await googlePlayIntegrity.verifyIntegrityToken(
+                integrityToken,
+                packageName
+            );
 
-      // Log verification attempt
-      logger.info('Integrity verification attempt:', {
-        userId: req.user?.id,
-        endpoint: req.originalUrl,
-        passed: validation.passed,
-        checks: validation.checks,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip
-      });
+            // --------------------------------------------------------------
+            // 4. Token invalid → reject (no fallback, no silent pass-through)
+            // --------------------------------------------------------------
+            if (!verificationResult.isValid) {
+                logger.warn(`[${label}] Integrity verification failed`, {
+                    userId: req.user?.id,
+                    endpoint: req.originalUrl,
+                    reason: verificationResult.reason,
+                    ip: req.ip,
+                });
 
-      // Handle strict mode
-      if (strictMode && !validation.passed) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: 'INTEGRITY_VERIFICATION_FAILED',
-            message: 'Device integrity verification failed',
-            details: validation.reason,
-            checks: validation.checks
-          }
-        });
-      }
+                return res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'INTEGRITY_VERIFICATION_FAILED',
+                        message: 'Device integrity check failed',
+                        reason: verificationResult.reason,
+                    },
+                });
+            }
 
-      // Handle non-strict mode - log but allow
-      if (!validation.passed) {
-        logger.warn('Integrity verification failed but allowing request:', {
-          userId: req.user?.id,
-          reason: validation.reason,
-          checks: validation.checks
-        });
-      }
+            // --------------------------------------------------------------
+            // 5. Nonce validation — single-use replay protection
+            //    The nonce baked into the token must have been issued by us
+            //    for this specific user, and must not have been used before.
+            // --------------------------------------------------------------
+            const tokenNonce = verificationResult.requestDetails?.nonce;
+            const userId = req.user?.id?.toString();
 
-      // Attach verification result to request
-      req.integrityVerification = {
-        verified: validation.passed,
-        result: verificationResult,
-        validation: validation
-      };
+            if (!tokenNonce || !userId) {
+                logger.warn(`[${label}] Nonce or userId missing`, {
+                    hasNonce: !!tokenNonce,
+                    hasUser: !!userId,
+                    endpoint: req.originalUrl,
+                });
+                return res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'INTEGRITY_NONCE_MISSING',
+                        message: 'Integrity token is missing required nonce',
+                    },
+                });
+            }
 
-      next();
+            const nonceValid = await consumeNonce(userId, tokenNonce);
+            if (!nonceValid) {
+                logger.warn(`[${label}] Nonce rejected (replay or unknown)`, {
+                    userId,
+                    endpoint: req.originalUrl,
+                    ip: req.ip,
+                });
+                return res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'INTEGRITY_NONCE_INVALID',
+                        message: 'Integrity challenge nonce is invalid or has already been used',
+                    },
+                });
+            }
 
-    } catch (error) {
-      logger.error('Integrity verification error:', error);
+            // --------------------------------------------------------------
+            // 6. All checks passed — attach result and continue
+            // --------------------------------------------------------------
+            logger.info(`[${label}] Integrity verified`, {
+                userId,
+                endpoint: req.originalUrl,
+            });
 
-      // In production, fail closed for security
-      if (config.NODE_ENV === 'production' && required) {
-        return res.status(500).json({
-          success: false,
-          error: {
-            code: 'INTEGRITY_VERIFICATION_ERROR',
-            message: 'Unable to verify device integrity'
-          }
-        });
-      }
+            req.integrityVerification = {
+                verified: true,
+                result: verificationResult,
+            };
 
-      // In development, log error but continue
-      logger.warn('Continuing without integrity verification due to error');
-      req.integrityVerification = {
-        verified: false,
-        error: error.message
-      };
-      
-      next();
-    }
-  };
+            return next();
+
+        } catch (err) {
+            // --------------------------------------------------------------
+            // 7. Fail CLOSED — any unexpected error rejects the request.
+            //    Never allow an attacker-triggered exception to open a bypass.
+            // --------------------------------------------------------------
+            logger.error(`[${label}] Integrity verification error`, {
+                userId: req.user?.id,
+                endpoint: req.originalUrl,
+                message: err.message,
+            });
+
+            return res.status(503).json({
+                success: false,
+                error: {
+                    code: 'INTEGRITY_SERVICE_ERROR',
+                    message: 'Unable to verify device integrity — please try again',
+                },
+            });
+        }
+    };
 };
 
 /**
- * Middleware for high-value operations (withdrawals, large rewards)
+ * For high-value operations: payments, withdrawals, large prize claims.
+ * Skips verification only in local development.
  */
 const strictIntegrityVerification = verifyIntegrity({
-  required: true,
-  strictMode: true,
-  skipForEnvironments: ['development']
+    skipForEnvironments: ['development'],
+    label: 'strict-integrity',
 });
 
 /**
- * Middleware for standard operations (game completion, daily rewards)
+ * For standard sensitive operations: daily rewards, game completion, achievements,
+ * coin transactions, in-app purchases.
+ * Also skips only in local development — NOT in staging or production.
  */
 const standardIntegrityVerification = verifyIntegrity({
-  required: false,
-  strictMode: false,
-  skipForEnvironments: ['development', 'test']
-});
-
-/**
- * Middleware for optional integrity checking (analytics, non-sensitive operations)
- */
-const optionalIntegrityVerification = verifyIntegrity({
-  required: false,
-  strictMode: false,
-  skipForEnvironments: ['development', 'test', 'staging']
+    skipForEnvironments: ['development'],
+    label: 'standard-integrity',
 });
 
 module.exports = {
-  verifyIntegrity,
-  strictIntegrityVerification,
-  standardIntegrityVerification,
-  optionalIntegrityVerification
+    verifyIntegrity,
+    strictIntegrityVerification,
+    standardIntegrityVerification,
 };

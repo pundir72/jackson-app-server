@@ -123,12 +123,14 @@ async function applyXPDecay(user, options = {}) {
 
     // Create transaction record for decay
     const transaction = new Transaction({
-      userId: user._id,
+      user: user._id,
       type: 'xp_decay',
-      amount: -decayResult.decayAmount, // Negative amount for deduction
-      balance: {
-        before: oldXp,
-        after: newXp
+      amount: decayResult.decayAmount,
+      balanceType: 'xp',
+      description: 'XP decay due to inactivity',
+      adjustment: {
+        isAdjustment: true,
+        adjustmentType: 'subtract'
       },
       metadata: {
         tier: tierDoc.tier,
@@ -136,10 +138,11 @@ async function applyXPDecay(user, options = {}) {
         daysInactive: inactivityCheck.daysInactive,
         inactiveDuration: decaySetting.inactiveDuration,
         minimumXpLimit: decaySetting.minimumXpLimit,
+        xpBefore: oldXp,
+        xpAfter: newXp,
         reason: 'XP decay due to inactivity'
       },
-      status: 'completed',
-      createdAt: new Date()
+      status: 'completed'
     });
     await transaction.save();
 

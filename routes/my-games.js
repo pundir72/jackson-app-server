@@ -21,7 +21,7 @@ const openai = new OpenAI({
 router.get('/', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId)
-      .select('games wallet xp vip badges preferences onboarding')
+      .select('games wallet xp vip badges preferences onboarding createdAt')
       .populate('games.gameId');
 
     if (!user) {
@@ -49,9 +49,14 @@ router.get('/', protect, async (req, res) => {
         
         const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames = besitosData.completed || besitosData.data?.completed || [];
-        const allBesitosGames = [...inProgressGames, ...completedGames];
-        
-        console.log(`[MY-GAMES] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`);
+        const accountCreatedAt = user.createdAt || new Date(0);
+        const allBesitosGames = [...inProgressGames, ...completedGames].filter(g => {
+          const installedAt = g.downloaded_at ? new Date(g.downloaded_at) : null;
+          if (!installedAt) return true; // no date = treat as new install, allow it
+          return installedAt >= accountCreatedAt;
+        });
+
+        console.log(`[MY-GAMES] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos (${allBesitosGames.length} after account-date filter)`);
         
         if (allBesitosGames.length > 0) {
           console.log(`[MY-GAMES] Sample game structure:`, allBesitosGames[0]);
@@ -191,8 +196,8 @@ router.get('/', protect, async (req, res) => {
  */
 router.post('/sync', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('games');
-    
+    const user = await User.findById(req.user.userId).select('games createdAt');
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -211,10 +216,15 @@ router.post('/sync', protect, async (req, res) => {
     console.log(`[MY-GAMES-SYNC] 🔄 Manual sync requested for user: ${user._id.toString()}`);
     const besitosResponse = await besitosService.getUserData(user._id.toString());
     const besitosData = besitosResponse.data || besitosResponse;
-    
+
     const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
     const completedGames = besitosData.completed || besitosData.data?.completed || [];
-    const allBesitosGames = [...inProgressGames, ...completedGames];
+    const accountCreatedAt = user.createdAt || new Date(0);
+    const allBesitosGames = [...inProgressGames, ...completedGames].filter(g => {
+      const installedAt = g.downloaded_at ? new Date(g.downloaded_at) : null;
+      if (!installedAt) return true; // no date = treat as new install, allow it
+      return installedAt >= accountCreatedAt;
+    });
     
     if (!user.games) user.games = [];
     const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));

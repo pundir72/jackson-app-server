@@ -254,7 +254,7 @@ router.get("/", protect, async (req, res) => {
     const pageNum = Math.max(parseInt(page) || 1, 1);
     const pageSize = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
 
-    const user = await User.findById(req.user.userId).select("games");
+    const user = await User.findById(req.user.userId).select("games createdAt");
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -283,10 +283,15 @@ router.get("/", protect, async (req, res) => {
           besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames =
           besitosData.completed || besitosData.data?.completed || [];
-        const allBesitosGames = [...inProgressGames, ...completedGames];
+        const accountCreatedAt = user.createdAt || new Date(0);
+        const allBesitosGames = [...inProgressGames, ...completedGames].filter(g => {
+          const installedAt = g.downloaded_at ? new Date(g.downloaded_at) : null;
+          if (!installedAt) return true; // no date = treat as new install, allow it
+          return installedAt >= accountCreatedAt;
+        });
 
         console.log(
-          `[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos`,
+          `[GAME-LIST] Found ${inProgressGames.length} in_progress and ${completedGames.length} completed games from Besitos (${allBesitosGames.length} after account-date filter)`,
         );
 
         if (allBesitosGames.length > 0) {
@@ -583,7 +588,7 @@ router.post("/install", protect, async (req, res) => {
         .json({ success: false, message: "gameId is required" });
     }
 
-    const user = await User.findById(req.user.userId).select("games");
+    const user = await User.findById(req.user.userId).select("games createdAt");
     if (!user) {
       console.log(`[GAME-INSTALL] ❌ ERROR: User not found!`);
       return res
@@ -645,7 +650,12 @@ router.post("/install", protect, async (req, res) => {
           besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames =
           besitosData.completed || besitosData.data?.completed || [];
-        const allBesitosGames = [...inProgressGames, ...completedGames];
+        const accountCreatedAt = user.createdAt || new Date(0);
+        const allBesitosGames = [...inProgressGames, ...completedGames].filter(g => {
+          const installedAt = g.downloaded_at ? new Date(g.downloaded_at) : null;
+          if (!installedAt) return true; // no date = treat as new install, allow it
+          return installedAt >= accountCreatedAt;
+        });
 
         if (allBesitosGames.length > 0) {
           if (!user.games) user.games = [];

@@ -11,7 +11,7 @@ const transactionSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ['credit', 'debit', 'reward', 'xp', 'redemption', 'spin', 'adjustment', 'refund', 'bonus', 'penalty'],
+        enum: ['credit', 'debit', 'reward', 'xp', 'redemption', 'spin', 'adjustment', 'refund', 'bonus', 'penalty', 'xp_decay'],
         index: true
     },
     amount: {

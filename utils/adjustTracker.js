@@ -4,6 +4,21 @@
  */
 
 const adjustService = require('../services/adjust.service');
+const AdjustEventToken = require('../models/AdjustEventToken');
+
+/**
+ * Resolve actual Adjust event token from DB by event name.
+ * Returns null (and logs a warning) if not found — never throws.
+ */
+const resolveToken = async (name) => {
+  try {
+    const record = await AdjustEventToken.findByName(name);
+    return record ? record.token : null;
+  } catch (err) {
+    console.warn(`[Adjust Tracker] DB token lookup failed for "${name}":`, err.message);
+    return null;
+  }
+};
 
 /**
  * Track event to Adjust with standardized error handling
@@ -67,7 +82,13 @@ const trackRevenue = async (eventToken, userId, revenue, currency = 'USD', addit
  * @param {Object} registrationData - Registration data
  */
 const trackRegistration = async (userId, registrationData = {}) => {
-  await trackEvent('registration_complete', userId, {
+  // 'registration completed' is the exact name stored in AdjustEventToken DB (matches CSV)
+  const token = await resolveToken('registration completed');
+  if (!token) {
+    console.warn('[Adjust Tracker] Token for "registration completed" not found in DB — event skipped');
+    return;
+  }
+  await trackEvent(token, userId, {
     registration_method: registrationData.method || 'email',
     source: registrationData.source || 'direct',
     platform: registrationData.platform || 'mobile'

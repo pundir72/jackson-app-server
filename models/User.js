@@ -382,6 +382,12 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+
+    // Adjust SDK retention tracking — per-user, survives reinstalls & account switches
+    adjustRetention: {
+        firstOpenAt:    { type: Date,    default: null },
+        firedMilestones: { type: [Number], default: []  }, // e.g. [1, 3, 7]
+    },
     
     // Analytics for admin dashboard
     analytics: {

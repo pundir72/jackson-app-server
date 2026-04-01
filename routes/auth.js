@@ -13,6 +13,7 @@ const {
   findOTPByPhone,
   findVerifiedOTPByPhone,
 } = require("../utils/phoneUtils");
+const { applyXPDecay } = require("../utils/xpDecayV2");
 
 // 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
@@ -791,6 +792,13 @@ router.post(
       // }
       const firebaseCustomToken = null; // Temporarily disabled - waiting for Firebase credentials
 
+      // Apply XP decay BEFORE resetting lastActive so inactivity is measured correctly
+      try {
+        await applyXPDecay(user);
+      } catch (e) {
+        console.error("XP decay check failed on login:", e.message);
+      }
+
       // Update login analytics and device info
       try {
         const updateData = {
@@ -1283,6 +1291,13 @@ router.get(
         return res.redirect(
           `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
         );
+      }
+
+      // Apply XP decay BEFORE resetting lastActive so inactivity is measured correctly
+      try {
+        await applyXPDecay(user);
+      } catch (e) {
+        console.error("XP decay check failed on login:", e.message);
       }
 
       // Update login analytics and device info for mobile

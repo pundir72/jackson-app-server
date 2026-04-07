@@ -209,10 +209,29 @@ async function checkGameAvailability(
         const matchingOffer = offers.find(matchesGameId);
 
         if (matchingOffer) {
+          // Inject userId into Bitlabs s1 parameter (required by Bitlabs for redirect tracking)
+          // Bitlabs returns s1= empty as a placeholder; we must fill it with the real user ID
+          let bitlabsClickUrl = matchingOffer.click_url || "";
+          if (bitlabsClickUrl && userId) {
+            try {
+              const urlObj = new URL(bitlabsClickUrl);
+              if (urlObj.searchParams.has("s1")) {
+                urlObj.searchParams.set("s1", userId);
+                bitlabsClickUrl = urlObj.toString();
+              }
+            } catch {
+              if (bitlabsClickUrl.includes("s1=")) {
+                bitlabsClickUrl = bitlabsClickUrl.replace(
+                  /s1=[^&]*/,
+                  `s1=${encodeURIComponent(userId)}`,
+                );
+              }
+            }
+          }
           console.log(
-            `[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${matchingOffer.click_url}`,
+            `[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${bitlabsClickUrl}`,
           );
-          return { available: true, clickUrl: matchingOffer.click_url };
+          return { available: true, clickUrl: bitlabsClickUrl };
         } else {
           console.log(
             `[BITLABS] No matching offer found for game ${gameIdToFind}`,
@@ -1911,6 +1930,27 @@ router.get("/discover", protect, async (req, res) => {
 
         // Same format for Besitos and Bitlabs: use raw SDK data to fill icon, images, details
         const raw = g.besitosRawData || {};
+        const isBitlabsGame =
+          g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs";
+
+        // Helper: inject userId into a URL's named parameter placeholder (e.g. partner_user_id=)
+        const injectUserIdParam = (url, paramName) => {
+          if (!url || !userId) return url;
+          try {
+            const urlObj = new URL(url);
+            if (urlObj.searchParams.has(paramName)) {
+              urlObj.searchParams.set(paramName, userId);
+              return urlObj.toString();
+            }
+          } catch {
+            const re = new RegExp(`${paramName}=[^&]*`);
+            if (re.test(url)) {
+              return url.replace(re, `${paramName}=${encodeURIComponent(userId)}`);
+            }
+          }
+          return url;
+        };
+
         const iconFromRaw =
           raw.creatives?.icon || raw.icon || raw.icon_url || "";
         const bannerFromRaw =
@@ -1918,6 +1958,12 @@ router.get("/discover", protect, async (req, res) => {
           raw.creatives?.icon ||
           raw.icon ||
           "";
+
+        // For Besitos games, inject userId into partner_user_id in the raw URL
+        const besitosUrl = !isBitlabsGame && raw.url
+          ? injectUserIdParam(raw.url, "partner_user_id")
+          : raw.url;
+
         const detailsFromRaw = {
           id: raw.id || g.gameDetails?.id || g.gameId,
           name: raw.anchor || raw.name || g.gameDetails?.name || g.title,
@@ -1941,8 +1987,15 @@ router.get("/discover", protect, async (req, res) => {
                 : raw.categories[0]?.name
               : g.gameDetails?.category || g.category || "",
           downloadUrl:
-            raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
+            besitosUrl || raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
         };
+
+        // Build besitosRawData with userId injected into Besitos URL
+        const besitosRawDataOut = isBitlabsGame
+          ? null
+          : g.besitosRawData
+            ? { ...g.besitosRawData, url: besitosUrl }
+            : null;
 
         return {
           gameId: g.gameId,
@@ -1977,14 +2030,8 @@ router.get("/discover", protect, async (req, res) => {
               "",
           },
           details: { ...(g.gameDetails || {}), ...detailsFromRaw },
-          besitosRawData:
-            g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs"
-              ? null
-              : g.besitosRawData || null,
-          bitlabsRawData:
-            g.sdkProvider && String(g.sdkProvider).toLowerCase() === "bitlabs"
-              ? g.besitosRawData || null
-              : null,
+          besitosRawData: besitosRawDataOut,
+          bitlabsRawData: isBitlabsGame ? g.besitosRawData || null : null,
           sdkProvider: g.sdkProvider || null,
           xpRewardConfig: (() => {
             const rawBaseXP = g.xpRewardConfig?.baseXP ?? 0;

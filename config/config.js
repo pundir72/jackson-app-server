@@ -141,6 +141,7 @@ module.exports = {
   // Documentation: https://dev.adjust.com/en/api/s2s-api
   ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,
   ADJUST_APP_TOKEN: process.env.ADJUST_APP_TOKEN,
+  ADJUST_S2S_SECRET: process.env.ADJUST_S2S_SECRET,
 
   // Adjust S2S V2 - Offerwall Campaign Filtering
   // Comma-separated list of offerwall campaign names (case-insensitive matching)

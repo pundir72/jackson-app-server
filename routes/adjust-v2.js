@@ -173,9 +173,23 @@ router.post(
       console.log("   - User document exists:", !!userDocument);
       console.log("   - User deviceInfo exists:", !!userDocument?.deviceInfo);
 
+      // UUID format validator — Adjust requires gps_adid / idfa in xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx form
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
       if (deviceId && deviceIdType !== "web_uuid" && deviceIdType !== "android_id") {
         // Use explicit type sent by frontend (set by @capacitor-community/advertising-id)
         console.log(`   - Using provided deviceId (type: ${deviceIdType || "unknown"})`);
+
+        // Validate UUID format for adid types — Adjust rejects malformed UUIDs with 451
+        if ((deviceIdType === "gps_adid" || deviceIdType === "idfa") && !UUID_REGEX.test(deviceId)) {
+          console.error(`   - ❌ Invalid UUID format for ${deviceIdType}: ${deviceId}`);
+          return res.status(400).json({
+            success: false,
+            error: `Invalid ${deviceIdType} format. Must be a valid UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).`,
+            code: "INVALID_DEVICE_ID_FORMAT",
+          });
+        }
+
         if (deviceIdType === "gps_adid") {
           deviceIds.gps_adid = deviceId;
           console.log("   - Assigned as gps_adid (real Android GAID)");
@@ -272,6 +286,13 @@ router.post(
         ...metadata,
       };
 
+      // Adjust requires all callback_params values to be strings (per Adjust S2S API docs)
+      Object.keys(finalCallbackParams).forEach((key) => {
+        if (finalCallbackParams[key] !== null && finalCallbackParams[key] !== undefined) {
+          finalCallbackParams[key] = String(finalCallbackParams[key]);
+        }
+      });
+
       console.log(
         "   - Callback params:",
         JSON.stringify(finalCallbackParams, null, 2),
@@ -282,9 +303,11 @@ router.post(
         req.attribution ? JSON.stringify(req.attribution, null, 2) : "N/A",
       );
 
+      // Pass raw JSON string — URLSearchParams in adjustService.sendEvent() handles URL-encoding.
+      // Pre-encoding here causes double-encoding (%25 instead of %) which Adjust rejects.
       eventData.callback_params = JSON.stringify(finalCallbackParams);
       console.log(
-        "   - callback_params (stringified):",
+        "   - callback_params (raw JSON):",
         eventData.callback_params,
       );
 

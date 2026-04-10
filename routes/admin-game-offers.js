@@ -221,6 +221,7 @@ router.get("/ui-sections", adminAuth, async (req, res) => {
       "Games",
       "Wallet",
       "Discover",
+      "Game Tips",
     ];
 
     // Combine common sections with existing ones
@@ -4139,6 +4140,14 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
   try {
     const { sdk } = req.params;
     if (sdk === "besitos") {
+      // Convert device_platform to device_platform for Besitos API (supports ios/android/all)
+      if (req.query.device_platform) {
+        req.query.device_platform = req.query.device_platform.toLowerCase();
+      }
+      // Also default country to US if not provided
+      if (!req.query.country) {
+        req.query.country = "US";
+      }
       await besitosController.getOffers(req, res);
     } else if (sdk === "bitlabs") {
       // Use Publisher API for full catalog (avoids "static-inventory" returning user started offers only)

@@ -56,14 +56,19 @@ async function checkGameAvailability(
       }
 
       try {
-        // Fetch ALL offers directly from Besitos API (not from cache)
+        // Fetch ALL offers directly from Besitos API
+        // IMPORTANT: Use device_platform (not platform) for Besitos API
+        // Besitos only accepts "ios" or "android" - NOT "mobile" - default to android
+        const platformValue = (userProfile.platform || "android").toLowerCase();
+        const finalPlatform = platformValue === "mobile" ? "android" : platformValue;
         const requestParams = {
-          platform: userProfile.platform || "mobile",
+          device_platform: finalPlatform,
           country: userProfile.country || "US",
-          _t: Date.now(), // prevent caching
+          _t: Date.now(),
         };
 
         const response = await besitosService.getOffers(requestParams);
+
         const offers = Array.isArray(response)
           ? response
           : response?.data || [];
@@ -73,14 +78,28 @@ async function checkGameAvailability(
           return false;
         }
 
-        // Find matching offer by externalId
+        // Find matching offer by externalId OR bundle_id OR title
+        const gameTitle = game.title?.toLowerCase().trim() || game.gameDetails?.name?.toLowerCase().trim();
+
         const matchingOffer = offers.find((offer) => {
           const offerId = offer.id || offer.offer_id || offer.game_id;
-          return String(offerId) === String(externalId);
+          const bundleId = offer.bundle_id;
+          const offerTitle = offer.title?.toLowerCase().trim();
+
+          // Check by offer ID first
+          const matchByOfferId = String(offerId) === String(externalId);
+
+          // Also check by bundle_id if available
+          const matchByBundleId = bundleId && game.gameDetails?.bundle_id &&
+            String(bundleId) === String(game.gameDetails.bundle_id);
+
+          // Also check by title as fallback
+          const matchByTitle = offerTitle && gameTitle && offerTitle === gameTitle;
+
+          return matchByOfferId || matchByBundleId || matchByTitle;
         });
 
         if (!matchingOffer) {
-          // Game is not in current Besitos inventory
           return false;
         }
 
@@ -93,8 +112,9 @@ async function checkGameAvailability(
 
         // Optional: user-specific availability check
         if (userId) {
+          const userCheckPlatform = finalPlatform === "ios" ? "ios" : "android";
           try {
-            const userData = await besitosService.getUserData(userId);
+            const userData = await besitosService.getUserData(userId, { device_platform: userCheckPlatform });
             const userDataResponse = userData.data || userData;
 
             const inProgressGames =
@@ -138,18 +158,11 @@ async function checkGameAvailability(
       }
     } else if (normalizedProvider === "bitlabs") {
       const bitlabsService = require("../services/bitlabs.service");
-      // Use Publisher API (same as admin /games/by-sdk/bitlabs) - full catalog, no user-specific filtering
-      // const bitlabsOfferCache = require("../utils/bitlabsOfferCache"); // Client API - commented out
       const gameIdToFind = game.gameId?.toString().trim();
 
       if (!gameIdToFind) {
-        console.log(`[BITLABS] No gameId found for game ${game._id}, skipping`);
         return false;
       }
-
-      console.log(
-        `[BITLABS] Checking availability for game ${gameIdToFind} (Publisher API, same as admin)`,
-      );
 
       try {
         // Convert platform to devices array for Bitlabs
@@ -170,20 +183,11 @@ async function checkGameAvailability(
           sdk: "CUSTOM",
         };
 
-        console.log(
-          `[BITLABS] Fetching offers via Publisher API with params:`,
-          queryParams,
-        );
-
-        // Publisher API - full catalog (same as admin by-sdk/bitlabs)
+        // Publisher API - full catalog
         const result = await bitlabsService.getPublisherOffers(queryParams);
         const offers = Array.isArray(result?.data) ? result.data : [];
 
-        // Client API - commented out (user-specific, often returned empty offers / started_offers only)
-        // const offers = await bitlabsOfferCache.getOffers({ ...queryParams, userId });
-
         if (!offers.length) {
-          console.log(`[BITLABS] No offers returned for game ${gameIdToFind}`);
           return false;
         }
 
@@ -210,39 +214,33 @@ async function checkGameAvailability(
 
         if (matchingOffer) {
           // Inject userId into Bitlabs s1 parameter (required by Bitlabs for redirect tracking)
-          // Bitlabs returns s1= empty as a placeholder; we must fill it with the real user ID
-          let bitlabsClickUrl = matchingOffer.click_url || "";
-          if (bitlabsClickUrl && userId) {
-            try {
-              const urlObj = new URL(bitlabsClickUrl);
-              if (urlObj.searchParams.has("s1")) {
-                urlObj.searchParams.set("s1", userId);
-                bitlabsClickUrl = urlObj.toString();
-              }
-            } catch {
-              if (bitlabsClickUrl.includes("s1=")) {
-                bitlabsClickUrl = bitlabsClickUrl.replace(
-                  /s1=[^&]*/,
-                  `s1=${encodeURIComponent(userId)}`,
-                );
-              }
+          if (userId && matchingOffer.click_url) {
+            let clickUrl = matchingOffer.click_url;
+            // Replace existing s1= parameter or add if not present
+            if (clickUrl.includes("s1=")) {
+              clickUrl = clickUrl.replace(/s1=[^&]*/, `s1=${userId}`);
+            } else {
+              const separator = clickUrl.includes("?") ? "&" : "?";
+              clickUrl = `${clickUrl}${separator}s1=${userId}`;
             }
+            return {
+              available: true,
+              clickUrl,
+            };
           }
-          console.log(
-            `[BITLABS] Game ${gameIdToFind} is available, clickUrl: ${bitlabsClickUrl}`,
-          );
-          return { available: true, clickUrl: bitlabsClickUrl };
-        } else {
-          console.log(
-            `[BITLABS] No matching offer found for game ${gameIdToFind}`,
-          );
-          return false;
+          return {
+            available: true,
+            clickUrl: matchingOffer.click_url || null,
+          };
         }
+
+        return false;
       } catch (error) {
         console.error(
-          `   ❌ [BITLABS] Error checking Bitlabs availability for game ${game.gameId}:`,
+          `   ❌ [BITLABS] Error checking Bitlabs availability for game ${gameIdToFind}:`,
           {
             message: error.message,
+            status: error.status || error.response?.status,
           },
         );
         return false;
@@ -261,7 +259,7 @@ async function checkGameAvailability(
   } catch (error) {
     console.error(
       `Error checking availability for game ${game.gameId}:`,
-      error.message,
+      error,
     );
     return false;
   }
@@ -1117,13 +1115,14 @@ router.get("/discover", protect, async (req, res) => {
       limit = 20,
       country,
       status, // Status filter (active, inactive, all)
+      platform, // Device platform filter (ios, android) - can also be derived from user
     } = req.query;
 
     const userId = req.user.userId;
 
     // Load user with all fields needed for userProfile (age, country, xp, vip, taskProgression)
     const user = await User.findById(userId)
-      .select("games profile onboarding location xp vip taskProgression")
+      .select("games profile onboarding location xp vip taskProgression device")
       .lean();
 
     if (!user) {
@@ -1132,29 +1131,6 @@ router.get("/discover", protect, async (req, res) => {
         message: "User not found",
       });
     }
-
-    // Debug: Log user games status - ALWAYS LOG THIS
-    console.log(`\n[DISCOVER] ========== USER GAMES STATUS ==========`);
-    console.log(`[DISCOVER] User ID: ${userId}`);
-    console.log(`[DISCOVER] Has games field: ${"games" in user}`);
-    console.log(`[DISCOVER] Games is array: ${Array.isArray(user.games)}`);
-    console.log(`[DISCOVER] Games length: ${user.games?.length || 0}`);
-    if (user.games && user.games.length > 0) {
-      console.log(
-        `[DISCOVER] First 3 games sample:`,
-        user.games.slice(0, 3).map((g) => ({
-          gameId: g.gameId,
-          offerId: g.offerId,
-          installedAt: g.installedAt,
-          status: g.status,
-          date: g.date,
-          completed: g.completed,
-        })),
-      );
-    } else {
-      console.log(`[DISCOVER] ⚠️ User has NO games in games array!`);
-    }
-    console.log(`[DISCOVER] =========================================\n`);
 
     // Calculate user profile for display rules
     const gamesDownloaded =
@@ -1240,6 +1216,15 @@ router.get("/discover", protect, async (req, res) => {
     }
 
     if (uiSection) filter.uiSection = uiSection;
+
+    // Device platform filter - filter games by device type (ios or android)
+    // If platform is explicitly provided in query params, use that
+    // Otherwise default to "android" (Android app is on Play Store)
+    const userDeviceType = user.device?.type?.toLowerCase();
+    const filterPlatform = platform?.toLowerCase() || "android"; // Default to android if not specified
+    if (filterPlatform && (filterPlatform === "ios" || filterPlatform === "android")) {
+      filter.deviceType = filterPlatform;
+    }
 
     // Check if user has Google ID (can login with Google - may not have age/gender)
     const isGoogleUser = !!user.social?.googleId;
@@ -1658,17 +1643,9 @@ router.get("/discover", protect, async (req, res) => {
     // Get user's membership tier
     const userMembershipTier = getUserMembershipTier(user) || "free";
 
-    // Get user's XP tier multiplier (same as spin wheel, daily challenge) for discover display
+    // Get user's XP tier multiplier for discover display
     const { multiplier: discoverTierMultiplier, tier: discoverTierKey } =
       await applyTierMultiplierToXP(user, 1);
-    const userCurrentXp = user.xp?.current ?? 0;
-    console.log("[DISCOVER] XP tier multiplier for discover:", {
-      userId,
-      currentXp: userCurrentXp,
-      tierKey: discoverTierKey,
-      tierMultiplier: discoverTierMultiplier,
-      check: "Junior=1x, Middle=1.3x, Senior=1.5x (from Rewards > XP Tiers)",
-    });
 
     // Filter games by XP tier and VIP tier requirements (before pagination)
 
@@ -1737,7 +1714,7 @@ router.get("/discover", protect, async (req, res) => {
 
     // ===== REAL-TIME AVAILABILITY CHECKING =====
     // Extract platform from query params or infer from user-agent
-    let platform = req.query.platform || "mobile";
+    let platformCheck = req.query.platform || "android"; // Default to android (not mobile - mobile is invalid for Besitos)
     const userAgent = req.headers["user-agent"] || "";
     if (!req.query.platform) {
       // Infer platform from user-agent if not provided
@@ -1745,29 +1722,26 @@ router.get("/discover", protect, async (req, res) => {
         userAgent.toLowerCase().includes("iphone") ||
         userAgent.toLowerCase().includes("ipad")
       ) {
-        platform = "ios";
+        platformCheck = "ios";
       } else if (userAgent.toLowerCase().includes("android")) {
-        platform = "android";
+        platformCheck = "android";
       }
     }
 
     // Build user profile for API calls
     const userProfileForAPI = {
-      platform: platform,
+      platform: platformCheck,
       country: userProfile.country || "US",
       age: userProfile.age,
       gender: userProfile.gender,
     };
 
-    // Check availability for all games in parallel (with concurrency limit to avoid overwhelming APIs)
+    // Check availability for all games in parallel (with concurrency limit)
     const availabilityChecks = [];
-    const BATCH_SIZE = 10; // Process 10 games at a time
-    const totalBatches = Math.ceil(allGames.length / BATCH_SIZE);
+    const BATCH_SIZE = 10;
 
     for (let i = 0; i < allGames.length; i += BATCH_SIZE) {
-      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
       const batch = allGames.slice(i, i + BATCH_SIZE);
-      const batchStartTime = Date.now();
       const batchChecks = await Promise.all(
         batch.map(async (game) => {
           const availabilityResult = await checkGameAvailability(
@@ -1786,26 +1760,18 @@ router.get("/discover", protect, async (req, res) => {
           return { game, isAvailable, clickUrl };
         }),
       );
-      const batchEndTime = Date.now();
-      const batchDuration = batchEndTime - batchStartTime;
-      // batchDuration kept for potential future metrics
       availabilityChecks.push(...batchChecks);
     }
 
     // Filter to only include available games
-    const beforeAvailabilityCount = allGames.length;
     const availableGames = availabilityChecks.filter(
       ({ isAvailable }) => isAvailable,
     );
-    const unavailableGames = availabilityChecks.filter(
-      ({ isAvailable }) => !isAvailable,
-    );
+
     allGames = availableGames.map(({ game, clickUrl }) => ({
       ...game,
       clickUrl,
     }));
-
-    const afterAvailabilityCount = allGames.length;
     // ===== END REAL-TIME AVAILABILITY CHECKING =====
 
     // Apply display rule limit AFTER availability check (for all UI sections EXCEPT listed)
@@ -2028,16 +1994,6 @@ router.get("/discover", protect, async (req, res) => {
             // Apply XP tier multiplier into baseXP
             const baseXP = Math.round(rawBaseXP * discoverTierMultiplier);
             const multiplier = g.xpRewardConfig?.multiplier ?? 1;
-            console.log("[DISCOVER] xpRewardConfig calc:", {
-              gameId: g._id,
-              gameName: g.name || g.title,
-              rawBaseXP,
-              discoverTierMultiplier,
-              discoverTierKey,
-              baseXP_formula: `Math.round(${rawBaseXP} * ${discoverTierMultiplier}) = ${baseXP}`,
-              baseXP,
-              multiplier,
-            });
             return { baseXP, multiplier };
           })(),
           _id: g._id,

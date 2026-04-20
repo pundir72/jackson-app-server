@@ -88,62 +88,15 @@ router.post(
       if (result.success) {
         const sessionData = result.data?.session || {};
         const riskSignals = sessionData?.risk_signals || {};
-        const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // According to Verisoul docs: VPN/Proxy/Tor are in session.risk_signals
-        const isVpnDetected =
-          riskSignals?.vpn === true || riskSignalScores?.vpn > 0.5;
-        const isProxyDetected =
-          riskSignals?.proxy === true || riskSignalScores?.proxy > 0.5;
-        const isTorDetected =
-          riskSignals?.tor === true || riskSignalScores?.tor > 0.5;
-        // Per Verisoul docs: Block only on "Fake" decision (not Suspicious)
-        // Allow Suspicious users - they can pass with step-up verification
-        const isDecisionReject = decision === "Fake";
-
-        if (
-          isVpnDetected ||
-          isProxyDetected ||
-          isTorDetected ||
-          isDecisionReject
-        ) {
-          console.log(
-            "[FraudPrevention TEST] Blocking user due to fraud signals:",
-            {
-              accountId,
-              isVpnDetected,
-              isProxyDetected,
-              isTorDetected,
-              isDecisionReject,
-              decision,
-            },
-          );
-
-          return res.status(403).json({
-            success: false,
-            message: isDecisionReject
-              ? "Access denied due to high risk. Please contact support."
-              : "Access denied. VPN/Proxy/Tor connections are not allowed.",
-            error: isDecisionReject
-              ? "HIGH_RISK_DECISION"
-              : "VPN_PROXY_BLOCKED",
-            blocked: true,
-            reason: isVpnDetected
-              ? "vpn_detected"
-              : isProxyDetected
-                ? "proxy_detected"
-                : isTorDetected
-                  ? "tor_detected"
-                  : isDecisionReject
-                    ? "high_risk_decision"
-                    : "unknown",
-            data: {
-              decision,
-              risk_signals: riskSignals,
-              risk_signal_scores: riskSignalScores,
-              account_score: result.data?.account_score,
-            },
+        // Log risk signals for monitoring — do NOT block users at session level.
+        if (decision === "Fake" || result.data?.account_score > 0.8) {
+          console.warn("[FraudPrevention TEST] High-risk session (logged only, not blocked):", {
+            accountId,
+            decision,
+            account_score: result.data?.account_score,
+            riskSignals,
           });
         }
 
@@ -228,61 +181,17 @@ router.post(
 
       if (result.success) {
         const sessionData = result.data?.session || {};
-        const accountData = result.data?.account || {};
         const riskSignals = sessionData?.risk_signals || {};
-        const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // Per Verisoul docs: Block only on VPN/Proxy/Tor OR "Fake" decision (not Suspicious)
-        // Allow Suspicious users - they can pass with step-up verification
-        const isVpnDetected =
-          riskSignals?.vpn === true || riskSignalScores?.vpn > 0.5;
-        const isProxyDetected =
-          riskSignals?.proxy === true || riskSignalScores?.proxy > 0.5;
-        const isTorDetected =
-          riskSignals?.tor === true || riskSignalScores?.tor > 0.5;
-        // Only block on "Fake" decision per Verisoul best practices
-        const isDecisionReject = decision === "Fake";
-
-        if (
-          isVpnDetected ||
-          isProxyDetected ||
-          isTorDetected ||
-          isDecisionReject
-        ) {
-          console.log("[FraudPrevention] Blocking user due to fraud signals:", {
+        // Log risk signals for monitoring — do NOT block users at session level.
+        // High-risk users are gated at payout/withdrawal time instead.
+        if (decision === "Fake" || result.data?.account_score > 0.8) {
+          console.warn("[FraudPrevention] High-risk session (logged only, not blocked):", {
             accountId,
-            isVpnDetected,
-            isProxyDetected,
-            isTorDetected,
             decision,
+            account_score: result.data?.account_score,
             riskSignals,
-          });
-
-          return res.status(403).json({
-            success: false,
-            message: isDecisionReject
-              ? "Access denied due to high risk. Please contact support."
-              : "Access denied. VPN/Proxy/Tor connections are not allowed.",
-            error: isDecisionReject
-              ? "HIGH_RISK_DECISION"
-              : "VPN_PROXY_BLOCKED",
-            blocked: true,
-            reason: isVpnDetected
-              ? "vpn_detected"
-              : isProxyDetected
-                ? "proxy_detected"
-                : isTorDetected
-                  ? "tor_detected"
-                  : isDecisionReject
-                    ? "high_risk_decision"
-                    : "unknown",
-            data: {
-              decision,
-              risk_signals: riskSignals,
-              risk_signal_scores: riskSignalScores,
-              account_score: result.data?.account_score,
-            },
           });
         }
 

@@ -91,53 +91,21 @@ router.post(
         const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // According to Verisoul docs: VPN/Proxy/Tor are in session.risk_signals
-        const isVpnDetected =
-          riskSignals?.vpn === true || riskSignalScores?.vpn > 0.5;
-        const isProxyDetected =
-          riskSignals?.proxy === true || riskSignalScores?.proxy > 0.5;
-        const isTorDetected =
-          riskSignals?.tor === true || riskSignalScores?.tor > 0.5;
-        // Per Verisoul docs: Block only on "Fake" decision (not Suspicious)
-        // Allow Suspicious users - they can pass with step-up verification
+        // Only block on "Fake" decision — VPN/Proxy/Tor users are allowed
         const isDecisionReject = decision === "Fake";
 
-        if (
-          isVpnDetected ||
-          isProxyDetected ||
-          isTorDetected ||
-          isDecisionReject
-        ) {
+        if (isDecisionReject) {
           console.log(
-            "[FraudPrevention TEST] Blocking user due to fraud signals:",
-            {
-              accountId,
-              isVpnDetected,
-              isProxyDetected,
-              isTorDetected,
-              isDecisionReject,
-              decision,
-            },
+            "[FraudPrevention TEST] Blocking user due to Fake decision:",
+            { accountId, decision },
           );
 
           return res.status(403).json({
             success: false,
-            message: isDecisionReject
-              ? "Access denied due to high risk. Please contact support."
-              : "Access denied. VPN/Proxy/Tor connections are not allowed.",
-            error: isDecisionReject
-              ? "HIGH_RISK_DECISION"
-              : "VPN_PROXY_BLOCKED",
+            message: "Access denied due to high risk. Please contact support.",
+            error: "HIGH_RISK_DECISION",
             blocked: true,
-            reason: isVpnDetected
-              ? "vpn_detected"
-              : isProxyDetected
-                ? "proxy_detected"
-                : isTorDetected
-                  ? "tor_detected"
-                  : isDecisionReject
-                    ? "high_risk_decision"
-                    : "unknown",
+            reason: "high_risk_decision",
             data: {
               decision,
               risk_signals: riskSignals,
@@ -233,50 +201,22 @@ router.post(
         const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // Per Verisoul docs: Block only on VPN/Proxy/Tor OR "Fake" decision (not Suspicious)
-        // Allow Suspicious users - they can pass with step-up verification
-        const isVpnDetected =
-          riskSignals?.vpn === true || riskSignalScores?.vpn > 0.5;
-        const isProxyDetected =
-          riskSignals?.proxy === true || riskSignalScores?.proxy > 0.5;
-        const isTorDetected =
-          riskSignals?.tor === true || riskSignalScores?.tor > 0.5;
-        // Only block on "Fake" decision per Verisoul best practices
+        // Only block on "Fake" decision — VPN/Proxy/Tor users are allowed
         const isDecisionReject = decision === "Fake";
 
-        if (
-          isVpnDetected ||
-          isProxyDetected ||
-          isTorDetected ||
-          isDecisionReject
-        ) {
-          console.log("[FraudPrevention] Blocking user due to fraud signals:", {
+        if (isDecisionReject) {
+          console.log("[FraudPrevention] Blocking user due to Fake decision:", {
             accountId,
-            isVpnDetected,
-            isProxyDetected,
-            isTorDetected,
             decision,
             riskSignals,
           });
 
           return res.status(403).json({
             success: false,
-            message: isDecisionReject
-              ? "Access denied due to high risk. Please contact support."
-              : "Access denied. VPN/Proxy/Tor connections are not allowed.",
-            error: isDecisionReject
-              ? "HIGH_RISK_DECISION"
-              : "VPN_PROXY_BLOCKED",
+            message: "Access denied due to high risk. Please contact support.",
+            error: "HIGH_RISK_DECISION",
             blocked: true,
-            reason: isVpnDetected
-              ? "vpn_detected"
-              : isProxyDetected
-                ? "proxy_detected"
-                : isTorDetected
-                  ? "tor_detected"
-                  : isDecisionReject
-                    ? "high_risk_decision"
-                    : "unknown",
+            reason: "high_risk_decision",
             data: {
               decision,
               risk_signals: riskSignals,

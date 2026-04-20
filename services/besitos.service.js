@@ -131,9 +131,10 @@ class BesitosService {
   /**
    * Get user data and activity
    * @param {string} userId - User ID
+   * @param {Object} queryParams - Optional query params (e.g., device_platform: "all")
    * @returns {Promise<Object>} User data
    */
-  async getUserData(userId) {
+  async getUserData(userId, queryParams = {}) {
     if (!this.isConfigured()) {
       throw {
         status: 500,
@@ -152,7 +153,8 @@ class BesitosService {
 
     try {
       const response = await this.client.get(
-        `/data/${this.partnerId}/${userId}`
+        `/data/${this.partnerId}/${userId}`,
+        { params: queryParams }
       );
       return response.data;
     } catch (error) {

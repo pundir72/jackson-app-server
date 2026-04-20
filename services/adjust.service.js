@@ -17,9 +17,10 @@ class AdjustService {
     this.appToken = config.ADJUST_APP_TOKEN;
 
     // Create axios instance with default config for S2S API
+    // Official Adjust S2S API requires application/x-www-form-urlencoded
     const headers = {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
     };
 
     // Add Authorization header only if API token is available
@@ -255,7 +256,9 @@ class AdjustService {
       console.log("\n🚀 [Adjust Service] Sending request to Adjust...");
       const requestStartTime = Date.now();
 
-      const response = await this.client.post("/event", payload);
+      // Send as URL-encoded form data per official Adjust S2S API docs
+      const formData = new URLSearchParams(payload).toString();
+      const response = await this.client.post("/event", formData);
 
       const requestDuration = Date.now() - requestStartTime;
       console.log(

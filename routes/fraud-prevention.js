@@ -88,30 +88,15 @@ router.post(
       if (result.success) {
         const sessionData = result.data?.session || {};
         const riskSignals = sessionData?.risk_signals || {};
-        const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // Only block on "Fake" decision — VPN/Proxy/Tor users are allowed
-        const isDecisionReject = decision === "Fake";
-
-        if (isDecisionReject) {
-          console.log(
-            "[FraudPrevention TEST] Blocking user due to Fake decision:",
-            { accountId, decision },
-          );
-
-          return res.status(403).json({
-            success: false,
-            message: "Access denied due to high risk. Please contact support.",
-            error: "HIGH_RISK_DECISION",
-            blocked: true,
-            reason: "high_risk_decision",
-            data: {
-              decision,
-              risk_signals: riskSignals,
-              risk_signal_scores: riskSignalScores,
-              account_score: result.data?.account_score,
-            },
+        // Log risk signals for monitoring — do NOT block users at session level.
+        if (decision === "Fake" || result.data?.account_score > 0.8) {
+          console.warn("[FraudPrevention TEST] High-risk session (logged only, not blocked):", {
+            accountId,
+            decision,
+            account_score: result.data?.account_score,
+            riskSignals,
           });
         }
 
@@ -196,33 +181,17 @@ router.post(
 
       if (result.success) {
         const sessionData = result.data?.session || {};
-        const accountData = result.data?.account || {};
         const riskSignals = sessionData?.risk_signals || {};
-        const riskSignalScores = sessionData?.risk_signal_scores || {};
         const decision = result.data?.decision;
 
-        // Only block on "Fake" decision — VPN/Proxy/Tor users are allowed
-        const isDecisionReject = decision === "Fake";
-
-        if (isDecisionReject) {
-          console.log("[FraudPrevention] Blocking user due to Fake decision:", {
+        // Log risk signals for monitoring — do NOT block users at session level.
+        // High-risk users are gated at payout/withdrawal time instead.
+        if (decision === "Fake" || result.data?.account_score > 0.8) {
+          console.warn("[FraudPrevention] High-risk session (logged only, not blocked):", {
             accountId,
             decision,
+            account_score: result.data?.account_score,
             riskSignals,
-          });
-
-          return res.status(403).json({
-            success: false,
-            message: "Access denied due to high risk. Please contact support.",
-            error: "HIGH_RISK_DECISION",
-            blocked: true,
-            reason: "high_risk_decision",
-            data: {
-              decision,
-              risk_signals: riskSignals,
-              risk_signal_scores: riskSignalScores,
-              account_score: result.data?.account_score,
-            },
           });
         }
 

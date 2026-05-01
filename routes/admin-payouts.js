@@ -84,6 +84,24 @@ router.get("/pending", adminAuth, async (req, res) => {
 });
 
 /**
+ * Get pending payout requests count (lightweight)
+ * GET /api/admin/payouts/pending-count
+ */
+router.get("/pending-count", adminAuth, async (req, res) => {
+  try {
+    const count = await PayoutRequest.countDocuments({ status: "pending" });
+    res.json({ success: true, data: { count } });
+  } catch (error) {
+    console.error("Error getting pending payout count:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get pending payout count",
+      error: error.message,
+    });
+  }
+});
+
+/**
  * Get all payout requests with filters
  * GET /api/admin/payouts
  */

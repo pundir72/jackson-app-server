@@ -62,20 +62,18 @@ const spinWheelConfigSchema = new mongoose.Schema(
 
     // VIP benefits
     vipMultipliers: {
-      bronze: { type: Number, default: 1.0 },
-      silver: { type: Number, default: 1.2 },
-      gold: { type: Number, default: 1.5 },
-      platinum: { type: Number, default: 2.0 },
-      diamond: { type: Number, default: 2.5 },
+      free: { type: Number, default: 1.0 },
+      bronze: { type: Number, default: 1.5 },
+      gold: { type: Number, default: 2.0 },
+      platinum: { type: Number, default: 2.5 },
     },
 
     // Additional spins per tier (daily)
-    additionalSpinsPerTier: {
+    spinsPerTier: {
+      free: { type: Number, default: 3 },
       bronze: { type: Number, default: 5 },
-      silver: { type: Number, default: 0 },
       gold: { type: Number, default: 10 },
       platinum: { type: Number, default: 50 },
-      diamond: { type: Number, default: 0 },
     },
 
     // Status and metadata

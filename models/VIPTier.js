@@ -105,13 +105,18 @@ vipTierSchema.methods.getFormattedPricing = function() {
 
 // Instance method to get benefits summary
 vipTierSchema.methods.getBenefitsSummary = function() {
-  return this.benefits.map(benefit => ({
-    id: benefit.id,
-    title: benefit.title,
-    description: benefit.description,
-    icon: benefit.icon,
-    logo: benefit.logo || benefit.icon || 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png'
-  }));
+  return this.benefits.map(benefit => {
+    const title = benefit.id === 'xp_multiplier' 
+      ? benefit.title.replace('XP ', '') 
+      : benefit.title;
+    return {
+      id: benefit.id,
+      title: title,
+      description: benefit.description,
+      icon: benefit.icon,
+      logo: benefit.logo || benefit.icon || 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png'
+    };
+  });
 };
 
 module.exports = mongoose.model('VIPTier', vipTierSchema);

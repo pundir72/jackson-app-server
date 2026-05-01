@@ -835,7 +835,10 @@ router.get("/games", adminAuth, async (req, res) => {
       ];
     }
 
-    // Country filter removed - countries field no longer exists in Game model
+    // Country filter (games may be available in specific countries)
+    if (country) {
+      query.countries = { $in: [country] };
+    }
 
     // SDK Provider filter
     if (sdkProvider) {
@@ -938,10 +941,17 @@ router.get("/games", adminAuth, async (req, res) => {
 
     const total = await Game.countDocuments(query);
 
+    // Add sequential position number (1, 2, 3, 4...) like survey/non-gaming sync display
+    // Position is based on the current page's results (not total count)
+    const gamesWithPosition = gamesWithTaskCount.map((game, index) => ({
+      ...game,
+      position: index + 1, // Sequential: 1, 2, 3, 4, 5, 6, 7...
+    }));
+
     res.json({
       success: true,
       data: {
-        games: gamesWithTaskCount,
+        games: gamesWithPosition,
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
@@ -1122,6 +1132,7 @@ router.post(
         // Fetch from Bitlabs using cached offers
         const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
         const gameIdToFind = req.body.gameId?.toString().trim();
+        const country = req.body.country || "US"; // Country filter for Bitlabs API
 
         if (!gameIdToFind) {
           return res.status(400).json({
@@ -1151,13 +1162,14 @@ router.post(
           );
         };
 
-        // Try multiple query combinations to find the game
+        // Try multiple query combinations to find the game (with country filter)
         const queryCombinations = [
-          {}, // No filters (most likely to have the game)
-          { is_game: true }, // Game offers only
-          { is_game: true, devices: ["android"] }, // Android games
-          { is_game: true, devices: ["iphone"] }, // iPhone games
-          { is_game: true, devices: ["android", "iphone"] }, // Mobile games
+          { country, is_game: true }, // Country + game filter (most targeted)
+          { country, is_game: true, devices: ["android"] }, // Android games
+          { country, is_game: true, devices: ["iphone"] }, // iPhone games
+          { country, is_game: true, devices: ["android", "iphone"] }, // Mobile games
+          { is_game: true }, // Game offers only (fallback without country)
+          {}, // No filters (last resort)
         ];
 
         let offers = [];
@@ -1302,18 +1314,18 @@ router.post(
         title: req.body.title,
         description: req.body.description,
         sdkProvider: req.body.sdkProvider,
-        // Countries field removed
+        // Only set countries for Bitlabs games (country-specific offers)
+        // Check both "country" (single value from dropdown) and "countries" (array, backward compatible)
+        countries: req.body.sdkProvider === "bitlabs" 
+          ? (req.body.country 
+              ? [req.body.country] 
+              : (Array.isArray(req.body.countries) ? req.body.countries : []))
+          : [],
         xptrRules: req.body.xptrRules,
         rewards: {
           xp: req.body.rewardXP ? parseFloat(req.body.rewardXP) : 0,
           coins: req.body.rewardCoins ? parseFloat(req.body.rewardCoins) : 0,
         },
-        defaultTaskCount:
-          req.body.defaultTaskCount !== undefined &&
-          req.body.defaultTaskCount !== null &&
-          req.body.defaultTaskCount !== ""
-            ? parseInt(req.body.defaultTaskCount) || 0
-            : 0,
         xpTier: req.body.xpTier ? parseInt(req.body.xpTier) : 1,
         xpTiers: parsedXpTiers, // Multi-select XP tiers
         xpRewardConfig: {
@@ -1454,7 +1466,6 @@ router.post(
           xpTier: gameData.xpTier,
           xpTiers: gameData.xpTiers,
           xpRewardConfig: gameData.xpRewardConfig,
-          defaultTaskCount: gameData.defaultTaskCount,
           tierRestrictions: gameData.tierRestrictions,
           marketingChannel: gameData.marketingChannel,
           campaignName: gameData.campaignName,
@@ -4542,12 +4553,12 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         queryParams.devices = ["android", "iphone"];
       }
 
-      // Add country filter
+      // Add country filter - convert to countries array
       if (country) {
-        queryParams.country = country;
+        queryParams.countries = Array.isArray(country) ? country : [country];
       } else {
         // Default to US for admin preview
-        queryParams.country = "US";
+        queryParams.countries = ["US"];
       }
 
       // Add type filter if specified (survey, cashback, shopping, magic_receipt)
@@ -5236,7 +5247,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
       // Bitlabs: use Publisher API (same as admin listing)
       const bitlabsService = require("../services/bitlabs.service");
       const publisherQuery = {
-        country: country || userProfile.country || "US",
+        countries: country ? [country] : [userProfile.country || "US"],
         devices: devices && devices.length > 0 ? devices : ["android", "iphone"],
         is_game: false,
       };
@@ -6692,6 +6703,230 @@ router.post("/non-game-offers/sync/affise", adminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to sync Affise offers",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Sync Bitlabs game offers to Game model
+ * Similar to survey/non-gaming sync pattern
+ * POST /api/admin/game-offers/games/sync/bitlabs
+ * Body: {
+ *   gameIds: ['123', '456', ...],  // Specific game IDs to sync
+ *   country: 'US',                    // Country filter for Bitlabs API
+ *   devices: ['android', 'iphone'],  // Device filter
+ *   autoActivate: true,               // Auto set isActive to true
+ *   gender: 'all',                    // Target gender for game variant
+ *   uiSection: '',                    // UI section for game variant
+ *   ageGroup: ''                      // Age group for game variant
+ * }
+ */
+router.post("/games/sync/bitlabs", adminAuth, async (req, res) => {
+  try {
+    const bitlabsService = require("../services/bitlabs.service");
+    const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
+
+    const {
+      gameIds,
+      country = "US",
+      devices = ["android", "iphone"],
+      autoActivate = true,
+      gender = "all",
+      uiSection = "",
+      ageGroup = "",
+    } = req.body;
+
+    if (!Array.isArray(gameIds) || gameIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "gameIds array is required and must not be empty",
+      });
+    }
+
+    // Fetch game offers from Bitlabs
+    const queryParams = {
+      is_game: true,
+      country,
+      devices: Array.isArray(devices) ? devices : [devices],
+    };
+
+    let offers = [];
+    try {
+      offers = await bitlabsOfferCache.getOffers(queryParams);
+      if (offers.length === 0) {
+        offers = await bitlabsOfferCache.refreshOffers(queryParams);
+      }
+    } catch (e) {
+      console.error("Failed to fetch Bitlabs game offers:", e);
+      return res.status(503).json({
+        success: false,
+        message: "Failed to fetch game offers from Bitlabs API",
+        error: e.message || "Service unavailable",
+      });
+    }
+
+    if (offers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No game offers found from Bitlabs API",
+      });
+    }
+
+    const idSet = new Set(gameIds.map(String));
+    const gamesToSync = offers.filter((offer) => {
+      const offerId =
+        offer.id?.toString() ||
+        offer.offer_id?.toString() ||
+        offer.game_id?.toString() ||
+        "";
+      return idSet.has(offerId);
+    });
+
+    if (gamesToSync.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No matching games found for the provided gameIds",
+      });
+    }
+
+    const stripHtml = (html = "") =>
+      String(html)
+        .replace(/<[^>]*>/g, "")
+        .trim();
+
+    let syncedCount = 0,
+      updatedCount = 0,
+      skippedCount = 0;
+    const errors = [];
+
+    for (const [index, offer] of gamesToSync.entries()) {
+      try {
+        const externalId = (
+          offer.id?.toString() ||
+          offer.offer_id?.toString() ||
+          ""
+        ).trim();
+        if (!externalId) {
+          skippedCount++;
+          continue;
+        }
+
+        // Build game data from Bitlabs offer
+        const gameData = {
+          gameId: externalId,
+          title: offer.anchor || offer.title || offer.name || "Untitled Game",
+          description: stripHtml(offer.description || ""),
+          sdkProvider: "bitlabs",
+          xptrRules: "default",
+          countries: [country], // Store country from sync request
+          rewards: {
+            xp: Math.round((offer.total_points || 0) * 0.5),
+            coins: offer.total_points || offer.value || 0,
+          },
+          metadata: {
+            genre:
+              Array.isArray(offer.categories) && offer.categories[0]?.name
+                ? offer.categories[0].name
+                : offer.category || "General",
+            difficulty: "easy",
+            estimatedPlayTime: Math.max(
+              1,
+              offer.session_hours
+                ? Math.round(offer.session_hours / 60)
+                : 10
+            ),
+            imageUrl:
+              offer.icon_url ||
+              offer.creatives?.icon ||
+              offer.creatives?.images?.["600x300"] ||
+              "",
+            thumbnail: {
+              url:
+                offer.icon_url ||
+                offer.creatives?.icon ||
+                offer.creatives?.images?.["600x300"] ||
+                "",
+              dimensions: { width: 300, height: 300 },
+              altText: offer.anchor || offer.title || "Game thumbnail",
+            },
+          },
+          gameDetails: {
+            id: externalId,
+            name: offer.anchor || offer.title || offer.name || "",
+            description: stripHtml(offer.description || ""),
+            image:
+              offer.icon_url ||
+              offer.creatives?.images?.["600x300"] ||
+              "",
+            square_image: offer.icon_url || "",
+            large_image:
+              offer.creatives?.images?.["600x300"] || "",
+            category:
+              Array.isArray(offer.categories) && offer.categories[0]?.name
+                ? offer.categories[0].name
+                : offer.category || "General",
+            downloadUrl: offer.click_url || "",
+          },
+          isActive: autoActivate !== false,
+          isAdSupported: false,
+          deviceType: devices.includes("iphone") ? "ios" : "android",
+          uiSection: uiSection || "",
+          gender: normalizeGender(gender),
+          ageGroup: ageGroup || "",
+          ageGroups: ageGroup ? [ageGroup] : [],
+          tierRestrictions: {
+            minTier: "free",
+            maxTier: "platinum",
+          },
+          besitosRawData: offer,
+          createdBy: req.user.userId,
+        };
+
+        // Upsert by compound key (gameId, gender, uiSection, ageGroup)
+        const filter = {
+          gameId: gameData.gameId,
+          gender: gameData.gender,
+          uiSection: gameData.uiSection,
+          ageGroup: gameData.ageGroup,
+        };
+
+        const existing = await Game.findOne(filter);
+        if (existing) {
+          Object.assign(existing, gameData);
+          existing.updatedBy = req.user.userId;
+          await existing.save();
+          updatedCount++;
+        } else {
+          await Game.create(gameData);
+          syncedCount++;
+        }
+      } catch (err) {
+        console.error("[games/sync/bitlabs] save error:", err.message);
+        errors.push({
+          gameId: offer.id || offer.offer_id,
+          error: err.message,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Bitlabs games synced successfully",
+      data: {
+        syncedCount,
+        updatedCount,
+        skippedCount,
+        errorCount: errors.length,
+        totalProcessed: gamesToSync.length,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+  } catch (error) {
+    console.error("[games/sync/bitlabs]", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to sync Bitlabs games",
       error: error.message,
     });
   }

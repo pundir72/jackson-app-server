@@ -142,13 +142,14 @@ router.get("/config", protect, async (req, res) => {
     const config = await getSpinWheelConfig();
 
     // Get user's VIP tier
-    const userTier = user.vip?.level || "Bronze";
+    const vipBenefits = await getUserVIPBenefits(req.user.userId);
+    const userTier = vipBenefits.tier || "free";
 
     // Get active rewards that are eligible for user's tier
     const allRewards = await SpinWheelReward.find({ isActive: true }).lean();
-    const eligibleRewards = allRewards.filter((reward) => {
-      return isTierEligible(userTier, reward.eligibleTiers);
-    });
+    const eligibleRewards = allRewards.filter((reward) =>
+      isTierEligible(userTier, reward.eligibleTiers)
+    );
 
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
@@ -211,7 +212,8 @@ router.get("/status", protect, async (req, res) => {
     }
 
     // Get user's VIP tier
-    const userTier = user.vip?.level || "Bronze";
+    const vipBenefits = await getUserVIPBenefits(req.user.userId);
+    const userTier = vipBenefits.tier || "free";
 
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
@@ -242,28 +244,33 @@ router.get("/status", protect, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todaySpins = await SpinWheelLog.countDocuments({
+const todaySpins = await SpinWheelLog.countDocuments({
       user: req.user.userId,
       createdAt: { $gte: today },
     });
 
-    // Check VIP benefits
-    const vipBenefits = await getUserVIPBenefits(req.user.userId);
+    // Get spins - Free uses config, others use VIP subscription ONLY (no base + bonus)
     let dailyLimit;
-    if (config instanceof SpinWheelConfig) {
-      dailyLimit = vipBenefits.unlimitedSpins
-        ? 999
-        : config.getMaxSpinsForUser(userTier);
+    
+    const normalizedUserTier = userTier.toLowerCase();
+    const isFreeTier = normalizedUserTier === 'free';
+    
+    if (isFreeTier) {
+      // Free: use config spinsPerTier
+      dailyLimit = config.spinsPerTier?.free || 3;
     } else {
-      dailyLimit = config.maxSpinsPerDay || 3;
+      // Others: use VIP subscription bonusSpins ONLY
+      dailyLimit = vipBenefits.bonusSpins || config.spinsPerTier?.[normalizedUserTier] || 0;
+    }
+    
+    if (vipBenefits.unlimitedSpins) {
+      dailyLimit = 999;
     }
 
-    // Get VIP multiplier from config (not from VIP benefits)
-    const vipMultiplier =
-      config.vipMultipliers?.[userTier.toLowerCase()] ||
-      (config instanceof SpinWheelConfig
-        ? 1.0
-        : DEFAULT_SPIN_CONFIG.vipMultiplier?.[userTier.toLowerCase()] || 1.0);
+    // Get multiplier - Free = 1x, others from VIP subscription
+    const vipRewardMultiplier = await getRewardMultiplier(req.user.userId);
+    const configMultiplier = config.vipMultipliers?.[normalizedUserTier] || 1.0;
+    const vipMultiplier = isFreeTier ? 1.0 : (vipRewardMultiplier || configMultiplier);
 
     // Get last spin time and calculate cooldown remaining
     const lastSpinTime = await getLastSpinTime(req.user.userId);
@@ -321,7 +328,8 @@ router.post("/spin", protect, async (req, res) => {
     }
 
     // Get user's VIP tier
-    const userTier = user.vip?.level || "Bronze";
+    const vipBenefits = await getUserVIPBenefits(req.user.userId);
+    const userTier = vipBenefits.tier || "free";
 
     // Check if user is eligible based on config tier restrictions
     const isEligible = isTierEligible(userTier, config.eligibleTiers);
@@ -343,82 +351,80 @@ router.post("/spin", protect, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todaySpins = await SpinWheelLog.countDocuments({
+const todaySpins = await SpinWheelLog.countDocuments({
       user: userId,
       createdAt: { $gte: today },
     });
 
-    // Check VIP benefits
-    const vipBenefits = await getUserVIPBenefits(userId);
+    // Get spins - Free uses config, others use VIP subscription ONLY (no base + bonus)
     let dailyLimit;
-    if (config instanceof SpinWheelConfig) {
-      dailyLimit = vipBenefits.unlimitedSpins
-        ? 999
-        : config.getMaxSpinsForUser(userTier);
+    
+    const normalizedUserTier = userTier.toLowerCase();
+    const isFreeTier = normalizedUserTier === 'free';
+    
+    if (isFreeTier) {
+      // Free: use config spinsPerTier
+      dailyLimit = config.spinsPerTier?.free || 3;
     } else {
-      dailyLimit = config.maxSpinsPerDay || 3;
+      // Others: use VIP subscription bonusSpins ONLY
+      dailyLimit = vipBenefits.bonusSpins || config.spinsPerTier?.[normalizedUserTier] || 0;
+    }
+    
+    if (vipBenefits.unlimitedSpins) {
+      dailyLimit = 999;
     }
 
-    // Check if user has spins remaining
-    if (todaySpins >= dailyLimit) {
+    // Get multiplier - Free = 1x, others from VIP subscription
+    const vipRewardMultiplier = await getRewardMultiplier(userId);
+    const configMultiplier = config.vipMultipliers?.[normalizedUserTier] || 1.0;
+    const vipMultiplier = isFreeTier ? 1.0 : (vipRewardMultiplier || configMultiplier);
+
+    // Get active rewards and filter by user's tier eligibility
+    const allRewards = await SpinWheelReward.find({ isActive: true }).lean();
+    const eligibleRewards = allRewards.filter((reward) =>
+      isTierEligible(userTier, reward.eligibleTiers),
+    );
+
+    if (allRewards.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Daily spin limit reached",
-        data: {
-          remainingSpins: 0,
-          dailyLimit: dailyLimit,
-          cooldownMinutes: config.cooldownMinutes || 360,
-        },
+        error: "No rewards configured on the spin wheel. Contact admin.",
       });
     }
-
-    // Get active rewards that are eligible for user's tier
-    const allRewards = await SpinWheelReward.find({ isActive: true }).lean();
-    const eligibleRewards = allRewards.filter((reward) => {
-      return isTierEligible(userTier, reward.eligibleTiers);
-    });
 
     if (eligibleRewards.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "No rewards available for your tier",
+        error: `No rewards available for your tier (${userTier}). Contact admin.`,
       });
     }
 
-    // Select reward by probability
-    const selectedReward = selectRewardByProbability(eligibleRewards);
+    let selectedReward;
+    const totalProbability = eligibleRewards.reduce(
+      (sum, r) => sum + (r.probability || 0),
+      0,
+    );
 
-    if (!selectedReward) {
-      // No reward selected (probability-based)
-      const spinId = `SPIN-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-      const spinLog = new SpinWheelLog({
-        user: userId,
-        spinId: spinId,
-        reward: null,
-        rewardName: "No Reward",
-        rewardType: "none",
-        rewardAmount: 0,
-        vipMultiplier: 1.0,
-        spinMode: config.spinMode || "free",
-        userTier: userTier,
-        isWin: false,
-      });
-      await spinLog.save();
+    if (totalProbability <= 0) {
+      const randomIndex = Math.floor(Math.random() * eligibleRewards.length);
+      selectedReward = eligibleRewards[randomIndex];
+    } else {
+      const random = Math.random() * totalProbability;
+      let cumulative = 0;
 
-      return res.json({
-        success: true,
-        message: "No reward this time. Try again!",
-        data: {
-          spinId: spinLog._id,
-          reward: null,
-          status: "completed",
-        },
-      });
+      for (const reward of eligibleRewards) {
+        const prob = reward.probability || 0;
+        cumulative += prob;
+        if (random < cumulative) {
+          selectedReward = reward;
+          break;
+        }
+      }
+
+      if (!selectedReward) {
+        selectedReward = eligibleRewards[eligibleRewards.length - 1];
+      }
     }
-
-    // Apply VIP multiplier if applicable
-    const vipMultiplier =
-      config.vipMultipliers?.[userTier.toLowerCase()] || 1.0;
 
     let finalAmount;
     let tierMultiplierValue = 1.0;
@@ -856,6 +862,7 @@ async function getUserVIPBenefits(userId) {
     return {
       isActive: true,
       xpMultiplier: tier.features.xpMultiplier || 1.0,
+      bonusSpins: tier.features.bonusSpins || 0,
       unlimitedSpins: tier.features.unlimitedSpins || false,
     };
   } catch (error) {
@@ -863,8 +870,33 @@ async function getUserVIPBenefits(userId) {
     return {
       isActive: false,
       xpMultiplier: 1.0,
+      bonusSpins: 0,
       unlimitedSpins: false,
     };
+  }
+}
+
+// Helper function to get reward multiplier from VIP tier
+async function getRewardMultiplier(userId) {
+  try {
+    const VIPTier = require("../models/VIPTier");
+    const VIPSubscription = require("../models/VIPSubscription");
+
+    const activeSubscription = await VIPSubscription.getActiveSubscription(userId);
+
+    if (!activeSubscription || !activeSubscription.isActive()) {
+      return 1.0;
+    }
+
+    const tier = await VIPTier.getTierById(activeSubscription.tier);
+    if (!tier) {
+      return 1.0;
+    }
+
+    return tier.features.xpMultiplier || 1.0;
+  } catch (error) {
+    console.error("Error getting reward multiplier:", error);
+    return 1.0;
   }
 }
 

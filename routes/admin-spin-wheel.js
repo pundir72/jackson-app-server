@@ -11,6 +11,7 @@ const { adminAuth } = require("../middleware/adminAuth");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const VIPTier = require("../models/VIPTier");
 const { 
   validateProbabilityConfiguration, 
   getProbabilityAnalysis,
@@ -203,7 +204,7 @@ router.post(
 
       // Normalize tiers from either eligibleTiers or eligibleTiers[]
       // Accept tierVisibility from frontend or eligibleTiers (array or repeated keys)
-      const TIER_LIST = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
+      const TIER_LIST = ["Free", "Bronze", "Silver", "Gold", "Platinum", "Diamond"];
       let tiers =
         req.body.eligibleTiers ??
         req.body["eligibleTiers[]"] ??
@@ -503,7 +504,7 @@ router.put(
         delete updatePayload["eligibleTiers[]"];
       }
       if (updatePayload.tierVisibility && !updatePayload.eligibleTiers) {
-        const TIER_LIST = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
+        const TIER_LIST = ["Free", "Bronze", "Silver", "Gold", "Platinum", "Diamond"];
         updatePayload.eligibleTiers = Array.isArray(
           updatePayload.tierVisibility
         )
@@ -726,9 +727,12 @@ router.patch("/rewards/:id/toggle", adminAuth, async (req, res) => {
  */
 router.get("/config", adminAuth, async (req, res) => {
   try {
-    const config = await SpinWheelConfig.findOne({ isActive: true })
-      .populate("createdBy", "firstName lastName email")
-      .populate("updatedBy", "firstName lastName email");
+    const [config, vipTiersData] = await Promise.all([
+      SpinWheelConfig.findOne({ isActive: true })
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email"),
+      VIPTier.getActiveTiers()
+    ]);
 
     if (!config) {
       // Return default configuration
@@ -738,19 +742,17 @@ router.get("/config", adminAuth, async (req, res) => {
         cooldownMinutes: 360,
         maxSpinsPerDay: 3,
         eligibleTiers: ["Bronze", "Silver", "Gold", "Platinum", "Diamond"],
-        vipMultipliers: {
-          bronze: 1.0,
-          silver: 1.2,
-          gold: 1.5,
-          platinum: 2.0,
-          diamond: 2.5,
+vipMultipliers: {
+          free: 1.0,
+          bronze: 1.5,
+          gold: 2.0,
+          platinum: 2.5,
         },
         additionalSpinsPerTier: {
+          free: 3,
           bronze: 5,
-          silver: 0,
           gold: 10,
           platinum: 50,
-          diamond: 0,
         },
         isActive: true,
         visualSettings: {
@@ -763,9 +765,8 @@ router.get("/config", adminAuth, async (req, res) => {
       return res.json({
         success: true,
         data: {
-          // Frontend naming
           spinMode: defaultConfig.spinMode,
-          cooldownPeriod: Math.floor(defaultConfig.cooldownMinutes / 60), // Convert minutes to hours for frontend
+          cooldownPeriod: defaultConfig.cooldownMinutes, // Return in minutes directly
           maxSpinsPerDay: defaultConfig.maxSpinsPerDay,
           eligibleTiers: ["All Tiers"],
           startDate: defaultConfig.startDate,
@@ -775,22 +776,35 @@ router.get("/config", adminAuth, async (req, res) => {
       });
     }
 
-    const TIER_LIST = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
+    const TIER_LIST = ["Free", "Bronze", "Silver", "Gold", "Platinum", "Diamond"];
     const isAllTiers =
       Array.isArray(config.eligibleTiers) &&
       config.eligibleTiers.length >= 3 &&
       config.eligibleTiers.every((t) => TIER_LIST.includes(t));
-    res.json({
+res.json({
       success: true,
       data: {
         spinMode: config.spinMode === "ad_based" ? "ad-based" : config.spinMode,
-        cooldownPeriod: Math.floor(config.cooldownMinutes / 60), // Convert minutes to hours for frontend
+        cooldownPeriod: config.cooldownMinutes,
         maxSpinsPerDay: config.maxSpinsPerDay,
         eligibleTiers: isAllTiers ? ["All Tiers"] : config.eligibleTiers,
         startDate: config.startDate,
         endDate: config.endDate,
+        vipMultipliers: config.vipMultipliers || {
+          free: 1.0,
+          bronze: 1.5,
+          gold: 2.0,
+          platinum: 2.5,
+        },
+        additionalSpinsPerTier: config.additionalSpinsPerTier || {
+          free: 3,
+          bronze: 5,
+          gold: 10,
+          platinum: 50,
+        },
         raw: config,
       },
+      vipTiers: vipTiersData,
     });
   } catch (error) {
     console.error("Error getting spin wheel config:", error);
@@ -839,29 +853,12 @@ router.post(
       const spinMode =
         spinModeInput === "ad-based" ? "ad_based" : spinModeInput; // map frontend to backend enum
 
-      // Frontend sends cooldownPeriod (hours). Convert to minutes for storage
-      const cooldownPeriod = Number(req.body.cooldownPeriod);
-      // If cooldownPeriod is provided and is less than 24, assume it's in hours and convert to minutes
-      // Otherwise, assume it's already in minutes (for backward compatibility)
-      let cooldownMinutes;
-      if (
-        Number.isFinite(cooldownPeriod) &&
-        cooldownPeriod > 0 &&
-        cooldownPeriod <= 24
-      ) {
-        // Frontend sends hours (1-24), convert to minutes
-        cooldownMinutes = Math.floor(cooldownPeriod * 60);
-      } else if (Number.isFinite(cooldownPeriod) && cooldownPeriod > 24) {
-        // Already in minutes (backward compatibility)
-        cooldownMinutes = cooldownPeriod;
-      } else {
-        // Fallback to default or use cooldownMinutes if provided
-        cooldownMinutes = Number(req.body.cooldownMinutes || 360);
-      }
+      // Frontend sends cooldownPeriod in minutes directly
+      const cooldownMinutes = Number(req.body.cooldownPeriod) || 360;
 
       const maxSpinsPerDay = Number(req.body.maxSpinsPerDay || 3);
 
-      const TIER_LIST = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
+      const TIER_LIST = ["Free", "Bronze", "Silver", "Gold", "Platinum", "Diamond"];
       let eligibleTiers = req.body.eligibleTiers || req.body["eligibleTiers[]"];
       if (!eligibleTiers)
         eligibleTiers = req.body.eligibleTiers || req.body.tiers || [];
@@ -876,14 +873,19 @@ router.post(
       }
 
       const vipMultipliers = req.body.vipMultipliers;
+      const spinsPerTier = req.body.spinsPerTier;
       const additionalSpinsPerTier = req.body.additionalSpinsPerTier;
       const visualSettings = req.body.visualSettings;
       // Store start/end as UTC so campaign window is enforced consistently
       const startDate = parseDateAsUTC(req.body.startDate);
       const endDate = parseDateAsUTC(req.body.endDate);
 
-      // Deactivate existing config
-      await SpinWheelConfig.updateMany({ isActive: true }, { isActive: false });
+      // Deactivate existing config (ignore if none exist)
+      try {
+        await SpinWheelConfig.updateMany({ isActive: true }, { isActive: false });
+      } catch (e) {
+        // Ignore if no config exists yet
+      }
 
       // Create new config
       const config = new SpinWheelConfig({
@@ -892,19 +894,17 @@ router.post(
         cooldownMinutes,
         maxSpinsPerDay,
         eligibleTiers,
-        vipMultipliers: vipMultipliers || {
-          bronze: 1.0,
-          silver: 1.2,
-          gold: 1.5,
-          platinum: 2.0,
-          diamond: 2.5,
+vipMultipliers: vipMultipliers || {
+          free: 1.0,
+          bronze: 1.5,
+          gold: 2.0,
+          platinum: 2.5,
         },
-        additionalSpinsPerTier: additionalSpinsPerTier || {
+        spinsPerTier: spinsPerTier || {
+          free: 3,
           bronze: 5,
-          silver: 0,
           gold: 10,
           platinum: 50,
-          diamond: 0,
         },
         visualSettings: visualSettings || {
           wheelColors: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"],
@@ -925,9 +925,10 @@ router.post(
       });
     } catch (error) {
       console.error("Error saving spin wheel config:", error);
+      console.error("Error details:", error.errors || error.message);
       res.status(500).json({
         success: false,
-        error: "Failed to save configuration",
+        error: error.message || "Failed to save configuration",
       });
     }
   }

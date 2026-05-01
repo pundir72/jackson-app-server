@@ -44,7 +44,6 @@ async function checkGameAvailability(
   isRetry = false,
 ) {
   try {
-    // Normalize SDK provider to lowercase for case-insensitive comparison
     const normalizedProvider = (game.sdkProvider || "").toLowerCase();
 
     if (normalizedProvider === "besitos") {
@@ -56,9 +55,6 @@ async function checkGameAvailability(
       }
 
       try {
-        // Fetch ALL offers directly from Besitos API
-        // IMPORTANT: Use device_platform (not platform) for Besitos API
-        // Besitos only accepts "ios" or "android" - NOT "mobile" - default to android
         const platformValue = (userProfile.platform || "android").toLowerCase();
         const finalPlatform = platformValue === "mobile" ? "android" : platformValue;
         const requestParams = {
@@ -66,19 +62,16 @@ async function checkGameAvailability(
           country: userProfile.country || "US",
           _t: Date.now(),
         };
-
         const response = await besitosService.getOffers(requestParams);
 
         const offers = Array.isArray(response)
           ? response
           : response?.data || [];
 
-        // If API returns no offers, game is not available
         if (!Array.isArray(offers) || offers.length === 0) {
           return false;
         }
 
-        // Find matching offer by externalId OR bundle_id OR title
         const gameTitle = game.title?.toLowerCase().trim() || game.gameDetails?.name?.toLowerCase().trim();
 
         const matchingOffer = offers.find((offer) => {
@@ -86,14 +79,9 @@ async function checkGameAvailability(
           const bundleId = offer.bundle_id;
           const offerTitle = offer.title?.toLowerCase().trim();
 
-          // Check by offer ID first
           const matchByOfferId = String(offerId) === String(externalId);
-
-          // Also check by bundle_id if available
           const matchByBundleId = bundleId && game.gameDetails?.bundle_id &&
             String(bundleId) === String(game.gameDetails.bundle_id);
-
-          // Also check by title as fallback
           const matchByTitle = offerTitle && gameTitle && offerTitle === gameTitle;
 
           return matchByOfferId || matchByBundleId || matchByTitle;
@@ -103,14 +91,12 @@ async function checkGameAvailability(
           return false;
         }
 
-        // Budget must be Active
         const budgetStatus = matchingOffer.budget_status;
         const isBudgetActive = budgetStatus === "Active";
         if (!isBudgetActive) {
           return false;
         }
 
-        // Optional: user-specific availability check
         if (userId) {
           const userCheckPlatform = finalPlatform === "ios" ? "ios" : "android";
           try {
@@ -136,7 +122,6 @@ async function checkGameAvailability(
               return String(id) === String(externalId);
             });
 
-            // Game must be available or already in progress for this user
             if (!isInUserAvailable && !isInUserProgress) {
               return false;
             }
@@ -165,7 +150,6 @@ async function checkGameAvailability(
       }
 
       try {
-        // Convert platform to devices array for Bitlabs
         let devices = [];
         const platform = userProfile.platform || "mobile";
         if (platform === "ios" || platform === "iphone") {
@@ -179,11 +163,9 @@ async function checkGameAvailability(
         const queryParams = {
           is_game: true,
           devices: devices.length > 0 ? devices : ["android", "iphone"],
-          country: userProfile.country || "US",
+          // countries: [userProfile.country || "US"], // COMMENTED OUT FOR TESTING
           sdk: "CUSTOM",
         };
-
-        // Publisher API - full catalog
         const result = await bitlabsService.getPublisherOffers(queryParams);
         const offers = Array.isArray(result?.data) ? result.data : [];
 
@@ -212,6 +194,10 @@ async function checkGameAvailability(
 
         const matchingOffer = offers.find(matchesGameId);
 
+        if (!matchingOffer) {
+          return false;
+        }
+
         if (matchingOffer) {
           // Inject userId into Bitlabs s1 parameter (required by Bitlabs for redirect tracking)
           if (userId && matchingOffer.click_url) {
@@ -237,7 +223,7 @@ async function checkGameAvailability(
         return false;
       } catch (error) {
         console.error(
-          `   ❌ [BITLABS] Error checking Bitlabs availability for game ${gameIdToFind}:`,
+          `❌ [BITLABS] Error checking Bitlabs availability:`,
           {
             message: error.message,
             status: error.status || error.response?.status,
@@ -246,14 +232,6 @@ async function checkGameAvailability(
         return false;
       }
     } else {
-      // For games without SDK provider or unknown providers
-      // If game has Besitos data, check as Besitos game once
-      if (!isRetry && (game.besitosRawData || game.gameDetails?.id)) {
-        const tempGame = { ...game, sdkProvider: "besitos" };
-        return await checkGameAvailability(tempGame, userProfile, userId, true);
-      }
-
-      // Unknown providers are treated as unavailable for safety
       return false;
     }
   } catch (error) {
@@ -1109,18 +1087,18 @@ router.get("/discover", protect, async (req, res) => {
       uiSection,
       ageGroup,
       gender,
-      tier, // XP tier filter (Junior, Mid, Senior)
-      membership, // Membership tier filter (free, bronze, gold, platinum)
+      tier,
+      membership,
       page = 1,
       limit = 20,
       country,
-      status, // Status filter (active, inactive, all)
-      platform, // Device platform filter (ios, android) - can also be derived from user
+      status,
+      platform,
     } = req.query;
 
     const userId = req.user.userId;
 
-    // Load user with all fields needed for userProfile (age, country, xp, vip, taskProgression)
+    // Load user
     const user = await User.findById(userId)
       .select("games profile onboarding location xp vip taskProgression device")
       .lean();
@@ -1217,56 +1195,44 @@ router.get("/discover", protect, async (req, res) => {
 
     if (uiSection) filter.uiSection = uiSection;
 
-    // Device platform filter - filter games by device type (ios or android)
-    // If platform is explicitly provided in query params, use that
-    // Otherwise default to "android" (Android app is on Play Store)
+    // Device platform filter
     const userDeviceType = user.device?.type?.toLowerCase();
-    const filterPlatform = platform?.toLowerCase() || "android"; // Default to android if not specified
+    const filterPlatform = platform?.toLowerCase() || "android";
     if (filterPlatform && (filterPlatform === "ios" || filterPlatform === "android")) {
       filter.deviceType = filterPlatform;
     }
 
-    // Check if user has Google ID (can login with Google - may not have age/gender)
+    // Check if user has Google ID
     const isGoogleUser = !!user.social?.googleId;
 
     // If user logged in with Google, fetch all age groups and all genders
     // Otherwise, apply ageGroup and gender filters as normal
     if (!isGoogleUser) {
       if (ageGroup) filter.ageGroups = { $in: [ageGroup] };
-      // Gender filter: match specific gender OR "Any"/"all" (which applies to all genders)
-      // Normalize gender values: handle case-insensitive matching and "Any"/"all" equivalence
       if (gender) {
         const normalizedGender = gender.toLowerCase();
-        // Map common variations: "all" -> "Any", lowercase -> capitalized
         const genderVariations = [
-          normalizedGender, // original lowercase
-          normalizedGender.charAt(0).toUpperCase() + normalizedGender.slice(1), // Capitalized
-          normalizedGender.toUpperCase(), // UPPERCASE
+          normalizedGender,
+          normalizedGender.charAt(0).toUpperCase() + normalizedGender.slice(1),
+          normalizedGender.toUpperCase(),
         ];
 
-        // Add "Any" or "all" for games that apply to all genders
         if (normalizedGender === "all" || normalizedGender === "any") {
           genderVariations.push("Any", "all", "ANY", "any");
         } else {
-          // For specific genders, also include "Any" and "all" to match games for all genders
           genderVariations.push("Any", "all", "ANY", "any");
         }
 
-        // Use case-insensitive regex matching
         filter.gender = {
-          $in: genderVariations.filter((v, i, arr) => arr.indexOf(v) === i), // Remove duplicates
+          $in: genderVariations.filter((v, i, arr) => arr.indexOf(v) === i),
         };
       }
-    } else {
-      // For Google users, don't filter by ageGroup or gender to show all games
     }
 
-    // XP Tier filter (Junior, Mid, Senior)
+    // XP Tier filter
     if (tier) {
       const normalizedTier =
         tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
-      // Filter games that have this tier in their xpTiers array
-      // Also include games with no xpTiers specified (available to all tiers)
       filter.$or = filter.$or || [];
       filter.$or.push(
         {
@@ -1279,7 +1245,7 @@ router.get("/discover", protect, async (req, res) => {
       );
     }
 
-    // Membership tier filter: use query param if sent, else authenticated user's VIP tier (automatic)
+    // Membership tier filter
     const membershipForFilter = membership || membershipTier || "free";
     if (membershipForFilter) {
       const normalizedMembership = String(membershipForFilter).toLowerCase();
@@ -1287,18 +1253,15 @@ router.get("/discover", protect, async (req, res) => {
       const membershipIndex = tierOrder.indexOf(normalizedMembership);
 
       if (membershipIndex !== -1) {
-        // Include games with no tier restrictions, "all" segment, OR where user's tier is in [minTier, maxTier]
-        // When admin configures segment as "all", minTier is "all" -> show to free, bronze, gold, platinum
+        // Use case-insensitive regex for "all" to handle "All", "ALL", "all", etc.
+        const allRegex = { $regex: /^all$/i };
         const membershipFilter = {
           $or: [
-            // Games with no tier restrictions (available to all)
             { tierRestrictions: { $exists: false } },
             { "tierRestrictions.minTier": { $exists: false } },
             { "tierRestrictions.maxTier": { $exists: false } },
-            // Segment "all" config by admin: all membership users (free, bronze, gold, platinum) see the game
-            { "tierRestrictions.minTier": "all" },
-            { "tierRestrictions.maxTier": "all" },
-            // User's tier is within game's [minTier, maxTier]: minTier <= user <= maxTier
+            { "tierRestrictions.minTier": allRegex },
+            { "tierRestrictions.maxTier": allRegex },
             {
               $and: [
                 {
@@ -1326,58 +1289,8 @@ router.get("/discover", protect, async (req, res) => {
 
     // Note: countries field was removed, so we skip country filter from Game model
 
-    // Check what games exist in database with different filters (for internal analysis)
+    // Count games for analysis
     const totalActiveGames = await Game.countDocuments({ isActive: true });
-
-    if (uiSection) {
-      const uiSectionCount = await Game.countDocuments({
-        isActive: true,
-        uiSection,
-      });
-    }
-    if (ageGroup) {
-      const ageGroupCount = await Game.countDocuments({
-        isActive: true,
-        ageGroup,
-      });
-    }
-    if (gender) {
-      const genderCount = await Game.countDocuments({ isActive: true, gender });
-    }
-
-    // Additional debugging for Google users
-    if (isGoogleUser) {
-      // Check games with null/undefined ageGroup
-      const gamesWithNullAge = await Game.countDocuments({
-        isActive: true,
-        uiSection: uiSection || undefined,
-        $or: [
-          { ageGroup: null },
-          { ageGroup: { $exists: false } },
-          { ageGroup: "" },
-        ],
-      });
-
-      // Check games with "all" gender
-      const gamesWithAllGender = await Game.countDocuments({
-        isActive: true,
-        uiSection: uiSection || undefined,
-        gender: "all",
-      });
-
-      // Check games matching the exact filter that will be used
-      const filterForGoogle = { isActive: true };
-      if (uiSection) filterForGoogle.uiSection = uiSection;
-      const gamesMatchingFilter = await Game.find(filterForGoogle).lean();
-
-      // Check all active games with this uiSection (if provided)
-      if (uiSection) {
-        const allUiSectionGames = await Game.find({
-          isActive: true,
-          uiSection: uiSection,
-        }).lean();
-      }
-    }
 
     // Check games matching user profile instead
     const userProfileFilter = { isActive: true };
@@ -1414,6 +1327,7 @@ router.get("/discover", protect, async (req, res) => {
     const pageSize = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
 
     // Get all matching games first (before pagination)
+    // Sort by createdAt (same as survey/non-gaming sync pattern)
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
 
     // Hide already downloaded/installed games from discovery listings
@@ -1596,19 +1510,15 @@ router.get("/discover", protect, async (req, res) => {
         );
       }
     } else {
-      console.log(
-        `[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`,
-      );
-      console.log(
-        `[DISCOVER] This means ALL games will be shown, even if they're downloaded!`,
-      );
-      console.log(
-        `[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`,
-      );
-    }
-
-    if (!(userProfileGamesCount > 0 && allGames.length === 0)) {
-      // If no games found, we previously logged debug information; now it's silent
+    console.log(
+      `[DISCOVER] ⚠️ User has no games array or it's empty - SKIPPING FILTERING`,
+    );
+    console.log(
+      `[DISCOVER] This means ALL games will be shown, even if they're downloaded!`,
+    );
+    console.log(
+      `[DISCOVER] If games are showing that should be filtered, check if games are being saved to user.games when installed.`,
+    );
     }
 
     // Get user's XP tier from admin configuration (XPTier model)
@@ -1707,17 +1617,13 @@ router.get("/discover", protect, async (req, res) => {
       return passesXpTier && passesMembershipTier;
     });
 
-    // End XP/Membership tier validation
-
     // Update allGames with filtered results
     allGames = filteredGames;
 
     // ===== REAL-TIME AVAILABILITY CHECKING =====
-    // Extract platform from query params or infer from user-agent
-    let platformCheck = req.query.platform || "android"; // Default to android (not mobile - mobile is invalid for Besitos)
+    let platformCheck = req.query.platform || "android";
     const userAgent = req.headers["user-agent"] || "";
     if (!req.query.platform) {
-      // Infer platform from user-agent if not provided
       if (
         userAgent.toLowerCase().includes("iphone") ||
         userAgent.toLowerCase().includes("ipad")
@@ -1728,7 +1634,6 @@ router.get("/discover", protect, async (req, res) => {
       }
     }
 
-    // Build user profile for API calls
     const userProfileForAPI = {
       platform: platformCheck,
       country: userProfile.country || "US",
@@ -1774,7 +1679,7 @@ router.get("/discover", protect, async (req, res) => {
     }));
     // ===== END REAL-TIME AVAILABILITY CHECKING =====
 
-    // Apply display rule limit AFTER availability check (for all UI sections EXCEPT listed)
+    // Apply display rule limit AFTER availability check
     const UI_SECTIONS_SKIP_DISPLAY_RULE_LIMIT = [
       "gametips",
       "highest earning",
@@ -1790,6 +1695,7 @@ router.get("/discover", protect, async (req, res) => {
     const skipLimitForSection =
       normalizedUiSection &&
       UI_SECTIONS_SKIP_DISPLAY_RULE_LIMIT.includes(normalizedUiSection);
+
     if (
       maxGamesFromRule &&
       !skipLimitForSection &&
@@ -1805,6 +1711,13 @@ router.get("/discover", protect, async (req, res) => {
       pageNum * pageSize,
     );
 
+    // Add sequential position number (1, 2, 3, 4...) like survey/non-gaming sync display
+    // Position is based on current page results (not total count)
+    const gamesWithPosition = paginatedGames.map((game, index) => ({
+      ...game,
+      position: index + 1, // Sequential: 1, 2, 3, 4, 5, 6, 7...
+    }));
+
     if (isGoogleUser) {
       // Pagination behaviour for Google users (debug logging removed)
     }
@@ -1814,10 +1727,9 @@ router.get("/discover", protect, async (req, res) => {
     const sortedUserGames = [...userGames].sort((a, b) => {
       const dateA = new Date(a.installedAt || a.date || a.firstPlayed || 0);
       const dateB = new Date(b.installedAt || b.date || b.firstPlayed || 0);
-      return dateA - dateB; // Oldest first
+      return dateA - dateB;
     });
 
-    // Get maxGamesWithBonusTasks from WelcomeBonusTimer config
     const bonusRule = await WelcomeBonusTimer.findOne({
       isActive: true,
     }).lean();
@@ -1826,24 +1738,15 @@ router.get("/discover", protect, async (req, res) => {
       .slice(0, maxGamesWithBonus)
       .map((g) => String(g.gameId));
 
-    // Get user-based task progression rule (applies to user, not specific game)
-    // Fetching task progression rule
-
+    // Get user-based task progression rule
     const progressionRule =
       await TaskProgressionRule.findBestMatchForUser(userProfile);
 
-    if (progressionRule) {
-      // Task progression rule found
-    } else {
-      // No task progression rule – taskProgression will be null in response
-    }
-
-    // Get user's task progression data (Map becomes object with lean())
     const userTaskProgression = user.taskProgression || {};
 
     // Enrich games with additional information
     const games = await Promise.all(
-      paginatedGames.map(async (g) => {
+      gamesWithPosition.map(async (g) => {
         const gameIdString = String(g._id);
 
         // Check if game is eligible for bonus tasks

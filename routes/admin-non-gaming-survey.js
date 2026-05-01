@@ -150,14 +150,20 @@ async function getOrCreateSDK(nameRegex, defaults, userId) {
 
 router.get("/admin/non-gaming/fetch", adminAuth, async (req, res) => {
   try {
-    const { sdk = "bitlabs", type = "all", country, page = 1, limit = 20 } = req.query;
+    const { sdk = "bitlabs", type = "all", countries, page = 1, limit = 20 } = req.query;
     const devices = req.query.devices
       ? (Array.isArray(req.query.devices) ? req.query.devices : [req.query.devices])
       : ["android", "iphone"];
 
+    console.log("🔵 Route received countries:", countries);
+    console.log("🔵 Route received query:", req.query);
+
     if (sdk === "bitlabs") {
       const bitlabsService = require("../services/bitlabs.service");
-      const result = await bitlabsService.getPublisherOffers({ is_game: false, country: country || "US", devices });
+      // Convert country to countries array for Publisher API
+      const countryArray = countries ? (Array.isArray(countries) ? countries : [countries]) : ["US"];
+      console.log("🔵 Route countryArray:", countryArray);
+      const result = await bitlabsService.getPublisherOffers({ is_game: false, countries: countryArray, devices });
       if (!result.success) return res.status(500).json({ success: false, message: result.error || "Failed to fetch Bitlabs offers", data: [] });
 
       let offers = result.data || [];
@@ -203,7 +209,6 @@ router.get("/admin/non-gaming/fetch", adminAuth, async (req, res) => {
       const everflowService = require("../services/everflow.service");
       if (!everflowService.isConfigured()) return res.status(400).json({ success: false, message: "Everflow API is not configured.", data: [] });
       const qp = { offer_status: "active" };
-      if (country) qp.country = country;
       const result = await everflowService.getOffers(qp);
       if (!result.success) return res.status(500).json({ success: false, message: result.error || "Failed to fetch Everflow offers", data: [] });
       let offers = result.data || [];
@@ -216,8 +221,28 @@ router.get("/admin/non-gaming/fetch", adminAuth, async (req, res) => {
       const affiseController = require("../controllers/affise.controller");
       return affiseController.getAdminOffers(req, res);
 
+    } else if (sdk === "besitos") {
+      const besitosService = require("../services/besitos.service");
+      if (!besitosService.isConfigured()) return res.status(400).json({ success: false, message: "Besitos API is not configured.", data: [] });
+      
+      const result = await besitosService.getOffers({ device_platform: "android", _t: Date.now() });
+      const offersRaw = Array.isArray(result) ? result : (result?.data || []);
+      
+      // Filter out games (keep only non-games)
+      // Games typically have app identifiers, store links, or are marked as type 'game'
+      let offers = offersRaw.filter(o => {
+        const hasAppId = o.app_identifier || o.bundle_id || o.app_store_url || o.google_play_url;
+        const isExplicitGame = o.type === 'game';
+        return !hasAppId && !isExplicitGame;
+      });
+
+      if (type && type !== "all") offers = offers.filter((o) => (o.offerType || o.type || "other") === type);
+      const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      return res.json({ success: true, data: offers.slice((pageNum - 1) * limitNum, pageNum * limitNum), total: offers.length, timestamp: new Date().toISOString() });
+
     } else {
-      return res.status(400).json({ success: false, message: `Unsupported SDK: "${sdk}". Use: bitlabs, everflow, affise.` });
+      return res.status(400).json({ success: false, message: `Unsupported SDK: "${sdk}". Use: bitlabs, everflow, affise, besitos.` });
     }
   } catch (error) {
     console.error("[non-gaming/fetch]", error.message);
@@ -232,14 +257,15 @@ router.get("/admin/non-gaming/fetch", adminAuth, async (req, res) => {
 
 router.get("/admin/surveys/fetch", adminAuth, async (req, res) => {
   try {
-    const { sdk = "bitlabs", country, page = 1, limit = 20 } = req.query;
+    const { sdk = "bitlabs", countries, page = 1, limit = 20 } = req.query;
     const devices = req.query.devices
       ? (Array.isArray(req.query.devices) ? req.query.devices : [req.query.devices])
       : ["android", "iphone"];
 
     if (sdk === "bitlabs") {
       const bitlabsService = require("../services/bitlabs.service");
-      const result = await bitlabsService.getSurveys({ country, platform: "mobile" });
+      const countryArray = countries ? (Array.isArray(countries) ? countries : [countries]) : ["US"];
+      const result = await bitlabsService.getSurveys({ countries: countryArray, platform: "mobile" });
       if (!result.success) return res.status(500).json({ success: false, message: result.error || "Failed to fetch Bitlabs surveys", data: [] });
       let surveys = result.data || [];
 
@@ -267,7 +293,7 @@ router.get("/admin/surveys/fetch", adminAuth, async (req, res) => {
       const besitosService = require("../services/besitos.service");
       if (!besitosService.isConfigured()) return res.status(500).json({ success: false, message: "Besitos API is not properly configured", data: [] });
       const params = { device: mapBesitosDevice(devices), user_ip: "127.0.0.1" };
-      if (country) params.country = country;
+      if (countries) params.country = countries;
       let raw;
       try { raw = await besitosService.getSurveys(params, "admin-preview"); }
       catch (err) { return res.status(500).json({ success: false, message: err.message || "Failed to fetch Besitos surveys", data: [] }); }
@@ -277,7 +303,7 @@ router.get("/admin/surveys/fetch", adminAuth, async (req, res) => {
         const estimatedTime   = s.length ? Math.round(s.length) : 0;
         const userRewardCoins = s.amount ? Math.round(s.amount * 0.8 * 50) : 0;
         const userRewardXP    = Math.round(userRewardCoins * 0.5);
-        return { id: s.id?.toString() || "", surveyId: s.id?.toString() || "", title: s.name || `Survey ${s.id}`, description: s.description || `Earn $${s.amount || 0}`, clickUrl: s.url || "", value: s.amount ? parseFloat(s.amount) : 0, cpi: s.cpi ? parseFloat(s.cpi) : 0, loi: estimatedTime, estimatedTime, userRewardCoins, userRewardXP, reward: { coins: userRewardCoins, xp: userRewardXP, currency: s.amount_currency || "$" }, type: "survey", provider: "besitos", country: country || "" };
+        return { id: s.id?.toString() || "", surveyId: s.id?.toString() || "", title: s.name || `Survey ${s.id}`, description: s.description || `Earn $${s.amount || 0}`, clickUrl: s.url || "", value: s.amount ? parseFloat(s.amount) : 0, cpi: s.cpi ? parseFloat(s.cpi) : 0, loi: estimatedTime, estimatedTime, userRewardCoins, userRewardXP, reward: { coins: userRewardCoins, xp: userRewardXP, currency: s.amount_currency || "$" }, type: "survey", provider: "besitos", country: countries || "" };
       });
       const pageNum  = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -308,9 +334,10 @@ router.post("/admin/non-gaming/sync", adminAuth, async (req, res) => {
 
     if (sdk === "bitlabs") {
       const bitlabsService = require("../services/bitlabs.service");
+      const countryArray = country ? (Array.isArray(country) ? country : [country]) : ["US"];
       const result = await bitlabsService.getPublisherOffers({
         is_game: false,
-        country: country || "US",
+        countries: countryArray,
         devices: Array.isArray(devices) && devices.length > 0 ? devices : ["android", "iphone"],
       });
       if (!result.success || !result.data) return res.status(500).json({ success: false, message: "Failed to fetch offers from Bitlabs for sync" });
@@ -509,7 +536,8 @@ router.post("/admin/surveys/sync", adminAuth, async (req, res) => {
 
     } else {
       const bitlabsService = require("../services/bitlabs.service");
-      const result = await bitlabsService.getSurveys({ country: country || "US", platform: "mobile" });
+      const countryArray = country ? (Array.isArray(country) ? country : [country]) : ["US"];
+      const result = await bitlabsService.getSurveys({ countries: countryArray, platform: "mobile" });
       if (!result.success) return res.status(500).json({ success: false, message: "Failed to fetch surveys from Bitlabs" });
       const idSet  = new Set(offerIds.map(String));
       offersToSync = (result.data || []).filter(o => idSet.has(String(o.id || o.surveyId || o.offerId || "")));
@@ -856,7 +884,7 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
     if (bySdk.bitlabs) {
       try {
         const bitlabsService = require("../services/bitlabs.service");
-        const r = await bitlabsService.getPublisherOffers({ is_game: false, country: "US", devices: ["android", "iphone"] });
+        const r = await bitlabsService.getPublisherOffers({ is_game: false, countries: ["US"], devices: ["android", "iphone"] });
         freshBySdk.bitlabs = r.success ? (r.data || []) : [];
       } catch (_) { freshBySdk.bitlabs = []; }
     }
@@ -917,18 +945,12 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
 
     // 6. Apply XP tier multiplier — fetch once for this user, apply to all offers
     const userCurrentXP = userProfile.xp?.current || 0;
-    console.log(`\n===== [XP-MULTIPLIER DEBUG][non-gaming-offers] =====`);
-    console.log(`[XP-MULTIPLIER] Step 1 — User info | userId=${userId} | userXP=${userCurrentXP}`);
     const xpMultiplier = await getAccessBenefitsMultiplier(userCurrentXP);
-    console.log(`[XP-MULTIPLIER] Step 2 — Multiplier resolved | multiplier=${xpMultiplier} | availableOffers=${available.length}`);
-    const withXP = available.map((o, i) => {
+    const withXP = available.map(o => {
       const originalXP = o.userRewardXP;
       const adjustedXP = originalXP > 0 ? Math.round(originalXP * xpMultiplier) : originalXP;
-      console.log(`[XP-MULTIPLIER] Step 3 — Offer[${i}] "${o.title}" | baseXP=${originalXP} | ${originalXP} x ${xpMultiplier} = ${adjustedXP} | changed=${originalXP !== adjustedXP}`);
       return { ...o, userRewardXP: adjustedXP };
     });
-    console.log(`[XP-MULTIPLIER] Step 4 — Done | totalProcessed=${withXP.length}`);
-    console.log(`===== [XP-MULTIPLIER DEBUG END] =====\n`);
 
     const paginated = withXP.slice((pageNum - 1) * limitNum, pageNum * limitNum);
     res.json({ success: true, data: paginated, total: withXP.length, page: pageNum, limit: limitNum });
@@ -955,6 +977,9 @@ router.get("/user/surveys", protect, async (req, res) => {
 
     // 1. Load admin-configured live surveys from DB
     const dbSurveys = await SurveyConfig.find({ status: "live", isActive: true, offerType: "survey" }).sort({ createdAt: -1 }).lean();
+    console.log(`\n[SURVEYS-DEBUG] Admin configured surveys: ${dbSurveys.length}`);
+    dbSurveys.forEach(s => console.log(`  - Config: "${s.title}" | SDK: ${s.sdkName} | ExtID: ${s.externalId}`));
+
     if (!dbSurveys.length) return res.json({ success: true, data: [], total: 0, page: pageNum, limit: limitNum });
 
     // 2. Fetch fresh surveys from each provider
@@ -968,6 +993,7 @@ router.get("/user/surveys", protect, async (req, res) => {
         const bitlabsService = require("../services/bitlabs.service");
         const r = await bitlabsService.getSurveys({ platform: "mobile" });
         freshBySdk.bitlabs = r.success ? (r.data || []) : [];
+        console.log(`[SURVEYS-DEBUG] Bitlabs returned: ${freshBySdk.bitlabs.length} surveys`);
       } catch (_) { freshBySdk.bitlabs = []; }
     }
 
@@ -978,7 +1004,6 @@ router.get("/user/surveys", protect, async (req, res) => {
       try {
         const besitosService = require("../services/besitos.service");
         if (besitosService.isConfigured()) {
-          // Build params: pass real user IP + profile so Besitos targets correct surveys
           const userIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
                       || req.socket?.remoteAddress
                       || "127.0.0.1";
@@ -987,10 +1012,20 @@ router.get("/user/surveys", protect, async (req, res) => {
           if (userProfile.dateOfBirth) besitosParams.dob    = userProfile.dateOfBirth.toISOString().split("T")[0];
 
           // partner_user_id is in the PATH — Besitos generates a user-specific redirect URL
+          console.log(`[BESITOS-DEBUG] Calling getSurveysWall for userId=${userId} with params:`, JSON.stringify(besitosParams));
           const raw  = await besitosService.getSurveysWall(String(userId), besitosParams);
+          console.log(`[BESITOS-DEBUG] Raw response type: ${typeof raw}, isArray: ${Array.isArray(raw)}`);
+          console.log(`[BESITOS-DEBUG] Raw response keys: ${raw && typeof raw === 'object' ? Object.keys(raw).join(', ') : 'N/A'}`);
+          if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            console.log(`[BESITOS-DEBUG] raw.data: ${JSON.stringify(raw.data)?.substring(0, 500)}`);
+            console.log(`[BESITOS-DEBUG] raw.surveys: ${JSON.stringify(raw.surveys)?.substring(0, 500)}`);
+          }
           const list = Array.isArray(raw) ? raw : (raw?.data || raw?.surveys || []);
           freshBySdk.besitos = list.map(s => ({ id: s.id?.toString() || "", clickUrl: s.url || "", url: s.url || "" }));
-          console.log(`[user/surveys] Besitos returned ${list.length} surveys for userId=${userId}`);
+          console.log(`[BESITOS-DEBUG] Parsed list length: ${list.length}`);
+          if (list.length > 0) {
+            console.log(`[BESITOS-DEBUG] First item sample:`, JSON.stringify(list[0])?.substring(0, 500));
+          }
         } else {
           console.warn("[user/surveys] Besitos is not configured — surveys hidden");
           freshBySdk.besitos = [];
@@ -1002,9 +1037,16 @@ router.get("/user/surveys", protect, async (req, res) => {
     }
 
     // 3. Match and inject userId tracking URLs
+    console.log(`[SURVEYS-DEBUG] Starting match for ${dbSurveys.length} configured surveys...`);
     const result = dbSurveys.map(o => {
       const freshList = freshBySdk[o.sdkName] || [];
       const fresh = freshList.find(f => String(f.id || f.surveyId || f.offerId || "") === String(o.externalId));
+
+      if (!fresh) {
+        console.log(`[SURVEYS-DEBUG] ❌ MISMATCH: "${o.title}" | SDK: ${o.sdkName} | ID: ${o.externalId} -> NOT FOUND in fresh list`);
+      } else {
+        console.log(`[SURVEYS-DEBUG] ✅ MATCH: "${o.title}" found`);
+      }
 
       const rawUrl = fresh
         ? (fresh.clickUrl || fresh.url || fresh.surveyUrl || fresh.click_url || o.clickUrl || o.surveyUrl || "")
@@ -1034,7 +1076,17 @@ router.get("/user/surveys", protect, async (req, res) => {
     });
 
     // 4. Only return surveys currently live in the SDK AND matching user's audience segment
-    const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
+    console.log(`[SURVEYS-DEBUG] Checking eligibility...`);
+    const available = result.filter(o => {
+      const isAvail = o.isAvailable;
+      const isElig = isEligible(userProfile, o.targetAudience);
+      
+      if (!isAvail) console.log(`[SURVEYS-DEBUG] ⛔ DROPPED (Not Live): "${o.title}"`);
+      else if (!isElig) console.log(`[SURVEYS-DEBUG] ⛔ DROPPED (Not Eligible): "${o.title}"`);
+      else console.log(`[SURVEYS-DEBUG] ✅ PASS: "${o.title}"`);
+
+      return isAvail && isElig;
+    });
 
     // 5. Apply XP tier multiplier — fetch once for this user, apply to all surveys
     const userCurrentXP = userProfile.xp?.current || 0;

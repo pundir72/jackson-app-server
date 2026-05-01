@@ -46,11 +46,6 @@ const gameSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
-    defaultTaskCount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
     xpTier: {
       type: Number,
       min: 1,
@@ -225,6 +220,13 @@ const gameSchema = new mongoose.Schema(
         default: false,
       },
     },
+    // Country codes for filtering (games may be available in specific countries)
+    countries: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     analytics: {
       totalPlays: {
         type: Number,

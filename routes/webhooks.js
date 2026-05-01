@@ -1307,14 +1307,19 @@ router.post("/bitlabs/completion", async (req, res) => {
  * - Subscriptions, Uninstalls, Reinstalls
  * - Rejected installs/reattributions
  */
-router.post("/adjust/callback", async (req, res) => {
+router.all("/adjust/callback", async (req, res) => {
   try {
-    const callbackData = req.body;
-    console.log("Adjus body callback received:", callbackData);
-    console.log("Adjus query callback received:", req.query);
+    // Handle both POST (JSON body) and GET (query parameters)
+    // Client configured GET with query params: ?click_label=abc&network=facebook...
+    const callbackData = req.method === 'GET' ? req.query : req.body;
+    
+    console.log(`Adjus callback received via ${req.method}:`, callbackData);
     console.log("Adjust callback received:", {
+      method: req.method,
       activityKind: callbackData.activity_kind || callbackData.activityKind,
       appToken: callbackData.app_token || callbackData.appToken,
+      clickLabel: callbackData.click_label || callbackData.clickLabel,
+      network: callbackData.network,
       timestamp: new Date().toISOString(),
     });
 
@@ -1421,6 +1426,52 @@ router.post("/adjust/callback", async (req, res) => {
       skadnetworkPostbackSequenceIndex:
         callbackData.skadnetwork_postback_sequence_index ||
         callbackData.skadnetworkPostbackSequenceIndex,
+      skPayload: callbackData.sk_payload || callbackData.skPayload,
+      skVersion: callbackData.sk_version || callbackData.skVersion,
+      skNetworkId: callbackData.sk_network_id || callbackData.skNetworkId,
+      skCampaignId: callbackData.sk_campaign_id || callbackData.skCampaignId,
+      skFidelityType:
+        callbackData.sk_fidelity_type || callbackData.skFidelityType,
+      nonce: callbackData.nonce,
+
+      // Additional timestamps
+      installedAt:
+        callbackData.installed_at || callbackData.installedAt
+          ? new Date(callbackData.installed_at || callbackData.installedAt)
+          : null,
+      impressionTime:
+        callbackData.impression_time || callbackData.impressionTime
+          ? new Date(callbackData.impression_time || callbackData.impressionTime)
+          : null,
+      uninstallTime:
+        callbackData.uninstall_time || callbackData.uninstallTime
+          ? new Date(callbackData.uninstall_time || callbackData.uninstallTime)
+          : null,
+
+      // Attribution details
+      matchType: callbackData.match_type || callbackData.matchType,
+
+      // Platform details
+      osName: callbackData.os_name || callbackData.osName,
+      deviceManufacturer:
+        callbackData.device_manufacturer || callbackData.deviceManufacturer,
+      store: callbackData.store,
+
+      // iOS ATT
+      attStatus:
+        callbackData.att_status || callbackData.attStatus
+          ? Number(callbackData.att_status || callbackData.attStatus)
+          : null,
+
+      // Reporting revenue
+      reportingRevenue:
+        callbackData.reporting_revenue || callbackData.reportingRevenue
+          ? Number(callbackData.reporting_revenue || callbackData.reportingRevenue)
+          : null,
+
+      // Publisher parameter
+      publisherParameter:
+        callbackData.publisher_parameter || callbackData.publisherParameter,
 
       // Subscription information
       subscriptionPeriod:
@@ -1430,6 +1481,11 @@ router.post("/adjust/callback", async (req, res) => {
       subscriptionProductId:
         callbackData.subscription_product_id ||
         callbackData.subscriptionProductId,
+
+      // Cost/Ad Spend Data (from Adjust callbacks)
+      costAmount: callbackData.cost_amount ? Number(callbackData.cost_amount) : null,
+      costCurrency: callbackData.cost_currency || callbackData.costCurrency || null,
+      costType: callbackData.cost_type || callbackData.costType || null,
 
       // Store raw data
       rawData: callbackData,
@@ -1512,45 +1568,81 @@ async function processAdjustCallback(callback) {
  * Process install callback
  */
 async function processInstall(callback) {
+  let user;
+
+  // Bug 2 Fix: Try to find user by userId first, then by adjustUserId
   if (callback.userId) {
-    const user = await User.findById(callback.userId);
+    user = await User.findById(callback.userId);
+  }
+
+  // If not found by userId, try to find by adjustUserId in metadata or AdjustCallback
+  if (!user && callback.adjustUserId) {
+    // First check if any user has this adjustUserId in metadata
+    user = await User.findOne({ 'metadata.adjust.userId': callback.adjustUserId });
+
+    // If found, link the userId to this AdjustCallback
     if (user) {
-      // Store Adjust user ID in metadata
-      if (!user.metadata) {
-        user.metadata = {};
-      }
-      if (!user.metadata.adjust) {
-        user.metadata.adjust = {};
-      }
-      user.metadata.adjust.userId = callback.adjustUserId;
-
-      // Store attribution information in metadata
-      user.metadata.adjust.attribution = {
-        trackerToken: callback.trackerToken,
-        trackerName: callback.trackerName,
-        network: callback.network,
-        campaign: callback.campaign,
-        adgroup: callback.adgroup,
-        creative: callback.creative,
-        isOrganic: callback.isOrganic,
-        installTime: callback.installTime || callback.createdAtAdjust,
-      };
-
-      // Update device information if available
-      if (callback.platform) {
-        user.device.type = callback.platform;
-      }
-      if (callback.deviceType) {
-        user.device.model = callback.deviceType;
-      }
-      if (callback.osVersion) {
-        user.device.os = callback.osVersion;
-      }
-      user.device.lastUpdated = new Date();
-
-      await user.save();
-      console.log(`Processed Adjust install for user ${callback.userId}`);
+      callback.userId = user._id;
+      await callback.save();
+      console.log(`Linked AdjustCallback ${callback._id} to user ${user._id} via adjustUserId`);
     }
+  }
+
+  // If still not found, try to find by adjustUserId in other AdjustCallback records
+  if (!user && callback.adjustUserId) {
+    const existingCallback = await AdjustCallback.findOne({
+      adjustUserId: callback.adjustUserId,
+      userId: { $exists: true, $ne: null }
+    }).sort({ createdAt: -1 });
+
+    if (existingCallback && existingCallback.userId) {
+      user = await User.findById(existingCallback.userId);
+      if (user) {
+        callback.userId = user._id;
+        await callback.save();
+        console.log(`Linked AdjustCallback ${callback._id} to user ${user._id} via existing callback`);
+      }
+    }
+  }
+
+  if (user) {
+    // Store Adjust user ID in metadata
+    if (!user.metadata) {
+      user.metadata = {};
+    }
+    if (!user.metadata.adjust) {
+      user.metadata.adjust = {};
+    }
+    user.metadata.adjust.userId = callback.adjustUserId;
+
+    // Store attribution information in metadata
+    user.metadata.adjust.attribution = {
+      trackerToken: callback.trackerToken,
+      trackerName: callback.trackerName,
+      network: callback.network,
+      campaign: callback.campaign,
+      adgroup: callback.adgroup,
+      creative: callback.creative,
+      isOrganic: callback.isOrganic,
+      installTime: callback.installTime || callback.createdAtAdjust,
+    };
+
+    // Update device information if available
+    if (callback.platform) {
+      user.device.type = callback.platform;
+    }
+    if (callback.deviceType) {
+      user.device.model = callback.deviceType;
+    }
+    if (callback.osVersion) {
+      user.device.os = callback.osVersion;
+    }
+    user.device.lastUpdated = new Date();
+
+    await user.save();
+    console.log(`Processed Adjust install for user ${user._id}`);
+  } else {
+    console.log(`No user found for AdjustCallback ${callback._id} with adjustUserId: ${callback.adjustUserId}`);
   }
 }
 

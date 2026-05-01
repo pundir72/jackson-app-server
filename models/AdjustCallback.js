@@ -82,7 +82,10 @@ const adjustCallbackSchema = new mongoose.Schema({
   // Timestamps
   clickTime: Date,
   installTime: Date,
+  installedAt: Date,
   eventTime: Date,
+  impressionTime: Date,
+  uninstallTime: Date,
   createdAt: Date,
   createdAtAdjust: Date,
 
@@ -91,6 +94,7 @@ const adjustCallbackSchema = new mongoose.Schema({
   attributionWindow: String,
   isOrganic: Boolean,
   isReattribution: Boolean,
+  matchType: String,
 
   // Location Information
   country: String,
@@ -101,21 +105,44 @@ const adjustCallbackSchema = new mongoose.Schema({
 
   // Platform Information
   platform: String,
+  osName: String,
   osVersion: String,
   appVersion: String,
   deviceType: String,
   deviceName: String,
+  deviceManufacturer: String,
+  store: String,
+
+  // iOS ATT (App Tracking Transparency)
+  attStatus: Number,
 
   // SKAdNetwork Information (iOS)
   skadnetworkConversionValue: Number,
   skadnetworkCoarseValue: String,
   skadnetworkLockWindow: Boolean,
   skadnetworkPostbackSequenceIndex: Number,
+  skPayload: String,
+  skVersion: String,
+  skNetworkId: String,
+  skCampaignId: String,
+  skFidelityType: Number,
+  nonce: String,
+
+  // Reporting Revenue (dashboard revenue)
+  reportingRevenue: Number,
+
+  // Publisher Parameter (all callback params as string)
+  publisherParameter: String,
 
   // Subscription Information
   subscriptionPeriod: String,
   subscriptionState: String,
   subscriptionProductId: String,
+
+  // Cost/Ad Spend Data (from Adjust callbacks)
+  costAmount: Number,
+  costCurrency: String,
+  costType: String,
 
   // Raw callback data (store full payload for reference)
   rawData: {

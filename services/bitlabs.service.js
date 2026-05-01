@@ -745,7 +745,8 @@ class BitlabsService {
       };
       const headers = {
         "X-Api-Token": this.apiToken,
-        "X-User-Id": userId,
+        "X-User-Id": userIdentifier,
+        "X-S2S-Token": this.serverToServerKey,
         Accept: "application/json",
         "Content-Type": "application/json",
       };
@@ -808,23 +809,28 @@ class BitlabsService {
     }
 
     try {
+      console.log("\n🔵 ========== GETSURVEYS DEBUG ==========");
+      console.log("🔵 Input:", JSON.stringify(queryParams));
+      
+      // Use client surveys endpoint - returns actual surveys, not gaming offers
+      // Official docs: https://developer.bitlabs.ai/reference/getsurveysv2
       const endpoint = "/v2/client/surveys";
       const fullURL = `${this.baseURL}${endpoint}`;
-      const userIdentifier = userId || queryParams.userId || "static-inventory";
-      
-      // Detect if this is an admin request (no real userId provided)
-      const isAdminRequest = !userId && !queryParams.userId;
-
-      // Log request details for debugging
-      console.log("\n🔵 [BITLABS SURVEYS] ========== GET SURVEYS REQUEST ==========");
+      console.log("🔵 Using endpoint:", endpoint);
       // console.log("🔵 [BITLABS SURVEYS] Endpoint:", endpoint);
       // console.log("🔵 [BITLABS SURVEYS] Full URL:", fullURL);
       // console.log("🔵 [BITLABS SURVEYS] User ID:", userIdentifier);
       // console.log("🔵 [BITLABS SURVEYS] Is Admin Request:", isAdminRequest);
 
       // Normalize parameters
-      const { userId: _, platform, sdk, country, ...restParams } = queryParams;
+      const { userId: _, platform, sdk, country, countries, devices, ...restParams } = queryParams;
       const normalizedParams = { ...restParams };
+
+      // Detect if this is an admin request (no real userId provided)
+      const isAdminRequest = !userId && !queryParams.userId;
+
+      // Define user identifier for API headers
+      const userIdentifier = userId || queryParams.userId || "static-inventory";
 
       // Add SDK parameter (recommended by BitLabs, replaces deprecated platform/os)
       // Valid values: CUSTOM, IFRAME, TAB, NATIVE, UNITY, REACT, FLUTTER
@@ -835,54 +841,37 @@ class BitlabsService {
         normalizedParams.sdk = "CUSTOM";
       }
 
-      // Add country parameter (CRITICAL: surveys are country-specific)
-      if (country) {
-        normalizedParams.country = country;
-      }
-
-      // Convert platform to devices array (DEPRECATED but kept for backward compatibility)
-      // Note: BitLabs docs say platform/os are deprecated, use sdk instead
-      if (platform) {
-        if (platform === "ios" || platform === "iphone") {
-          normalizedParams.devices = ["iphone"];
-        } else if (platform === "ipad") {
-          normalizedParams.devices = ["ipad"];
-        } else if (platform === "android") {
-          normalizedParams.devices = ["android"];
-        } else if (platform === "mobile") {
-          normalizedParams.devices = ["iphone", "android"];
-        }
-      }
+      // Note: /v2/client/surveys does NOT support 'countries' or 'devices' parameters
+      // Those parameters are only for /v2/publishers/offers endpoint
+      // Country filtering is handled per-user based on their profile in BitLabs
 
       // CRITICAL: client_xx parameters for backend survey API calls
       // Bitlabs has enabled "Allow Backend Survey API Calls" which requires client_xx parameters
       // These parameters are required for backend servers to call the survey API
       if (isAdminRequest || !userId) {
-        // For backend/admin calls, include client_ip and client_user_agent
+        // For backend/admin calls, include client_ip and client_useragent
         // Use configured IP or default to 127.0.0.1 for backend calls
         normalizedParams.client_ip = config.BITLABS_WHITELISTED_IP || "127.0.0.1";
         // Add a default user agent for backend calls if not provided
-        if (!normalizedParams.client_user_agent) {
-          normalizedParams.client_user_agent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
+        if (!normalizedParams.client_useragent) {
+          normalizedParams.client_useragent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36";
         }
       } else if (queryParams.client_ip) {
         // For user-facing calls, use provided client_ip if available
         normalizedParams.client_ip = queryParams.client_ip;
       }
-      if (queryParams.client_user_agent) {
-        normalizedParams.client_user_agent = queryParams.client_user_agent;
+      if (queryParams.client_useragent) {
+        normalizedParams.client_useragent = queryParams.client_useragent;
       }
 
       const headers = {
         "X-Api-Token": this.apiToken,
         "X-User-Id": userIdentifier,
         Accept: "application/json",
-        "Content-Type": "application/json",
       };
 
-      const paramsSerializer = {
-        indexes: null,
-      };
+      // Note: /v2/client/surveys uses standard query params (not comma-separated like publisher API)
+      console.log("🔵 Headers:", { "X-Api-Token": this.apiToken ? "SET" : "MISSING" });
       
       // console.log("🔵 [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
       // console.log("🔵 [BITLABS SURVEYS] Headers:", {
@@ -896,7 +885,6 @@ class BitlabsService {
         response = await this.client.get(endpoint, {
           headers: headers,
           params: normalizedParams,
-          paramsSerializer: paramsSerializer,
         });
 
         // Log raw response from Bitlabs
@@ -952,11 +940,8 @@ class BitlabsService {
           "🔴 [BITLABS SURVEYS] ❌ Trace ID:",
           errorData?.trace_id
         );
-        console.error("🔴 [BITLABS SURVEYS] ❌ Request URL:", fullURL);
-        console.error("🔴 [BITLABS SURVEYS] ❌ Request Headers:", {
-          "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
-          "X-User-Id": userIdentifier,
-        });
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request URL:", `${this.baseURL}${endpoint}`);
+        console.error("🔴 [BITLABS SURVEYS] ❌ Request Headers:", headers);
         console.error(
           "🔴 [BITLABS SURVEYS] ❌ Request Params:",
           JSON.stringify(normalizedParams, null, 2)
@@ -1005,6 +990,7 @@ class BitlabsService {
       }
 
       // Normalize response - Bitlabs surveys API structure
+      // Official response: { data: { surveys: [...] }, status: "success", trace_id: "..." }
       let rawSurveys = [];
 
       if (Array.isArray(response.data)) {
@@ -1013,15 +999,16 @@ class BitlabsService {
         response.data?.data?.surveys &&
         Array.isArray(response.data.data.surveys)
       ) {
-        // BitLab actual response structure: { data: { surveys: [...] } }
+        // BitLabs surveys API: { data: { surveys: [...] }, status: "success" }
         rawSurveys = response.data.data.surveys;
-      } else if (response.data?.data && Array.isArray(response.data.data)) {
-        rawSurveys = response.data.data;
       } else if (
         response.data?.surveys &&
         Array.isArray(response.data.surveys)
       ) {
+        // Alternative structure: { surveys: [...] }
         rawSurveys = response.data.surveys;
+      } else if (response.data?.data && Array.isArray(response.data.data)) {
+        rawSurveys = response.data.data;
       } else if (response.data?.items && Array.isArray(response.data.items)) {
         rawSurveys = response.data.items;
       } else {
@@ -1040,9 +1027,10 @@ class BitlabsService {
 
 
       // Check for restriction_reason (CRITICAL: tells us why surveys might be empty)
+      // For /v2/client/surveys, restriction_reason is at the top level or inside data
       const restrictionReason =
-        response.data?.data?.restriction_reason ||
         response.data?.restriction_reason ||
+        response.data?.data?.restriction_reason ||
         null;
 
       if (restrictionReason) {
@@ -1206,7 +1194,7 @@ class BitlabsService {
       );
       console.error(
         "🔴 [BITLABS API SERVICE] ❌ Request URL:",
-        `${this.baseURL}/v2/client/surveys`
+        `${this.baseURL}${endpoint}`
       );
       console.error(
         "🔴 [BITLABS SURVEYS] ❌ User ID Used:",
@@ -1769,7 +1757,8 @@ class BitlabsService {
 
       const headers = {
         "X-Api-Token": this.apiToken,
-        "X-User-Id": userId || "static-inventory",
+        "X-User-Id": userIdentifier,
+        "X-S2S-Token": this.serverToServerKey,
         Accept: "application/json",
         "Content-Type": "application/json",
       };
@@ -2040,12 +2029,23 @@ class BitlabsService {
 
     try {
       const endpoint = "/v2/publishers/offers";
-      const fullURL = `${this.baseURL}${endpoint}`;
 
       // Normalize parameters
-      // Note: Publisher API may not support 'type' parameter - we'll filter after response
-      const { type, is_game, ...restParams } = queryParams;
-      const normalizedParams = { ...restParams };
+      const { type, is_game, countries, country, ...restParams } = queryParams;
+      let normalizedParams = { ...restParams };
+
+      // Remove ANY country param completely to avoid duplicate
+      delete normalizedParams.country;
+      delete normalizedParams.countries; // Will set fresh below
+
+      // Handle countries - use provided or default
+      if (countries && (Array.isArray(countries) ? countries.length > 0 : countries)) {
+        normalizedParams.countries = Array.isArray(countries) ? countries : [countries];
+      } else if (country) {
+        normalizedParams.countries = [country];
+      } else {
+        normalizedParams.countries = ["US"];
+      }
 
       // Add is_game to request if Publisher API supports it (true = games only, false = non-games only)
       if (is_game === true || is_game === "true") {
@@ -2079,39 +2079,25 @@ class BitlabsService {
         Accept: "application/json",
         "Content-Type": "application/json",
       };
-      
-      if (!this.serverToServerKey) {
-        console.warn("⚠️ [BITLABS PUBLISHER] BITLABS_SERVER_TO_SERVER_KEY not configured. Using API token as fallback.");
-      }
 
-      const paramsSerializer = {
-        indexes: null,
+      // Publisher API expects comma-separated: countries=US,IN
+      const paramsSerializer = (params) => {
+        const searchParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+          if (Array.isArray(value)) {
+            searchParams.append(key, value.join(','));
+          } else {
+            searchParams.append(key, value);
+          }
+        });
+        return searchParams.toString();
       };
-
-      // console.log("\n🔵 [BITLABS PUBLISHER] ========== GET PUBLISHER OFFERS REQUEST ==========");
-      // console.log("🔵 [BITLABS PUBLISHER] Endpoint:", endpoint);
-      // console.log("🔵 [BITLABS PUBLISHER] Full URL:", fullURL);
-      // console.log("🔵 [BITLABS PUBLISHER] Query Params:", JSON.stringify(normalizedParams, null, 2));
-      // console.log("🔵 [BITLABS PUBLISHER] Headers:", {
-      //   "X-S2S-Token": this.serverToServerKey ? "***SET***" : (this.apiToken ? "***FALLBACK***" : "MISSING"),
-      // });
-      // console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
 
       const response = await this.client.get(endpoint, {
         headers: headers,
         params: normalizedParams,
         paramsSerializer: paramsSerializer,
       });
-
-      console.log("\n🔵 [BITLABS PUBLISHER] ========== RAW API RESPONSE ==========");
-      // console.log("🔵 [BITLABS PUBLISHER] Response Status:", response.status);
-      // console.log("🔵 [BITLABS PUBLISHER] Response Data Type:", typeof response.data);
-      // console.log("🔵 [BITLABS PUBLISHER] Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
-      if (response.data) {
-        const responseStr = JSON.stringify(response.data, null, 2);
-        // console.log("🔵 [BITLABS PUBLISHER] Response Structure (first 2000 chars):", responseStr.substring(0, 2000));
-      }
-      // console.log("🔵 [BITLABS PUBLISHER] ==================================================\n");
 
       // Parse response - Publisher API may have different structure
       let offers = [];
@@ -2124,8 +2110,6 @@ class BitlabsService {
       } else if (response.data?.data && Array.isArray(response.data.data)) {
         offers = response.data.data;
       }
-
-      // console.log("🔵 [BITLABS PUBLISHER] Parsed offers count:", offers.length);
 
       // Filter by type if specified (since Publisher API may not support type parameter)
       let filteredOffers = offers;

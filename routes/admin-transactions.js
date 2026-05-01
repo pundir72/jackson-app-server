@@ -862,7 +862,7 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
       USD: conversionRate,
     };
 
-    // Format conversion rules - USD only
+    // Format conversion rules - USD only (use stored values directly)
     const conversionRules = [
       {
         currency: settings.currency,
@@ -882,13 +882,18 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
       },
     ];
 
+    // Dynamically calculate minRedemption (20% of coinsPerDollar)
+    const BASE_MIN_COINS = 20;
+    const BASE_COINS_PER_DOLLAR = 100;
+    const dynamicMinRedemption = Math.round(settings.coinsPerDollar * (BASE_MIN_COINS / BASE_COINS_PER_DOLLAR));
+
     res.json({
       success: true,
       data: {
         conversionRules,
         defaultRule: {
           coinsPerDollar: settings.coinsPerDollar,
-          minRedemption: settings.minRedemption,
+          minRedemption: dynamicMinRedemption, // Always calculate dynamically
           maxRedemption: settings.maxRedemption,
           defaultCurrency: settings.currency,
           conversionRates: coinConversionRates,
@@ -914,7 +919,7 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
         ],
         defaultRule: {
           coinsPerDollar: 100,
-          minRedemption: 100,
+          minRedemption: 20, // 20 coins when 100 coins = $1
           maxRedemption: 10000,
           defaultCurrency: "USD",
         },
@@ -928,7 +933,6 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
  * @desc    Update Coin to currency conversion settings
  * @body    {string} currency - Currency code (USD)
  * @body    {number} coinsPerDollar - Coins per dollar
- * @body    {number} coinsPerUnit - Coins per unit
  * @body    {number} currencyAmount - Currency amount per unit
  * @access  Admin
  */
@@ -937,12 +941,9 @@ router.put(
   adminAuth,
   [
     body("currency").notEmpty().withMessage("Currency is required"),
-    body("coinsPerDollar")
-      .isFloat({ min: 0.01 })
-      .withMessage("Coins per dollar must be a positive number"),
     body("coinsPerUnit")
-      .isInt({ min: 1 })
-      .withMessage("Coins per unit must be a positive integer"),
+      .isFloat({ min: 0.01 })
+      .withMessage("Coins per unit must be a positive number"),
     body("currencyAmount")
       .isFloat({ min: 0.01 })
       .withMessage("Currency amount must be a positive number"),
@@ -958,7 +959,7 @@ router.put(
         });
       }
 
-      const { currency, coinsPerDollar, coinsPerUnit, currencyAmount } =
+      const { currency, coinsPerUnit, currencyAmount } =
         req.body;
 
       // Validate currency
@@ -974,19 +975,29 @@ router.put(
         currency: currency.toUpperCase(),
       });
 
+      // Calculate coinsPerDollar from the rule: coinsPerDollar = coinsPerUnit / currencyAmount
+      const calculatedCoinsPerDollar = parseFloat(coinsPerUnit) / parseFloat(currencyAmount);
+
+      // Calculate minRedemption dynamically (20% of coinsPerDollar)
+      const BASE_MIN_COINS = 20;
+      const BASE_COINS_PER_DOLLAR = 100;
+      const scalingFactor = BASE_MIN_COINS / BASE_COINS_PER_DOLLAR;
+      const calculatedMinRedemption = Math.round(calculatedCoinsPerDollar * scalingFactor);
+
       // Update conversion settings in database
       const updatedSettings = await ConversionSettings.updateSettings(
         currency,
         {
-          coinsPerDollar: parseFloat(coinsPerDollar),
-          coinsPerUnit: parseInt(coinsPerUnit),
+          coinsPerDollar: calculatedCoinsPerDollar,
+          coinsPerUnit: parseFloat(coinsPerUnit),
           currencyAmount: parseFloat(currencyAmount),
+          minRedemption: calculatedMinRedemption,
         },
         req.user.userId
       );
 
       // Calculate conversion rate
-      const conversionRate = coinsPerDollar > 0 ? 1 / coinsPerDollar : 0.01;
+      const conversionRate = updatedSettings.coinsPerDollar > 0 ? 1 / updatedSettings.coinsPerDollar : 0.01;
 
       // Format updated conversion rules
       const updatedConversionRules = [
@@ -1053,6 +1064,7 @@ router.put(
     }
   }
 );
+
 
 // ==================== SCREEN 5: AUDIT TRAILS ====================
 

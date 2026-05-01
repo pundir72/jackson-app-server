@@ -297,7 +297,7 @@ async function getAdminConfiguredOffers(
           // Use same Bitlabs function as admin: Publisher API (getPublisherOffers)
           const bitlabsService = require("../services/bitlabs.service");
           const publisherQuery = {
-            country: userProfileForAPI.country || "US",
+            countries: [userProfileForAPI.country || "US"],
             devices: ["android", "iphone"],
             is_game: false,
           };
@@ -2074,7 +2074,7 @@ router.get("/surveys", protect, async (req, res) => {
             // Use same Bitlabs function as admin: Publisher API (getPublisherOffers) for survey catalog and click URLs
             try {
               const bitlabsResult = await bitlabsService.getPublisherOffers({
-                country: userProfile.country || "US",
+                countries: [userProfile.country || "US"],
                 devices: ["android", "iphone"],
                 is_game: false,
                 type: "survey",

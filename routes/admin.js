@@ -2434,26 +2434,29 @@ router.post(
 // ==================== DASHBOARD STATS ====================
 
 /**
- * Build user filter query from request parameters
+ * Build user filter query based on filters
  * Note: Source filter is based on User.social.provider field
  */
 async function buildUserFilter(filters) {
   const conditions = []
 
-  // Source filter - based on social.provider field
+  // Source filter - FIXED: Use Adjust attribution data instead of OAuth provider
   if (filters.source) {
-    if (filters.source === 'direct') {
-      // Direct users: all users who are NOT google AND NOT facebook
-      // Simplest approach: use $nin which handles 'local', null, undefined, missing field
+    if (filters.source === 'direct' || filters.source === 'Organic') {
+      // Organic/Direct users: no Adjust attribution or isOrganic flag set
       conditions.push({
-        'social.provider': { $nin: ['google', 'facebook'] },
+        $or: [
+          { 'metadata.adjust.attribution.network': { $exists: false } },
+          { 'metadata.adjust.attribution.network': null },
+          { 'metadata.adjust.attribution.network': '' },
+          { 'metadata.adjust.attribution.isOrganic': true }
+        ]
       })
-    } else if (filters.source === 'google' || filters.source === 'facebook') {
-      // Filter by social.provider
-      conditions.push({ 'social.provider': filters.source })
     } else {
-      // For other sources, check if they match social.provider
-      conditions.push({ 'social.provider': filters.source })
+      // Filter by Adjust attribution network (TikTok, Instagram, Snapchat, Facebook, Google, etc.)
+      conditions.push({
+        'metadata.adjust.attribution.network': new RegExp(filters.source, 'i')
+      })
     }
   }
 
@@ -2471,21 +2474,6 @@ async function buildUserFilter(filters) {
     // Filter users who have installed/played this game
     conditions.push({ 'games.gameId': filters.gameId })
   }
-
-  // REMOVED: Date filtering by user registration date
-  // Date filters should only apply to activity dates and transactions, not user registration
-  // This was causing the issue where filtering by "yesterday" only showed users registered yesterday
-  
-  // if (filters.startDate || filters.endDate) {
-  //   const dateCondition = {}
-  //   if (filters.startDate) {
-  //     dateCondition.$gte = new Date(filters.startDate)
-  //   }
-  //   if (filters.endDate) {
-  //     dateCondition.$lte = new Date(filters.endDate)
-  //   }
-  //   conditions.push({ createdAt: dateCondition })
-  // }
 
   // If we have conditions, use $and, otherwise return empty query (matches all)
   if (conditions.length > 0) {
@@ -3290,117 +3278,112 @@ router.get(
       }
 
       // ==================== ATTRIBUTION PERFORMANCE ====================
-      // Get all users and calculate sources properly - MUST use same date filters as userFilter
-      // Build base query with date filters (same as userFilter but without source/gender/age)
-      const baseDateQuery = {}
+      // FIXED: Use Adjust attribution data instead of OAuth provider
+      const AdjustCallback = require('../models/AdjustCallback')
+
+      // Build date filter for Adjust callbacks
+      const adjustDateFilter = {}
       if (filters.startDate || filters.endDate) {
-        baseDateQuery.createdAt = {}
+        adjustDateFilter.createdAt = {}
         if (filters.startDate) {
-          baseDateQuery.createdAt.$gte = new Date(filters.startDate)
+          adjustDateFilter.createdAt.$gte = new Date(filters.startDate)
         }
         if (filters.endDate) {
-          baseDateQuery.createdAt.$lte = new Date(filters.endDate)
+          adjustDateFilter.createdAt.$lte = new Date(filters.endDate)
         }
       }
 
-      // Get counts for google and facebook WITH date filters
-      const googleQuery = { 'social.provider': 'google', ...baseDateQuery }
-      const facebookQuery = { 'social.provider': 'facebook', ...baseDateQuery }
-      const googleCount = await User.countDocuments(googleQuery)
-      const facebookCount = await User.countDocuments(facebookQuery)
-
-      // Direct users query: all users who are NOT google AND NOT facebook
-      // This should match: 'local' (default), null, undefined, missing field, or any other value
-      // Simplest approach: use $nin which handles all cases
-      const directQueryBase = {
-        'social.provider': { $nin: ['google', 'facebook'] },
+      // Get install data from Adjust grouped by network/source
+      const installMatch = {
+        activityKind: { $in: ['install', 'reattribution', 'reattribution_reinstall'] },
+        ...adjustDateFilter,
       }
 
-      // Combine with date filter
-      const directQuery =
-        Object.keys(baseDateQuery).length > 0
-          ? { $and: [directQueryBase, baseDateQuery] }
-          : directQueryBase
+      // Add source filter if specified
+      if (filters.source) {
+        installMatch.network = new RegExp(filters.source, 'i')
+      }
 
-      const directCount = await User.countDocuments(directQuery)
-
-      // Build sources list: always include google, facebook, and direct
-      const allSources = []
-      if (googleCount > 0) allSources.push('google')
-      if (facebookCount > 0) allSources.push('facebook')
-      if (directCount > 0) allSources.push('direct')
-
-      const attributionData = await Promise.all(
-        allSources.map(async (source) => {
-          // Build query for this source
-          let sourceQuery = {}
-          if (source === 'direct') {
-            // Direct users: all users who are NOT google AND NOT facebook
-            // Simplest approach: use $nin which handles 'local', null, undefined, missing field
-            const directQueryBase = {
-              'social.provider': { $nin: ['google', 'facebook'] },
-            }
-
-            // Add date filter if provided
-            if (filters.startDate || filters.endDate) {
-              const dateFilter = {}
-              dateFilter.createdAt = {}
-              if (filters.startDate) {
-                dateFilter.createdAt.$gte = new Date(filters.startDate)
-              }
-              if (filters.endDate) {
-                dateFilter.createdAt.$lte = new Date(filters.endDate)
-              }
-              sourceQuery = { $and: [directQueryBase, dateFilter] }
-            } else {
-              sourceQuery = directQueryBase
-            }
-          } else {
-            // OAuth users: filter by social.provider
-            sourceQuery = { 'social.provider': source }
-
-            // Add date filter if provided
-            if (filters.startDate || filters.endDate) {
-              sourceQuery.createdAt = {}
-              if (filters.startDate) {
-                sourceQuery.createdAt.$gte = new Date(filters.startDate)
-              }
-              if (filters.endDate) {
-                sourceQuery.createdAt.$lte = new Date(filters.endDate)
-              }
-            }
+      const installAggregation = await AdjustCallback.aggregate([
+        { $match: installMatch },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'user'
           }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        // Apply age/gender filters if specified
+        ...(filters.age ? [{
+          $match: {
+            'user.age': { $gte: parseInt(filters.age.split('-')[0]), $lte: parseInt(filters.age.split('-')[1] || filters.age) }
+          }
+        }] : []),
+        ...(filters.gender ? [{
+          $match: { 'user.gender': filters.gender }
+        }] : []),
+        {
+          $group: {
+            _id: {
+              network: { $ifNull: ['$network', 'Organic'] },
+              trackerName: { $ifNull: ['$trackerName', 'direct'] }
+            },
+            installs: { $addToSet: '$userId' },
+          }
+        },
+        {
+          $project: {
+            source: '$_id.network',
+            trackerName: '$_id.trackerName',
+            installs: { $size: '$installs' },
+            userIds: '$installs'
+          }
+        },
+        { $sort: { installs: -1 } }
+      ])
 
-          const sourceUsers = await User.find(sourceQuery)
-            .select('_id createdAt dailyActivity')
-            .lean()
+      // Build attribution data with all metrics
+      const attributionData = await Promise.all(
+        installAggregation.map(async (installGroup) => {
+          const source = installGroup.source
+          const userIds = installGroup.userIds.filter(id => id !== null)
 
-          const installs = sourceUsers.length
+          // Get user details for D1 retention calculation
+          const sourceUsers = await User.find({
+            _id: { $in: userIds }
+          }).select('_id createdAt dailyActivity').lean()
 
-          // Calculate D1 retention
+          // Calculate D1 retention using retentionCalculator utility
           let d1Retention = 0
           if (sourceUsers.length > 0) {
-            const retained = sourceUsers.filter((user) => {
-              if (!user.dailyActivity?.activeDates || !user.createdAt)
-                return false
-              const userCreatedAt = new Date(user.createdAt)
-              const d1Date = new Date(userCreatedAt)
-              d1Date.setDate(d1Date.getDate() + 1)
-              const d1DateStr = `${d1Date.getFullYear()}-${String(
-                d1Date.getMonth() + 1
-              ).padStart(2, '0')}-${String(d1Date.getDate()).padStart(2, '0')}`
-              return user.dailyActivity.activeDates.includes(d1DateStr)
-            }).length
-            d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2)
+            try {
+              const { calculateRetention } = require('../utils/retentionCalculatorFixed')
+              const retention = calculateRetention(sourceUsers, 'd1')
+              d1Retention = retention.percentage || 0
+            } catch (err) {
+              // Fallback to manual calculation
+              const retained = sourceUsers.filter((user) => {
+                if (!user.dailyActivity?.activeDates || !user.createdAt) return false
+                const userCreatedAt = new Date(user.createdAt)
+                const d1Date = new Date(userCreatedAt)
+                d1Date.setDate(d1Date.getDate() + 1)
+                const d1DateStr = `${d1Date.getFullYear()}-${String(
+                  d1Date.getMonth() + 1
+                ).padStart(2, '0')}-${String(d1Date.getDate()).padStart(2, '0')}`
+                return user.dailyActivity.activeDates.includes(d1DateStr)
+              }).length
+              d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2)
+            }
           }
 
-          // Get revenue from source users (use IDs from filtered sourceUsers)
-          const filteredSourceUserIds = sourceUsers.map((u) => u._id)
+          // Get revenue from source users
           const revenueData = await Transaction.aggregate([
             {
               $match: {
                 ...transactionFilter,
-                user: { $in: filteredSourceUserIds },
+                user: { $in: userIds },
                 type: { $in: ['credit', 'reward'] },
                 status: 'completed',
               },
@@ -3418,7 +3401,7 @@ router.get(
             {
               $match: {
                 ...transactionFilter,
-                user: { $in: filteredSourceUserIds },
+                user: { $in: userIds },
                 type: 'reward',
                 balanceType: 'coins',
                 status: 'completed',
@@ -3432,23 +3415,204 @@ router.get(
             },
           ])
 
+           // Get marketing cost from Adjust ad_spend callbacks
+           let marketingCost = 0
+           try {
+             const adSpendData = await AdjustCallback.aggregate([
+               {
+                 $match: {
+                   activityKind: 'ad_spend',
+                   $or: [
+                     { network: source },
+                     { trackerName: installGroup.trackerName }
+                   ],
+                   ...adjustDateFilter
+                 }
+               },
+               {
+                 $group: {
+                   _id: null,
+                   totalCost: { $sum: '$costAmount' }
+                 }
+               }
+             ])
+            marketingCost = adSpendData[0]?.totalCost || 0
+          } catch (error) {
+            console.warn(`⚠️ Attribution - Could not fetch marketing cost for ${source}:`, error.message)
+            marketingCost = 0
+          }
+
           const revenue = revenueData[0]?.revenue || 0
           const rewardCost = costData[0]?.cost || 0
-          const margin = revenue - rewardCost
-          const marginPercent =
-            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
+
+          // FIXED: Include marketingCost in margin calculation
+          const margin = revenue - rewardCost - marketingCost
+          const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
 
           return {
-            source: source || 'direct',
-            installs: installs,
+            source: source,
+            installs: installGroup.installs,
             d1Retention: parseFloat(d1Retention),
             revenue: revenue,
             rewardCost: rewardCost,
+            marketingCost: marketingCost,
             margin: margin,
             marginPercent: parseFloat(marginPercent),
           }
         })
       )
+
+      // If no Adjust data found, try fallback to user metadata Adjust attribution
+      if (attributionData.length === 0) {
+        console.log('⚠️ No Adjust attribution data found in KPIs, checking user metadata')
+
+        const baseDateQuery = {}
+        if (filters.startDate || filters.endDate) {
+          baseDateQuery.createdAt = {}
+          if (filters.startDate) {
+            baseDateQuery.createdAt.$gte = new Date(filters.startDate)
+          }
+          if (filters.endDate) {
+            baseDateQuery.createdAt.$lte = new Date(filters.endDate)
+          }
+        }
+
+        // Use Adjust attribution from user metadata, not OAuth provider
+        const usersWithAdjustAttribution = await User.find({
+          'metadata.adjust.attribution.network': { $exists: true, $ne: null, $ne: '' },
+          ...baseDateQuery
+        }).select('_id createdAt dailyActivity metadata.adjust.attribution').lean()
+
+        const fallbackSources = []
+        const sourceMap = {}
+
+        for (const user of usersWithAdjustAttribution) {
+          const attribution = user.metadata?.adjust?.attribution
+          const network = attribution?.network || (attribution?.isOrganic ? 'Organic' : 'Unknown')
+          if (!sourceMap[network]) {
+            sourceMap[network] = []
+          }
+          sourceMap[network].push(user)
+        }
+
+        // Also catch users without Adjust attribution as Organic
+        const usersWithoutAttribution = await User.find({
+          $or: [
+            { 'metadata.adjust.attribution.network': { $exists: false } },
+            { 'metadata.adjust.attribution.network': null },
+            { 'metadata.adjust.attribution.network': '' }
+          ],
+          ...baseDateQuery
+        }).select('_id createdAt dailyActivity').lean()
+
+        if (usersWithoutAttribution.length > 0) {
+          fallbackSources.push({ source: 'Organic', users: usersWithoutAttribution })
+        }
+
+        for (const [network, users] of Object.entries(sourceMap)) {
+          fallbackSources.push({ source: network, users })
+        }
+
+        for (const src of fallbackSources) {
+          const sourceUsers = src.users
+          const sourceUserIds = sourceUsers.map(u => u._id)
+
+          let d1Retention = 0
+          if (sourceUsers.length > 0) {
+            const retained = sourceUsers.filter((user) => {
+              if (!user.dailyActivity?.activeDates || !user.createdAt) return false
+              const userCreatedAt = new Date(user.createdAt)
+              const d1Date = new Date(userCreatedAt)
+              d1Date.setDate(d1Date.getDate() + 1)
+              const d1DateStr = `${d1Date.getFullYear()}-${String(
+                d1Date.getMonth() + 1
+              ).padStart(2, '0')}-${String(d1Date.getDate()).padStart(2, '0')}`
+              return user.dailyActivity.activeDates.includes(d1DateStr)
+            }).length
+            d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2)
+          }
+
+          // Get marketing cost for this source from ad_spend callbacks
+          // Get marketing cost for this source from ad_spend callbacks
+          let marketingCost = 0
+          try {
+            const adSpendData = await AdjustCallback.aggregate([
+              {
+                $match: {
+                  activityKind: 'ad_spend',
+                  ...adjustDateFilter,
+                  $or: [
+                    { network: new RegExp(src.source, 'i') },
+                    { trackerName: new RegExp(src.source, 'i') },
+                    { campaign: new RegExp(src.source, 'i') }
+                  ]
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalCost: { $sum: '$costAmount' }
+                }
+              }
+            ])
+            marketingCost = adSpendData[0]?.totalCost || 0
+          } catch (error) {
+            console.warn(`⚠️ Attribution KPI fallback - Could not fetch marketing cost for ${src.source}:`, error.message)
+          }
+
+          const [revenueData, costData] = await Promise.all([
+            Transaction.aggregate([
+              {
+                $match: {
+                  ...transactionFilter,
+                  user: { $in: sourceUserIds },
+                  type: { $in: ['credit', 'reward'] },
+                  status: 'completed',
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  revenue: { $sum: '$amount' },
+                },
+              },
+            ]),
+            Transaction.aggregate([
+              {
+                $match: {
+                  ...transactionFilter,
+                  user: { $in: sourceUserIds },
+                  type: 'reward',
+                  balanceType: 'coins',
+                  status: 'completed',
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  cost: { $sum: '$amount' },
+                },
+              },
+            ]),
+          ])
+
+          const revenue = revenueData[0]?.revenue || 0
+          const rewardCost = costData[0]?.cost || 0
+          const margin = revenue - rewardCost - marketingCost
+          const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
+
+          attributionData.push({
+            source: src.source,
+            installs: sourceUsers.length,
+            d1Retention: parseFloat(d1Retention),
+            revenue: revenue,
+            rewardCost: rewardCost,
+            marketingCost: marketingCost,
+            margin: margin,
+            marginPercent: parseFloat(marginPercent),
+          })
+        }
+      }
 
       // ==================== LEGACY VIP DATA ====================
       const [vipUsers, totalSubscriptions, activeSubscriptions, totalTiers] =
@@ -4513,8 +4677,331 @@ router.get(
 )
 
 /**
+ * Get all available attribution sources (networks) for filter dropdown
+ * @route   GET /api/admin/dashboard/attribution/sources
+ * @desc    Returns all unique sources/networks from Adjust API
+ */
+router.get(
+  '/dashboard/attribution/sources',
+  adminAuth,
+  async (req, res) => {
+    try {
+      const adjustService = require('../services/adjust.service');
+
+      if (!adjustService.isConfigured()) {
+        return res.json({ success: true, data: [] });
+      }
+
+      // Get all networks from Adjust API
+      const response = await adjustService.analyticsClient.get('/report', {
+        params: {
+          dimensions: 'network',
+          metrics: 'installs',
+          date_period: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ':' + new Date().toISOString().split('T')[0],
+          app_token__in: adjustService.appToken,
+          format_dates: false,
+          limit: 1000
+        }
+      });
+
+      const rows = adjustService.getReportRows(response.data);
+      const sources = [...new Set(rows.map(row => row.network).filter(Boolean))].sort();
+
+      res.json({ success: true, data: sources });
+    } catch (error) {
+      console.error('Error fetching attribution sources:', error.message);
+      res.json({ success: true, data: [] });
+    }
+  }
+);
+
+// ==================== MARKETING ATTRIBUTION ENDPOINTS ====================
+
+/**
+ * Get all marketing channels (networks) for dropdown auto-population
+ * @route   GET /api/admin/marketing/channels
+ * @desc    Returns networks from Adjust API with caching
+ * @access  Admin
+ */
+router.get(
+  '/marketing/channels',
+  adminAuth,
+  [
+    query('forceRefresh').optional().isBoolean(),
+    query('startDate').optional().isISO8601(),
+    query('endDate').optional().isISO8601(),
+  ],
+  async (req, res) => {
+    try {
+      const adjustService = require('../services/adjust.service');
+      const { forceRefresh, startDate, endDate } = req.query;
+
+      if (!adjustService.isConfigured()) {
+        return res.json({ 
+          success: true, 
+          data: [], 
+          source: 'not_configured',
+          message: 'Adjust API not configured' 
+        });
+      }
+
+      const networks = await adjustService.getNetworksForDropdown(
+        { startDate, endDate },
+        forceRefresh === 'true'
+      );
+
+      res.json({ 
+        success: true, 
+        data: networks,
+        count: networks.length,
+        source: 'adjust_api',
+        cached: !forceRefresh
+      });
+    } catch (error) {
+      console.error('Error fetching marketing channels:', error.message);
+      res.status(500).json({ 
+        success: false, 
+        data: [], 
+        error: error.message 
+      });
+    }
+  }
+);
+
+/**
+ * Get all campaigns for dropdown auto-population
+ * @route   GET /api/admin/marketing/campaigns
+ * @desc    Returns campaigns from Adjust API with optional network filter
+ * @access  Admin
+ */
+router.get(
+  '/marketing/campaigns',
+  adminAuth,
+  [
+    query('network').optional().isString(),
+    query('forceRefresh').optional().isBoolean(),
+    query('startDate').optional().isISO8601(),
+    query('endDate').optional().isISO8601(),
+  ],
+  async (req, res) => {
+    try {
+      const adjustService = require('../services/adjust.service');
+      const { network, forceRefresh, startDate, endDate } = req.query;
+
+      if (!adjustService.isConfigured()) {
+        return res.json({ 
+          success: true, 
+          data: [], 
+          source: 'not_configured',
+          message: 'Adjust API not configured' 
+        });
+      }
+
+      const campaigns = await adjustService.getCampaignsForDropdown(
+        { network, startDate, endDate },
+        forceRefresh === 'true'
+      );
+
+      res.json({ 
+        success: true, 
+        data: campaigns,
+        count: campaigns.length,
+        source: 'adjust_api',
+        network: network || 'all',
+        cached: !forceRefresh
+      });
+    } catch (error) {
+      console.error('Error fetching campaigns:', error.message);
+      res.status(500).json({ 
+        success: false, 
+        data: [], 
+        error: error.message 
+      });
+    }
+  }
+);
+
+/**
+ * Get combined marketing data (channels + campaigns) in single call
+ * @route   GET /api/admin/marketing/dropdown-data
+ * @desc    Returns both networks and campaigns for form initialization
+ * @access  Admin
+ */
+router.get(
+  '/marketing/dropdown-data',
+  adminAuth,
+  [
+    query('network').optional().isString(),
+    query('forceRefresh').optional().isBoolean(),
+  ],
+  async (req, res) => {
+    try {
+      const adjustService = require('../services/adjust.service');
+      const { network, forceRefresh } = req.query;
+
+      if (!adjustService.isConfigured()) {
+        return res.json({ 
+          success: true, 
+          data: { networks: [], campaigns: [] },
+          source: 'not_configured' 
+        });
+      }
+
+      const [networks, campaigns] = await Promise.all([
+        adjustService.getNetworksForDropdown({}, forceRefresh === 'true'),
+        adjustService.getCampaignsForDropdown({ network }, forceRefresh === 'true')
+      ]);
+
+      res.json({ 
+        success: true, 
+        data: { 
+          networks, 
+          campaigns 
+        },
+        counts: {
+          networks: networks.length,
+          campaigns: campaigns.length
+        },
+        source: 'adjust_api',
+        cached: !forceRefresh
+      });
+    } catch (error) {
+      console.error('Error fetching marketing dropdown data:', error.message);
+      res.status(500).json({ 
+        success: false, 
+        data: { networks: [], campaigns: [] }, 
+        error: error.message 
+      });
+    }
+  }
+);
+
+// ==================== ATTRIBUTION DETAILS ====================
+
+/**
+ * Get detailed performance insights for a specific source
+ * @route   GET /api/admin/dashboard/attribution/:source/details
+ * @desc    Returns campaign, country, and time-series breakdown for a source
+ * @see      Adjust Docs: https://dev.adjust.com/en/api/rs-api/reports/
+ */
+router.get(
+  '/dashboard/attribution/:source/details',
+  adminAuth,
+  [
+    query('startDate').optional().isISO8601(),
+    query('endDate').optional().isISO8601(),
+    query('country').optional().isString(),
+  ],
+  async (req, res) => {
+    try {
+      const { source } = req.params;
+      const { startDate, endDate, country } = req.query;
+
+      const adjustService = require('../services/adjust.service');
+
+      if (!adjustService.isConfigured()) {
+        return res.status(500).json({ success: false, message: 'Adjust API not configured' });
+      }
+
+      const formatDate = (dateStr) => {
+        if (!dateStr) return null;
+        return dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+      };
+
+      const start = formatDate(startDate) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const end = formatDate(endDate) || new Date().toISOString().split('T')[0];
+
+      const baseParams = {
+        date_period: `${start}:${end}`,
+        network__contains: source,
+        app_token__in: adjustService.appToken,
+        format_dates: false,
+        limit: 1000
+      };
+
+      if (country && country !== 'all') {
+        baseParams.country_code__in = country.toUpperCase();
+      }
+
+      // Fetch campaigns for this source
+      const campaignsResponse = await adjustService.analyticsClient.get('/report', {
+        params: {
+          ...baseParams,
+          dimensions: 'campaign',
+          metrics: 'installs,revenue,network_cost,clicks,impressions',
+        }
+      });
+
+      // Fetch countries for this source
+      const countriesResponse = await adjustService.analyticsClient.get('/report', {
+        params: {
+          ...baseParams,
+          dimensions: 'country_code',
+          metrics: 'installs,revenue,network_cost',
+        }
+      });
+
+      // Fetch daily trend for this source
+      const dailyResponse = await adjustService.analyticsClient.get('/report', {
+        params: {
+          ...baseParams,
+          dimensions: 'day',
+          metrics: 'installs,revenue,network_cost',
+        }
+      });
+
+      const campaigns = adjustService.getReportRows(campaignsResponse.data);
+      const countries = adjustService.getReportRows(countriesResponse.data);
+      const dailyTrend = adjustService.getReportRows(dailyResponse.data);
+
+      // Calculate summary metrics
+      const summary = {
+        totalCampaigns: campaigns.length,
+        totalCountries: countries.length,
+        topCampaign: campaigns.length > 0 ? campaigns.reduce((max, c) => parseInt(c.installs || 0) > parseInt(max.installs || 0) ? c : max) : null,
+        topCountry: countries.length > 0 ? countries.reduce((max, c) => parseInt(c.installs || 0) > parseInt(max.installs || 0) ? c : max) : null,
+      };
+
+      res.json({
+        success: true,
+        data: {
+          source,
+          dateRange: { start, end },
+          summary,
+          campaigns: campaigns.map(c => ({
+            name: c.campaign || 'Unknown',
+            installs: parseInt(c.installs || 0),
+            revenue: parseFloat(c.revenue || 0),
+            cost: parseFloat(c.network_cost || 0),
+            roas: c.network_cost > 0 ? (parseFloat(c.revenue || 0) / parseFloat(c.network_cost)).toFixed(2) : '∞',
+            cpi: c.installs > 0 ? (parseFloat(c.network_cost || 0) / parseInt(c.installs || 0)).toFixed(2) : '0.00',
+          })),
+          countries: countries.map(c => ({
+            code: c.country_code || 'Unknown',
+            installs: parseInt(c.installs || 0),
+            revenue: parseFloat(c.revenue || 0),
+            cost: parseFloat(c.network_cost || 0),
+          })),
+          dailyTrend: dailyTrend.map(d => ({
+            date: d.day,
+            installs: parseInt(d.installs || 0),
+            revenue: parseFloat(d.revenue || 0),
+            cost: parseFloat(d.network_cost || 0),
+          })),
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching source details:', error.message);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+/**
  * Get Attribution Performance only
  * @route   GET /api/admin/dashboard/attribution
+ * @desc    Get attribution table data with D1 retention per source
+ * @note    SEPARATE FUNCTION: Uses Adjust API + DB for D1 retention calculation
  */
 router.get(
   '/dashboard/attribution',
@@ -4522,10 +5009,8 @@ router.get(
   [
     query('startDate').optional().isISO8601(),
     query('endDate').optional().isISO8601(),
-    query('gameId').optional().isString(),
     query('source').optional().isString(),
-    query('age').optional().isString(),
-    query('gender').optional().isIn(['male', 'female', 'other']),
+    query('country').optional().isString(),
   ],
   async (req, res) => {
     try {
@@ -4537,101 +5022,233 @@ router.get(
         })
       }
 
-      const { startDate, endDate, gameId, source, age, gender } = req.query
+      const { startDate, endDate, source, country } = req.query;
 
-      // If no date range provided, retrieve all data (no date filter)
-      let start = startDate ? new Date(startDate) : undefined
-      let end = endDate ? new Date(endDate) : undefined
+      console.log('\n📊 Attribution Table: Fetching data (SEPARATE FUNCTION)')
+      console.log('   Using Adjust API + DB for D1 retention per source')
 
-      const filters = {
-        startDate: start ? start.toISOString() : undefined,
-        endDate: end ? end.toISOString() : undefined,
-        gameId,
-        source,
-        age,
-        gender,
+      // Step 1: Get source data from Adjust Report Service API
+      // Fields VERIFIED against official docs:
+      // - installs ✅ (metric: 'installs')
+      // - revenue ✅ (metric: 'revenue')
+      // - marketingCost ✅ (metric: 'network_cost')
+      // - source/network ✅ (dimension: 'network')
+      const adjustService = require('../services/adjust.service')
+
+      if (!adjustService.isConfigured()) {
+        return res.status(500).json({
+          success: false,
+          message: 'Adjust API is not configured. Please set ADJUST_API_TOKEN and ADJUST_APP_TOKEN.',
+          data: []
+        })
       }
 
-      const userFilter = await buildUserFilter(filters)
-      const transactionFilter = buildTransactionFilter(filters)
+      // Fix date format: Extract YYYY-MM-DD from ISO string if needed
+      const formatDate = (dateStr) => {
+        if (!dateStr) return null;
+        return dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+      };
 
-      const baseDateQuery = {}
-      if (filters.startDate || filters.endDate) {
-        baseDateQuery.createdAt = {}
-        if (filters.startDate) {
-          baseDateQuery.createdAt.$gte = new Date(filters.startDate)
+      const start = formatDate(startDate) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const end = formatDate(endDate) || new Date().toISOString().split("T")[0];
+
+      const apiParams = {
+        dimensions: 'network', // ✅ Industry standard: 1 row per source (no country split by default)
+        metrics: 'installs,revenue,network_cost,clicks,impressions',
+        date_period: `${start}:${end}`,
+        app_token__in: adjustService.appToken,
+        format_dates: false,
+        sort: '-installs',
+        limit: 1000
+      };
+
+      // Optional: Add country filter if provided (already handled below)
+      if (country) apiParams.country_code__in = country.toUpperCase();
+
+      // Fix source filter: Use network__contains for partial match
+      if (source && source !== 'all') {
+        apiParams.network__contains = source;
+      }
+      if (country) apiParams.country_code__in = country.toUpperCase();
+
+      const response = await adjustService.analyticsClient.get('/report', { params: apiParams });
+
+      // Debug: Log full API response structure
+      console.log('📊 Adjust API full response (first 1000 chars):', JSON.stringify(response.data).slice(0, 1000));
+
+      if (!response.data || !response.data.rows || response.data.rows.length === 0) {
+        // Check if data is in different format
+        if (response.data?.result_set) {
+          console.log('📊 Found result_set instead of rows, using that');
+        } else {
+          return res.json({
+            success: true,
+            data: { attribution: [], source: 'adjust_api', count: 0 }
+          })
         }
-        if (filters.endDate) {
-          baseDateQuery.createdAt.$lte = new Date(filters.endDate)
-        }
       }
 
-      const directQueryBase = {
-        'social.provider': { $nin: ['google', 'facebook'] },
+      const rows = adjustService.getReportRows(response.data);
+      console.log(`✅ Adjust API: Got ${rows.length} rows`);
+      if (rows.length > 0) {
+        console.log('📊 Sample row (full):', JSON.stringify(rows[0], null, 2));
+        console.log('📊 Available fields:', Object.keys(rows[0]));
+        console.log('📊 Revenue:', rows[0].revenue, '| Network Cost:', rows[0].network_cost, '| Installs:', rows[0].installs);
       }
-      const directQuery =
-        Object.keys(baseDateQuery).length > 0
-          ? { $and: [directQueryBase, baseDateQuery] }
-          : directQueryBase
 
-      const [googleCount, facebookCount, directCount] = await Promise.all([
-        User.countDocuments({ 'social.provider': 'google', ...baseDateQuery }),
-        User.countDocuments({
-          'social.provider': 'facebook',
-          ...baseDateQuery,
-        }),
-        User.countDocuments(directQuery),
-      ])
-
-      const allSources = []
-      if (googleCount > 0) allSources.push('google')
-      if (facebookCount > 0) allSources.push('facebook')
-      if (directCount > 0) allSources.push('direct')
+      // Step 2: Get user IDs per source from AdjustCallback for D1 retention calc
+      const AdjustCallback = require('../models/AdjustCallback')
+      const User = require('../models/User')
 
       const attributionData = await Promise.all(
-        allSources.map(async (source) => {
-          let sourceQuery = {}
-          if (source === 'direct') {
-            const directQueryBase = {
-              'social.provider': { $nin: ['google', 'facebook'] },
-            }
-            if (filters.startDate || filters.endDate) {
-              const dateFilter = {}
-              dateFilter.createdAt = {}
-              if (filters.startDate) {
-                dateFilter.createdAt.$gte = new Date(filters.startDate)
-              }
-              if (filters.endDate) {
-                dateFilter.createdAt.$lte = new Date(filters.endDate)
-              }
-              sourceQuery = { $and: [directQueryBase, dateFilter] }
-            } else {
-              sourceQuery = directQueryBase
-            }
-          } else {
-            sourceQuery = { 'social.provider': source }
-            if (filters.startDate || filters.endDate) {
-              sourceQuery.createdAt = {}
-              if (filters.startDate) {
-                sourceQuery.createdAt.$gte = new Date(filters.startDate)
-              }
-              if (filters.endDate) {
-                sourceQuery.createdAt.$lte = new Date(filters.endDate)
-              }
-            }
+        rows.map(async (row, index) => {
+          const network = row.network || 'Organic';
+          const installs = parseInt(row.installs || 0, 10);
+          const revenue = parseFloat(row.revenue || 0);
+          const marketingCost = parseFloat(row.network_cost || 0);
+
+          // Debug: Log sample data
+          if (index === 0) {
+            console.log('📊 Adjust API sample row:', JSON.stringify(row, null, 2));
+            console.log('   network:', network, '| revenue:', revenue, '| network_cost:', marketingCost);
           }
 
-          const sourceUsers = await User.find(sourceQuery)
-            .select('_id createdAt dailyActivity')
-            .lean()
+          // Get user IDs for this source from AdjustCallback (case-insensitive match)
+          const userIds = await AdjustCallback.find({
+            network: { $regex: new RegExp('^' + network + '$', 'i') },
+            activityKind: 'install',
+            createdAt: { $gte: new Date(start), $lte: new Date(end) }
+          }).distinct('userId');
 
-          const installs = sourceUsers.length
+          // Debug: Log match count
+          if (index < 3) {
+            console.log(`🔍 Network "${network}": ${userIds.length} users found in AdjustCallback`);
+          }
+
+          // Calculate D1 retention per source (from DB using dailyActivity)
+          let d1Retention = 0;
+          if (userIds.length > 0) {
+            const sourceUsers = await User.find({
+              _id: { $in: userIds }
+            }).select('_id createdAt dailyActivity').lean();
+
+            const retained = sourceUsers.filter(user => {
+              if (!user.dailyActivity?.activeDates || !user.createdAt) return false;
+              const d1Date = new Date(user.createdAt);
+              d1Date.setDate(d1Date.getDate() + 1);
+              const d1Str = d1Date.toISOString().split('T')[0];
+              return user.dailyActivity.activeDates.includes(d1Str);
+            }).length;
+
+            d1Retention = sourceUsers.length > 0
+              ? ((retained / sourceUsers.length) * 100).toFixed(2)
+              : 0;
+          }
+
+          // Margin calculation (Bug 3 fix - includes marketingCost)
+          const margin = revenue - marketingCost; // rewardCost is 0 (commented out)
+          const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
+
+          // Industry-standard performance insights
+          const roas = marketingCost > 0 ? (revenue / marketingCost).toFixed(2) : revenue > 0 ? '∞' : '0.00';
+          const cpi = installs > 0 ? (marketingCost / installs).toFixed(2) : '0.00';
+
+          // Get reward cost for this source from our DB
+          // COMMENTED OUT: rewardCost = 0; // ❌ Commented out as requested
+          const rewardCost = 0; // TODO: Uncomment when reward cost tracking is needed
+
+          return {
+            id: index + 1,
+            source: network, // ✅ From Adjust API
+            installs: installs, // ✅ From Adjust API
+            d1Retention: parseFloat(d1Retention), // ✅ Calculated per source from DB
+            revenue: revenue, // ✅ From Adjust API
+            rewardCost: rewardCost, // ❌ COMMENTED OUT (0 for now)
+            marketingCost: marketingCost, // ✅ From Adjust API
+            margin: revenue - marketingCost, // ✅ FIXED: Includes marketingCost only (rewardCost = 0)
+            marginPercent: parseFloat(((revenue - marketingCost) / revenue * 100).toFixed(2) || 0),
+            roas: roas, // ✅ Industry standard: Return on Ad Spend
+            cpi: cpi, // ✅ Industry standard: Cost Per Install
+            country: row.country_code || 'N/A',
+            clicks: parseInt(row.clicks || 0, 10),
+            impressions: parseInt(row.impressions || 0, 10)
+          };
+        })
+      );
+
+      // If no Adjust data found, try to get organic/social data as fallback
+      if (attributionData.length === 0) {
+        console.log('⚠️ No Adjust attribution data found, checking for user metadata Adjust attribution as fallback')
+
+        const baseDateQuery = {}
+        if (startDate || endDate) {
+          baseDateQuery.createdAt = {}
+          if (startDate) {
+            baseDateQuery.createdAt.$gte = new Date(startDate)
+          }
+          if (endDate) {
+            baseDateQuery.createdAt.$lte = new Date(endDate)
+          }
+        }
+
+        // Use Adjust attribution from user metadata, not OAuth provider
+        const usersWithAdjustAttribution = await User.find({
+          'metadata.adjust.attribution.network': { $exists: true, $ne: null, $ne: '' },
+          ...baseDateQuery
+        }).select('_id createdAt dailyActivity metadata.adjust.attribution').lean()
+
+        const fallbackSources = []
+        const sourceMap = {}
+
+        for (const user of usersWithAdjustAttribution) {
+          const attribution = user.metadata?.adjust?.attribution
+          const network = attribution?.network || (attribution?.isOrganic ? 'Organic' : 'Unknown')
+          if (!sourceMap[network]) {
+            sourceMap[network] = []
+          }
+          sourceMap[network].push(user)
+        }
+
+        // Also catch users without Adjust attribution as Organic
+        const usersWithoutAttribution = await User.find({
+          $or: [
+            { 'metadata.adjust.attribution.network': { $exists: false } },
+            { 'metadata.adjust.attribution.network': null },
+            { 'metadata.adjust.attribution.network': '' }
+          ],
+          ...baseDateQuery
+        }).select('_id createdAt dailyActivity').lean()
+
+        if (usersWithoutAttribution.length > 0) {
+          fallbackSources.push({ source: 'Organic', users: usersWithoutAttribution })
+        }
+
+        for (const [network, users] of Object.entries(sourceMap)) {
+          fallbackSources.push({ source: network, users })
+        }
+
+        const adjustDateFilter = {}
+        if (startDate || endDate) {
+          adjustDateFilter.createdAt = {}
+          if (startDate) adjustDateFilter.createdAt.$gte = new Date(startDate)
+          if (endDate) adjustDateFilter.createdAt.$lte = new Date(endDate)
+        }
+
+        const transactionFilter = {}
+        if (startDate || endDate) {
+          transactionFilter.createdAt = {}
+          if (startDate) transactionFilter.createdAt.$gte = new Date(startDate)
+          if (endDate) transactionFilter.createdAt.$lte = new Date(endDate)
+        }
+
+        for (const src of fallbackSources) {
+          const sourceUsers = src.users
+          const sourceUserIds = sourceUsers.map(u => u._id)
 
           let d1Retention = 0
           if (sourceUsers.length > 0) {
             const retained = sourceUsers.filter((user) => {
-              if (!user.dailyActivity?.activeDates || !user.createdAt)
-                return false
+              if (!user.dailyActivity?.activeDates || !user.createdAt) return false
               const userCreatedAt = new Date(user.createdAt)
               const d1Date = new Date(userCreatedAt)
               d1Date.setDate(d1Date.getDate() + 1)
@@ -4643,13 +5260,39 @@ router.get(
             d1Retention = ((retained / sourceUsers.length) * 100).toFixed(2)
           }
 
-          const filteredSourceUserIds = sourceUsers.map((u) => u._id)
+          // Get marketing cost for this source from ad_spend callbacks
+          let marketingCost = 0
+          try {
+            const adSpendData = await AdjustCallback.aggregate([
+              {
+                $match: {
+                  activityKind: 'ad_spend',
+                  ...adjustDateFilter,
+                  $or: [
+                     { network: new RegExp(src.source, 'i') },
+                     { trackerName: new RegExp(src.source, 'i') },
+                     { campaign: new RegExp(src.source, 'i') }
+                   ]
+                 }
+               },
+               {
+                 $group: {
+                   _id: null,
+                   totalCost: { $sum: '$costAmount' }
+                 }
+               }
+             ])
+             marketingCost = adSpendData[0]?.totalCost || 0
+           } catch (error) {
+             console.warn(`⚠️ Attribution fallback - Could not fetch marketing cost for ${src.source}:`, error.message)
+           }
+
           const [revenueData, costData] = await Promise.all([
             Transaction.aggregate([
               {
                 $match: {
                   ...transactionFilter,
-                  user: { $in: filteredSourceUserIds },
+                  user: { $in: sourceUserIds },
                   type: { $in: ['credit', 'reward'] },
                   status: 'completed',
                 },
@@ -4665,7 +5308,7 @@ router.get(
               {
                 $match: {
                   ...transactionFilter,
-                  user: { $in: filteredSourceUserIds },
+                  user: { $in: sourceUserIds },
                   type: 'reward',
                   balanceType: 'coins',
                   status: 'completed',
@@ -4682,62 +5325,32 @@ router.get(
 
           const revenue = revenueData[0]?.revenue || 0
           const rewardCost = costData[0]?.cost || 0
-          const margin = revenue - rewardCost
-          const marginPercent =
-            revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
+          const margin = revenue - rewardCost - marketingCost
+          const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
 
-          // Calculate marketing cost from Adjust callbacks (ad_spend activity)
-          // Query Adjust callbacks for ad spend data for this source
-          let marketingCost = 0
-          try {
-            const AdjustCallback = require('../models/AdjustCallback')
-            const adSpendData = await AdjustCallback.aggregate([
-              {
-                $match: {
-                  activityKind: 'ad_spend',
-                  userId: { $in: filteredSourceUserIds },
-                  ...(filters.startDate || filters.endDate ? {
-                    createdAt: {
-                      ...(filters.startDate ? { $gte: new Date(filters.startDate) } : {}),
-                      ...(filters.endDate ? { $lte: new Date(filters.endDate) } : {})
-                    }
-                  } : {})
-                }
-              },
-              {
-                $group: {
-                  _id: null,
-                  totalCost: { $sum: '$revenue' } // Adjust uses 'revenue' field for ad spend amount
-                }
-              }
-            ])
-            marketingCost = adSpendData[0]?.totalCost || 0
-          } catch (error) {
-            console.warn(`⚠️ Attribution - Could not fetch marketing cost for ${source}:`, error.message)
-            // If no ad spend data available, marketing cost remains 0
-            marketingCost = 0
-          }
-
-          console.log(`📊 Attribution - ${source}: Installs=${installs}, Revenue=${revenue}, RewardCost=${rewardCost}, MarketingCost=${marketingCost}`)
-
-          return {
-            source: source || 'direct',
-            installs: installs,
+          attributionData.push({
+            source: src.source,
+            installs: sourceUsers.length,
             d1Retention: parseFloat(d1Retention),
             revenue: revenue,
             rewardCost: rewardCost,
-            marketingCost: marketingCost, // New field
+            marketingCost: marketingCost,
             margin: margin,
             marginPercent: parseFloat(marginPercent),
-          }
-        })
-      )
+            country: 'Unknown',
+            trackerName: 'fallback'
+          })
+        }
+      }
 
       res.json({
         success: true,
         data: {
           attribution: attributionData,
-        },
+          source: attributionData.length > 0 && attributionData[0].trackerName !== 'fallback' ? 'adjust_api_plus_db' : 'fallback',
+          count: attributionData.length,
+          dateRange: { start, end }
+        }
       })
     } catch (error) {
       console.error('Error getting attribution data:', error)
@@ -4745,6 +5358,7 @@ router.get(
         success: false,
         message: 'Failed to get attribution data',
         error: error.message,
+        data: { attribution: [] }
       })
     }
   }

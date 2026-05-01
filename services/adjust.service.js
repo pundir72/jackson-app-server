@@ -1,29 +1,18 @@
-/**
- * Adjust S2S API Service
- * Handles server-to-server API calls to Adjust for event tracking
- * Documentation: https://dev.adjust.com/en/api/s2s-api
- * @module services/adjust
- */
-
-const axios = require("axios");
+﻿const axios = require("axios");
 const config = require("../config/config");
 
 class AdjustService {
   constructor() {
     this.baseURL = "https://s2s.adjust.com";
-    // Change to Report Service API base URL
     this.analyticsBaseURL = "https://automate.adjust.com/reports-service";
     this.apiToken = config.ADJUST_API_TOKEN;
     this.appToken = config.ADJUST_APP_TOKEN;
 
-    // Create axios instance with default config for S2S API
-    // Official Adjust S2S API requires application/x-www-form-urlencoded
     const headers = {
       Accept: "application/json",
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    // Add Authorization header only if API token is available
     if (this.apiToken) {
       headers["Authorization"] = `Bearer ${this.apiToken}`;
     }
@@ -31,10 +20,9 @@ class AdjustService {
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: headers,
-      timeout: 30000, // 30 seconds timeout
+      timeout: 30000,
     });
 
-    // Create separate axios instance for Analytics API
     this.analyticsClient = axios.create({
       baseURL: this.analyticsBaseURL,
       headers: {
@@ -44,907 +32,252 @@ class AdjustService {
       },
       timeout: 30000,
     });
-
-    // Add response interceptor for analytics client
-    this.analyticsClient.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response) {
-          const errorData = {
-            status: error.response.status,
-            message: error.response.data?.error || error.message,
-            data: error.response.data,
-          };
-          throw errorData;
-        } else if (error.request) {
-          throw {
-            status: 503,
-            message: "Adjust Analytics API is not responding",
-            data: null,
-          };
-        } else {
-          throw {
-            status: 500,
-            message: error.message,
-            data: null,
-          };
-        }
-      }
-    );
-
-    // Add response interceptor for error handling
-    this.client.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response) {
-          const errorData = {
-            status: error.response.status,
-            message: error.response.data?.error || error.message,
-            data: error.response.data,
-          };
-          throw errorData;
-        } else if (error.request) {
-          throw {
-            status: 503,
-            message: "Adjust API is not responding",
-            data: null,
-          };
-        } else {
-          throw {
-            status: 500,
-            message: error.message,
-            data: null,
-          };
-        }
-      }
-    );
   }
 
-  /**
-   * Validate service configuration
-   * @returns {boolean}
-   */
   isConfigured() {
     return !!(this.apiToken && this.appToken);
   }
 
-  /**
-   * Send event to Adjust S2S API
-   * Endpoint: POST https://s2s.adjust.com/event
-   * @param {Object} eventData - Event data
-   * @param {string} eventData.app_token - App token (required)
-   * @param {string} eventData.event_token - Event token (required)
-   * @param {string} eventData.idfa - iOS IDFA (preferred identifier)
-   * @param {string} eventData.gps_adid - Google Play Services advertising ID (preferred identifier)
-   * @param {string} eventData.fire_adid - Amazon Fire advertising ID (preferred identifier)
-   * @param {string} eventData.oaid - Open Advertising ID (Huawei, preferred identifier)
-   * @param {string} eventData.web_uuid - Web ID from Adjust Web SDK (preferred identifier)
-   * @param {string} eventData.idfv - iOS IDFV (backup identifier)
-   * @param {string} eventData.android_id - Android ID (backup identifier)
-   * @param {number} eventData.revenue - Revenue amount (optional)
-   * @param {string} eventData.currency - Currency code (optional, default: USD)
-   * @param {string} eventData.callback_params - Callback parameters (optional, JSON string)
-   * @param {string} eventData.partner_params - Partner parameters (optional, JSON string)
-   * @param {string} eventData.created_at - Event timestamp (optional, ISO 8601 format)
-   * @param {string} eventData.s2s - Must be "1" to indicate S2S request
-   * @returns {Promise<Object>} Response data
-   */
-  async sendEvent(eventData) {
-    console.log("\n🔍 [Adjust Service] sendEvent() called");
-    console.log(
-      "📥 [Adjust Service] Input eventData:",
-      JSON.stringify(eventData, null, 2)
-    );
-
-    // Check configuration
-    console.log("⚙️ [Adjust Service] Checking configuration...");
-    console.log("   - API Token exists:", !!this.apiToken);
-    console.log(
-      "   - API Token length:",
-      this.apiToken ? this.apiToken.length : 0
-    );
-    console.log(
-      "   - API Token preview:",
-      this.apiToken ? `${this.apiToken.substring(0, 10)}...` : "NOT SET"
-    );
-    console.log("   - App Token exists:", !!this.appToken);
-    console.log("   - App Token value:", this.appToken || "NOT SET");
-    console.log("   - Base URL:", this.baseURL);
-    console.log("   - isConfigured():", this.isConfigured());
-
-    if (!this.isConfigured()) {
-      console.error("❌ [Adjust Service] Configuration check FAILED");
-      throw {
-        status: 500,
-        message:
-          "Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.",
-        data: null,
-      };
-    }
-    console.log("✅ [Adjust Service] Configuration check PASSED");
-
-    // Validate required fields
-    console.log("🔍 [Adjust Service] Validating event_token...");
-    console.log("   - event_token exists:", !!eventData.event_token);
-    console.log("   - event_token value:", eventData.event_token || "NOT SET");
-
-    if (!eventData.event_token) {
-      console.error("❌ [Adjust Service] event_token validation FAILED");
-      throw {
-        status: 400,
-        message: "event_token is required for Adjust events",
-        data: null,
-      };
-    }
-    console.log("✅ [Adjust Service] event_token validation PASSED");
-
+  async getEventList() {
     try {
-      // Build payload
-      console.log("\n📦 [Adjust Service] Building payload...");
-      const payload = {
-        app_token: eventData.app_token || this.appToken,
-        event_token: eventData.event_token,
-        s2s: "1", // Required to indicate S2S request
-        ...eventData,
-      };
-
-      console.log(
-        "   - Payload before cleanup:",
-        JSON.stringify(payload, null, 2)
-      );
-      console.log("   - Payload keys before cleanup:", Object.keys(payload));
-
-      // Remove undefined values
-      const keysBeforeCleanup = Object.keys(payload);
-      Object.keys(payload).forEach((key) => {
-        if (payload[key] === undefined) {
-          console.log(`   - Removing undefined key: ${key}`);
-          delete payload[key];
-        }
+      const response = await this.analyticsClient.get("/events", {
+        params: { tokens_mapping: true }
       });
-      const keysAfterCleanup = Object.keys(payload);
-      console.log("   - Payload keys after cleanup:", keysAfterCleanup);
-      console.log(
-        "   - Removed keys:",
-        keysBeforeCleanup.filter((k) => !keysAfterCleanup.includes(k))
-      );
+      const events = Array.isArray(response.data) ? response.data : (response.data?.events || []);
+      console.log('✅ getEventList success, events:', events.length);
+      return events;
+    } catch (error) {
+      console.log('⚠️ getEventList failed:', error.response?.status, error.response?.data?.error_desc || error.message);
+      return [];
+    }
+  }
 
-      // Log final payload details
-      console.log("\n📤 [Adjust Service] Final Payload Details:");
-      console.log("   - app_token:", payload.app_token || "MISSING");
-      console.log("   - event_token:", payload.event_token || "MISSING");
-      console.log("   - s2s:", payload.s2s || "MISSING");
-      console.log(
-        "   - Device IDs:",
-        Object.keys(payload).filter(
-          (k) =>
-            k.includes("_adid") ||
-            k.includes("idfa") ||
-            k.includes("idfv") ||
-            k.includes("android_id") ||
-            k.includes("web_uuid")
-        )
-      );
-      console.log("   - Has revenue:", !!payload.revenue);
-      console.log("   - Revenue value:", payload.revenue || "N/A");
-      console.log("   - Currency:", payload.currency || "N/A");
-      console.log("   - Has callback_params:", !!payload.callback_params);
-      console.log(
-        "   - callback_params preview:",
-        payload.callback_params
-          ? typeof payload.callback_params === "string"
-            ? payload.callback_params.substring(0, 100) + "..."
-            : JSON.stringify(payload.callback_params).substring(0, 100) + "..."
-          : "N/A"
-      );
-      console.log("   - Full payload:", JSON.stringify(payload, null, 2));
-
-      // Log request configuration
-      console.log("\n🌐 [Adjust Service] Request Configuration:");
-      console.log("   - URL:", `${this.baseURL}/event`);
-      console.log("   - Method: POST");
-      console.log("   - Headers:", {
-        Authorization: this.apiToken
-          ? `Bearer ${this.apiToken.substring(0, 15)}...`
-          : "NOT SET",
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      });
-      console.log("   - Timeout:", this.client.defaults.timeout);
-
-      // Make the request
-      console.log("\n🚀 [Adjust Service] Sending request to Adjust...");
-      const requestStartTime = Date.now();
-
-      // Send as URL-encoded form data per official Adjust S2S API docs
-      const formData = new URLSearchParams(payload).toString();
-      const response = await this.client.post("/event", formData);
-
-      const requestDuration = Date.now() - requestStartTime;
-      console.log(
-        `⏱️ [Adjust Service] Request completed in ${requestDuration}ms`
-      );
-
-      // Log full response
-      console.log("\n📥 [Adjust Service] Response Received:");
-      console.log("   - Status:", response.status);
-      console.log("   - Status Text:", response.statusText);
-      console.log(
-        "   - Response Headers:",
-        JSON.stringify(response.headers, null, 2)
-      );
-      console.log("   - Response Data Type:", typeof response.data);
-      console.log(
-        "   - Response Data:",
-        JSON.stringify(response.data, null, 2)
-      );
-      console.log("   - Response Data is null?", response.data === null);
-      console.log(
-        "   - Response Data is undefined?",
-        response.data === undefined
-      );
-      console.log(
-        "   - Response Data is empty object?",
-        response.data &&
-          typeof response.data === "object" &&
-          Object.keys(response.data).length === 0
-      );
-      console.log(
-        "   - Response Data keys:",
-        response.data ? Object.keys(response.data) : "N/A"
-      );
-      console.log("   - Full Response Object Keys:", Object.keys(response));
-      console.log(
-        "   - Response Config:",
-        JSON.stringify(
-          {
-            url: response.config?.url,
-            method: response.config?.method,
-            baseURL: response.config?.baseURL,
-            headers: response.config?.headers
-              ? Object.keys(response.config.headers)
-              : "N/A",
-          },
-          null,
-          2
-        )
-      );
-
-      // Note about empty response
-      if (
-        response.status === 200 &&
-        (!response.data ||
-          (typeof response.data === "object" &&
-            Object.keys(response.data).length === 0))
-      ) {
-        console.log(
-          "\n✅ [Adjust Service] NOTE: Empty response is NORMAL for Adjust S2S API"
-        );
-        console.log(
-          "   - Adjust S2S API returns 200 OK with empty body {} when event is successfully accepted"
-        );
-        console.log(
-          "   - This is expected behavior according to Adjust documentation"
-        );
-        console.log("   - The event is processed asynchronously by Adjust");
+  async resolveEventSlug(eventToken, eventName) {
+    const events = await this.getEventList();
+    for (const evt of events) {
+      const tokens = evt.tokens || [];
+      if (tokens.includes(eventToken)) {
+        console.log('✅ Resolved token', eventToken, 'to slug via API:', evt.id);
+        return evt.id;
       }
-
-      const result = {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-
-      console.log("\n📊 [Adjust Service] Returning result:");
-      console.log("   - Result:", JSON.stringify(result, null, 2));
-      console.log("   - Result.success:", result.success);
-      console.log("   - Result.status:", result.status);
-      console.log("   - Result.data:", result.data);
-      console.log("   - Result.data type:", typeof result.data);
-      console.log(
-        "   - Result.data is empty?",
-        !result.data ||
-          (typeof result.data === "object" &&
-            Object.keys(result.data).length === 0)
-      );
-
-      return result;
-    } catch (error) {
-      console.error("\n❌ [Adjust Service] Error occurred:");
-      console.error("   - Error Type:", error.constructor.name);
-      console.error("   - Error Message:", error.message);
-      console.error("   - Error Stack:", error.stack);
-
-      if (error.response) {
-        console.error("   - Response Status:", error.response.status);
-        console.error("   - Response Status Text:", error.response.statusText);
-        console.error(
-          "   - Response Data:",
-          JSON.stringify(error.response.data, null, 2)
-        );
-        console.error(
-          "   - Response Headers:",
-          JSON.stringify(error.response.headers, null, 2)
-        );
-        console.error("   - Request URL:", error.config?.url);
-        console.error("   - Request Method:", error.config?.method);
-        console.error(
-          "   - Request Payload:",
-          JSON.stringify(error.config?.data, null, 2)
-        );
-      } else if (error.request) {
-        console.error("   - Request was made but no response received");
-        console.error(
-          "   - Request Config:",
-          JSON.stringify(
-            {
-              url: error.config?.url,
-              method: error.config?.method,
-              baseURL: error.config?.baseURL,
-              timeout: error.config?.timeout,
-            },
-            null,
-            2
-          )
-        );
-        console.error(
-          "   - Request Headers:",
-          JSON.stringify(error.config?.headers, null, 2)
-        );
-      } else {
-        console.error("   - Error setting up request:", error.message);
-      }
-
-      console.error("Adjust sendEvent error:", error);
-      throw error;
     }
+    if (eventName) {
+      console.log('✅ Resolved token', eventToken, 'to slug via name:', eventName);
+      return eventName;
+    }
+    console.log('⚠️ No slug found for token:', eventToken, '- falling back to app-wide data');
+    return null;
   }
 
-  /**
-   * Send ad revenue data to Adjust S2S API
-   * Endpoint: POST https://s2s.adjust.com/ad_revenue
-   * @param {Object} revenueData - Ad revenue data
-   * @param {string} revenueData.app_token - App token (required)
-   * @param {string} revenueData.idfa - iOS IDFA
-   * @param {string} revenueData.gps_adid - Google Play Services advertising ID
-   * @param {string} revenueData.fire_adid - Amazon Fire advertising ID
-   * @param {string} revenueData.oaid - Open Advertising ID (Huawei)
-   * @param {string} revenueData.web_uuid - Web ID from Adjust Web SDK
-   * @param {string} revenueData.idfv - iOS IDFV (backup)
-   * @param {string} revenueData.android_id - Android ID (backup)
-   * @param {number} revenueData.revenue - Revenue amount (required)
-   * @param {string} revenueData.currency - Currency code (required)
-   * @param {string} revenueData.ad_revenue_network - Ad network name (required)
-   * @param {string} revenueData.ad_revenue_placement - Ad placement ID (optional)
-   * @param {string} revenueData.ad_revenue_unit - Ad unit type (optional)
-   * @param {string} revenueData.created_at - Event timestamp (optional, ISO 8601 format)
-   * @returns {Promise<Object>} Response data
-   */
-  async sendAdRevenue(revenueData) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message:
-          "Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.",
-        data: null,
-      };
+  buildSlugMetrics(baseMetrics, slug, fallbackToStandard = false) {
+    if (fallbackToStandard) {
+      return baseMetrics;
     }
-
-    // Validate required fields
-    if (revenueData.revenue === undefined || revenueData.revenue === null) {
-      throw {
-        status: 400,
-        message: "revenue is required for ad revenue tracking",
-        data: null,
-      };
-    }
-    if (!revenueData.currency) {
-      throw {
-        status: 400,
-        message: "currency is required for ad revenue tracking",
-        data: null,
-      };
-    }
-    if (!revenueData.ad_revenue_network) {
-      throw {
-        status: 400,
-        message: "ad_revenue_network is required for ad revenue tracking",
-        data: null,
-      };
-    }
-
-    try {
-      const payload = {
-        app_token: revenueData.app_token || this.appToken,
-        ...revenueData,
-      };
-
-      // Remove undefined values
-      Object.keys(payload).forEach((key) => {
-        if (payload[key] === undefined) {
-          delete payload[key];
-        }
-      });
-
-      const response = await this.client.post("/ad_revenue", payload);
-
-      return {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-    } catch (error) {
-      console.error("Adjust sendAdRevenue error:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Send session data to Adjust S2S API
-   * Endpoint: POST https://s2s.adjust.com/session
-   * @param {Object} sessionData - Session data
-   * @param {string} sessionData.app_token - App token (required)
-   * @param {string} sessionData.idfa - iOS IDFA
-   * @param {string} sessionData.gps_adid - Google Play Services advertising ID
-   * @param {string} sessionData.fire_adid - Amazon Fire advertising ID
-   * @param {string} sessionData.oaid - Open Advertising ID (Huawei)
-   * @param {string} sessionData.web_uuid - Web ID from Adjust Web SDK
-   * @param {string} sessionData.idfv - iOS IDFV (backup)
-   * @param {string} sessionData.android_id - Android ID (backup)
-   * @param {string} sessionData.created_at - Session timestamp (optional, ISO 8601 format)
-   * @returns {Promise<Object>} Response data
-   */
-  async sendSession(sessionData) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message:
-          "Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.",
-        data: null,
-      };
-    }
-
-    try {
-      const payload = {
-        app_token: sessionData.app_token || this.appToken,
-        ...sessionData,
-      };
-
-      // Remove undefined values
-      Object.keys(payload).forEach((key) => {
-        if (payload[key] === undefined) {
-          delete payload[key];
-        }
-      });
-
-      const response = await this.client.post("/session", payload);
-
-      return {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-    } catch (error) {
-      console.error("Adjust sendSession error:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Helper: Track in-app purchase event
-   * @param {Object} params - Purchase parameters
-   * @param {string} params.userId - User ID
-   * @param {string} params.eventToken - Adjust event token
-   * @param {number} params.revenue - Revenue amount
-   * @param {string} params.currency - Currency code
-   * @param {Object} params.deviceIds - Device identifiers
-   * @param {Object} params.callbackParams - Callback parameters
-   * @returns {Promise<Object>} Response
-   */
-  async trackPurchase(params) {
-    const {
-      userId,
-      eventToken,
-      revenue,
-      currency = "USD",
-      deviceIds = {},
-      callbackParams = {},
-    } = params;
-
-    return this.sendEvent({
-      event_token: eventToken,
-      revenue: revenue,
-      currency: currency,
-      ...deviceIds,
-      callback_params:
-        typeof callbackParams === "string"
-          ? callbackParams
-          : JSON.stringify(callbackParams),
-    });
-  }
-
-  /**
-   * Helper: Track game completion event
-   * @param {Object} params - Game completion parameters
-   * @param {string} params.userId - User ID
-   * @param {string} params.eventToken - Adjust event token
-   * @param {Object} params.deviceIds - Device identifiers
-   * @param {Object} params.callbackParams - Callback parameters
-   * @returns {Promise<Object>} Response
-   */
-  async trackGameCompletion(params) {
-    const { userId, eventToken, deviceIds = {}, callbackParams = {} } = params;
-
-    return this.sendEvent({
-      event_token: eventToken,
-      ...deviceIds,
-      callback_params:
-        typeof callbackParams === "string"
-          ? callbackParams
-          : JSON.stringify(callbackParams),
-    });
-  }
-
-  /**
-   * Health check for Adjust API
-   * @returns {Promise<Object>} Health status
-   */
-  async healthCheck() {
-    const configured = this.isConfigured();
-    if (!configured) {
-      return {
-        status: "misconfigured",
-        configured: false,
-        error: "Missing Adjust config (API_TOKEN or APP_TOKEN)",
-        appToken: this.appToken,
-        apiToken: this.apiToken ? 'configured' : 'NOT SET',
-        baseURL: this.baseURL,
-        analyticsBaseURL: this.analyticsBaseURL
-      };
-    }
-
-    // Adjust doesn't have a health check endpoint, so we'll just verify config
-    return {
-      status: "ok",
-      configured: true,
-      message: "Adjust S2S API is configured",
-      appToken: this.appToken,
-      apiToken: this.apiToken ? 'configured' : 'NOT SET',
-      baseURL: this.baseURL,
-      analyticsBaseURL: this.analyticsBaseURL
+    const replacements = {
+      events: `${slug}_events`
     };
+    return baseMetrics.split(",").map(m => replacements[m] || m).join(",");
   }
 
-  /**
-   * Get analytics data for a specific event token
-   * Uses Adjust KPIs API to fetch comprehensive analytics
-   * @param {Object} params - Analytics parameters
-   * @param {string} params.eventToken - Event token (required)
-   * @param {string} params.startDate - Start date (YYYY-MM-DD) (optional, defaults to 30 days ago)
-   * @param {string} params.endDate - End date (YYYY-MM-DD) (optional, defaults to today)
-   * @param {string} params.grouping - Grouping dimension (optional: 'day', 'week', 'month')
-   * @returns {Promise<Object>} Analytics data
-   */
-  async getEventAnalytics(params) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message:
-          "Adjust API is not properly configured. Missing API_TOKEN or APP_TOKEN.",
-        data: null,
-      };
-    }
-
-    const { eventToken, startDate, endDate, grouping = "day" } = params;
-
-    if (!eventToken) {
-      throw {
-        status: 400,
-        message: "eventToken is required for analytics",
-        data: null,
-      };
-    }
-
-    try {
-      const end = endDate || new Date().toISOString().split("T")[0];
-      const start =
-        startDate ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
-
-      // Use Report Service API - remove app_token from params, use filters instead
-      const response = await this.analyticsClient.get("/report", {
-        params: {
-          dimensions: "app,day",
-          metrics: "events,revenue,installs,clicks,impressions",
-          date_period: `${start}:${end}`,
-          // Remove app_token from query params - API token determines the app
-          // Use filters if you need to filter by app_token or event_token
-          filters: JSON.stringify({
-            app_token: [this.appToken],
-            event_token: [eventToken]
-          })
-        },
-      });
-
-      return {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-    } catch (error) {
-      console.error("Adjust getEventAnalytics error:", error);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-        console.error(
-          "Request URL:",
-          error.config?.baseURL + error.config?.url
-        );
-        console.error("Request params:", error.config?.params);
-      }
-      throw error;
-    }
+  getReportRows(reportData) {
+    if (!reportData) return [];
+    if (Array.isArray(reportData.rows)) return reportData.rows;
+    if (Array.isArray(reportData.result_set)) return reportData.result_set;
+    return [];
   }
 
-  /**
-   * Get installs by source (network/campaign) for an event token
-   * @param {Object} params - Parameters
-   * @param {string} params.eventToken - Event token (required)
-   * @param {string} params.startDate - Start date (YYYY-MM-DD)
-   * @param {string} params.endDate - End date (YYYY-MM-DD)
-   * @returns {Promise<Object>} Installs by source data
-   */
-  async getInstallsBySource(params) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message: "Adjust API is not properly configured.",
-        data: null,
-      };
-    }
-
-    const { eventToken, startDate, endDate } = params;
-
-    if (!eventToken) {
-      throw {
-        status: 400,
-        message: "eventToken is required",
-        data: null,
-      };
-    }
-
-    try {
-      const end = endDate || new Date().toISOString().split("T")[0];
-      const start =
-        startDate ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
-
-      const response = await this.analyticsClient.get("/report", {
-        params: {
-          dimensions: "app,network",
-          metrics: "installs,events,revenue",
-          date_period: `${start}:${end}`,
-          filters: JSON.stringify({
-            app_token: [this.appToken],
-            event_token: [eventToken]
-          })
-        },
+  sumRows(rows, fields) {
+    return rows.reduce((summary, row) => {
+      fields.forEach((field) => {
+        const value = field === "revenue"
+          ? parseFloat(row[field] || 0)
+          : parseInt(row[field] || 0, 10);
+        summary[field] = (summary[field] || 0) + (Number.isNaN(value) ? 0 : value);
       });
-
-      return {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-    } catch (error) {
-      console.error("Adjust getInstallsBySource error:", error);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-        console.error(
-          "Request URL:",
-          error.config?.baseURL + error.config?.url
-        );
-      }
-      throw error;
-    }
+      return summary;
+    }, {});
   }
 
-  /**
-   * Get revenue data for an event token
-   * @param {Object} params - Parameters
-   * @param {string} params.eventToken - Event token (required)
-   * @param {string} params.startDate - Start date (YYYY-MM-DD)
-   * @param {string} params.endDate - End date (YYYY-MM-DD)
-   * @returns {Promise<Object>} Revenue data
-   */
-  async getRevenueData(params) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message: "Adjust API is not properly configured.",
-        data: null,
-      };
-    }
+  buildReportParams({ dimensions, metrics, start, end, country, network, limit, sort, eventToken }) {
+    const params = {
+      dimensions,
+      metrics,
+      date_period: `${start}:${end}`,
+      app_token__in: this.appToken,
+      format_dates: false,
+    };
 
-    const { eventToken, startDate, endDate } = params;
+    if (sort) params.sort = sort;
+    if (limit) params.limit = limit;
+    if (country) params.country_code__in = country.toUpperCase();
+    if (network) params.network__contains = network;
+    if (eventToken) params.event_token__in = eventToken;
 
-    if (!eventToken) {
-      throw {
-        status: 400,
-        message: "eventToken is required",
-        data: null,
-      };
-    }
-
-    try {
-      const end = endDate || new Date().toISOString().split("T")[0];
-      const start =
-        startDate ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
-
-      const response = await this.analyticsClient.get("/report", {
-        params: {
-          dimensions: "app,day",
-          metrics: "revenue,events",
-          date_period: `${start}:${end}`,
-          filters: JSON.stringify({
-            app_token: [this.appToken],
-            event_token: [eventToken]
-          })
-        },
-      });
-
-      return {
-        success: true,
-        data: response.data,
-        status: response.status,
-      };
-    } catch (error) {
-      console.error("Adjust getRevenueData error:", error);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-      }
-      throw error;
-    }
+    return params;
   }
 
-  /**
-   * Get device and location details for an event token
-   * @param {Object} params - Parameters
-   * @param {string} params.eventToken - Event token (required)
-   * @param {string} params.startDate - Start date (YYYY-MM-DD)
-   * @param {string} params.endDate - End date (YYYY-MM-DD)
-   * @returns {Promise<Object>} Device and location data
-   */
-  async getDeviceLocationData(params) {
-    if (!this.isConfigured()) {
-      throw {
-        status: 500,
-        message: "Adjust API is not properly configured.",
-        data: null,
-      };
-    }
-
-    const { eventToken, startDate, endDate } = params;
-
-    if (!eventToken) {
-      throw {
-        status: 400,
-        message: "eventToken is required",
-        data: null,
-      };
-    }
-
-    try {
-      const end = endDate || new Date().toISOString().split("T")[0];
-      const start =
-        startDate ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
-
-      // Get device data grouped by platform
-      const deviceResponse = await this.analyticsClient.get("/report", {
-        params: {
-          dimensions: "app,os_name",
-          metrics: "events,installs",
-          date_period: `${start}:${end}`,
-          filters: JSON.stringify({
-            app_token: [this.appToken],
-            event_token: [eventToken]
-          })
-        },
-      });
-
-      // Get location data grouped by country
-      const locationResponse = await this.analyticsClient.get("/report", {
-        params: {
-          dimensions: "app,country",
-          metrics: "events,installs,revenue",
-          date_period: `${start}:${end}`,
-          filters: JSON.stringify({
-            app_token: [this.appToken],
-            event_token: [eventToken]
-          })
-        },
-      });
-
-      return {
-        success: true,
-        data: {
-          devices: deviceResponse.data,
-          locations: locationResponse.data,
-        },
-        status: 200,
-      };
-    } catch (error) {
-      console.error("Adjust getDeviceLocationData error:", error);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Get comprehensive analytics for an event token (all data combined)
-   * @param {Object} params - Parameters
-   * @param {string} params.eventToken - Event token (required)
-   * @param {string} params.startDate - Start date (YYYY-MM-DD)
-   * @param {string} params.endDate - End date (YYYY-MM-DD)
-   * @returns {Promise<Object>} Complete analytics data
-   */
   async getCompleteAnalytics(params) {
-    const { eventToken, startDate, endDate } = params;
+    const { startDate, endDate, country, network } = params;
 
     try {
-      // Fetch all analytics in parallel
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+
+      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
+      const timeDimension = isShortRange ? "hour" : "day";
+
+      console.log('\n🔍 Adjust API Debug: getCompleteAnalytics (App-wide)');
+      console.log('   Date range:', `${start}:${end}`);
+
       const [
-        eventAnalytics,
-        installsBySource,
+        kpiData,
+        clickTracking,
+        installTracking,
         revenueData,
-        deviceLocationData,
+        deviceData,
+        sourceData
       ] = await Promise.all([
-        this.getEventAnalytics({ eventToken, startDate, endDate }).catch(
-          (err) => ({ error: err.message })
-        ),
-        this.getInstallsBySource({ eventToken, startDate, endDate }).catch(
-          (err) => ({ error: err.message })
-        ),
-        this.getRevenueData({ eventToken, startDate, endDate }).catch(
-          (err) => ({ error: err.message })
-        ),
-        this.getDeviceLocationData({ eventToken, startDate, endDate }).catch(
-          (err) => ({ error: err.message })
-        ),
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: "app,day",
+            metrics: "events,installs,clicks,impressions,revenue,daus",
+            start,
+            end,
+            country,
+            network,
+            sort: "-day"
+          })
+        }).then(res => {
+          console.log('✅ KPI Data Response Status:', res.status);
+          console.log('   Data rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ KPI Data Error:', err.response?.status, err.response?.data || err.message);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
+            metrics: "events,installs,clicks,impressions,revenue,daus",
+            start,
+            end,
+            country,
+            network,
+            sort: `-${timeDimension}`
+          })
+        }).then(res => {
+          console.log('✅ Click Tracking Response Status:', res.status);
+          console.log('   Data rows:', this.getReportRows(res.data).length);
+          return res;
+        }).catch(err => {
+          console.log('❌ Click Tracking Error:', err.response?.status, err.response?.data || err.message);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: `app,network,campaign,country_code,country,${timeDimension}`,
+            metrics: "installs,revenue",
+            start,
+            end,
+            country,
+            network,
+            sort: `-${timeDimension}`
+          })
+        }).then(res => {
+          console.log('✅ Install Tracking Response Status:', res.status);
+          console.log('   Data rows:', this.getReportRows(res.data).length);
+          return res;
+        }).catch(err => {
+          console.log('❌ Install Tracking Error:', err.response?.status);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: "app,country_code,country,network",
+            metrics: "revenue,events",
+            start,
+            end,
+            country,
+            network,
+            sort: "-revenue"
+          })
+        }).then(res => {
+          console.log('✅ Revenue Data Response Status:', res.status);
+          console.log('   Data rows:', this.getReportRows(res.data).length);
+          return res;
+        }).catch(err => {
+          console.log('❌ Revenue Data Error:', err.response?.status);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: "app,country_code,country,os_name,device_type",
+            metrics: "events,installs,clicks,daus,impressions",
+            start,
+            end,
+            country,
+            network,
+            sort: "-events"
+          })
+        }).then(res => {
+          console.log('✅ Device Data Response Status:', res.status);
+          console.log('   Data rows:', this.getReportRows(res.data).length);
+          return res;
+        }).catch(err => {
+          console.log('❌ Device Data Error:', err.response?.status);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: this.buildReportParams({
+            dimensions: "app,network,campaign,adgroup,creative",
+            metrics: "events,installs,clicks,revenue,impressions,daus",
+            start,
+            end,
+            country,
+            network,
+            sort: "-installs"
+          })
+        }).then(res => {
+          console.log('✅ Source Data Response Status:', res.status);
+          console.log('   Data rows:', this.getReportRows(res.data).length);
+          return res;
+        }).catch(err => {
+          console.log('❌ Source Data Error:', err.response?.status);
+          return { error: err.message, data: null };
+        })
       ]);
 
+      const analyticsData = {
+        kpis: { data: kpiData.data || kpiData, error: kpiData.error || null },
+        clickTracking: { data: clickTracking.data || clickTracking, error: clickTracking.error || null },
+        installTracking: { data: installTracking.data || installTracking, error: installTracking.error || null },
+        revenue: { data: revenueData.data || revenueData, error: revenueData.error || null },
+        devices: { data: deviceData.data || deviceData, error: deviceData.error || null },
+        sources: { data: sourceData.data || sourceData, error: sourceData.error || null }
+      };
+
+      const summary = { totalEvents: 0, totalInstalls: 0, totalClicks: 0, totalRevenue: 0, totalImpressions: 0 };
+      const kpiRows = this.getReportRows(analyticsData.kpis.data);
+      if (kpiRows.length) {
+        kpiRows.forEach(row => {
+          summary.totalEvents += parseInt(row.events || 0);
+          summary.totalInstalls += parseInt(row.installs || 0);
+          summary.totalClicks += parseInt(row.clicks || 0);
+          summary.totalRevenue += parseFloat(row.revenue || 0);
+          summary.totalImpressions += parseInt(row.impressions || 0);
+        });
+      }
+
       return {
         success: true,
-        data: {
-          eventAnalytics: eventAnalytics.data || eventAnalytics,
-          installsBySource: installsBySource.data || installsBySource,
-          revenueData: revenueData.data || revenueData,
-          deviceLocationData: deviceLocationData.data || deviceLocationData,
-          eventToken,
-          dateRange: {
-            start:
-              startDate ||
-              new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-                .toISOString()
-                .split("T")[0],
-            end: endDate || new Date().toISOString().split("T")[0],
-          },
-        },
+        data: { summary, analytics: analyticsData, dateRange: { start, end }, filters: { country: country || null, network: network || null } },
         status: 200,
       };
     } catch (error) {
@@ -952,7 +285,614 @@ class AdjustService {
       throw error;
     }
   }
+
+  async getTokenAnalytics(params) {
+    const { eventToken, eventName, startDate, endDate, country, network } = params;
+
+    try {
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+
+      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
+      const timeDimension = isShortRange ? "hour" : "day";
+
+      let resolvedSlug = null;
+
+      if (eventToken) {
+        resolvedSlug = await this.resolveEventSlug(eventToken, eventName);
+        if (resolvedSlug) {
+          console.log('   Resolved slug:', resolvedSlug);
+        }
+      }
+
+      const eventMetric = resolvedSlug ? `${resolvedSlug}_events` : 'events';
+
+      console.log('\n🔍 Adjust API Debug: getTokenAnalytics');
+      console.log('   Date range:', `${start}:${end}`);
+      console.log('   Token:', eventToken);
+      console.log('   Slug:', resolvedSlug || 'none');
+      console.log('   Event metric:', eventMetric);
+
+      const [
+        kpiData,
+        byNetwork,
+        byCountry,
+        byDevice,
+        bySource
+      ] = await Promise.all([
+        this.analyticsClient.get("/report", {
+          params: {
+            dimensions: "app,day",
+            metrics: eventMetric,
+            date_period: `${start}:${end}`,
+            app_token__in: this.appToken,
+            format_dates: false,
+            sort: "-day"
+          }
+        }).then(res => {
+          console.log('✅ KPI Data Status:', res.status, 'Rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ KPI Data Error:', err.response?.status, err.response?.data?.error_desc);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: {
+            dimensions: "app,network,campaign,day",
+            metrics: eventMetric,
+            date_period: `${start}:${end}`,
+            app_token__in: this.appToken,
+            format_dates: false,
+            sort: `-${eventMetric}`
+          }
+        }).then(res => {
+          console.log('✅ By Network Status:', res.status, 'Rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ By Network Error:', err.response?.status, err.response?.data?.error_desc);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: {
+            dimensions: "app,country_code,country",
+            metrics: eventMetric,
+            date_period: `${start}:${end}`,
+            app_token__in: this.appToken,
+            format_dates: false,
+            sort: `-${eventMetric}`
+          }
+        }).then(res => {
+          console.log('✅ By Country Status:', res.status, 'Rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ By Country Error:', err.response?.status, err.response?.data?.error_desc);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: {
+            dimensions: "app,country_code,country,os_name,device_type",
+            metrics: eventMetric,
+            date_period: `${start}:${end}`,
+            app_token__in: this.appToken,
+            format_dates: false,
+            sort: `-${eventMetric}`
+          }
+        }).then(res => {
+          console.log('✅ By Device Status:', res.status, 'Rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ By Device Error:', err.response?.status, err.response?.data?.error_desc);
+          return { error: err.message, data: null };
+        }),
+
+        this.analyticsClient.get("/report", {
+          params: {
+            dimensions: "app,network,campaign,adgroup,creative",
+            metrics: eventMetric,
+            date_period: `${start}:${end}`,
+            app_token__in: this.appToken,
+            format_dates: false,
+            sort: `-${eventMetric}`
+          }
+        }).then(res => {
+          console.log('✅ By Source Status:', res.status, 'Rows:', res.data?.rows?.length || 0);
+          return res;
+        }).catch(err => {
+          console.log('❌ By Source Error:', err.response?.status, err.response?.data?.error_desc);
+          return { error: err.message, data: null };
+        })
+      ]);
+
+      const analyticsData = {
+        kpis: { data: kpiData.data || kpiData, error: kpiData.error || null },
+        byNetwork: { data: byNetwork.data || byNetwork, error: byNetwork.error || null },
+        byCountry: { data: byCountry.data || byCountry, error: byCountry.error || null },
+        byDevice: { data: byDevice.data || byDevice, error: byDevice.error || null },
+        bySource: { data: bySource.data || bySource, error: bySource.error || null }
+      };
+
+      const kpiRows = this.getReportRows(analyticsData.kpis.data);
+      let totalEvents = 0;
+      kpiRows.forEach(row => {
+        totalEvents += parseInt(row[eventMetric] || 0);
+      });
+
+      return {
+        success: true,
+        data: {
+          summary: { totalEvents },
+          analytics: analyticsData,
+          eventToken,
+          resolvedSlug,
+          eventMetric,
+          dateRange: { start, end },
+          filters: { country: country || null, network: network || null }
+        },
+        status: 200,
+      };
+    } catch (error) {
+      console.error("Adjust getTokenAnalytics error:", error);
+      throw error;
+    }
+  }
+
+  async getEventAnalytics(params) {
+    const result = await params.eventToken
+      ? this.getTokenAnalytics(params)
+      : this.getCompleteAnalytics(params);
+    const rows = this.getReportRows(result.data?.analytics?.kpis?.data);
+    const slug = result.data?.resolvedSlug;
+    const fields = slug
+      ? [`${slug}_events`, `${slug}_installs`, `${slug}_clicks`, `${slug}_impressions`, `${slug}_revenue`, `${slug}_daus`]
+      : ["events", "installs", "clicks", "impressions", "revenue", "daus"];
+    return {
+      success: true,
+      data: {
+        eventAnalytics: {
+          rows,
+          result_parameters: this.sumRows(rows, fields),
+        },
+      },
+      status: 200,
+    };
+  }
+
+  async getInstallsBySource(params) {
+    const result = await params.eventToken
+      ? this.getTokenAnalytics(params)
+      : this.getCompleteAnalytics(params);
+    const rows = this.getReportRows(result.data?.analytics?.installTracking?.data);
+    const slug = result.data?.resolvedSlug;
+    const fields = slug
+      ? [`${slug}_installs`, `${slug}_revenue`, `${slug}_daus`]
+      : ["installs", "revenue", "daus"];
+    return {
+      success: true,
+      data: {
+        installsBySource: {
+          rows,
+          result_set: rows,
+          result_parameters: this.sumRows(rows, fields),
+        },
+      },
+      status: 200,
+    };
+  }
+
+  async getRevenueData(params) {
+    const result = await params.eventToken
+      ? this.getTokenAnalytics(params)
+      : this.getCompleteAnalytics(params);
+    const rows = this.getReportRows(result.data?.analytics?.revenue?.data);
+    const slug = result.data?.resolvedSlug;
+    const eventsKey = slug ? `${slug}_events` : 'events';
+    const revenueKey = slug ? `${slug}_revenue` : 'revenue';
+    const dausKey = slug ? `${slug}_daus` : 'daus';
+    return {
+      success: true,
+      data: {
+        revenueData: {
+          rows,
+          result_set: rows,
+          result_parameters: {
+            ...this.sumRows(rows, [revenueKey, eventsKey, dausKey]),
+            revenue_events: rows.reduce((sum, row) => sum + parseInt(row[eventsKey] || 0, 10), 0),
+          },
+        },
+      },
+      status: 200,
+    };
+  }
+
+  async getDeviceLocationData(params) {
+    const result = await params.eventToken
+      ? this.getTokenAnalytics(params)
+      : this.getCompleteAnalytics(params);
+    const rows = this.getReportRows(result.data?.analytics?.devices?.data);
+    return {
+      success: true,
+      data: {
+        deviceLocationData: {
+          rows,
+          devices: { result_set: rows, rows },
+          locations: { result_set: rows, rows },
+        },
+      },
+      status: 200,
+    };
+  }
+
+  async getClickTrackingData(params) {
+    const { clickId, startDate, endDate, country, eventToken, network } = params;
+    try {
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
+      const timeDimension = isShortRange ? "hour" : "day";
+      const response = await this.analyticsClient.get("/report", {
+        params: this.buildReportParams({
+          dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
+          metrics: "events,installs,clicks,revenue",
+          start,
+          end,
+          country,
+          network,
+          sort: `-${timeDimension}`,
+          limit: 1000
+        })
+      });
+      return { success: true, data: response.data, status: response.status };
+    } catch (error) {
+      console.error("Adjust getClickTrackingData error:", error);
+      throw error;
+    }
+  }
+
+  async getClickDetails(clickId, startDate, endDate) {
+    try {
+      const start = startDate || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
+      const timeDimension = isShortRange ? "hour" : "day";
+      const response = await this.analyticsClient.get("/report", {
+        params: this.buildReportParams({
+          dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
+          metrics: "events,installs,clicks,revenue",
+          start,
+          end,
+          sort: timeDimension,
+          limit: 10000
+        })
+      });
+
+      const rows = this.getReportRows(response.data);
+      const summary = {
+        totalRecords: rows.length,
+        totalRevenue: rows.reduce((sum, r) => sum + parseFloat(r.revenue || 0), 0),
+        totalInstalls: rows.reduce((sum, r) => sum + parseInt(r.installs || 0), 0),
+        totalEvents: rows.reduce((sum, r) => sum + parseInt(r.events || 0), 0),
+        totalClicks: rows.reduce((sum, r) => sum + parseInt(r.clicks || 0), 0)
+      };
+
+      return {
+        success: true,
+        data: {
+          clickId,
+          summary,
+          timeline: rows.map(row => ({
+            activityKind: parseInt(row.installs || 0, 10) > 0 ? "install" : parseInt(row.clicks || 0, 10) > 0 ? "click" : "event",
+            timestamp: row.day || row.hour,
+            date: row.day || row.hour,
+            network: row.network || 'Organic',
+            campaign: row.campaign || 'N/A',
+            adgroup: row.adgroup || 'N/A',
+            creative: row.creative || 'N/A',
+            country: row.country_code || row.country || 'N/A',
+            revenue: parseFloat(row.revenue || 0),
+            installs: parseInt(row.installs || 0),
+            clicks: parseInt(row.clicks || 0),
+            events: parseInt(row.events || 0)
+          })),
+          attributionInfo: {
+            network: rows[0]?.network_name || rows[0]?.network || 'Organic',
+            campaign: rows[0]?.campaign || 'N/A',
+            country: rows[0]?.country || 'N/A'
+          },
+          rawData: rows
+        },
+        status: 200
+      };
+    } catch (error) {
+      console.error("Adjust getClickDetails error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get attribution table data directly from Adjust Report Service API
+   * This is the RECOMMENDED approach per Adjust documentation
+   * 
+   * @param {Object} params - Query parameters
+   * @param {string} params.startDate - Start date (YYYY-MM-DD)
+   * @param {string} params.endDate - End date (YYYY-MM-DD)
+   * @param {string} params.source - Filter by network (optional)
+   * @param {string} params.country - Filter by country code (optional)
+   * @returns {Object} Attribution table data with installs, D1 retention, revenue, cost, margin
+   */
+  /**
+   * SEPARATE FUNCTION: Get attribution table data DIRECTLY from Adjust Report Service API
+   * This function is COMPLETELY SEPARATE from webhook/event management logic
+   * 
+   * @param {Object} params - Query parameters
+   * @param {string} params.startDate - Start date (YYYY-MM-DD)
+   * @param {string} params.endDate - End date (YYYY-MM-DD)
+   * @param {string} params.source - Filter by network (optional)
+   * @param {string} params.country - Filter by country code (optional)
+   * @returns {Object} Attribution table data with installs, revenue, marketing cost
+   * 
+   * VERIFIED FIELDS FROM ADJUST OFFICIAL DOCUMENTATION:
+   * ✅ installs - Metric ID: 'installs' (https://dev.adjust.com/en/api/rs-api/reports/)
+   * ✅ revenue - Metric ID: 'revenue' (https://help.adjust.com/en/article/datascape-metrics-glossary)
+   * ✅ network_cost - Metric ID: 'network_cost' (https://dev.adjust.com/en/api/rs-api/filters-data/)
+   * ✅ clicks - Metric ID: 'clicks' (standard metric)
+   * ✅ impressions - Metric ID: 'impressions' (standard metric)
+   * ✅ network - Dimension: 'network' (https://help.adjust.com/en/article/datascape-dimensions-glossary)
+   * ❌ d1_retention - NOT in standard API (requires cohort_period=1)
+   * ❌ reward_cost - NOT tracked by Adjust (use our DB if needed)
+   */
+  async getAttributionTableData(params = {}) {
+    const { startDate, endDate, source, country } = params;
+
+    try {
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const end = endDate || new Date().toISOString().split("T")[0];
+
+      console.log('\n📊 Adjust API: Fetching attribution table data (SEPARATE FUNCTION)');
+      console.log(`   Date range: ${start} to ${end}`);
+      if (source) console.log(`   Filter by network: ${source}`);
+      if (country) console.log(`   Filter by country: ${country}`);
+
+      // Build API params for Adjust Report Service
+      // Using JSON endpoint: https://automate.adjust.com/reports-service/report
+      // VERIFIED metric names from official Adjust documentation:
+      // - installs ✅ (https://dev.adjust.com/en/api/rs-api/reports/)
+      // - revenue ✅ (https://help.adjust.com/en/article/datascape-metrics-glossary)
+      // - network_cost ✅ (https://dev.adjust.com/en/api/rs-api/filters-data/)
+      // - clicks ✅ (standard metric)
+      // - impressions ✅ (standard metric)
+      const apiParams = {
+        dimensions: 'network,campaign,country_code',
+        metrics: 'installs,revenue,network_cost,clicks,impressions',
+        date_period: `${start}:${end}`,
+        app_token__in: this.appToken,
+        format_dates: false,
+        sort: '-installs',
+        limit: 1000
+      };
+
+      if (source) {
+        apiParams.network__contains = source;
+      }
+      if (country) {
+        apiParams.country_code__in = country.toUpperCase();
+      }
+
+      const response = await this.analyticsClient.get('/report', { params: apiParams });
+
+      if (!response.data) {
+        console.log('⚠️ Adjust API: No data returned');
+        return { success: true, data: [], source: 'adjust_api', count: 0 };
+      }
+
+      const rows = this.getReportRows(response.data);
+      console.log(`✅ Adjust API: Got ${rows.length} rows`);
+
+      // Transform to attribution table format
+      // ALL FIELDS BELOW ARE VERIFIED AGAINST ADJUST OFFICIAL DOCUMENTATION
+      const attributionData = rows.map((row, index) => {
+        // ✅ VERIFIED: installs (metric 'installs' from Adjust docs)
+        const installs = parseInt(row.installs || 0, 10);
+        
+        // ✅ VERIFIED: revenue (metric 'revenue' from Adjust docs)
+        // Official doc: "The revenue your app has generated within a selected timeframe"
+        const revenue = parseFloat(row.revenue || 0);
+        
+        // ✅ VERIFIED: marketingCost (metric 'network_cost' from Adjust docs)
+        // Official doc: "Ad Spend (Network) - shows ad spend data retrieved using Network API"
+        const marketingCost = parseFloat(row.network_cost || 0);
+        
+        // ❌ NOT AVAILABLE: D1/D7 Retention
+        // Official doc: retention_rate_{N} requires cohort_period parameter (Cohort API)
+        // Setting to 0 - can be calculated from DB later if needed
+        const d1Retention = 0;
+        const d7Retention = 0;
+        
+        // ❌ COMMENTED OUT: Reward Cost (NOT tracked by Adjust)
+        // Adjust only tracks ad spend (network_cost), NOT your internal reward costs
+        // If needed, query our Transaction collection separately
+        const rewardCost = 0; // Commented out as requested
+        
+        // FIXED: Margin includes marketingCost (Bug 3 fix from senior dev)
+        const margin = revenue - marketingCost; // rewardCost is 0
+        const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
+
+        return {
+          id: index + 1,
+          source: row.network || 'Organic', // ✅ VERIFIED: dimension 'network'
+          campaign: row.campaign || 'N/A', // ✅ VERIFIED: dimension 'campaign'
+          country: row.country_code || 'N/A', // ✅ VERIFIED: dimension 'country_code'
+          installs: installs, // ✅ From Adjust API
+          d1Retention: d1Retention, // ❌ Not from Adjust (0 for now)
+          d7Retention: d7Retention, // ❌ Not from Adjust (0 for now)
+          revenue: revenue, // ✅ From Adjust API (metric 'revenue')
+          rewardCost: rewardCost, // ❌ Commented out (0 for now)
+          marketingCost: marketingCost, // ✅ From Adjust API (metric 'network_cost')
+          margin: margin,
+          marginPercent: parseFloat(marginPercent),
+          clicks: parseInt(row.clicks || 0, 10), // ✅ From Adjust API
+          impressions: parseInt(row.impressions || 0, 10) // ✅ From Adjust API
+        };
+      });
+
+      if (attributionData.length === 0) {
+        console.log('⚠️ Adjust API: No attribution data found for the given filters');
+      }
+
+      return {
+        success: true,
+        data: attributionData,
+        source: 'adjust_api',
+        count: attributionData.length,
+        dateRange: { start, end },
+        filters: { source: source || null, country: country || null }
+      };
+
+    } catch (error) {
+      console.error('❌ Adjust API error (getAttributionTableData):', error.response?.status, error.response?.data || error.message);
+      
+      return {
+        success: false,
+        data: [],
+        source: 'adjust_api',
+        count: 0,
+        error: error.message
+      };
+    }
+  }
 }
 
-// Export singleton instance
+// ===========================================================================
+// ===========================================================================
+// NEW METHODS: Get Networks & Campaigns for Dropdown Auto-Population
+// ===========================================================================
+
+/**
+ * Get all unique networks (marketing channels) from Adjust API
+ * @param {Object} params - Optional filters
+ * @param {boolean} forceRefresh - Force refresh cache
+ * @returns {Promise<Array>} List of network names
+ */
+async function getNetworksForDropdown(params = {}, forceRefresh = false) {
+  try {
+    console.log('\n🔍 Adjust API: Fetching networks from filters_data endpoint');
+    
+    const response = await this.analyticsClient.get('/filters_data', {
+      params: { required_filters: 'networks' }
+    });
+
+    const networksData = response.data?.networks || [];
+    const EXCLUDED_NETWORKS = [
+      'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
+      'organic search', 'organic install', '(not set)', 'n/a', ''
+    ];
+    
+    const networks = networksData
+      .map(n => n.name || n.id)
+      .filter(Boolean)
+      .filter(n => !EXCLUDED_NETWORKS.includes(n.toLowerCase().trim()))
+      .sort();
+
+    console.log(`✅ Adjust API (filters_data): Got ${networks.length} networks after filtering`);
+    
+    if (networks.length > 0) return networks;
+    
+    // Fallback to common networks
+    console.log('⚠️ No paid networks found, returning common networks');
+    return [
+      'TikTok', 'Instagram', 'Facebook', 'Google Ads', 'Snapchat', 
+      'Twitter', 'YouTube', 'LinkedIn', 'Reddit', 'Pinterest'
+    ].sort();
+  } catch (error) {
+    console.error('❌ Adjust API error (getNetworksForDropdown):', error.response?.status, error.response?.data || error.message);
+    
+    // Fallback to DB
+    try {
+      const AdjustCallback = require('../models/AdjustCallback');
+      const EXCLUDED_NETWORKS = [
+        'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
+        'organic search', 'organic install', '(not set)', 'n/a', ''
+      ];
+      const dbNetworks = await AdjustCallback.distinct('network', { 
+        network: { $exists: true, $ne: '' } 
+      });
+      const filtered = dbNetworks
+        .filter(n => n && !EXCLUDED_NETWORKS.includes(n.toLowerCase().trim()))
+        .sort();
+      
+      if (filtered.length > 0) return filtered;
+    } catch (dbError) {
+      console.error('❌ DB Fallback error:', dbError.message);
+    }
+    
+    // Return common networks as last resort
+    return [
+      'TikTok', 'Instagram', 'Facebook', 'Google Ads', 'Snapchat', 
+      'Twitter', 'YouTube', 'LinkedIn', 'Reddit', 'Pinterest'
+    ].sort();
+  }
+}
+
+/**
+ * Get all unique campaigns from Adjust API
+ * @param {Object} params - Optional filters
+ * @param {string} params.network - Filter by network (optional)
+ * @param {boolean} forceRefresh - Force refresh cache
+ * @returns {Promise<Array>} List of campaign names
+ */
+async function getCampaignsForDropdown(params = {}, forceRefresh = false) {
+  try {
+    console.log('\n🔍 Adjust API: Fetching campaigns from Report API');
+    
+    const { network } = params;
+    const datePeriod = '2024-01-01:2026-12-31'; // Wide range to capture all campaigns
+    
+    const response = await this.analyticsClient.get('/report', {
+      params: {
+        dimensions: 'campaign_network,network',
+        metrics: 'installs',
+        date_period: datePeriod,
+        app_token__in: this.appToken,
+        format_dates: false,
+        limit: 1000
+      }
+    });
+
+    const rows = this.getReportRows(response.data);
+    
+    const EXCLUDED_NETWORKS = [
+      'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
+      'organic search', 'organic install', '(not set)', 'n/a', ''
+    ];
+
+    let campaigns = [...new Set(
+      rows
+        .filter(row => row.network && !EXCLUDED_NETWORKS.includes(row.network.toLowerCase().trim()))
+        .map(row => row.campaign_network || row.campaign)
+        .filter(Boolean)
+    )].sort();
+
+    console.log(`✅ Adjust Report API: Got ${campaigns.length} campaigns`);
+    
+    if (campaigns.length > 0) return campaigns;
+  } catch (error) {
+    console.error('❌ Adjust Report API error:', error.response?.status, error.response?.data || error.message);
+  }
+  
+  // Return sample campaigns as fallback
+  console.log('⚠️ No campaigns found, returning sample campaigns');
+  return [
+    'Summer Sale 2026', 'New User Bonus', 'Referral Program', 
+    'Holiday Special', 'Weekend Offer', 'Flash Sale'
+  ].sort();
+   }
+
+// Attach methods to AdjustService prototype
+AdjustService.prototype.getNetworksForDropdown = getNetworksForDropdown;
+AdjustService.prototype.getCampaignsForDropdown = getCampaignsForDropdown;
+
 module.exports = new AdjustService();

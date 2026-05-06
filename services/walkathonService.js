@@ -20,6 +20,7 @@ const {
   generateWalkathonStats,
   getTimeRemaining
 } = require('../utils/walkathonHelpers');
+const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
  * Get current active walkathon

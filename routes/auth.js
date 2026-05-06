@@ -430,16 +430,18 @@ router.post(
         });
         if (existingEmailUser) {
           return res.status(400).json({
-            error: "Email already exists",
+            error: "Email already registered",
             message:
-              "An account with this email address already exists. Please use a different email or try logging in.",
+              "This email is already in use. Please sign in with your existing account or use a different email.",
+            field: "email",
           });
         }
       } else {
         return res.status(400).json({
-          error: "User already exists",
+          error: "Mobile number already registered",
           message:
-            "An account with this mobile number already exists. Please login instead.",
+            "This mobile number is already registered. Please sign in instead.",
+          field: "mobile",
         });
       }
 
@@ -644,16 +646,16 @@ router.post(
         const field = Object.keys(error.keyPattern)[0];
         if (field === "email") {
           return res.status(400).json({
-            error: "Email already exists",
+            error: "Email already registered",
             message:
-              "An account with this email address already exists. Please use a different email or try logging in.",
+              "This email is already in use. Please sign in with your existing account or use a different email.",
             field: "email",
           });
         } else if (field === "mobile") {
           return res.status(400).json({
-            error: "Mobile number already exists",
+            error: "Mobile number already registered",
             message:
-              "An account with this mobile number already exists. Please use a different mobile number or try logging in.",
+              "This mobile number is already registered. Please sign in instead.",
             field: "mobile",
           });
         }

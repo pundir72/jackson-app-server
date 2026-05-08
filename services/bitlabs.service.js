@@ -498,22 +498,7 @@ class BitlabsService {
           );
         });
 
-        // Log SHOPPING structure - show actual values inside arrays and objects
-        if (shoppingOffers.length > 0) {
-          console.log(
-            `\n========== SHOPPING - RAW BITLABS API RESPONSE ==========`
-          );
-          console.log(`Total Shopping Offers: ${shoppingOffers.length}`);
-          console.log(
-            `First Shopping Offer Structure (from Bitlabs API - with full object/array values):`
-          );
-          const firstShopping = shoppingOffers[0];
-          // Show the complete object with actual values in objects and arrays
-          console.log(JSON.stringify(firstShopping, null, 2));
-          console.log(
-            `========================================================\n`
-          );
-        }
+
 
         // Log MAGIC RECEIPTS structure - show actual values inside objects and arrays
         if (magicReceiptOffers.length > 0) {
@@ -570,13 +555,13 @@ class BitlabsService {
         filteredOffers = rawOffers.filter((offer) => {
           return isGameOffer(offer);
         });
-        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} games (is_game=true)`);
+
       } else if (normalizedParams.is_game === false) {
         // Filter for non-games only
         filteredOffers = rawOffers.filter((offer) => {
           return !isGameOffer(offer);
         });
-        console.log(`🔵 Filtered ${rawOffers.length} offers to ${filteredOffers.length} non-games (is_game=false)`);
+
       }
 
       // Return raw Bitlabs offers format - preserve original structure
@@ -644,7 +629,7 @@ class BitlabsService {
           console.error(`❌ Bitlabs API restriction reason:`, restrictionReason);
         }
       } else {
-        console.log(`✅ Found ${offersWithMetadata.length} Bitlabs offers`);
+
       }
 
       return {
@@ -809,14 +794,10 @@ class BitlabsService {
     }
 
     try {
-      console.log("\n🔵 ========== GETSURVEYS DEBUG ==========");
-      console.log("🔵 Input:", JSON.stringify(queryParams));
-      
       // Use client surveys endpoint - returns actual surveys, not gaming offers
       // Official docs: https://developer.bitlabs.ai/reference/getsurveysv2
       const endpoint = "/v2/client/surveys";
       const fullURL = `${this.baseURL}${endpoint}`;
-      console.log("🔵 Using endpoint:", endpoint);
       // console.log("🔵 [BITLABS SURVEYS] Endpoint:", endpoint);
       // console.log("🔵 [BITLABS SURVEYS] Full URL:", fullURL);
       // console.log("🔵 [BITLABS SURVEYS] User ID:", userIdentifier);
@@ -871,8 +852,6 @@ class BitlabsService {
       };
 
       // Note: /v2/client/surveys uses standard query params (not comma-separated like publisher API)
-      console.log("🔵 Headers:", { "X-Api-Token": this.apiToken ? "SET" : "MISSING" });
-      
       // console.log("🔵 [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
       // console.log("🔵 [BITLABS SURVEYS] Headers:", {
       //   "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
@@ -888,30 +867,7 @@ class BitlabsService {
         });
 
         // Log raw response from Bitlabs
-        console.log(
-          "\n🔵 [BITLABS SURVEYS] ========== RAW API RESPONSE =========="
-        );
-        console.log(
-          "🔵 [BITLABS SURVEYS] Response Status:",
-          response.status
-        );
-        console.log(
-          "🔵 [BITLABS SURVEYS] Response Data Type:",
-          typeof response.data
-        );
-        console.log(
-          "🔵 [BITLABS SURVEYS] Response Data Keys:",
-          response.data ? Object.keys(response.data) : "NO DATA"
-        );
-        if (response.data) {
-          console.log(
-            "🔵 [BITLABS SURVEYS] Response Structure (first 2000 chars):",
-            JSON.stringify(response.data, null, 2).substring(0, 2000)
-          );
-        }
-        console.log(
-          "🔵 [BITLABS SURVEYS] ==================================================\n"
-        );
+
       } catch (error) {
         // 🔴 ENHANCED ERROR LOGGING: Log full error details for debugging
         const errorStatus = error.response?.status || error.status;
@@ -1060,16 +1016,7 @@ class BitlabsService {
       // Return raw Bitlabs surveys format - preserve original structure
       // Only add minimal metadata fields (type, provider) for categorization
       const surveysWithMetadata = rawSurveys.map((survey, index) => {
-        // 🔍 DEBUG: Log each survey being processed
-        if (index === 0) {
-          console.log(`\n🔍 ========== PROCESSING SURVEYS ==========`);
-          console.log(
-            `📋 Processing Survey ${index + 1}/${rawSurveys.length}:`
-          );
-          console.log(`   Original value field: ${survey.value}`);
-          console.log(`   Original cpi field: ${survey.cpi}`);
-          console.log(`   Original id: ${survey.id}`);
-        }
+
 
         // Preserve all original Bitlabs fields and structure
         // Only add minimal fields needed for our system
@@ -1128,20 +1075,7 @@ class BitlabsService {
         };
       });
 
-      // 🔍 DEBUG: Log final processed surveys
-      console.log(`\n🔍 ========== PROCESSED SURVEYS SUMMARY ==========`);
-      console.log(`📊 Total Processed: ${surveysWithMetadata.length}`);
-      surveysWithMetadata.forEach((survey, index) => {
-        console.log(`\n   Survey ${index + 1}:`);
-        console.log(`     id: ${survey.id || survey.offerId || "N/A"}`);
-        console.log(`     value: ${survey.value || "MISSING"}`);
-        console.log(`     cpi: ${survey.cpi || "MISSING"}`);
-        console.log(`     type: ${survey.type}`);
-        console.log(
-          `     clickUrl: ${survey.clickUrl || survey.click_url || "N/A"}`
-        );
-      });
-      console.log(`\n==================================================\n`);
+
 
       // Return response with restriction reason if present
       return {
@@ -1381,22 +1315,7 @@ class BitlabsService {
         });
       }
 
-      // Log raw Bitlabs API response structure for CASHBACK - show actual values inside arrays and objects
-      if (rawCashback.length > 0) {
-        console.log(
-          `\n========== CASHBACK - RAW BITLABS API RESPONSE ==========`
-        );
-        console.log(`Total Cashback Offers: ${rawCashback.length}`);
-        console.log(
-          `First Cashback Offer Structure (from Bitlabs API - with full object/array values):`
-        );
-        const firstCashback = rawCashback[0];
-        // Show the complete object with actual values in objects and arrays
-        console.log(JSON.stringify(firstCashback, null, 2));
-        console.log(
-          `========================================================\n`
-        );
-      }
+
 
       // Return raw Bitlabs cashback format - preserve original structure
       // Only add minimal metadata fields (type, provider) for categorization
@@ -1804,7 +1723,6 @@ class BitlabsService {
     };
 
     // Step 1: Get list of all offers user has interacted with
-    console.log(`[BITLABS] Step 1 — fetching user history list for userId=${userId}`);
     const listResponse = await this.client.get("/v1/client/user/history", {
       headers,
       params: { filter: "offers" },
@@ -1812,12 +1730,9 @@ class BitlabsService {
 
     const historyList = listResponse.data?.data || listResponse.data || [];
     const offerList = Array.isArray(historyList) ? historyList : [];
-    console.log(`[BITLABS] Step 1 — found ${offerList.length} offers in user history`);
-
     if (offerList.length === 0) return [];
 
     // Step 2: Fetch full details for each offer in parallel
-    console.log(`[BITLABS] Step 2 — fetching full details for ${offerList.length} offers`);
     const detailResults = await Promise.allSettled(
       offerList.map(async (item) => {
         const offerId = item.offer_id || item.id;
@@ -1842,7 +1757,6 @@ class BitlabsService {
       .filter(r => r.status === "fulfilled" && r.value !== null)
       .map(r => r.value);
 
-    console.log(`[BITLABS] Step 2 — successfully fetched details for ${details.length} offers`);
     return details;
   }
 
@@ -2098,6 +2012,8 @@ class BitlabsService {
         params: normalizedParams,
         paramsSerializer: paramsSerializer,
       });
+
+
 
       // Parse response - Publisher API may have different structure
       let offers = [];

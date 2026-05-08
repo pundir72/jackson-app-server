@@ -9,6 +9,7 @@ const User = require("../models/User");
 const Game = require("../models/Game");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
+const ConversionSettings = require("../models/ConversionSettings");
 const {
   getUserXpTier,
   getUserMembershipTier,
@@ -113,6 +114,15 @@ exports.getUserData = async (req, res) => {
     const user = await User.findById(userId)
       .select("taskProgression games tasks xp vip")
       .lean();
+
+    // Fetch conversion settings for coin reward calculation
+    let coinsPerDollar = 100;
+    try {
+      const settings = await ConversionSettings.getActiveSettings("USD");
+      if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+    } catch (err) {
+      console.warn("Could not fetch conversion settings, using default:", err.message);
+    }
 
     if (!user) {
       // If user not found in our DB, return besitos data as-is
@@ -359,11 +369,21 @@ exports.getUserData = async (req, res) => {
           }
 
           // Apply batch-based unlocking logic to each goal
+          // Calculate coin rewards per goal
+          const totalAmount = parseFloat(game.amount) || 0;
+          const totalCoins = Math.round(totalAmount * coinsPerDollar);
+          console.log(`[BESITOS USERDATA] gameId=${game.id || game.offer_id} totalAmount=${totalAmount} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+
           game.goals = game.goals.map((goal, index) => {
             const taskOrder = goal.position || index + 1;
             let isUnlocked = true;
             let unlockReason = "";
             let isLocked = false;
+
+            // Calculate coin reward for this goal
+            const goalAmount = parseFloat(goal.amount) || 0;
+            const coinReward = Math.round(goalAmount * coinsPerDollar);
+            console.log(`[BESITOS USERDATA GOAL] name="${goal.text || goal.name}" amount=${goalAmount} coinReward=${coinReward}`);
 
             // If goal is already completed, it's always unlocked
             if (goal.completed === true) {
@@ -386,6 +406,7 @@ exports.getUserData = async (req, res) => {
             // Add progression information to goal
             return {
               ...goal,
+              coinReward,
               // Progression info
               progression: {
                 isUnlocked: isUnlocked,
@@ -402,6 +423,9 @@ exports.getUserData = async (req, res) => {
               },
             };
           });
+
+          // Add totalCoins to game for frontend
+          game.totalCoins = totalCoins;
 
           // Update threshold status based on completed tasks
           if (

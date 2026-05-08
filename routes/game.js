@@ -13,6 +13,7 @@ const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const XPTier = require("../models/XPTier");
 const BatchClaim = require("../models/BatchClaim");
+const ConversionSettings = require("../models/ConversionSettings");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const {
   getUserXpTier,
@@ -818,9 +819,10 @@ router.post("/earn", protect, async (req, res) => {
       coins = 0,
       xp = 0,
       reason,
-      batchNumber, // NEW
-      batchesClaimed, // NEW
-      gameTitle, // NEW
+      batchNumber,
+      batchesClaimed,
+      gameTitle,
+      taskIds = [],
     } = req.body;
 
     const coinsNum = Number(coins);
@@ -859,7 +861,7 @@ router.post("/earn", protect, async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId).select("wallet xp games");
+    const user = await User.findById(userId).select("wallet xp games vip taskProgression");
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -889,15 +891,141 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // Update wallet balance (coins)
+    // NEW: Verify no task IDs have been claimed before (per-task deduplication)
+    if (gameId && taskIds && taskIds.length > 0) {
+      const alreadyClaimedTask = await BatchClaim.findOne({
+        userId: user._id,
+        gameId: gameId,
+        taskIds: { $in: taskIds },
+      }).select('taskIds batchNumber').lean();
+
+      if (alreadyClaimedTask) {
+        const dupTaskId = taskIds.find(tid => alreadyClaimedTask.taskIds?.includes(tid));
+        return res.status(400).json({
+          success: false,
+          message: `Task ${dupTaskId} was already claimed in batch ${alreadyClaimedTask.batchNumber}`,
+          alreadyClaimed: true,
+          duplicateTaskId: dupTaskId,
+          claimedInBatch: alreadyClaimedTask.batchNumber,
+        });
+      }
+    }
+
+    // NEW: Verify actual task completion for claimed batches (prevent fraudulent claims)
+    if (gameId && batchNumber !== undefined) {
+      const progression = user.taskProgression?.get?.(gameId);
+      const completedTasks = progression?.completedTasks || 0;
+      const endBatch = batchNumber + batchesClaimed - 1;
+
+      // Find the progression rule for this user to calculate expected batch completion
+      const userMembershipTier = getUserMembershipTier(user);
+      const gamesPlayed = user.games?.length || 0;
+      const progressionRule = await TaskProgressionRule.findBestMatchForUser({
+        xp: user.xp?.current || 0,
+        gamesPlayed,
+        membershipTier: userMembershipTier || 'free',
+      });
+
+      if (progressionRule) {
+        const firstBatchSize = progressionRule.firstBatchSize || 1;
+        const nextBatchSize = progressionRule.nextBatchSize || 0;
+
+        // Verify sequential claiming (no skipping batches)
+        const lastClaimedBatch = await BatchClaim.findOne({
+          userId: user._id,
+          gameId: gameId,
+        }).sort({ batchNumber: -1 }).select('batchNumber').lean();
+        const maxClaimedBatch = lastClaimedBatch?.batchNumber || 0;
+
+        if (batchNumber > maxClaimedBatch + 1) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot skip batches. Next claimable batch is ${maxClaimedBatch + 1}`,
+          });
+        }
+
+        // Calculate the highest batch number the user has earned via completed tasks
+        let maxClaimableBatch = 0;
+        if (completedTasks >= firstBatchSize) {
+          maxClaimableBatch = 1;
+          if (nextBatchSize === 0) {
+            // nextBatchSize=0: batch 2 = all remaining tasks
+            // requires rewardTransferred before claiming batch 2
+            if (progression?.rewardTransferred) {
+              maxClaimableBatch = 2;
+            }
+          } else {
+            // nextBatchSize>0: each batch needs nextBatchSize more completed tasks
+            // but requires rewardTransferred before claiming any batch beyond 1
+            if (progression?.rewardTransferred) {
+              const extraCompleted = completedTasks - firstBatchSize;
+              const extraBatches = Math.floor(extraCompleted / nextBatchSize);
+              maxClaimableBatch = 1 + extraBatches;
+            }
+          }
+        }
+
+        if (endBatch > maxClaimableBatch) {
+          return res.status(400).json({
+            success: false,
+            message: `Insufficient completed tasks for batch ${endBatch}. Maximum claimable: ${maxClaimableBatch} (tasks completed: ${completedTasks})`,
+          });
+        }
+      }
+    }
+
+    // Find Game document to get ObjectId for proper linking
+    let gameDoc = null;
+    if (gameId) {
+      gameDoc = await Game.findOne({ gameId: gameId }).select("_id").lean();
+    }
+
+    // Generate a unique idempotency key for this claim
+    const idempotencyKey = `earn-${userId}-${gameId || 'manual'}-${batchNumber || '0'}-${batchesClaimed || '1'}-${Date.now()}`;
+
+    // STEP 1: Create BatchClaim records FIRST (atomic lock via unique index)
+    // Wallet is NOT mutated yet — if this insert fails, no harm done
+    const batchClaims = [];
+    if (gameId && batchNumber !== undefined) {
+      for (let i = 0; i < batchesClaimed; i++) {
+        batchClaims.push({
+          userId: user._id,
+          gameId: gameId,
+          batchNumber: batchNumber + i,
+          coins: coinsNum / batchesClaimed,
+          xp: baseXpNum / batchesClaimed,
+          gameTitle: gameTitle || null,
+          claimedAt: new Date(),
+          taskIds: taskIds || [],
+          idempotencyKey: `${idempotencyKey}-${i}`,
+          status: 'pending',
+        });
+      }
+
+      try {
+        await BatchClaim.insertMany(batchClaims, { ordered: true });
+      } catch (insertErr) {
+        if (insertErr.code === 11000) {
+          return res.status(409).json({
+            success: false,
+            message: 'These batches/tasks have already been claimed',
+            alreadyClaimed: true,
+          });
+        }
+        throw insertErr;
+      }
+    }
+
+    // STEP 2: Apply XP tier multiplier and prepare user mutations
+    // (safe because the BatchClaim lock ensures exclusive access)
+    const { finalXP, multiplier: tierMultiplier } =
+      await applyTierMultiplierToXP(user, baseXpNum);
+
     user.wallet = user.wallet || {};
     user.wallet.balance = Number(user.wallet.balance || 0) + coinsNum;
     user.wallet.lastUpdated = new Date();
 
-    // Update xp object (current + total) with tier-based multiplier
     user.xp = user.xp || {};
-    const { finalXP, multiplier: tierMultiplier } =
-      await applyTierMultiplierToXP(user, baseXpNum);
     user.xp.current = Number(user.xp.current || 0) + finalXP;
     user.xp.total = Number(user.xp.total || 0) + finalXP;
 
@@ -919,13 +1047,7 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // Find Game document to get ObjectId for proper linking
-    let gameDoc = null;
-    if (gameId) {
-      gameDoc = await Game.findOne({ gameId: gameId }).select("_id").lean();
-    }
-
-    // Create transaction record for revenue tracking
+    // STEP 3: Create transaction record
     const transaction = new Transaction({
       user: user._id,
       type: "credit",
@@ -946,35 +1068,24 @@ router.post("/earn", protect, async (req, res) => {
         xpEarned: finalXP,
         baseXp: baseXpNum,
         tierMultiplier,
-        batchNumber: batchNumber || null, // NEW
-        batchesClaimed: batchesClaimed || null, // NEW
-        gameTitle: gameTitle || null, // NEW
+        batchNumber: batchNumber || null,
+        batchesClaimed: batchesClaimed || null,
+        gameTitle: gameTitle || null,
+        idempotencyKey: idempotencyKey,
       },
     });
 
-    // NEW: Create batch claim records to track which batches have been claimed
-    const batchClaims = [];
-    if (gameId && batchNumber !== undefined) {
-      for (let i = 0; i < batchesClaimed; i++) {
-        batchClaims.push({
-          userId: user._id,
-          gameId: gameId,
-          batchNumber: batchNumber + i,
-          coins: coinsNum / batchesClaimed, // Divide coins across batches if multiple
-          xp: finalXP / batchesClaimed, // Divide XP across batches if multiple
-          gameTitle: gameTitle || null,
-          claimedAt: new Date(),
-          transactionId: transaction._id,
-        });
-      }
+    // STEP 4: Update BatchClaim records with transactionId and mark as completed
+    if (batchClaims.length > 0) {
+      const batchNumbers = batchClaims.map(b => b.batchNumber);
+      await BatchClaim.updateMany(
+        { userId: user._id, gameId: gameId, batchNumber: { $in: batchNumbers } },
+        { $set: { transactionId: transaction._id, status: 'completed' } },
+      );
     }
 
-    // Save all data
-    const savePromises = [user.save(), transaction.save()];
-    if (batchClaims.length > 0) {
-      savePromises.push(BatchClaim.insertMany(batchClaims));
-    }
-    await Promise.all(savePromises);
+    // Save user + transaction atomically
+    await Promise.all([user.save(), transaction.save()]);
 
     // Track achievements for game earnings
     setImmediate(async () => {
@@ -1034,7 +1145,7 @@ router.get("/batch-status", protect, async (req, res) => {
       gameId: gameId,
     })
       .sort({ batchNumber: 1 }) // Sort by batch number ascending
-      .select("batchNumber coins xp claimedAt")
+      .select("batchNumber coins xp claimedAt taskIds status")
       .lean();
 
     // Calculate totals
@@ -1108,6 +1219,15 @@ router.get("/discover", protect, async (req, res) => {
         success: false,
         message: "User not found",
       });
+    }
+
+    // Fetch conversion settings for coin reward calculation
+    let coinsPerDollar = 100;
+    try {
+      const settings = await ConversionSettings.getActiveSettings("USD");
+      if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+    } catch (err) {
+      console.warn("Could not fetch conversion settings, using default:", err.message);
     }
 
     // Calculate user profile for display rules
@@ -1773,7 +1893,7 @@ router.get("/discover", protect, async (req, res) => {
           // Check if first batch is completed (threshold reached)
           const firstBatchCompleted =
             completedTasks >= progressionRule.firstBatchSize;
-          const canUnlockNextBatches = firstBatchCompleted && rewardTransferred;
+          const canUnlockNextBatches = firstBatchCompleted && (!progressionRule.nextBatchSize || rewardTransferred);
 
           progressionStatus = {
             hasProgressionRule: true,
@@ -1849,12 +1969,74 @@ router.get("/discover", protect, async (req, res) => {
             besitosUrl || raw.click_url || g.clickUrl || g.gameDetails?.downloadUrl || "",
         };
 
+        // All third-party data stored in g.besitosRawData (Mixed type) for both providers
+        // Calculate coin rewards per task/event/goal
+        let enrichedBesitosRawData = g.besitosRawData ? { ...g.besitosRawData } : null;
+        if (enrichedBesitosRawData) {
+          if (isBitlabsGame && Array.isArray(enrichedBesitosRawData.events)) {
+            const totalPoints = parseFloat(enrichedBesitosRawData.total_points) || 0;
+            const amount = parseFloat(enrichedBesitosRawData.amount) || 0;
+            const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
+            console.log(`[DISCOVER BITLABS] gameId=${g.gameId} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+            enrichedBesitosRawData.events = enrichedBesitosRawData.events.map((event) => {
+              const eventPoints = parseInt(event.points) || 0;
+              const coinReward = totalPoints > 0 && eventPoints > 0
+                ? Math.round((eventPoints / totalPoints) * totalCoins)
+                : 0;
+              const ttcMinutes = parseInt(event.ttc_minutes) || 0;
+              const daysLeft = ttcMinutes > 0 ? Math.ceil(ttcMinutes / 1440) : null;
+              console.log(`[DISCOVER BITLABS EVENT] name="${event.name}" points=${eventPoints} coinReward=${coinReward} daysLeft=${daysLeft}`);
+              return { ...event, coinReward, days_left: daysLeft };
+            });
+            enrichedBesitosRawData.totalCoins = totalCoins;
+          } else if (!isBitlabsGame && Array.isArray(enrichedBesitosRawData.goals)) {
+            const totalAmount = parseFloat(enrichedBesitosRawData.amount) || 0;
+            const totalCoins = Math.round(totalAmount * coinsPerDollar);
+            console.log(`[DISCOVER BESITOS] gameId=${g.gameId} totalAmount=${totalAmount} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+            enrichedBesitosRawData.goals = enrichedBesitosRawData.goals.map((goal) => {
+              const goalAmount = parseFloat(goal.amount) || 0;
+              const coinReward = Math.round(goalAmount * coinsPerDollar);
+              console.log(`[DISCOVER BESITOS GOAL] name="${goal.text || goal.name}" amount=${goalAmount} coinReward=${coinReward}`);
+              return { ...goal, coinReward };
+            });
+            enrichedBesitosRawData.totalCoins = totalCoins;
+          }
+        }
+
         // Build besitosRawData with userId injected into Besitos URL
         const besitosRawDataOut = isBitlabsGame
           ? null
-          : g.besitosRawData
-            ? { ...g.besitosRawData, url: besitosUrl }
+          : enrichedBesitosRawData
+            ? { ...enrichedBesitosRawData, url: besitosUrl }
             : null;
+
+        // Build normalized goals array (SDK-agnostic per-task coin/XP rewards)
+        const normalizedGoals = (() => {
+          const rawBaseXP = g.xpRewardConfig?.baseXP ?? 0;
+          const baseXP = Math.round(rawBaseXP * discoverTierMultiplier);
+          const multiplier = g.xpRewardConfig?.multiplier ?? 1;
+          if (isBitlabsGame && Array.isArray(enrichedBesitosRawData?.events)) {
+            return enrichedBesitosRawData.events.map((event, index) => ({
+              goalId: event.uuid || event.hash || `event-${index}`,
+              title: event.name || event.title || `Task ${index + 1}`,
+              coinReward: event.coinReward || 0,
+              xpReward: Math.round(baseXP * Math.pow(multiplier, index)),
+              position: index + 1,
+              days_left: event.days_left ?? null,
+            }));
+          }
+          if (!isBitlabsGame && Array.isArray(enrichedBesitosRawData?.goals)) {
+            return enrichedBesitosRawData.goals.map((goal, index) => ({
+              goalId: goal.goal_id || goal.id || `goal-${index}`,
+              title: goal.text || goal.name || goal.title || `Task ${index + 1}`,
+              coinReward: goal.coinReward || 0,
+              xpReward: Math.round(baseXP * Math.pow(multiplier, index)),
+              position: index + 1,
+              days_left: goal.days_left ?? null,
+            }));
+          }
+          return [];
+        })();
 
         return {
           gameId: g.gameId,
@@ -1864,10 +2046,11 @@ router.get("/discover", protect, async (req, res) => {
           uiSection: g.uiSection,
           gender: g.gender,
           ageGroup: g.ageGroup,
+          goals: normalizedGoals,
           rewards: {
-            coins: g.rewards?.coins ?? 0,
+            coins: enrichedBesitosRawData?.totalCoins ?? g.rewards?.coins ?? 0,
             xp: g.rewards?.xp ?? 0,
-            gold: g.rewards?.coins ?? g.rewards?.gold ?? 0,
+            gold: enrichedBesitosRawData?.totalCoins ?? g.rewards?.coins ?? g.rewards?.gold ?? 0,
           },
           clickUrl: g.clickUrl || null,
           icon:
@@ -1890,7 +2073,7 @@ router.get("/discover", protect, async (req, res) => {
           },
           details: { ...(g.gameDetails || {}), ...detailsFromRaw },
           besitosRawData: besitosRawDataOut,
-          bitlabsRawData: isBitlabsGame ? g.besitosRawData || null : null,
+          bitlabsRawData: isBitlabsGame ? enrichedBesitosRawData : null,
           sdkProvider: g.sdkProvider || null,
           xpRewardConfig: (() => {
             const rawBaseXP = g.xpRewardConfig?.baseXP ?? 0;
@@ -1927,6 +2110,10 @@ router.get("/discover", protect, async (req, res) => {
         };
       }),
     );
+
+    games.forEach(g => {
+      console.log(`[DISCOVER RESPONSE] gameId=${g.gameId} rewards.coins=${g.rewards?.coins} goalsCount=${g.goals?.length} goalsTotalCoins=${g.goals?.reduce((s, gl) => s + (gl.coinReward || 0), 0)}`);
+    });
 
     const uiSections = await Game.distinct("uiSection");
 

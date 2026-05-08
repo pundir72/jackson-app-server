@@ -9,6 +9,7 @@ const User = require("../models/User");
 const Game = require("../models/Game");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
+const ConversionSettings = require("../models/ConversionSettings");
 const {
   getUserXpTier,
   getUserMembershipTier,
@@ -142,6 +143,15 @@ exports.getOffers = async (req, res) => {
           }
         }
 
+        // Extract CPI from the first payable event (type_id: 1 = Install)
+        let cpiValue = 0;
+        if (Array.isArray(offer.events)) {
+          const installEvent = offer.events.find((e) => e.type_id === 1);
+          if (installEvent && installEvent.payout) {
+            cpiValue = parseFloat(installEvent.payout) || 0;
+          }
+        }
+
         return {
           ...offer,
           // Map anchor to title for frontend compatibility
@@ -152,6 +162,8 @@ exports.getOffers = async (req, res) => {
             "Untitled Game",
           // Add amount field for frontend (in USD)
           amount: amount,
+          // Add CPI field for frontend (first task payout from Install event)
+          cpi: cpiValue,
           // Ensure id is a string for frontend compatibility
           id: offer.id?.toString() || offer.offerId?.toString() || "",
           // Add description if missing
@@ -322,6 +334,15 @@ exports.getMyGames = async (req, res) => {
     const bonusTaskUnlocks = {};
     userTasks.forEach(t => { if (t.isBonusTask && t.unlockedAt) bonusTaskUnlocks[t.taskId] = t.unlockedAt; });
 
+    // ── Fetch conversion settings for coin reward calculation ──
+    let coinsPerDollar = 100;
+    try {
+      const settings = await ConversionSettings.getActiveSettings("USD");
+      if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+    } catch (err) {
+      console.warn("Could not fetch conversion settings, using default:", err.message);
+    }
+
     // ── Process each offer through the SAME pipeline as getUserOfferHistory ──
     const offersWithoutGame = [];
 
@@ -376,8 +397,21 @@ exports.getMyGames = async (req, res) => {
           completedTasksCount = progression.completedTasks;
         }
 
+        // Calculate coin rewards per event (proportional based on points)
+        const totalPoints = parseFloat(offer.total_points) || 0;
+        const amount = parseFloat(offer.amount) || 0;
+        const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
+        console.log(`[MYGAMES BITLABS] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins} gameDoc=${gameDoc?.title}`);
+
         offer.events = offer.events.map((event, index) => {
-          if (!event.payable) return event;
+          // Calculate coin reward for this event
+          const eventPoints = parseInt(event.points) || 0;
+          const coinReward = totalPoints > 0 && eventPoints > 0
+            ? Math.round((eventPoints / totalPoints) * totalCoins)
+            : 0;
+          console.log(`[MYGAMES BITLABS EVENT] name="${event.name}" points=${eventPoints} coinReward=${coinReward}`);
+
+          if (!event.payable) return { ...event, coinReward };
           const taskOrder   = sortedEvents.findIndex(e => e.uuid === event.uuid) + 1 || index + 1;
           const isCompleted = event.status === "completed" || event.approved_conversions > 0;
           let isUnlocked = true, unlockReason = "", isLocked = false;
@@ -389,14 +423,19 @@ exports.getMyGames = async (req, res) => {
             unlockReason = check.reason || "";
             isLocked     = !isUnlocked;
           }
-          return { ...event, progression: {
+          return { ...event, coinReward, progression: {
             isUnlocked, isLocked, unlockReason,
             batchNumber: progressionRule
               ? taskOrder <= progressionRule.firstBatchSize ? 1
-                : Math.ceil((taskOrder - progressionRule.firstBatchSize) / progressionRule.nextBatchSize) + 1
+                : (progressionRule.nextBatchSize && progressionRule.nextBatchSize > 0
+                    ? Math.ceil((taskOrder - progressionRule.firstBatchSize) / progressionRule.nextBatchSize) + 1
+                    : null)
               : null
           }};
         });
+
+        // Add totalCoins to offer for frontend
+        offer.totalCoins = totalCoins;
 
         if (progressionRule && completedTasksCount >= (progressionRule.firstBatchSize || 0)) {
           progression.thresholdReached = true;
@@ -415,7 +454,7 @@ exports.getMyGames = async (req, res) => {
           rewardTransferred: progression.rewardTransferred || false,
           coinBoxBalance:    progression.coinBoxBalance    || 0,
           canTransfer:       progression.thresholdReached && !progression.rewardTransferred && (progression.coinBoxBalance || 0) > 0,
-          canUnlockNextTasks: progression.thresholdReached && progression.rewardTransferred,
+          canUnlockNextTasks: progression.thresholdReached && (progressionRule?.nextBatchSize === 0 || progressionRule?.nextBatchSize == null || progression.rewardTransferred),
         };
       }
 
@@ -499,8 +538,19 @@ exports.getMyGames = async (req, res) => {
         rewardTransferred: false, coinBoxBalance: 0, canTransfer: false, canUnlockNextTasks: false,
       };
       offer.bonusTasks = { hasBonusTasks: false, isEligible: false, bonusTasks: [], message: "Game not found in database" };
+      // Calculate coin rewards for offers without game doc
+      const totalPoints = parseFloat(offer.total_points) || 0;
+      const amount = parseFloat(offer.amount) || 0;
+      const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
       if (offer.events) {
-        offer.events = offer.events.map(e => e.payable ? { ...e, progression: { isUnlocked: true, isLocked: false, unlockReason: "No progression rules applied", batchNumber: null } } : e);
+        offer.events = offer.events.map(e => {
+          const eventPoints = parseInt(e.points) || 0;
+          const coinReward = e.payable !== false && totalPoints > 0 && eventPoints > 0
+            ? Math.round((eventPoints / totalPoints) * totalCoins)
+            : 0;
+          return e.payable ? { ...e, coinReward, progression: { isUnlocked: true, isLocked: false, unlockReason: "No progression rules applied", batchNumber: null } } : { ...e, coinReward };
+        });
+        offer.totalCoins = totalCoins;
       }
     }
 
@@ -608,6 +658,15 @@ exports.getUserOfferHistory = async (req, res) => {
     const user = await User.findById(userId)
       .select("taskProgression games tasks xp vip")
       .lean();
+
+    // Fetch conversion settings for coin reward calculation
+    let coinsPerDollar = 100;
+    try {
+      const settings = await ConversionSettings.getActiveSettings("USD");
+      if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+    } catch (err) {
+      console.warn("Could not fetch conversion settings, using default:", err.message);
+    }
 
     if (!user) {
       // If user not found in our DB, return bitlabs data in Besitos format
@@ -1049,11 +1108,24 @@ exports.getUserOfferHistory = async (req, res) => {
           completedTasksCount = progression.completedTasks;
         }
 
+        // Calculate coin rewards per event (proportional based on points)
+        const totalPoints = parseFloat(offer.total_points) || 0;
+        const amount = parseFloat(offer.amount) || 0;
+        const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
+        console.log(`[USERHISTORY BITLABS] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+
         // Apply batch-based unlocking logic to each event
         offer.events = offer.events.map((event, index) => {
+          // Calculate coin reward for this event
+          const eventPoints = parseInt(event.points) || 0;
+          const coinReward = totalPoints > 0 && eventPoints > 0
+            ? Math.round((eventPoints / totalPoints) * totalCoins)
+            : 0;
+          console.log(`[USERHISTORY BITLABS EVENT] name="${event.name}" points=${eventPoints} coinReward=${coinReward}`);
+
           // Only apply progression to payable events
           if (!event.payable) {
-            return event;
+            return { ...event, coinReward };
           }
 
           // Find event order in payable events list
@@ -1088,6 +1160,7 @@ exports.getUserOfferHistory = async (req, res) => {
           // Add progression information to event
           return {
             ...event,
+            coinReward,
             // Progression info
             progression: {
               isUnlocked: isUnlocked,
@@ -1096,14 +1169,16 @@ exports.getUserOfferHistory = async (req, res) => {
               batchNumber: progressionRule
                 ? taskOrder <= progressionRule.firstBatchSize
                   ? 1
-                  : Math.ceil(
-                      (taskOrder - progressionRule.firstBatchSize) /
-                        progressionRule.nextBatchSize,
-                    ) + 1
+                  : progressionRule.nextBatchSize && progressionRule.nextBatchSize > 0
+                    ? Math.ceil((taskOrder - progressionRule.firstBatchSize) / progressionRule.nextBatchSize) + 1
+                    : null
                 : null,
             },
           };
         });
+
+        // Add totalCoins to offer for frontend
+        offer.totalCoins = totalCoins;
 
         // Update threshold status based on completed tasks
         if (
@@ -1135,7 +1210,7 @@ exports.getUserOfferHistory = async (req, res) => {
             !progression.rewardTransferred &&
             (progression.coinBoxBalance || 0) > 0,
           canUnlockNextTasks:
-            progression.thresholdReached && progression.rewardTransferred,
+            progression.thresholdReached && (progressionRule?.nextBatchSize === 0 || progressionRule?.nextBatchSize == null || progression.rewardTransferred),
         };
 
         // Add bonus task information if game is eligible
@@ -1376,10 +1451,18 @@ exports.getUserOfferHistory = async (req, res) => {
 
       // Add basic progression to events (all unlocked since no rules)
       if (offer.events && Array.isArray(offer.events)) {
+        const totalPoints = parseFloat(offer.total_points) || 0;
+        const amount = parseFloat(offer.amount) || 0;
+        const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
         offer.events = offer.events.map((event) => {
-          if (!event.payable) return event;
+          const eventPoints = parseInt(event.points) || 0;
+          const coinReward = totalPoints > 0 && eventPoints > 0
+            ? Math.round((eventPoints / totalPoints) * totalCoins)
+            : 0;
+          if (!event.payable) return { ...event, coinReward };
           return {
             ...event,
+            coinReward,
             progression: {
               isUnlocked: true,
               isLocked: false,
@@ -1388,6 +1471,7 @@ exports.getUserOfferHistory = async (req, res) => {
             },
           };
         });
+        offer.totalCoins = totalCoins;
       }
     }
 

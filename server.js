@@ -262,6 +262,7 @@ mongoose
     const gameTipsRoutes = require("./routes/game-tips");
     const adminGameTipsRoutes = require("./routes/admin-game-tips");
     const adminAdRewardRoutes = require("./routes/admin-ad-reward");
+    const adminAccountOverviewRoutes = require("./routes/admin-account-overview");
     const zohoRoutes = require("./routes/zoho");
     const adjustRoutes = require("./routes/adjust");
     const adjustV2Routes = require("./routes/adjust-v2");
@@ -376,6 +377,7 @@ mongoose
     app.use("/api/game-tips", gameTipsRoutes);
     app.use("/api/admin/game-tips", adminGameTipsRoutes);
     app.use("/api/admin/ad-reward", adminAdRewardRoutes);
+    app.use("/api/admin/account-overview", adminAccountOverviewRoutes);
     app.use("/api/zoho", zohoRoutes);
     app.use("/api/non-gaming-survey", nonGamingSurveyRoutes);
 

@@ -882,18 +882,13 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
       },
     ];
 
-    // Dynamically calculate minRedemption (20% of coinsPerDollar)
-    const BASE_MIN_COINS = 20;
-    const BASE_COINS_PER_DOLLAR = 100;
-    const dynamicMinRedemption = Math.round(settings.coinsPerDollar * (BASE_MIN_COINS / BASE_COINS_PER_DOLLAR));
-
     res.json({
       success: true,
       data: {
         conversionRules,
         defaultRule: {
           coinsPerDollar: settings.coinsPerDollar,
-          minRedemption: dynamicMinRedemption, // Always calculate dynamically
+          minRedemption: settings.minRedemption,
           maxRedemption: settings.maxRedemption,
           defaultCurrency: settings.currency,
           conversionRates: coinConversionRates,
@@ -903,7 +898,7 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
   } catch (error) {
     console.error("Error getting conversion settings:", error);
     res.status(500).json({
-      success: true, // Return success with defaults
+      success: true,
       data: {
         conversionRules: [
           {
@@ -919,7 +914,7 @@ router.get("/conversion/settings", adminAuth, async (req, res) => {
         ],
         defaultRule: {
           coinsPerDollar: 100,
-          minRedemption: 20, // 20 coins when 100 coins = $1
+          minRedemption: 100,
           maxRedemption: 10000,
           defaultCurrency: "USD",
         },
@@ -942,11 +937,21 @@ router.put(
   [
     body("currency").notEmpty().withMessage("Currency is required"),
     body("coinsPerUnit")
+      .optional()
       .isFloat({ min: 0.01 })
       .withMessage("Coins per unit must be a positive number"),
     body("currencyAmount")
+      .optional()
       .isFloat({ min: 0.01 })
       .withMessage("Currency amount must be a positive number"),
+    body("minRedemption")
+      .optional()
+      .isFloat({ min: 1 })
+      .withMessage("Min redemption must be a positive number"),
+    body("maxRedemption")
+      .optional()
+      .isFloat({ min: 1 })
+      .withMessage("Max redemption must be a positive number"),
   ],
   async (req, res) => {
     try {
@@ -959,7 +964,7 @@ router.put(
         });
       }
 
-      const { currency, coinsPerUnit, currencyAmount } =
+      const { currency, coinsPerUnit, currencyAmount, minRedemption, maxRedemption } =
         req.body;
 
       // Validate currency
@@ -970,29 +975,32 @@ router.put(
         });
       }
 
-      // Get previous settings for logging
-      const previousSettings = await ConversionSettings.findOne({
-        currency: currency.toUpperCase(),
-      });
+      // Build update data dynamically based on provided fields
+      const updateData = {};
 
-      // Calculate coinsPerDollar from the rule: coinsPerDollar = coinsPerUnit / currencyAmount
-      const calculatedCoinsPerDollar = parseFloat(coinsPerUnit) / parseFloat(currencyAmount);
+      if (coinsPerUnit !== undefined && currencyAmount !== undefined) {
+        updateData.coinsPerUnit = parseFloat(coinsPerUnit);
+        updateData.currencyAmount = parseFloat(currencyAmount);
+        updateData.coinsPerDollar = parseFloat(coinsPerUnit) / parseFloat(currencyAmount);
+      } else if (coinsPerUnit !== undefined || currencyAmount !== undefined) {
+        return res.status(400).json({
+          success: false,
+          message: "Both coinsPerUnit and currencyAmount must be provided together",
+        });
+      }
 
-      // Calculate minRedemption dynamically (20% of coinsPerDollar)
-      const BASE_MIN_COINS = 20;
-      const BASE_COINS_PER_DOLLAR = 100;
-      const scalingFactor = BASE_MIN_COINS / BASE_COINS_PER_DOLLAR;
-      const calculatedMinRedemption = Math.round(calculatedCoinsPerDollar * scalingFactor);
+      if (minRedemption !== undefined) {
+        updateData.minRedemption = parseFloat(minRedemption);
+      }
+
+      if (maxRedemption !== undefined) {
+        updateData.maxRedemption = parseFloat(maxRedemption);
+      }
 
       // Update conversion settings in database
       const updatedSettings = await ConversionSettings.updateSettings(
         currency,
-        {
-          coinsPerDollar: calculatedCoinsPerDollar,
-          coinsPerUnit: parseFloat(coinsPerUnit),
-          currencyAmount: parseFloat(currencyAmount),
-          minRedemption: calculatedMinRedemption,
-        },
+        updateData,
         req.user.userId
       );
 

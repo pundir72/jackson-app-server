@@ -98,7 +98,7 @@ class AdjustService {
     }, {});
   }
 
-  buildReportParams({ dimensions, metrics, start, end, country, network, limit, sort, eventToken }) {
+  buildReportParams({ dimensions, metrics, start, end, country, network, campaign, limit, sort, eventToken }) {
     const params = {
       dimensions,
       metrics,
@@ -111,13 +111,14 @@ class AdjustService {
     if (limit) params.limit = limit;
     if (country) params.country_code__in = country.toUpperCase();
     if (network) params.network__contains = network;
+    if (campaign) params.campaign__contains = campaign;
     if (eventToken) params.event_token__in = eventToken;
 
     return params;
   }
 
   async getCompleteAnalytics(params) {
-    const { startDate, endDate, country, network } = params;
+    const { startDate, endDate, country, network, campaign } = params;
 
     try {
       const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -134,7 +135,6 @@ class AdjustService {
       const [
         kpiData,
         clickTracking,
-        installTracking,
         revenueData,
         deviceData,
         sourceData
@@ -147,6 +147,7 @@ class AdjustService {
             end,
             country,
             network,
+            campaign,
             sort: "-day"
           })
         }).then(res => {
@@ -166,6 +167,7 @@ class AdjustService {
             end,
             country,
             network,
+            campaign,
             sort: `-${timeDimension}`
           })
         }).then(res => {
@@ -179,31 +181,13 @@ class AdjustService {
 
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
-            dimensions: `app,network,campaign,country_code,country,${timeDimension}`,
-            metrics: "installs,revenue",
-            start,
-            end,
-            country,
-            network,
-            sort: `-${timeDimension}`
-          })
-        }).then(res => {
-          console.log('✅ Install Tracking Response Status:', res.status);
-          console.log('   Data rows:', this.getReportRows(res.data).length);
-          return res;
-        }).catch(err => {
-          console.log('❌ Install Tracking Error:', err.response?.status);
-          return { error: err.message, data: null };
-        }),
-
-        this.analyticsClient.get("/report", {
-          params: this.buildReportParams({
             dimensions: "app,country_code,country,network",
             metrics: "revenue,events",
             start,
             end,
             country,
             network,
+            campaign,
             sort: "-revenue"
           })
         }).then(res => {
@@ -223,6 +207,7 @@ class AdjustService {
             end,
             country,
             network,
+            campaign,
             sort: "-events"
           })
         }).then(res => {
@@ -242,6 +227,7 @@ class AdjustService {
             end,
             country,
             network,
+            campaign,
             sort: "-installs"
           })
         }).then(res => {
@@ -257,7 +243,6 @@ class AdjustService {
       const analyticsData = {
         kpis: { data: kpiData.data || kpiData, error: kpiData.error || null },
         clickTracking: { data: clickTracking.data || clickTracking, error: clickTracking.error || null },
-        installTracking: { data: installTracking.data || installTracking, error: installTracking.error || null },
         revenue: { data: revenueData.data || revenueData, error: revenueData.error || null },
         devices: { data: deviceData.data || deviceData, error: deviceData.error || null },
         sources: { data: sourceData.data || sourceData, error: sourceData.error || null }
@@ -277,7 +262,7 @@ class AdjustService {
 
       return {
         success: true,
-        data: { summary, analytics: analyticsData, dateRange: { start, end }, filters: { country: country || null, network: network || null } },
+        data: { summary, analytics: analyticsData, dateRange: { start, end }, filters: { country: country || null, network: network || null, campaign: campaign || null } },
         status: 200,
       };
     } catch (error) {
@@ -466,7 +451,7 @@ class AdjustService {
     const result = await params.eventToken
       ? this.getTokenAnalytics(params)
       : this.getCompleteAnalytics(params);
-    const rows = this.getReportRows(result.data?.analytics?.installTracking?.data);
+    const rows = this.getReportRows(result.data?.analytics?.sources?.data);
     const slug = result.data?.resolvedSlug;
     const fields = slug
       ? [`${slug}_installs`, `${slug}_revenue`, `${slug}_daus`]

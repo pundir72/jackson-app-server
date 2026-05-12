@@ -635,6 +635,7 @@ router.get('/callbacks', adminAuth, async (req, res) => {
       activityKind,
       country,
       network,
+      campaign,
       startDate,
       endDate,
       page = 1,
@@ -651,6 +652,7 @@ router.get('/callbacks', adminAuth, async (req, res) => {
     if (activityKind) callbackQuery.activityKind = activityKind;
     if (country) callbackQuery.country = country.toUpperCase();
     if (network) callbackQuery.network = { $regex: network, $options: 'i' };
+    if (campaign) callbackQuery.campaign = { $regex: campaign, $options: 'i' };
     if (startDate || endDate) {
       callbackQuery.createdAt = {};
       if (startDate) callbackQuery.createdAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
@@ -892,7 +894,8 @@ router.get('/callbacks/:clickId/details', adminAuth, async (req, res) => {
             appVersion: firstRow.appVersion,
             store: firstRow.store,
             attStatus: firstRow.attStatus,
-            nonce: firstRow.nonce
+            nonce: firstRow.nonce,
+            deviceIdentifiers: firstRow.deviceIdentifiers || {}
           },
           reportingRevenue: firstRow.reportingRevenue,
           publisherParameter: firstRow.publisherParameter,
@@ -937,7 +940,7 @@ router.get('/callbacks/:clickId/details', adminAuth, async (req, res) => {
  */
 router.get('/analytics/overview', adminAuth, async (req, res) => {
   try {
-    const { startDate, endDate, country, network } = req.query;
+    const { startDate, endDate, country, network, campaign } = req.query;
 
     const adjustService = require('../services/adjust.service');
     
@@ -953,7 +956,8 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
       startDate: startDate || null,
       endDate: endDate || null,
       country: country || null,
-      network: network || null
+      network: network || null,
+      campaign: campaign || null
     });
 
     if (!result.success || !result.data) {

@@ -1948,6 +1948,14 @@ router.post("/spin", protect, async (req, res) => {
     // Save spin log
     await spinLog.save();
 
+    // Increment account overview challenges completed counter
+    try {
+      const accountOverviewService = require('../utils/accountOverview');
+      await accountOverviewService.incrementChallengesCompletedCounter(userId);
+    } catch (overviewErr) {
+      console.error('[ACCOUNT-OVERVIEW] Failed to increment challenges counter after spin:', overviewErr);
+    }
+
     console.log("✅ [POST /daily-challenge/spin] Spin completed:", {
       userId,
       challengeId: challenge._id,

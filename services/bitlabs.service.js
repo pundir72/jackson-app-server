@@ -720,6 +720,7 @@ class BitlabsService {
     const idStr = offerId.toString();
     try {
       const endpoint = "/v2/client/offers";
+      const userIdentifier = userId || "static-inventory";
       const params = {
         sdk: "CUSTOM",
         is_game: true,

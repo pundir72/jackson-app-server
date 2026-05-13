@@ -1602,23 +1602,17 @@ router.put(
       if (req.body.isAdSupported !== undefined)
         updateData.isAdSupported = req.body.isAdSupported === "true";
 
-      // Ignore coins updates (read-only from API) - silently skip if provided
-      if (req.body.rewardCoins !== undefined) {
-        // Don't return error, just ignore the field
-      }
-
-      // Update rewards (XP only - coins are read-only from API)
+      // Update rewards (allow updating both XP and coins)
+      if (!updateData.rewards) updateData.rewards = {};
       if (req.body.rewardXP !== undefined) {
-        if (!updateData.rewards) updateData.rewards = {};
         updateData.rewards.xp = req.body.rewardXP
           ? parseFloat(req.body.rewardXP)
           : existingGame.rewards?.xp || 0;
-        // Keep existing coins (read-only, from API)
-        updateData.rewards.coins = existingGame.rewards?.coins || 0;
-      } else {
-        // If XP is not being updated, ensure coins are preserved
-        if (!updateData.rewards) updateData.rewards = {};
-        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      }
+      if (req.body.rewardCoins !== undefined) {
+        updateData.rewards.coins = req.body.rewardCoins
+          ? parseFloat(req.body.rewardCoins)
+          : existingGame.rewards?.coins || 0;
       }
 
       // Update XP Tiers (multi-select) with validation

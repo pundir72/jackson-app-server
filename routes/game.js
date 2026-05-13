@@ -23,6 +23,7 @@ const {
 } = require("../utils/taskProgression");
 const besitosController = require("../controllers/besitos.controller");
 const { trackAchievements } = require("../utils/achievements");
+const { attachSnapshots } = require("../utils/snapshotGameOffer");
 
 function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
   if (taskNumber <= 1) {
@@ -302,6 +303,7 @@ router.get("/", protect, async (req, res) => {
           );
 
           let syncedCount = 0;
+          const newlyAddedGameIds = [];
           for (const besitosGame of allBesitosGames) {
             const gameId = String(
               besitosGame.id || besitosGame.offer_id || besitosGame.game_id,
@@ -345,10 +347,15 @@ router.get("/", protect, async (req, res) => {
               };
               user.games.push(newGame);
               syncedCount++;
+              newlyAddedGameIds.push(gameId);
               console.log(
                 `[GAME-LIST] ➕ Added game: ${gameId} (${newGame.status})`,
               );
             }
+          }
+
+          if (syncedCount > 0) {
+            await attachSnapshots(user, newlyAddedGameIds);
           }
 
           if (syncedCount > 0 || user.isModified("games")) {
@@ -1975,11 +1982,11 @@ router.get("/discover", protect, async (req, res) => {
         if (enrichedBesitosRawData) {
           if (isBitlabsGame && Array.isArray(enrichedBesitosRawData.events)) {
             const totalPoints = parseFloat(enrichedBesitosRawData.total_points) || 0;
-            const amount = parseFloat(enrichedBesitosRawData.amount) || 0;
+            const amount = totalPoints > 0 ? totalPoints / 1000 : 0;
             const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
             console.log(`[DISCOVER BITLABS] gameId=${g.gameId} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
             enrichedBesitosRawData.events = enrichedBesitosRawData.events.map((event) => {
-              const eventPoints = parseInt(event.points) || 0;
+              const eventPoints = parseInt(event.promised_points || event.points) || 0;
               const coinReward = totalPoints > 0 && eventPoints > 0
                 ? Math.round((eventPoints / totalPoints) * totalCoins)
                 : 0;

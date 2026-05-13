@@ -16,6 +16,15 @@ const {
 } = require("../utils/taskProgression");
 const mongoose = require("mongoose");
 const winston = require("winston");
+const { buildSnapshot, getCoinsPerDollar, buildBitlabsSnapshotFromOffer } = require("../utils/snapshotGameOffer");
+
+function getEventPoints(event) {
+  return parseInt(event.promised_points || event.points) || 0;
+}
+
+function getEventPayout(event) {
+  return parseFloat(event.payout) || 0;
+}
 
 // Create logger instance
 const logger = winston.createLogger({
@@ -89,28 +98,12 @@ exports.getOffers = async (req, res) => {
     let transformedData = data?.data || [];
     if (isGameRequest && Array.isArray(transformedData)) {
       transformedData = transformedData.map((offer) => {
-        // Calculate total payout from events (sum of all payable event payouts)
-        let totalPayout = 0;
-        if (Array.isArray(offer.events)) {
-          totalPayout = offer.events
-            .filter((event) => event.payable === true)
-            .reduce((sum, event) => {
-              const payout = parseFloat(event.payout) || 0;
-              return sum + payout;
-            }, 0);
-        }
-
-        // Use total_points if available, otherwise calculate from events
+        // Use total_points to calculate amount in USD (1000 points ≈ $1)
         const totalPoints = parseFloat(offer.total_points) || 0;
 
-        // Calculate amount in USD (use total payout from events, or estimate from points)
-        // If we have payout from events, use that; otherwise estimate from points
-        const amount =
-          totalPayout > 0
-            ? totalPayout
-            : totalPoints > 0
-              ? totalPoints / 1000 // Rough estimate: 1000 points ≈ $1
-              : 0;
+        // Calculate amount in USD from total_points
+        // 1000 Bitlabs points ≈ $1 USD
+        const amount = totalPoints > 0 ? totalPoints / 1000 : 0;
 
         // Extract device info from categories (BitLabs uses categories like "iPhone", "iPad", "Android")
         const categories = offer.categories || [];
@@ -338,9 +331,11 @@ exports.getMyGames = async (req, res) => {
     let coinsPerDollar = 100;
     try {
       const settings = await ConversionSettings.getActiveSettings("USD");
+      console.log("[BITLABS CONVERSION] getActiveSettings('USD') returned:", JSON.stringify(settings, null, 2));
       if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+      console.log("[BITLABS CONVERSION] coinsPerDollar resolved to:", coinsPerDollar);
     } catch (err) {
-      console.warn("Could not fetch conversion settings, using default:", err.message);
+      console.warn("[BITLABS CONVERSION] Could not fetch conversion settings, using default:", err.message);
     }
 
     // ── Process each offer through the SAME pipeline as getUserOfferHistory ──
@@ -365,7 +360,19 @@ exports.getMyGames = async (req, res) => {
           { "gameDetails.offer_id": offerIdNum }, { "metadata.externalId": offerIdNum }
         );
       }
-      const gameDoc = await Game.findOne({ sdkProvider: { $in: ["Bitlabs", "bitlabs"] }, $or: idConditions }).lean();
+      let gameDoc = await Game.findOne({ sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] }, $or: idConditions }).lean();
+
+      if (!gameDoc && offer.product_name) {
+        const allBitlabs = await Game.find({ sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] } }).lean();
+        const nameKey = String(offer.product_name).toLowerCase().trim();
+        for (const g of allBitlabs) {
+          if (g.gameDetails?.name && 
+              (g.gameDetails.name.toLowerCase().trim().includes(nameKey) || nameKey.includes(g.gameDetails.name.toLowerCase().trim()))) {
+            gameDoc = g;
+            break;
+          }
+        }
+      }
 
       if (!gameDoc) { offersWithoutGame.push(offer); continue; }
 
@@ -374,6 +381,66 @@ exports.getMyGames = async (req, res) => {
 
       const isEligibleForBonus = eligibleGameIdsForBonus.some(id => id === gameIdString);
       const userGame = userGames.find(g => String(g.gameId) === gameIdString);
+
+      // ── Snapshot handling: freeze offer at first-seen time ──
+      let snapshotCoinRewardMap = null;
+      let snapshotTotalCoins = null;
+      const hasSnapshot = !!(userGame?.offerSnapshot?.goals?.length);
+      console.log("[BITLABS MYGAMES SNAPSHOT] offerId=" + offer.id + " userGame found=" + !!userGame + " hasSnapshot=" + hasSnapshot + " offerSnapshot=" + (userGame?.offerSnapshot ? "exists" : "null"));
+
+      if (hasSnapshot) {
+        console.log("[BITLABS MYGAMES SNAPSHOT] USING FROZEN SNAPSHOT — goals:", JSON.stringify(userGame.offerSnapshot.goals));
+        snapshotCoinRewardMap = new Map();
+        userGame.offerSnapshot.goals.forEach((sg) => {
+          if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+          snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+        });
+        snapshotTotalCoins = userGame.offerSnapshot.rewards?.coins;
+      } else if (!userGame) {
+        console.log("[BITLABS MYGAMES SNAPSHOT] NO userGame entry — creating first-seen snapshot");
+        const snapCoinsPerDollar = await getCoinsPerDollar();
+        console.log("[BITLABS MYGAMES SNAPSHOT] snapCoinsPerDollar resolved to:", snapCoinsPerDollar);
+        const snapshot = buildSnapshot(gameDoc, snapCoinsPerDollar);
+        console.log("[BITLABS MYGAMES SNAPSHOT] built snapshot:", JSON.stringify(snapshot));
+        if (snapshot) {
+          await User.findByIdAndUpdate(user._id, {
+            $push: {
+              games: {
+                gameId: gameDoc._id,
+                provider: "bitlabs",
+                installedAt: new Date(),
+                offerSnapshot: snapshot,
+              }
+            }
+          });
+          snapshotCoinRewardMap = new Map();
+          snapshot.goals.forEach((sg) => {
+            if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+            snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+          });
+          snapshotTotalCoins = snapshot.rewards?.coins;
+          console.log("[BITLABS MYGAMES SNAPSHOT] Created new snapshot, snapshotTotalCoins=" + snapshotTotalCoins);
+        }
+      } else {
+        console.log("[BITLABS MYGAMES SNAPSHOT] userGame exists but NO snapshot or empty goals — rebuilding snapshot from live offer data");
+        const snapCoinsPerDollar = await getCoinsPerDollar();
+        const snapshot = buildBitlabsSnapshotFromOffer(offer, snapCoinsPerDollar);
+        if (snapshot && snapshot.goals.length > 0) {
+          await User.updateOne(
+            { _id: user._id, "games.gameId": gameDoc._id },
+            { $set: { "games.$.offerSnapshot": snapshot } }
+          );
+          snapshotCoinRewardMap = new Map();
+          snapshot.goals.forEach((sg) => {
+            if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+            snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+          });
+          snapshotTotalCoins = snapshot.rewards?.coins;
+          console.log("[BITLABS MYGAMES SNAPSHOT] Rebuilt snapshot, snapshotTotalCoins=" + snapshotTotalCoins);
+        } else {
+          console.log("[BITLABS MYGAMES SNAPSHOT] Could not rebuild snapshot from live offer data — using LIVE conversion coinsPerDollar=" + coinsPerDollar);
+        }
+      }
 
       if (offer.events && Array.isArray(offer.events)) {
         let progression = taskProgressionMap[gameIdString];
@@ -398,18 +465,21 @@ exports.getMyGames = async (req, res) => {
         }
 
         // Calculate coin rewards per event (proportional based on points)
-        const totalPoints = parseFloat(offer.total_points) || 0;
-        const amount = parseFloat(offer.amount) || 0;
-        const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
-        console.log(`[MYGAMES BITLABS] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins} gameDoc=${gameDoc?.title}`);
+        const totalPoints = parseFloat(gameDoc.besitosRawData?.total_points || offer.total_points) || 0;
+        const amount = totalPoints > 0 ? totalPoints / 1000 : 0;
+        const liveTotalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
+        const totalCoins = snapshotTotalCoins ?? liveTotalCoins;
+        console.log(`[BITLABS MYGAMES] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} liveCoinsPerDollar=${coinsPerDollar} liveTotalCoins=${liveTotalCoins} snapshotTotalCoins=${snapshotTotalCoins ?? "null"} finalTotalCoins=${totalCoins} source=${snapshotTotalCoins != null ? "SNAPSHOT" : "LIVE"}`);
 
         offer.events = offer.events.map((event, index) => {
-          // Calculate coin reward for this event
-          const eventPoints = parseInt(event.points) || 0;
-          const coinReward = totalPoints > 0 && eventPoints > 0
+          const eventPoints = getEventPoints(event);
+          const eventId = event.uuid || event.hash || `event-${index}`;
+          const liveCoinReward = totalPoints > 0 && eventPoints > 0
             ? Math.round((eventPoints / totalPoints) * totalCoins)
             : 0;
-          console.log(`[MYGAMES BITLABS EVENT] name="${event.name}" points=${eventPoints} coinReward=${coinReward}`);
+          const snapshotCoin = snapshotCoinRewardMap?.get(eventId) ?? snapshotCoinRewardMap?.get(`pos-${index + 1}`);
+          const coinReward = snapshotCoin ?? liveCoinReward;
+          console.log(`[BITLABS MYGAMES EVENT] name="${event.name}" eventId=${eventId} points=${eventPoints} liveCoinReward=${liveCoinReward} snapshotCoin=${snapshotCoin ?? "N/A"} final=${coinReward} source=${snapshotCoin != null ? "SNAPSHOT" : "LIVE"}`);
 
           if (!event.payable) return { ...event, coinReward };
           const taskOrder   = sortedEvents.findIndex(e => e.uuid === event.uuid) + 1 || index + 1;
@@ -540,11 +610,11 @@ exports.getMyGames = async (req, res) => {
       offer.bonusTasks = { hasBonusTasks: false, isEligible: false, bonusTasks: [], message: "Game not found in database" };
       // Calculate coin rewards for offers without game doc
       const totalPoints = parseFloat(offer.total_points) || 0;
-      const amount = parseFloat(offer.amount) || 0;
+      const amount = totalPoints > 0 ? totalPoints / 1000 : 0;
       const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
       if (offer.events) {
         offer.events = offer.events.map(e => {
-          const eventPoints = parseInt(e.points) || 0;
+          const eventPoints = getEventPoints(e);
           const coinReward = e.payable !== false && totalPoints > 0 && eventPoints > 0
             ? Math.round((eventPoints / totalPoints) * totalCoins)
             : 0;
@@ -964,7 +1034,7 @@ exports.getUserOfferHistory = async (req, res) => {
         );
       }
       const gameQuery = {
-        sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+        sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] },
         $or: idConditions,
       };
       // console.log("🔵 [BITLABS CONTROLLER] Game lookup query:", {
@@ -973,14 +1043,19 @@ exports.getUserOfferHistory = async (req, res) => {
       //   idConditionsCount: idConditions.length,
       //   querySummary: JSON.stringify(gameQuery),
       // });
-      const gameDoc = await Game.findOne(gameQuery).lean();
+      let gameDoc = await Game.findOne(gameQuery).lean();
 
-      // console.log("🔵 [BITLABS CONTROLLER] Game lookup result:", {
-      //   offerId: offer.id,
-      //   gameFound: !!gameDoc,
-      //   gameId: gameDoc?._id?.toString(),
-      //   gameTitle: gameDoc?.title || "n/a",
-      // });
+      if (!gameDoc && offer.product_name) {
+        const allBitlabs = await Game.find({ sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] } }).lean();
+        const nameKey = String(offer.product_name).toLowerCase().trim();
+        for (const g of allBitlabs) {
+          if (g.gameDetails?.name && 
+              (g.gameDetails.name.toLowerCase().trim().includes(nameKey) || nameKey.includes(g.gameDetails.name.toLowerCase().trim()))) {
+            gameDoc = g;
+            break;
+          }
+        }
+      }
 
       // If game not found in database, mark for later processing without progression rules
       if (!gameDoc) {
@@ -989,27 +1064,17 @@ exports.getUserOfferHistory = async (req, res) => {
         );
         // Debug: show what Bitlabs games exist in DB (sample)
         const bitlabsGamesCount = await Game.countDocuments({
-          sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+          sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] },
         });
         const bitlabsGamesSample = await Game.find({
-          sdkProvider: { $in: ["Bitlabs", "bitlabs"] },
+          sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] },
         })
           .select(
             "gameId gameDetails.id gameDetails.offer_id metadata.externalId sdkProvider title",
           )
           .limit(5)
           .lean();
-        console.warn("🔍 [BITLABS CONTROLLER] DEBUG - Bitlabs games in DB:", {
-          totalBitlabsGames: bitlabsGamesCount,
-          sampleGameIds: bitlabsGamesSample.map((g) => ({
-            gameId: g.gameId,
-            "gameDetails.id": g.gameDetails?.id,
-            "gameDetails.offer_id": g.gameDetails?.offer_id,
-            "metadata.externalId": g.metadata?.externalId,
-            sdkProvider: g.sdkProvider,
-            title: g.title,
-          })),
-        });
+
         offersWithoutGame.push(offer);
         continue;
       }
@@ -1054,6 +1119,65 @@ exports.getUserOfferHistory = async (req, res) => {
             gId === currentGameIdString)
         );
       });
+
+      // ── Snapshot handling: freeze offer at first-seen time ──
+      let snapshotCoinRewardMap = null;
+      let snapshotTotalCoins = null;
+      const hasSnapshot = !!(userGame?.offerSnapshot?.goals?.length);
+      console.log("[BITLABS USERHISTORY SNAPSHOT] offerId=" + offer.id + " userGame found=" + !!userGame + " hasSnapshot=" + hasSnapshot);
+
+      if (hasSnapshot) {
+        console.log("[BITLABS USERHISTORY SNAPSHOT] USING FROZEN SNAPSHOT — goals:", JSON.stringify(userGame.offerSnapshot.goals));
+        snapshotCoinRewardMap = new Map();
+        userGame.offerSnapshot.goals.forEach((sg) => {
+          if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+          snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+        });
+        snapshotTotalCoins = userGame.offerSnapshot.rewards?.coins;
+      } else if (!userGame) {
+        console.log("[BITLABS USERHISTORY SNAPSHOT] NO userGame entry — creating first-seen snapshot");
+        const snapCoinsPerDollar = await getCoinsPerDollar();
+        const snapshot = buildSnapshot(gameDoc, snapCoinsPerDollar);
+        console.log("[BITLABS USERHISTORY SNAPSHOT] built snapshot:", JSON.stringify(snapshot));
+        if (snapshot) {
+          await User.findByIdAndUpdate(user._id, {
+            $push: {
+              games: {
+                gameId: gameDoc._id,
+                provider: "bitlabs",
+                installedAt: new Date(),
+                offerSnapshot: snapshot,
+              }
+            }
+          });
+          snapshotCoinRewardMap = new Map();
+          snapshot.goals.forEach((sg) => {
+            if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+            snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+          });
+          snapshotTotalCoins = snapshot.rewards?.coins;
+          console.log("[BITLABS USERHISTORY SNAPSHOT] Created new snapshot, snapshotTotalCoins=" + snapshotTotalCoins);
+        }
+      } else {
+        console.log("[BITLABS USERHISTORY SNAPSHOT] userGame exists but NO snapshot — rebuilding snapshot from live offer data");
+        const snapCoinsPerDollar = await getCoinsPerDollar();
+        const snapshot = buildBitlabsSnapshotFromOffer(offer, snapCoinsPerDollar);
+        if (snapshot && snapshot.goals.length > 0) {
+          await User.updateOne(
+            { _id: user._id, "games.gameId": gameDoc._id },
+            { $set: { "games.$.offerSnapshot": snapshot } }
+          );
+          snapshotCoinRewardMap = new Map();
+          snapshot.goals.forEach((sg) => {
+            if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+            snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+          });
+          snapshotTotalCoins = snapshot.rewards?.coins;
+          console.log("[BITLABS USERHISTORY SNAPSHOT] Rebuilt snapshot, snapshotTotalCoins=" + snapshotTotalCoins);
+        } else {
+          console.log("[BITLABS USERHISTORY SNAPSHOT] Could not rebuild snapshot from live offer data — using LIVE conversion coinsPerDollar=" + coinsPerDollar);
+        }
+      }
 
       // Process events (Bitlabs equivalent of goals/tasks)
       if (offer.events && Array.isArray(offer.events)) {
@@ -1109,19 +1233,21 @@ exports.getUserOfferHistory = async (req, res) => {
         }
 
         // Calculate coin rewards per event (proportional based on points)
-        const totalPoints = parseFloat(offer.total_points) || 0;
-        const amount = parseFloat(offer.amount) || 0;
-        const totalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
-        console.log(`[USERHISTORY BITLABS] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+        const totalPoints = parseFloat(gameDoc.besitosRawData?.total_points || offer.total_points) || 0;
+        const amount = totalPoints > 0 ? totalPoints / 1000 : 0;
+        const liveTotalCoins = totalPoints > 0 && amount > 0 ? Math.round(amount * coinsPerDollar) : 0;
+        const totalCoins = snapshotTotalCoins ?? liveTotalCoins;
+        console.log(`[BITLABS USERHISTORY] offerId=${offer.id} amount=${amount} totalPoints=${totalPoints} liveCoinsPerDollar=${coinsPerDollar} liveTotalCoins=${liveTotalCoins} snapshotTotalCoins=${snapshotTotalCoins ?? "null"} finalTotalCoins=${totalCoins} source=${snapshotTotalCoins != null ? "SNAPSHOT" : "LIVE"}`);
 
-        // Apply batch-based unlocking logic to each event
         offer.events = offer.events.map((event, index) => {
-          // Calculate coin reward for this event
-          const eventPoints = parseInt(event.points) || 0;
-          const coinReward = totalPoints > 0 && eventPoints > 0
+          const eventPoints = getEventPoints(event);
+          const eventId = event.uuid || event.hash || `event-${index}`;
+          const liveCoinReward = totalPoints > 0 && eventPoints > 0
             ? Math.round((eventPoints / totalPoints) * totalCoins)
             : 0;
-          console.log(`[USERHISTORY BITLABS EVENT] name="${event.name}" points=${eventPoints} coinReward=${coinReward}`);
+          const snapshotCoin = snapshotCoinRewardMap?.get(eventId) ?? snapshotCoinRewardMap?.get(`pos-${index + 1}`);
+          const coinReward = snapshotCoin ?? liveCoinReward;
+          console.log(`[USERHISTORY BITLABS EVENT] name="${event.name}" eventId=${eventId} points=${eventPoints} liveCoinReward=${liveCoinReward} snapshotCoin=${snapshotCoin ?? "N/A"} final=${coinReward} source=${snapshotCoin != null ? "SNAPSHOT" : "LIVE"}`);
 
           // Only apply progression to payable events
           if (!event.payable) {

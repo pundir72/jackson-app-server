@@ -576,6 +576,31 @@ const userSchema = new mongoose.Schema({
         },
         lastMessageAt: {
             type: Date
+        },
+        // Snapshot of game offer at install time - freezes goals, rewards, conversion rate
+        // so admin changes don't affect users who already started a game
+        offerSnapshot: {
+            capturedAt: {
+                type: Date,
+                default: Date.now
+            },
+            coinsPerDollar: {
+                type: Number
+            },
+            goals: [{
+                goalId: String,
+                title: String,
+                coinReward: Number,
+                position: Number,
+                days_left: Number
+            }],
+            rewards: {
+                coins: { type: Number, default: 0 },
+                gold: { type: Number, default: 0 }
+            },
+            besitosRawData: {
+                type: mongoose.Schema.Types.Mixed
+            }
         }
     }],
 

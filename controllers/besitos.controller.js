@@ -119,9 +119,11 @@ exports.getUserData = async (req, res) => {
     let coinsPerDollar = 100;
     try {
       const settings = await ConversionSettings.getActiveSettings("USD");
+      console.log("[BESITOS CONVERSION] getActiveSettings('USD') returned:", JSON.stringify(settings, null, 2));
       if (settings?.coinsPerDollar) coinsPerDollar = settings.coinsPerDollar;
+      console.log("[BESITOS CONVERSION] coinsPerDollar resolved to:", coinsPerDollar);
     } catch (err) {
-      console.warn("Could not fetch conversion settings, using default:", err.message);
+      console.warn("[BESITOS CONVERSION] Could not fetch conversion settings, using default:", err.message);
     }
 
     if (!user) {
@@ -264,7 +266,7 @@ exports.getUserData = async (req, res) => {
       for (const game of inProgressGames) {
         // Find matching game in our database
         const gameDoc = await Game.findOne({
-          sdkProvider: "Besitos",
+          sdkProvider: { $in: ["Besitos", "besitos"] },
           $or: [
             { gameId: game.id },
             { "gameDetails.id": game.id },
@@ -283,6 +285,24 @@ exports.getUserData = async (req, res) => {
 
         // Each game has its own admin XP (different games can have different baseXP/multiplier)
         game.xpRewardConfig = gameDoc.xpRewardConfig || { baseXP: 0, multiplier: 1.0 };
+
+        // Check for frozen offer snapshot in user's game data
+        const snapshotUserGame = user.games?.find(
+          (ug) => String(ug.gameId) === String(game.id),
+        );
+        const snapshot = snapshotUserGame?.offerSnapshot;
+        console.log("[BESITOS SNAPSHOT] game.id=" + game.id + " snapshotUserGame found=" + !!snapshotUserGame + " snapshot exists=" + !!snapshot + " goals count=" + (snapshot?.goals?.length || 0) + " snapshot.coinsPerDollar=" + (snapshot?.coinsPerDollar || "N/A"));
+        let snapshotCoinRewardMap = null;
+        if (snapshot?.goals?.length) {
+          console.log("[BESITOS SNAPSHOT] USING FROZEN SNAPSHOT — snapshot.goals:", JSON.stringify(snapshot.goals));
+          snapshotCoinRewardMap = new Map();
+          snapshot.goals.forEach((sg) => {
+            if (sg.goalId) snapshotCoinRewardMap.set(sg.goalId, sg.coinReward);
+            snapshotCoinRewardMap.set(`pos-${sg.position}`, sg.coinReward);
+          });
+        } else {
+          console.log("[BESITOS SNAPSHOT] NO SNAPSHOT or empty goals — using LIVE conversion coinsPerDollar=" + coinsPerDollar);
+        }
 
         const gameIdString = gameDoc._id.toString();
         const currentGameIdString = String(gameDoc._id);
@@ -369,10 +389,11 @@ exports.getUserData = async (req, res) => {
           }
 
           // Apply batch-based unlocking logic to each goal
-          // Calculate coin rewards per goal
+          // Calculate coin rewards per goal (use frozen snapshot if available)
           const totalAmount = parseFloat(game.amount) || 0;
-          const totalCoins = Math.round(totalAmount * coinsPerDollar);
-          console.log(`[BESITOS USERDATA] gameId=${game.id || game.offer_id} totalAmount=${totalAmount} coinsPerDollar=${coinsPerDollar} totalCoins=${totalCoins}`);
+          const liveTotalCoins = Math.round(totalAmount * coinsPerDollar);
+          const totalCoins = snapshot?.rewards?.coins ?? liveTotalCoins;
+          console.log(`[BESITOS USERDATA] gameId=${game.id || game.offer_id} totalAmount=${totalAmount} liveCoinsPerDollar=${coinsPerDollar} liveTotalCoins=${liveTotalCoins} snapshotRewardsCoins=${snapshot?.rewards?.coins || "N/A"} finalTotalCoins=${totalCoins} source=${snapshot?.rewards?.coins != null ? "SNAPSHOT" : "LIVE"}`);
 
           game.goals = game.goals.map((goal, index) => {
             const taskOrder = goal.position || index + 1;
@@ -380,10 +401,15 @@ exports.getUserData = async (req, res) => {
             let unlockReason = "";
             let isLocked = false;
 
-            // Calculate coin reward for this goal
+            // Use frozen coinReward from snapshot if available, otherwise calculate live
+            const goalId = goal.goal_id || goal.id || `pos-${goal.position || index + 1}`;
             const goalAmount = parseFloat(goal.amount) || 0;
-            const coinReward = Math.round(goalAmount * coinsPerDollar);
-            console.log(`[BESITOS USERDATA GOAL] name="${goal.text || goal.name}" amount=${goalAmount} coinReward=${coinReward}`);
+            const liveCoinReward = Math.round(goalAmount * coinsPerDollar);
+            const liveProportional = totalCoins > 0 ? Math.round((goalAmount / totalAmount) * totalCoins) : 0;
+            const coinReward = snapshotCoinRewardMap?.get(goalId)
+              ?? snapshotCoinRewardMap?.get(`pos-${goal.position || index + 1}`)
+              ?? liveCoinReward;
+            console.log(`[BESITOS USERDATA GOAL] name="${goal.text || goal.name}" goalId=${goalId} amount=${goalAmount} live_goalAmount*rate=${liveCoinReward} live_proportional=${liveProportional} fromSnapshot=${snapshotCoinRewardMap?.get(goalId) ?? snapshotCoinRewardMap?.get(`pos-${goal.position || index + 1}`) ?? "N/A"} final=${coinReward} source=${snapshotCoinRewardMap?.has(goalId) || snapshotCoinRewardMap?.has(`pos-${goal.position || index + 1}`) ? "SNAPSHOT" : "LIVE"}`);
 
             // If goal is already completed, it's always unlocked
             if (goal.completed === true) {
@@ -744,7 +770,7 @@ exports.getUserData = async (req, res) => {
     if (Array.isArray(completedGames) && completedGames.length > 0) {
       for (const game of completedGames) {
         const gameDoc = await Game.findOne({
-          sdkProvider: "Besitos",
+          sdkProvider: { $in: ["Besitos", "besitos"] },
           $or: [
             { gameId: game.id },
             { "gameDetails.id": game.id },

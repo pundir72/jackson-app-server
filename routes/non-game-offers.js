@@ -2948,7 +2948,19 @@ router.post("/complete", protect, async (req, res) => {
         referenceId: offerId,
       });
 
+      user.nonGameOffersCompleted = (user.nonGameOffersCompleted || 0) + 1;
       await Promise.all([user.save(), transaction.save()]);
+
+      // 🎯 ADJUST TRACKING: Non-game offer completed
+      try {
+        const { trackNonGamingOffer } = require('../utils/adjustTracker');
+        await trackNonGamingOffer(user._id.toString(), {
+          count: user.nonGameOffersCompleted,
+          deviceId: user.deviceId
+        });
+      } catch (adjustError) {
+        console.error('Adjust non-game offer tracking failed:', adjustError);
+      }
 
       res.json({
         success: true,
@@ -3180,8 +3192,23 @@ router.post("/callback/bitlabs", async (req, res) => {
           },
         });
 
+        // Increment non-game offers completed counter for Adjust tracking
+        user.nonGameOffersCompleted = (user.nonGameOffersCompleted || 0) + 1;
+
         // Save user and transaction
         await Promise.all([user.save(), transaction.save()]);
+
+        // 🎯 ADJUST TRACKING: Non-game offer completed from Bitlabs callback
+        try {
+          const { trackNonGamingOffer } = require('../utils/adjustTracker');
+          await trackNonGamingOffer(user._id.toString(), {
+            count: user.nonGameOffersCompleted,
+            source: 'bitlabs_callback',
+            deviceId: user.deviceId
+          });
+        } catch (adjustError) {
+          console.error('Adjust non-game offer tracking failed:', adjustError);
+        }
 
         // 🔵 DEBUG: Log final reward summary
       } else {

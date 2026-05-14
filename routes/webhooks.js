@@ -1331,13 +1331,13 @@ router.all("/adjust/callback", async (req, res) => {
     const adjustCallback = new AdjustCallback({
       activityKind: activityKind,
       appToken: callbackData.app_token || callbackData.appToken,
-      trackerToken: callbackData.tracker_token || callbackData.trackerToken,
+      trackerToken: callbackData.tracker_token || callbackData.trackerToken || callbackData.tracker,
       trackerName: callbackData.tracker_name || callbackData.trackerName,
-      network: callbackData.network,
-      campaign: callbackData.campaign,
-      adgroup: callbackData.adgroup,
-      creative: callbackData.creative,
-      clickLabel: callbackData.click_label || callbackData.clickLabel,
+      network: callbackData.network || callbackData.network_name,
+      campaign: callbackData.campaign || callbackData.campaign_name,
+      adgroup: callbackData.adgroup || callbackData.adgroup_name,
+      creative: callbackData.creative || callbackData.creative_name,
+      clickLabel: callbackData.clickid || callbackData.click_id || callbackData.click_label || callbackData.clickLabel || callbackData.label,
 
       // Device identifiers
       idfa: callbackData.idfa,
@@ -1601,6 +1601,28 @@ async function processInstall(callback) {
         callback.userId = user._id;
         await callback.save();
         console.log(`Linked AdjustCallback ${callback._id} to user ${user._id} via existing callback`);
+      }
+    }
+  }
+
+  // If still not found, try to match by advertising ID (gpsAdid/idfa)
+  // This links a reinstall or new account on the same device to the existing user
+  if (!user && (callback.gpsAdid || callback.idfa)) {
+    const deviceMatch = await AdjustCallback.findOne({
+      $or: [
+        ...(callback.gpsAdid ? [{ gpsAdid: callback.gpsAdid }] : []),
+        ...(callback.idfa ? [{ idfa: callback.idfa }] : []),
+      ],
+      userId: { $exists: true, $ne: null },
+      _id: { $ne: callback._id }
+    }).sort({ createdAt: -1 });
+
+    if (deviceMatch && deviceMatch.userId) {
+      user = await User.findById(deviceMatch.userId);
+      if (user) {
+        callback.userId = user._id;
+        await callback.save();
+        console.log(`Linked AdjustCallback ${callback._id} to user ${user._id} via advertising ID match (gpsAdid: ${callback.gpsAdid}, idfa: ${callback.idfa})`);
       }
     }
   }

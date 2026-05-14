@@ -76,7 +76,7 @@ const formatCallbackRow = (callback) => {
 
   return {
     id: callback._id,
-    clickId: callback.clickLabel || callback.rawData?.click_id || callback.rawData?.clickId || callback._id?.toString(),
+    clickId: callback.clickLabel || callback.rawData?.clickid || callback.rawData?.click_id || callback.rawData?.clickId || callback._id?.toString(),
     installStatus: getInstallStatus(callback),
     timestamp: getActivityTime(callback),
     activityKind: callback.activityKind,
@@ -693,6 +693,10 @@ router.get('/callbacks', adminAuth, async (req, res) => {
        Adjust Dashboard → Settings → Raw Data Exports → Set up
        
        Webhook endpoint: POST /api/webhooks/adjust/callback
+       
+       IMPORTANT: Callback URL MUST include these for filters to work:
+         &clickid={clickid}        ← groups related rows (click→install→event)
+         &event_token={event_token} ← enables event token filter in Tracking Rows
        ============================================================ */
     
     return res.json({
@@ -940,7 +944,7 @@ router.get('/callbacks/:clickId/details', adminAuth, async (req, res) => {
  */
 router.get('/analytics/overview', adminAuth, async (req, res) => {
   try {
-    const { startDate, endDate, country, network, campaign } = req.query;
+    const { startDate, endDate, country, network, campaign, eventToken } = req.query;
 
     const adjustService = require('../services/adjust.service');
     
@@ -951,13 +955,22 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
       });
     }
 
-    // Use Adjust API to get complete analytics (app-wide)
+    // Look up event token name for slug resolution
+    let eventTokenName = null;
+    if (eventToken) {
+      const tokenDoc = await AdjustEventToken.findByToken(eventToken);
+      eventTokenName = tokenDoc?.name || null;
+    }
+
+    // Use Adjust API to get complete analytics (app-wide or token-filtered)
     const result = await adjustService.getCompleteAnalytics({
       startDate: startDate || null,
       endDate: endDate || null,
       country: country || null,
       network: network || null,
-      campaign: campaign || null
+      campaign: campaign || null,
+      eventToken: eventToken || null,
+      eventTokenName
     });
 
     if (!result.success || !result.data) {
@@ -977,6 +990,8 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
 
     const analytics = result.data.analytics || {};
     const summary = result.data.summary || {};
+    const eventMetric = result.data.eventMetric || 'events';
+    const revenueMetric = result.data.resolvedSlug ? `${result.data.resolvedSlug}_revenue` : 'revenue';
 
     // Transform sources data to byNetwork and byCountry
     const sourcesData = getReportRows(analytics.sources?.data);
@@ -985,12 +1000,12 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
       campaign: row.campaign || 'N/A',
       adgroup: row.adgroup || 'N/A',
       creative: row.creative || 'N/A',
-      total: (parseInt(row.events || 0) + parseInt(row.installs || 0) + parseInt(row.clicks || 0)),
+      total: (parseInt(row[eventMetric] || 0) + parseInt(row.installs || 0) + parseInt(row.clicks || 0)),
       installs: parseInt(row.installs || 0),
-      events: parseInt(row.events || 0),
+      events: parseInt(row[eventMetric] || 0),
       clicks: parseInt(row.clicks || 0),
       impressions: parseInt(row.impressions || 0),
-      revenue: parseFloat(row.revenue || 0),
+      revenue: parseFloat(row[revenueMetric] || 0),
       daus: row.daus || 0
     }));
 
@@ -1003,8 +1018,8 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
           countryMap[countryKey] = { country: countryKey, installs: 0, events: 0, revenue: 0, impressions: 0 };
         }
         countryMap[countryKey].installs += parseInt(row.installs || 0);
-        countryMap[countryKey].events += parseInt(row.events || 0);
-        countryMap[countryKey].revenue += parseFloat(row.revenue || 0);
+        countryMap[countryKey].events += parseInt(row[eventMetric] || 0);
+        countryMap[countryKey].revenue += parseFloat(row[revenueMetric] || 0);
         countryMap[countryKey].impressions += parseInt(row.impressions || 0);
         countryMap[countryKey].daus = row.daus || 0;
       }
@@ -1016,9 +1031,9 @@ router.get('/analytics/overview', adminAuth, async (req, res) => {
     const clickTracking = clickData.map(row => ({
       clickId: row.click_label || `${row.hour || row.day || 'date'}-${row.network || 'organic'}-${row.campaign || 'campaign'}-${row.country_code || row.country || 'country'}`,
       installStatus: parseInt(row.installs || 0) > 0 ? 'Installed' : (parseInt(row.clicks || 0) > 0 ? 'Clicked' : 'No install'),
-      count: parseInt(row.clicks || 0) + parseInt(row.installs || 0) + parseInt(row.events || 0),
+      count: parseInt(row.clicks || 0) + parseInt(row.installs || 0) + parseInt(row[eventMetric] || 0),
       hasInstall: parseInt(row.installs || 0) > 0,
-      hasEvent: parseInt(row.events || 0) > 0,
+      hasEvent: parseInt(row[eventMetric] || 0) > 0,
       timestamp: row.hour || row.day || null,
       date: row.hour || row.day || null,
       isAggregated: true,

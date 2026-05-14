@@ -382,11 +382,29 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    nonGameOffersCompleted: {
+        type: Number,
+        default: 0
+    },
+    purchaseCount: {
+        type: Number,
+        default: 0
+    },
+    totalPlaytimeMinutes: {
+        type: Number,
+        default: 0
+    },
 
     // Adjust SDK retention tracking — per-user, survives reinstalls & account switches
     adjustRetention: {
         firstOpenAt:    { type: Date,    default: null },
         firedMilestones: { type: [Number], default: []  }, // e.g. [1, 3, 7]
+    },
+
+    // Adjust milestone events fired-state — per-user, prevents re-fire across devices
+    // Keys like "spinner3", "survey10", "gameDownload5th", etc.
+    adjustMilestones: {
+        firedKeys: { type: [String], default: [] },
     },
     
     // Analytics for admin dashboard

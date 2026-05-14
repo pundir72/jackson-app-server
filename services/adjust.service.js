@@ -7,19 +7,14 @@ class AdjustService {
     this.analyticsBaseURL = "https://automate.adjust.com/reports-service";
     this.apiToken = config.ADJUST_API_TOKEN;
     this.appToken = config.ADJUST_APP_TOKEN;
-
-    const headers = {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    };
-
-    if (this.apiToken) {
-      headers["Authorization"] = `Bearer ${this.apiToken}`;
-    }
+    this.s2sSecret = config.ADJUST_S2S_SECRET;
 
     this.client = axios.create({
       baseURL: this.baseURL,
-      headers: headers,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       timeout: 30000,
     });
 
@@ -36,6 +31,61 @@ class AdjustService {
 
   isConfigured() {
     return !!(this.apiToken && this.appToken);
+  }
+
+  async sendEvent(eventData) {
+    if (!eventData || !eventData.event_token) {
+      throw Object.assign(new Error("event_token is required"), { status: 400 });
+    }
+    if (!this.isConfigured()) {
+      throw Object.assign(new Error("Adjust S2S not configured — missing API or App token"), { status: 401 });
+    }
+
+    try {
+      const params = {
+        app_token: this.appToken,
+        event_token: eventData.event_token,
+      };
+      if (this.s2sSecret) params.app_secret = this.s2sSecret;
+      if (eventData.s2s) params.s2s = eventData.s2s;
+
+      if (eventData.revenue !== undefined && eventData.revenue !== null) {
+        params.revenue = Number(eventData.revenue);
+        params.currency = eventData.currency || "USD";
+      }
+      if (eventData.callback_params) {
+        params.callback_params = typeof eventData.callback_params === "string"
+          ? eventData.callback_params
+          : JSON.stringify(eventData.callback_params);
+      }
+      if (eventData.partner_params) {
+        params.partner_params = typeof eventData.partner_params === "string"
+          ? eventData.partner_params
+          : JSON.stringify(eventData.partner_params);
+      }
+      for (const key of ["gps_adid", "idfa", "fire_adid", "oaid", "web_uuid", "idfv", "android_id", "adid", "ip_address", "created_at_unix", "created_at"]) {
+        if (eventData[key]) params[key] = eventData[key];
+      }
+      if (!params.created_at_unix && !params.created_at) {
+        params.created_at_unix = Math.floor(Date.now() / 1000);
+      }
+
+      const body = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null) body.append(k, v);
+      }
+
+      const response = await this.client.post("/event", body.toString());
+      return { success: true, status: response.status, data: response.data };
+    } catch (error) {
+      const status = error.response?.status || 500;
+      const data = error.response?.data || null;
+      console.error("[Adjust S2S] sendEvent failed:", status, data || error.message);
+      const err = new Error(data?.error_desc || error.message || "Failed to send event to Adjust");
+      err.status = status;
+      err.data = data;
+      throw err;
+    }
   }
 
   async getEventList() {
@@ -105,6 +155,7 @@ class AdjustService {
       date_period: `${start}:${end}`,
       app_token__in: this.appToken,
       format_dates: false,
+      limit: 1000,
     };
 
     if (sort) params.sort = sort;
@@ -118,7 +169,7 @@ class AdjustService {
   }
 
   async getCompleteAnalytics(params) {
-    const { startDate, endDate, country, network, campaign } = params;
+    const { startDate, endDate, country, network, campaign, eventToken, eventTokenName } = params;
 
     try {
       const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -126,11 +177,26 @@ class AdjustService {
         .split("T")[0];
       const end = endDate || new Date().toISOString().split("T")[0];
 
-      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
-      const timeDimension = isShortRange ? "hour" : "day";
+      const timeDimension = "day";
 
-      console.log('\n🔍 Adjust API Debug: getCompleteAnalytics (App-wide)');
+      // Resolve event slug for event-specific metrics
+      let resolvedSlug = null;
+      let eventMetric = 'events';
+      let revenueMetric = 'revenue';
+      if (eventToken && eventToken.trim()) {
+        resolvedSlug = await this.resolveEventSlug(eventToken, eventTokenName || eventToken);
+        if (resolvedSlug) {
+          eventMetric = `${resolvedSlug}_events`;
+          revenueMetric = `${resolvedSlug}_revenue`;
+          console.log('   Resolved slug:', resolvedSlug);
+          console.log('   Event metric:', eventMetric);
+        }
+      }
+
+      console.log('\n🔍 Adjust API Debug: getCompleteAnalytics');
       console.log('   Date range:', `${start}:${end}`);
+      console.log('   Event token filter:', eventToken || 'none');
+      console.log('   Using metrics:', `${eventMetric},installs,clicks,impressions,${revenueMetric},daus`);
 
       const [
         kpiData,
@@ -142,12 +208,13 @@ class AdjustService {
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
             dimensions: "app,day",
-            metrics: "events,installs,clicks,impressions,revenue,daus",
+            metrics: `${eventMetric},installs,clicks,impressions,${revenueMetric},daus`,
             start,
             end,
             country,
             network,
             campaign,
+            eventToken,
             sort: "-day"
           })
         }).then(res => {
@@ -162,12 +229,13 @@ class AdjustService {
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
             dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
-            metrics: "events,installs,clicks,impressions,revenue,daus",
+            metrics: `${eventMetric},installs,clicks,impressions,${revenueMetric},daus`,
             start,
             end,
             country,
             network,
             campaign,
+            eventToken,
             sort: `-${timeDimension}`
           })
         }).then(res => {
@@ -182,13 +250,14 @@ class AdjustService {
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
             dimensions: "app,country_code,country,network",
-            metrics: "revenue,events",
+            metrics: `${revenueMetric},${eventMetric}`,
             start,
             end,
             country,
             network,
             campaign,
-            sort: "-revenue"
+            eventToken,
+            sort: `-${revenueMetric}`
           })
         }).then(res => {
           console.log('✅ Revenue Data Response Status:', res.status);
@@ -202,13 +271,14 @@ class AdjustService {
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
             dimensions: "app,country_code,country,os_name,device_type",
-            metrics: "events,installs,clicks,daus,impressions",
+            metrics: `${eventMetric},installs,clicks,impressions,${revenueMetric},daus`,
             start,
             end,
             country,
             network,
             campaign,
-            sort: "-events"
+            eventToken,
+            sort: `-${eventMetric}`
           })
         }).then(res => {
           console.log('✅ Device Data Response Status:', res.status);
@@ -222,12 +292,13 @@ class AdjustService {
         this.analyticsClient.get("/report", {
           params: this.buildReportParams({
             dimensions: "app,network,campaign,adgroup,creative",
-            metrics: "events,installs,clicks,revenue,impressions,daus",
+            metrics: `${eventMetric},installs,clicks,${revenueMetric},impressions,daus`,
             start,
             end,
             country,
             network,
             campaign,
+            eventToken,
             sort: "-installs"
           })
         }).then(res => {
@@ -252,17 +323,17 @@ class AdjustService {
       const kpiRows = this.getReportRows(analyticsData.kpis.data);
       if (kpiRows.length) {
         kpiRows.forEach(row => {
-          summary.totalEvents += parseInt(row.events || 0);
+          summary.totalEvents += parseInt(row[eventMetric] || 0);
           summary.totalInstalls += parseInt(row.installs || 0);
           summary.totalClicks += parseInt(row.clicks || 0);
-          summary.totalRevenue += parseFloat(row.revenue || 0);
+          summary.totalRevenue += parseFloat(row[revenueMetric] || 0);
           summary.totalImpressions += parseInt(row.impressions || 0);
         });
       }
 
       return {
         success: true,
-        data: { summary, analytics: analyticsData, dateRange: { start, end }, filters: { country: country || null, network: network || null, campaign: campaign || null } },
+        data: { summary, analytics: analyticsData, eventMetric, resolvedSlug, dateRange: { start, end }, filters: { country: country || null, network: network || null, campaign: campaign || null, eventToken: eventToken || null } },
         status: 200,
       };
     } catch (error) {
@@ -280,8 +351,7 @@ class AdjustService {
         .split("T")[0];
       const end = endDate || new Date().toISOString().split("T")[0];
 
-      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
-      const timeDimension = isShortRange ? "hour" : "day";
+      const timeDimension = "day";
 
       let resolvedSlug = null;
 
@@ -314,6 +384,7 @@ class AdjustService {
             date_period: `${start}:${end}`,
             app_token__in: this.appToken,
             format_dates: false,
+            limit: 1000,
             sort: "-day"
           }
         }).then(res => {
@@ -331,6 +402,7 @@ class AdjustService {
             date_period: `${start}:${end}`,
             app_token__in: this.appToken,
             format_dates: false,
+            limit: 1000,
             sort: `-${eventMetric}`
           }
         }).then(res => {
@@ -348,6 +420,7 @@ class AdjustService {
             date_period: `${start}:${end}`,
             app_token__in: this.appToken,
             format_dates: false,
+            limit: 1000,
             sort: `-${eventMetric}`
           }
         }).then(res => {
@@ -365,6 +438,7 @@ class AdjustService {
             date_period: `${start}:${end}`,
             app_token__in: this.appToken,
             format_dates: false,
+            limit: 1000,
             sort: `-${eventMetric}`
           }
         }).then(res => {
@@ -382,6 +456,7 @@ class AdjustService {
             date_period: `${start}:${end}`,
             app_token__in: this.appToken,
             format_dates: false,
+            limit: 1000,
             sort: `-${eventMetric}`
           }
         }).then(res => {
@@ -517,8 +592,7 @@ class AdjustService {
     try {
       const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const end = endDate || new Date().toISOString().split("T")[0];
-      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
-      const timeDimension = isShortRange ? "hour" : "day";
+      const timeDimension = "day";
       const response = await this.analyticsClient.get("/report", {
         params: this.buildReportParams({
           dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
@@ -542,8 +616,7 @@ class AdjustService {
     try {
       const start = startDate || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const end = endDate || new Date().toISOString().split("T")[0];
-      const isShortRange = (new Date(end) - new Date(start)) <= 7 * 24 * 60 * 60 * 1000;
-      const timeDimension = isShortRange ? "hour" : "day";
+      const timeDimension = "day";
       const response = await this.analyticsClient.get("/report", {
         params: this.buildReportParams({
           dimensions: `app,network,campaign,adgroup,creative,country_code,country,${timeDimension}`,
@@ -771,42 +844,30 @@ async function getNetworksForDropdown(params = {}, forceRefresh = false) {
     });
 
     const networksData = response.data?.networks || [];
-    const EXCLUDED_NETWORKS = [
-      'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
-      'organic search', 'organic install', '(not set)', 'n/a', ''
-    ];
     
     const networks = networksData
       .map(n => n.name || n.id)
       .filter(Boolean)
-      .filter(n => !EXCLUDED_NETWORKS.includes(n.toLowerCase().trim()))
       .sort();
 
     console.log(`✅ Adjust API (filters_data): Got ${networks.length} networks after filtering`);
     
     if (networks.length > 0) return networks;
     
-    // Fallback to common networks
-    console.log('⚠️ No paid networks found, returning common networks');
-    return [
-      'TikTok', 'Instagram', 'Facebook', 'Google Ads', 'Snapchat', 
-      'Twitter', 'YouTube', 'LinkedIn', 'Reddit', 'Pinterest'
-    ].sort();
+    // No networks found from API or DB
+    console.log('⚠️ No paid networks found from API or DB, returning empty list');
+    return [];
   } catch (error) {
     console.error('❌ Adjust API error (getNetworksForDropdown):', error.response?.status, error.response?.data || error.message);
     
     // Fallback to DB
     try {
       const AdjustCallback = require('../models/AdjustCallback');
-      const EXCLUDED_NETWORKS = [
-        'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
-        'organic search', 'organic install', '(not set)', 'n/a', ''
-      ];
       const dbNetworks = await AdjustCallback.distinct('network', { 
         network: { $exists: true, $ne: '' } 
       });
       const filtered = dbNetworks
-        .filter(n => n && !EXCLUDED_NETWORKS.includes(n.toLowerCase().trim()))
+        .filter(n => n && n.trim())
         .sort();
       
       if (filtered.length > 0) return filtered;
@@ -814,11 +875,9 @@ async function getNetworksForDropdown(params = {}, forceRefresh = false) {
       console.error('❌ DB Fallback error:', dbError.message);
     }
     
-    // Return common networks as last resort
-    return [
-      'TikTok', 'Instagram', 'Facebook', 'Google Ads', 'Snapchat', 
-      'Twitter', 'YouTube', 'LinkedIn', 'Reddit', 'Pinterest'
-    ].sort();
+    // No networks from API or DB
+    console.log('⚠️ No networks found from any source');
+    return [];
   }
 }
 
@@ -848,15 +907,10 @@ async function getCampaignsForDropdown(params = {}, forceRefresh = false) {
     });
 
     const rows = this.getReportRows(response.data);
-    
-    const EXCLUDED_NETWORKS = [
-      'organic', 'google organic search', 'untrusted devices', 'unknown', 'direct',
-      'organic search', 'organic install', '(not set)', 'n/a', ''
-    ];
 
     let campaigns = [...new Set(
       rows
-        .filter(row => row.network && !EXCLUDED_NETWORKS.includes(row.network.toLowerCase().trim()))
+        .filter(row => row.network)
         .map(row => row.campaign_network || row.campaign)
         .filter(Boolean)
     )].sort();
@@ -869,11 +923,8 @@ async function getCampaignsForDropdown(params = {}, forceRefresh = false) {
   }
   
   // Return sample campaigns as fallback
-  console.log('⚠️ No campaigns found, returning sample campaigns');
-  return [
-    'Summer Sale 2026', 'New User Bonus', 'Referral Program', 
-    'Holiday Special', 'Weekend Offer', 'Flash Sale'
-  ].sort();
+  console.log('⚠️ No campaigns found from API, returning empty list');
+  return [];
    }
 
 // Attach methods to AdjustService prototype

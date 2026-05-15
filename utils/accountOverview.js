@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const UserAchievement = require('../models/UserAchievement');
 const UserChallengeProgress = require('../models/UserChallengeProgress');
+const AccountOverviewConfig = require('../models/AccountOverviewConfig');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
@@ -37,8 +38,10 @@ class AccountOverviewService {
         return null;
       }
 
-      // Hardcoded combined reward - change these values if needed
-      const reward = { coins: 1200, xp: 600 };
+      const adminRewards = this._getAdminRewardsSync();
+      const reward = adminRewards?.threeTaskReward
+        ? { coins: adminRewards.threeTaskReward.coins, xp: adminRewards.threeTaskReward.xp }
+        : { coins: 1200, xp: 600 };
 
       // Ensure wallet/xp structure
       if (!user.wallet) user.wallet = { balance: 0 };
@@ -223,7 +226,7 @@ class AccountOverviewService {
   }
 
   /**
-   * Get user-specific configuration based on onboarding data
+   * Get user-specific configuration based on onboarding data and admin config
    */
   getUserConfig(user) {
     const userGoals = user.onboarding?.dailyGoals || {};
@@ -235,23 +238,82 @@ class AccountOverviewService {
     // Calculate dynamic goals based on user profile
     const dynamicGoals = this.calculateDynamicGoals(userGoals, userEarningGoal, userPrimaryGoal, userAgeRange, userGameStyle);
 
-    return {
-      dailyGoals: dynamicGoals,
-      milestoneRewards: {
-        gamesPlayed: {
-          target: dynamicGoals.gamesPlayed,
-          reward: this.calculateReward('gamesPlayed', dynamicGoals.gamesPlayed, userPrimaryGoal)
-        },
-        coinsEarned: {
-          target: dynamicGoals.coinsEarned,
-          reward: this.calculateReward('coinsEarned', dynamicGoals.coinsEarned, userPrimaryGoal)
-        },
-        challengesCompleted: {
-          target: dynamicGoals.challengesCompleted,
-          reward: this.calculateReward('challengesCompleted', dynamicGoals.challengesCompleted, userPrimaryGoal)
-        }
+    const adminRewards = this._getAdminRewardsSync();
+
+    const milestoneRewards = {
+      gamesPlayed: {
+        target: dynamicGoals.gamesPlayed,
+        reward: adminRewards?.milestones?.gamesPlayed?.reward
+          ? { ...adminRewards.milestones.gamesPlayed.reward }
+          : this.calculateReward('gamesPlayed', dynamicGoals.gamesPlayed, userPrimaryGoal)
+      },
+      coinsEarned: {
+        target: dynamicGoals.coinsEarned,
+        reward: adminRewards?.milestones?.coinsEarned?.reward
+          ? { ...adminRewards.milestones.coinsEarned.reward }
+          : this.calculateReward('coinsEarned', dynamicGoals.coinsEarned, userPrimaryGoal)
+      },
+      challengesCompleted: {
+        target: dynamicGoals.challengesCompleted,
+        reward: adminRewards?.milestones?.challengesCompleted?.reward
+          ? { ...adminRewards.milestones.challengesCompleted.reward }
+          : this.calculateReward('challengesCompleted', dynamicGoals.challengesCompleted, userPrimaryGoal)
       }
     };
+
+    return {
+      dailyGoals: {
+        gamesPlayed: adminRewards?.milestones?.gamesPlayed?.target || dynamicGoals.gamesPlayed,
+        coinsEarned: adminRewards?.milestones?.coinsEarned?.target || dynamicGoals.coinsEarned,
+        challengesCompleted: adminRewards?.milestones?.challengesCompleted?.target || dynamicGoals.challengesCompleted
+      },
+      milestoneRewards
+    };
+  }
+
+  _getAdminRewardsSync() {
+    return this._adminRewardsCache;
+  }
+
+  async _loadAdminConfig() {
+    try {
+      const config = await AccountOverviewConfig.getActiveConfig();
+      if (config && config.isActive) {
+        const milestones = config.milestones || {};
+        this._adminRewardsCache = {
+          milestones: {
+            gamesPlayed: milestones.gamesPlayed ? {
+              target: milestones.gamesPlayed.target,
+              reward: { coins: milestones.gamesPlayed.reward?.coins || 0, xp: milestones.gamesPlayed.reward?.xp || 0 }
+            } : null,
+            coinsEarned: milestones.coinsEarned ? {
+              target: milestones.coinsEarned.target,
+              reward: { coins: milestones.coinsEarned.reward?.coins || 0, xp: milestones.coinsEarned.reward?.xp || 0 }
+            } : null,
+            challengesCompleted: milestones.challengesCompleted ? {
+              target: milestones.challengesCompleted.target,
+              reward: { coins: milestones.challengesCompleted.reward?.coins || 0, xp: milestones.challengesCompleted.reward?.xp || 0 }
+            } : null
+          },
+          threeTaskReward: {
+            coins: config.threeTaskReward?.coins || 1200,
+            xp: config.threeTaskReward?.xp || 600
+          }
+        };
+      } else {
+        this._adminRewardsCache = null;
+      }
+      this._adminConfigLoaded = true;
+    } catch (err) {
+      console.error('[AccountOverview] Failed to load admin config:', err);
+      this._adminRewardsCache = null;
+      this._adminConfigLoaded = true;
+    }
+  }
+
+  _resetAdminConfigCache() {
+    this._adminConfigLoaded = false;
+    this._adminRewardsCache = null;
   }
 
   /**
@@ -325,7 +387,6 @@ class AccountOverviewService {
    * Calculate rewards based on goal type and user primary goal
    */
   calculateReward(goalType, target, userPrimaryGoal) {
-    // Base rewards (dynamic based on goal type)
     let baseRewards;
     switch (goalType) {
       case 'gamesPlayed':
@@ -375,6 +436,10 @@ class AccountOverviewService {
       if (!user) {
         throw new Error('User not found');
       }
+
+      // Load admin config synchronously so it's cached before getUserConfig runs
+      this._resetAdminConfigCache();
+      await this._loadAdminConfig();
 
       // Get user-specific configuration
       const userConfig = this.getUserConfig(user);
@@ -1030,16 +1095,16 @@ class AccountOverviewService {
         `[CONTINUOUS-PROGRESS] Games played counter incremented to ${user.continuousProgress.gamesPlayed} for user ${userId}`
       );
 
-      // Check if milestone reached and auto-claim if needed
+      // Check if milestone reached and award immediately
       const userConfig = this.getUserConfig(user);
       if (
         user.continuousProgress.gamesPlayed >= userConfig.dailyGoals.gamesPlayed &&
         !user.milestone_gamesPlayed_claimed
       ) {
         console.log(
-          `[CONTINUOUS-PROGRESS] Milestone reached! Auto-checking games played reward...`
+          `[CONTINUOUS-PROGRESS] Milestone reached! Awarding games played reward immediately...`
         );
-        // This will be checked and awarded in checkAndGrantIndividualMilestoneRewards
+        await this.checkAndGrantIndividualMilestoneRewards(userId);
       }
     } catch (error) {
       console.error('[CONTINUOUS-PROGRESS] Error incrementing games played counter:', error);
@@ -1069,16 +1134,16 @@ class AccountOverviewService {
         `[CONTINUOUS-PROGRESS] Challenges completed counter incremented to ${user.continuousProgress.challengesCompleted} for user ${userId}`
       );
 
-      // Check if milestone reached
+      // Check if milestone reached and award immediately
       const userConfig = this.getUserConfig(user);
       if (
         user.continuousProgress.challengesCompleted >= userConfig.dailyGoals.challengesCompleted &&
         !user.milestone_challengesCompleted_claimed
       ) {
         console.log(
-          `[CONTINUOUS-PROGRESS] Milestone reached! Auto-checking challenges completed reward...`
+          `[CONTINUOUS-PROGRESS] Milestone reached! Awarding challenges completed reward immediately...`
         );
-        // This will be checked and awarded in checkAndGrantIndividualMilestoneRewards
+        await this.checkAndGrantIndividualMilestoneRewards(userId);
       }
     } catch (error) {
       console.error(

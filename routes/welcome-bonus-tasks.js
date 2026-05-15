@@ -82,7 +82,7 @@ router.get("/", protect, async (req, res) => {
     );
     console.log(
       `[Welcome Bonus Tasks] Configured game IDs:`,
-      bonusRule.gameBonusTasks.map((c) => String(c.gameId._id || c.gameId)),
+      bonusRule.gameBonusTasks.map((c) => String(c.gameId?._id || c.gameId)),
     );
 
     // Get user's completed tasks for bonus tasks
@@ -196,7 +196,7 @@ router.get("/", protect, async (req, res) => {
           `[Welcome Bonus Tasks] Available configs (gameGameId):`,
           bonusRule.gameBonusTasks.map((c) => ({
             gameGameId: c.gameId?.gameId || "N/A",
-            configGameId: String(c.gameId._id || c.gameId),
+            configGameId: String(c.gameId?._id || c.gameId),
             gameTitle: c.gameId?.title || "N/A",
             isEnabled: c.isEnabled,
             hasTasks: !!(c.bonusTasks && c.bonusTasks.length > 0),
@@ -275,7 +275,7 @@ router.get("/", protect, async (req, res) => {
         console.log(
           `[Welcome Bonus Tasks] Available configs:`,
           bonusRule.gameBonusTasks.map((c) => ({
-            configGameId: String(c.gameId._id || c.gameId),
+            configGameId: String(c.gameId?._id || c.gameId),
             populatedGameId: c.gameId?.gameId || "N/A",
             gameTitle: c.gameId?.title || "N/A",
             isEnabled: c.isEnabled,
@@ -851,7 +851,7 @@ router.get("/", protect, async (req, res) => {
             bonusConfigCount: bonusRule?.gameBonusTasks?.length || 0,
             bonusConfigGameIds:
               bonusRule?.gameBonusTasks?.map((c) =>
-                String(c.gameId._id || c.gameId),
+                String(c.gameId?._id || c.gameId),
               ) || [],
           }
         : null;

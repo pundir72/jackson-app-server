@@ -173,6 +173,8 @@ adjustCallbackSchema.index({ appToken: 1, createdAt: -1 });
 adjustCallbackSchema.index({ userId: 1, activityKind: 1 });
 adjustCallbackSchema.index({ eventToken: 1, createdAt: -1 });
 adjustCallbackSchema.index({ processed: 1, createdAt: -1 });
+adjustCallbackSchema.index({ gpsAdid: 1, userId: 1 });
+adjustCallbackSchema.index({ idfa: 1, userId: 1 });
 
 // Static method to find by Adjust user ID
 adjustCallbackSchema.statics.findByAdjustUserId = function(adjustUserId) {

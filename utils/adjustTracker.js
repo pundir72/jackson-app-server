@@ -126,6 +126,23 @@ const trackTaskCompletion = async (userId, taskData = {}) => {
 };
 
 /**
+ * Track non-game offer completion
+ * @param {string} userId - User ID
+ * @param {Object} offerData - Offer completion data
+ */
+const trackNonGamingOffer = async (userId, offerData = {}) => {
+  const token = await resolveToken('1st non gaming offer completed');
+  if (!token) {
+    console.warn('[Adjust Tracker] Token for "1st non gaming offer completed" not found in DB — event skipped');
+    return;
+  }
+  await trackEvent(token, userId, {
+    offer_count: offerData.count || 1,
+    completion_source: offerData.source || 'manual'
+  }, offerData.deviceId);
+};
+
+/**
  * Track cash withdrawal
  * @param {string} userId - User ID
  * @param {Object} withdrawalData - Withdrawal data
@@ -184,6 +201,7 @@ module.exports = {
   trackRegistration,
   trackSurveyCompletion,
   trackTaskCompletion,
+  trackNonGamingOffer,
   trackWithdrawal,
   trackVIPPurchase,
   trackAchievement,

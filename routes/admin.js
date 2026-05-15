@@ -2116,10 +2116,11 @@ router.put(
         updateFields['profile.status'] = statusValue
       }
 
-      // VIP tier
+      // VIP tier — single source of truth (not subscriptions)
       if ('tier' in updateData) {
         const tierValue = updateData.tier.toLowerCase()
         updateFields['vip.level'] = tierValue
+        updateFields['vip.isActive'] = tierValue !== 'free'
       }
 
       // Location fields
@@ -2163,6 +2164,8 @@ router.put(
           message: 'User not found',
         })
       }
+
+
 
       res.json({
         success: true,

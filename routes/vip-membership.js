@@ -90,8 +90,8 @@ router.get('/membership-screen', auth, [
       data: {
         user: {
           name: `${user.firstName} ${user.lastName}`,
-          currentTier: user.vip?.level || 'free',
-          isActive: user.vip?.isActive || false
+            currentTier: user.vip?.level || 'free',
+          isActive: !!(user.vip?.isActive || activeSubscription)
         },
         activePlan,
         tiers: membershipTiers.sort((a, b) => a.order - b.order),

@@ -165,10 +165,10 @@ router.get('/status', protect, async (req, res) => {
         res.json({
             success: true,
             data: {
-                currentTier: user.vip.level || 'free',
-                isActive: user.vip.isActive || false,
+                currentTier: user.vip?.level || 'free',
+                isActive: !!(user.vip?.isActive || activeSubscription),
                 subscription: activeSubscription ? activeSubscription.getSummary() : null,
-                benefits: user.vip.benefits || []
+                benefits: user.vip?.benefits || []
             }
         });
     } catch (error) {
@@ -587,7 +587,7 @@ router.get('/plans', protect, async (req, res) => {
             success: true,
             data: {
                 currentTier: user.vip?.level || 'free',
-                isActive: user.vip?.isActive || false,
+                isActive: !!(user.vip?.isActive || activeSubscription),
                 hasActiveSubscription: !!activeSubscription,
                 region: pricing.region,
                 currency: pricing.currency,

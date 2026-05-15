@@ -301,7 +301,7 @@ router.get("/admin/surveys/fetch", adminAuth, async (req, res) => {
 
 router.post("/admin/non-gaming/sync", adminAuth, async (req, res) => {
   try {
-    const { sdk = "bitlabs", offerIds = [], autoActivate = true, devices, country, targetAudience = [], userRewardCoins: bodyUserRewardCoins, userRewardXP: bodyUserRewardXP } = req.body;
+    const { sdk = "bitlabs", offerIds = [], autoActivate = true, devices, country, targetAudience = [], userRewardCoins: bodyUserRewardCoins, userRewardXP: bodyUserRewardXP, coinsPerDollar: bodyCoinsPerDollar } = req.body;
     if (!Array.isArray(offerIds) || offerIds.length === 0) {
       return res.status(400).json({ success: false, message: "offerIds array is required and must not be empty" });
     }
@@ -428,7 +428,7 @@ router.post("/admin/non-gaming/sync", adminAuth, async (req, res) => {
             countries: offer.country_code ? [offer.country_code] : (country ? [country] : []),
             minXP    : 0,
           },
-          publisherRevenue: { cpi: parseFloat(offer.cpi) || 0, value: publisherValue, currency: "USD" },
+          publisherRevenue: { cpi: parseFloat(offer.cpi) || 0, value: publisherValue, currency: "USD", coinsPerDollar: bodyCoinsPerDollar || 100 },
           rawData      : offer,
           updatedBy    : req.user.userId,
         };

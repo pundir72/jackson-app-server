@@ -27,8 +27,8 @@ router.get('/', protect, async (req, res) => {
             // Progress stats
             onboardingCompleted: user.onboarding?.completed || false,
             gamesPlayed: user.games?.filter(g => g.completed).length || 0,
-            surveysCompleted: user.surveys?.filter(s => s.completed).length || 0,
-            racesCompleted: user.races?.filter(r => r.completed).length || 0
+            surveysCompleted: user.surveys?.filter(s => s.status === 'completed').length || 0,
+            racesCompleted: user.races?.filter(r => r.status === 'completed').length || 0
         };
 
         res.json({

@@ -823,6 +823,7 @@ router.get("/games", adminAuth, async (req, res) => {
       adGame = "",
       status = "all",
       gender = "",
+      uiSection = "",
     } = req.query;
 
     let query = {};
@@ -876,6 +877,11 @@ router.get("/games", adminAuth, async (req, res) => {
     // Gender filter
     if (gender && gender !== "all" && gender.trim() !== "") {
       query.gender = gender.toLowerCase();
+    }
+
+    // UI Section filter
+    if (uiSection && uiSection !== "all" && uiSection.trim() !== "") {
+      query.uiSection = uiSection;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -941,12 +947,20 @@ router.get("/games", adminAuth, async (req, res) => {
 
     const total = await Game.countDocuments(query);
 
-    // Add sequential position number (1, 2, 3, 4...) like survey/non-gaming sync display
-    // Position is based on the current page's results (not total count)
-    const gamesWithPosition = gamesWithTaskCount.map((game, index) => ({
-      ...game,
-      position: index + 1, // Sequential: 1, 2, 3, 4, 5, 6, 7...
-    }));
+    // Add sequential position number per UI section (1, 2, 3... resets per section)
+    // Position is based on createdAt order within each UI section
+    const uiSectionCounters = {};
+    const gamesWithPosition = gamesWithTaskCount.map((game) => {
+      const uiSection = game.uiSection || "Unknown";
+      if (!uiSectionCounters[uiSection]) {
+        uiSectionCounters[uiSection] = 0;
+      }
+      uiSectionCounters[uiSection]++;
+      return {
+        ...game,
+        position: uiSectionCounters[uiSection], // Per UI section sequential position
+      };
+    });
 
     res.json({
       success: true,
@@ -1070,19 +1084,11 @@ router.post(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
-      console.log("=== ADMIN GAME CREATE START ===");
-      console.log("Admin User ID:", req.user?.userId);
-      console.log("Request Body Keys:", Object.keys(req.body));
-      console.log("Request Body:", JSON.stringify(req.body, null, 2));
-      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
-
       // Fetch external details based on SDK provider
       const sdkProvider = req.body.sdkProvider || "besitos";
-      console.log("SDK Provider:", sdkProvider);
       let external = null;
 
       if (sdkProvider === "besitos") {
-        console.log("Fetching Besitos game with gameId:", req.body.gameId);
         req.query.offer_id = req.body.gameId;
         const captureGame = () => {
           let payload = null;
@@ -1091,15 +1097,10 @@ router.post(
             res: {
               status(c) {
                 code = c;
-                console.log("Besitos API Status Code:", c);
                 return this;
               },
               json(obj) {
                 payload = obj;
-                console.log(
-                  "Besitos API Response:",
-                  JSON.stringify(obj, null, 2)
-                );
                 return this;
               },
             },
@@ -1111,7 +1112,6 @@ router.post(
         const cap2 = captureGame();
         await besitosController.getOffers(req, cap2.res);
         const ext = cap2.get();
-        console.log("Besitos External Data:", ext ? "Found" : "Not found");
         if (
           !ext ||
           ext.success !== true ||
@@ -1127,7 +1127,6 @@ router.post(
           });
         }
         external = ext.data[0];
-        console.log("✅ Besitos game found:", external.id, external.title);
       } else if (sdkProvider === "bitlabs") {
         // Fetch from Bitlabs using cached offers
         const bitlabsOfferCache = require("../utils/bitlabsOfferCache");
@@ -1283,12 +1282,6 @@ router.post(
             : "")
       );
 
-      console.log("Parsed Fields:");
-      console.log("  - Age Groups:", parsedAgeGroups);
-      console.log("  - Gender:", targetGender);
-      console.log("  - UI Section:", targetUiSection);
-      console.log("  - Age Group:", targetAgeGroup);
-
       // Parse XP Tiers (multi-select) - already validated above
       const parsedXpTiers = safeParseJSON(req.body.xpTiers, []);
 
@@ -1427,25 +1420,6 @@ router.post(
       } catch (e) {
         console.warn("Error checking for existing game variant:", e.message);
       }
-      console.log("Upsert Filter:", JSON.stringify(filter, null, 2));
-      console.log(
-        "Game Data to Save:",
-        JSON.stringify(
-          {
-            title: gameData.title,
-            gameId: gameData.gameId,
-            sdkProvider: gameData.sdkProvider,
-            isActive: gameData.isActive,
-            rewards: gameData.rewards,
-            xpTier: gameData.xpTier,
-            xpTiers: gameData.xpTiers,
-            xpRewardConfig: gameData.xpRewardConfig,
-          },
-          null,
-          2
-        )
-      );
-
       const update = {
         $set: {
           title: gameData.title,
@@ -1478,29 +1452,10 @@ router.post(
         },
       };
 
-      console.log("Attempting to upsert game to database...");
       const upserted = await Game.findOneAndUpdate(filter, update, {
         upsert: true,
         new: true,
       });
-      console.log("✅ Game upserted successfully. ID:", upserted._id);
-      console.log(
-        "Upserted Game Data:",
-        JSON.stringify(
-          {
-            _id: upserted._id,
-            gameId: upserted.gameId,
-            title: upserted.title,
-            isActive: upserted.isActive,
-            rewards: upserted.rewards,
-            xpTier: upserted.xpTier,
-            xpTiers: upserted.xpTiers,
-          },
-          null,
-          2
-        )
-      );
-      console.log("=== ADMIN GAME CREATE END ===");
 
       res.status(201).json({
         success: true,
@@ -1552,13 +1507,6 @@ router.put(
   upload.fields([{ name: "gameThumbnail", maxCount: 1 }]),
   async (req, res) => {
     try {
-      console.log("=== ADMIN GAME UPDATE START ===");
-      console.log("Game ID:", req.params.id);
-      console.log("Admin User ID:", req.user?.userId);
-      console.log("Request Body Keys:", Object.keys(req.body));
-      console.log("Request Body:", JSON.stringify(req.body, null, 2));
-      console.log("Files:", req.files ? Object.keys(req.files) : "No files");
-
       const { id } = req.params;
 
       // Find existing game
@@ -1570,28 +1518,6 @@ router.put(
           message: "Game not found",
         });
       }
-      console.log(
-        "✅ Existing game found:",
-        existingGame.gameId,
-        existingGame.title
-      );
-      console.log(
-        "Existing Game Data:",
-        JSON.stringify(
-          {
-            gameId: existingGame.gameId,
-            title: existingGame.title,
-            isActive: existingGame.isActive,
-            rewards: existingGame.rewards,
-            xpTier: existingGame.xpTier,
-            xpTiers: existingGame.xpTiers,
-            xpRewardConfig: existingGame.xpRewardConfig,
-          },
-          null,
-          2
-        )
-      );
-
       // Build update data
       const updateData = {
         updatedBy: req.user.userId,
@@ -1653,9 +1579,7 @@ router.put(
           parsedAgeGroups.length > 0
         ) {
           updateData.ageGroup = normalizeSegmentValue(parsedAgeGroups[0]);
-          console.log(
-            `Auto-updating ageGroup to first value from ageGroups: ${parsedAgeGroups[0]}`
-          );
+
         }
       } else if (req.body.ageGroup) {
         // If only ageGroup is provided (not ageGroups), update it
@@ -1678,26 +1602,17 @@ router.put(
       if (req.body.isAdSupported !== undefined)
         updateData.isAdSupported = req.body.isAdSupported === "true";
 
-      // Ignore coins updates (read-only from API) - silently skip if provided
-      if (req.body.rewardCoins !== undefined) {
-        console.log(
-          `⚠️ rewardCoins provided (${req.body.rewardCoins}) but ignored - coins are read-only from 3rd-party API`
-        );
-        // Don't return error, just ignore the field
-      }
-
-      // Update rewards (XP only - coins are read-only from API)
+      // Update rewards (allow updating both XP and coins)
+      if (!updateData.rewards) updateData.rewards = {};
       if (req.body.rewardXP !== undefined) {
-        if (!updateData.rewards) updateData.rewards = {};
         updateData.rewards.xp = req.body.rewardXP
           ? parseFloat(req.body.rewardXP)
           : existingGame.rewards?.xp || 0;
-        // Keep existing coins (read-only, from API)
-        updateData.rewards.coins = existingGame.rewards?.coins || 0;
-      } else {
-        // If XP is not being updated, ensure coins are preserved
-        if (!updateData.rewards) updateData.rewards = {};
-        updateData.rewards.coins = existingGame.rewards?.coins || 0;
+      }
+      if (req.body.rewardCoins !== undefined) {
+        updateData.rewards.coins = req.body.rewardCoins
+          ? parseFloat(req.body.rewardCoins)
+          : existingGame.rewards?.coins || 0;
       }
 
       // Update XP Tiers (multi-select) with validation
@@ -2035,33 +1950,10 @@ router.put(
         );
       }
 
-      console.log("Update Data:", JSON.stringify(updateData, null, 2));
-      console.log("Attempting to update game in database...");
-
       const game = await Game.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
       });
-
-      console.log("✅ Game updated successfully. ID:", game._id);
-      console.log(
-        "Updated Game Data:",
-        JSON.stringify(
-          {
-            _id: game._id,
-            gameId: game.gameId,
-            title: game.title,
-            isActive: game.isActive,
-            rewards: game.rewards,
-            xpTier: game.xpTier,
-            xpTiers: game.xpTiers,
-            xpRewardConfig: game.xpRewardConfig,
-          },
-          null,
-          2
-        )
-      );
-      console.log("=== ADMIN GAME UPDATE END ===");
 
       res.json({
         success: true,
@@ -2111,15 +2003,6 @@ router.put(
 router.delete("/games/:id", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Check if game has tasks
-    const taskCount = await GameTask.countDocuments({ gameId: id });
-    if (taskCount > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete game with existing tasks. Delete tasks first.",
-      });
-    }
 
     const game = await Game.findByIdAndDelete(id);
 
@@ -2610,10 +2493,6 @@ router.post(
   async (req, res) => {
     try {
       // Log received userMilestones for debugging
-      if (req.body.userMilestones) {
-        console.log("🔍 [Display Rule Creation] Received userMilestones:", req.body.userMilestones);
-      }
-
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -3175,8 +3054,15 @@ router.post(
       .isInt({ min: 1 })
       .withMessage("First batch size must be at least 1"),
     body("nextBatchSize")
-      .isInt({ min: 1 })
-      .withMessage("Next batch size must be at least 1"),
+      .optional({ nullable: true })
+      .custom((value) => {
+        if (value === null || value === undefined || value === "" || value === 0) {
+          return true;
+        }
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
+      })
+      .withMessage("Next batch size must be 0/null (no batches) or at least 1"),
     body("maxBatches")
       .optional({ nullable: true })
       .custom((value) => {
@@ -3210,6 +3096,12 @@ router.post(
         maxBatches = null,
       } = req.body;
 
+      // Normalize: empty string / 0 / undefined → 0 (no batch progression)
+      const normalizedNextBatchSize =
+        nextBatchSize === "" || nextBatchSize === null || nextBatchSize === undefined || nextBatchSize === 0
+          ? 0
+          : parseInt(nextBatchSize, 10);
+
       // Find or create rule by ruleName
       let rule = await TaskProgressionRule.findOne({ ruleName: ruleName });
 
@@ -3220,7 +3112,7 @@ router.post(
         rule.membershipTier = membershipTier || null;
         rule.priority = priority;
         rule.firstBatchSize = firstBatchSize;
-        rule.nextBatchSize = nextBatchSize;
+        rule.nextBatchSize = normalizedNextBatchSize;
         rule.maxBatches = maxBatches;
         rule.updatedBy = req.user.userId;
         rule.updatedAt = new Date();
@@ -3233,7 +3125,7 @@ router.post(
           membershipTier: membershipTier || null,
           priority: priority,
           firstBatchSize: firstBatchSize,
-          nextBatchSize: nextBatchSize,
+          nextBatchSize: normalizedNextBatchSize,
           maxBatches: maxBatches,
           createdBy: req.user.userId,
         });
@@ -3341,8 +3233,15 @@ router.put(
       .isInt({ min: 1 })
       .withMessage("First batch size must be at least 1"),
     body("nextBatchSize")
-      .isInt({ min: 1 })
-      .withMessage("Next batch size must be at least 1"),
+      .optional({ nullable: true })
+      .custom((value) => {
+        if (value === null || value === undefined || value === "" || value === 0) {
+          return true;
+        }
+        const numValue = parseInt(value, 10);
+        return !isNaN(numValue) && Number.isInteger(numValue) && numValue >= 1;
+      })
+      .withMessage("Next batch size must be 0/null (no batches) or at least 1"),
     body("maxBatches")
       .optional({ nullable: true })
       .custom((value) => {
@@ -3378,6 +3277,12 @@ router.put(
         isActive,
       } = req.body;
 
+      // Normalize: empty string / 0 / undefined → 0 (no batch progression)
+      const normalizedNextBatchSize =
+        nextBatchSize === "" || nextBatchSize === null || nextBatchSize === undefined || nextBatchSize === 0
+          ? 0
+          : parseInt(nextBatchSize, 10);
+
       // Find rule by ID
       const rule = await TaskProgressionRule.findById(ruleId);
 
@@ -3395,7 +3300,7 @@ router.put(
       rule.membershipTier = membershipTier || null;
       rule.priority = priority;
       rule.firstBatchSize = firstBatchSize;
-      rule.nextBatchSize = nextBatchSize;
+      rule.nextBatchSize = normalizedNextBatchSize;
       rule.maxBatches = maxBatches;
       if (isActive !== undefined) {
         rule.isActive = isActive;
@@ -4179,13 +4084,11 @@ router.get("/games/by-sdk/:sdk", adminAuth, async (req, res) => {
       if (!req.query.country) {
         // Default to US for admin/testing to get more games
         req.query.country = "US";
-        console.log("ℹ️ No country parameter provided. Defaulting to 'US' for Bitlabs games. Add ?country=IN for India-targeted games.");
       }
       
       // Also ensure devices are set if not provided (default to both Android and iOS)
       if (!req.query.devices && !req.query.device_platform) {
         req.query.devices = ["android", "iphone"];
-        console.log("ℹ️ No device filter provided. Defaulting to both Android and iOS.");
       }
       await bitlabsController.getOffers(req, res);
     } else {
@@ -4566,18 +4469,8 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         queryParams.type = type;
       }
 
-      console.log("🟡 [ADMIN BACKEND ROUTE] Using Publisher Offers API for non-game offers preview");
-      console.log("🟡 [ADMIN BACKEND ROUTE] Query params:", queryParams);
-
       // Call Publisher Offers API
       const result = await bitlabsService.getPublisherOffers(queryParams);
-
-      console.log("🟡 [ADMIN BACKEND ROUTE] Received result from Publisher API:", {
-        success: result.success,
-        total: result.total || 0,
-        dataCount: result.data?.length || 0,
-        error: result.error,
-      });
 
       if (!result.success) {
         console.error(
@@ -5400,95 +5293,51 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
     const allOffers = [];
 
-    // Collect all offers by type from result.categorized (already fetched)
-    if (offerType === "all" || offerType === "survey" || offerType === "surveys") {
-      const surveys = categorized.surveys || [];
-      allOffers.push(
-        ...surveys.map((o) => ({
-          ...o,
-          offerType: "survey",
-        }))
-      );
-      console.log("🟡 [SYNC] Surveys from result.categorized:", surveys.length);
-    }
+      // Collect all offers by type from result.categorized (already fetched)
+      if (offerType === "all" || offerType === "survey" || offerType === "surveys") {
+        const surveys = categorized.surveys || [];
+        allOffers.push(
+          ...surveys.map((o) => ({
+            ...o,
+            offerType: "survey",
+          }))
+        );
+      }
 
-    if (offerType === "all" || offerType === "cashback") {
-      const cashback = categorized.cashback || [];
-      allOffers.push(
-        ...cashback.map((o) => ({
-          ...o,
-          offerType: "cashback",
-        }))
-      );
-      console.log("🟡 [SYNC] Cashback from result.categorized:", cashback.length);
-    }
+      if (offerType === "all" || offerType === "cashback") {
+        const cashback = categorized.cashback || [];
+        allOffers.push(
+          ...cashback.map((o) => ({
+            ...o,
+            offerType: "cashback",
+          }))
+        );
+      }
 
-    if (offerType === "all" || offerType === "shopping") {
-      const shopping = categorized.shopping || [];
-      allOffers.push(
-        ...shopping.map((o) => ({
-          ...o,
-          offerType: "shopping",
-        }))
-      );
-      console.log("🟡 [SYNC] Shopping from result.categorized:", shopping.length);
-    }
+      if (offerType === "all" || offerType === "shopping") {
+        const shopping = categorized.shopping || [];
+        allOffers.push(
+          ...shopping.map((o) => ({
+            ...o,
+            offerType: "shopping",
+          }))
+        );
+      }
 
-    if (offerType === "all" || offerType === "magic_receipt" || offerType === "magic-receipts" || offerType === "magicReceipts") {
-      const magicReceipts = categorized.magicReceipts || [];
-      allOffers.push(
-        ...magicReceipts.map((o) => ({
-          ...o,
-          offerType: "magic_receipt",
-        }))
-      );
-      console.log("🟡 [SYNC] Magic Receipts from result.categorized:", magicReceipts.length);
-    }
+      if (offerType === "all" || offerType === "magic_receipt" || offerType === "magic-receipts" || offerType === "magicReceipts") {
+        const magicReceipts = categorized.magicReceipts || [];
+        allOffers.push(
+          ...magicReceipts.map((o) => ({
+            ...o,
+            offerType: "magic_receipt",
+          }))
+        );
+      }
 
     // REMOVED: Duplicate Publisher API fetch - we already have offers in result.categorized
     // The previous code was fetching twice which was causing issues
     // Now we use result.categorized directly which already has all offers (surveys, shopping, cashback, etc.)
     
-    // Log sample shopping offer IDs for debugging
-    if (categorized.shopping && categorized.shopping.length > 0) {
-      console.log("🟡 [SYNC] Sample shopping offer IDs (first 5):", categorized.shopping.slice(0, 5).map(o => ({
-        id: o.id,
-        productId: o.product_id,
-        anchor: o.anchor,
-        type: o.type,
-      })));
-    }
-    
-    console.log("🟡 [SYNC] Total offers to sync:", {
-      surveys: categorized.surveys.length,
-      cashback: categorized.cashback.length,
-      shopping: categorized.shopping.length,
-      magicReceipts: categorized.magicReceipts.length,
-      other: categorized.other.length,
-      total: allOffers.length,
-    });
-    
-    // Log all offer IDs if filtering by offerIds
-    if (offerIds && offerIds.length > 0) {
-      console.log("🟡 [SYNC] Requested offer IDs:", offerIds);
-      console.log("🟡 [SYNC] Available offer IDs by type:", {
-        surveys: categorized.surveys.slice(0, 5).map(s => ({
-          id: s.id,
-          surveyId: s.surveyId,
-          offerId: s.offerId,
-        })),
-        shopping: categorized.shopping.slice(0, 5).map(s => ({
-          id: s.id,
-          productId: s.product_id,
-          anchor: s.anchor,
-        })),
-        cashback: categorized.cashback.slice(0, 5).map(s => ({
-          id: s.id,
-          merchantId: s.merchant_id,
-        })),
-      });
-    }
-
     // Filter by offerIds if provided
     // For cashback: ID is merchant_id (number or string)
     // For shopping/magic receipts: ID is id (numeric) from Publisher API
@@ -5531,29 +5380,9 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
               }
             }
 
-            // Log mismatch for debugging (only first few to avoid spam)
-            if (!matches && offerIdsStr.length > 0) {
-              // Log for all offer types, not just surveys
-              console.log(`🔍 [SYNC] ${o.offerType} ID mismatch:`, {
-                requestedIds: offerIdsStr,
-                offerId: offerId?.toString(),
-                merchantId: merchantId,
-                productId: productId,
-                anchor: anchor,
-                offerType: o.offerType,
-              });
-            }
-
-            return matches;
+                    return matches;
           })
         : allOffers;
-    
-    console.log("🟡 [SYNC] Filtered offers to sync:", {
-      totalOffers: allOffers.length,
-      requestedIds: offerIds || [],
-      filteredCount: offersToSync.length,
-      offerType: offerType,
-    });
     
     // If no offers found and offerIds were provided, log detailed info
     if (offersToSync.length === 0 && offerIds && offerIds.length > 0) {
@@ -6118,33 +5947,17 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
 
         if (existing) {
           // Update existing
-          console.log(
-            `🔄 [ADMIN BACKEND SYNC] Updating existing ${offer.offerType} offer:`,
-            externalId
-          );
           Object.assign(existing, offerData);
           await existing.save();
           updatedCount++;
-          console.log(
-            `✅ [ADMIN BACKEND SYNC] Updated ${offer.offerType} offer:`,
-            externalId
-          );
         } else {
           // Create new
-          console.log(
-            `➕ [ADMIN BACKEND SYNC] Creating new ${offer.offerType} offer:`,
-            externalId
-          );
           const newOffer = new OfferModel({
             ...offerData,
             createdBy: req.user.userId,
           });
           await newOffer.save();
           syncedCount++;
-          console.log(
-            `✅ [ADMIN BACKEND SYNC] Created ${offer.offerType} offer:`,
-            externalId
-          );
         }
       } catch (error) {
         console.error(
@@ -6423,9 +6236,6 @@ router.post("/non-game-offers/sync/besitos", adminAuth, async (req, res) => {
       }
     }
 
-    console.log("🟡 [BESITOS SYNC] Fetching surveys from Besitos API");
-    console.log("🟡 [BESITOS SYNC] Query params:", besitosQueryParams);
-
     // Fetch surveys from Besitos
     // Use getSurveysWall method (same as used in other endpoints)
     const besitosResponse = await besitosService.getSurveysWall(
@@ -6437,8 +6247,6 @@ router.post("/non-game-offers/sync/besitos", adminAuth, async (req, res) => {
       ? besitosResponse
       : besitosResponse?.data || [];
 
-    console.log("🟡 [BESITOS SYNC] Fetched", besitosSurveys.length, "surveys from Besitos");
-
     // Filter by offerIds if provided
     const surveysToSync =
       offerIds && offerIds.length > 0
@@ -6448,8 +6256,6 @@ router.post("/non-game-offers/sync/besitos", adminAuth, async (req, res) => {
             return offerIdsStr.includes(surveyId);
           })
         : besitosSurveys;
-
-    console.log("🟡 [BESITOS SYNC] Surveys to sync:", surveysToSync.length);
 
     let syncedCount = 0;
     let updatedCount = 0;
@@ -7175,8 +6981,6 @@ router.post("/seed-games", adminAuth, async (req, res) => {
         }
       }
     }
-
-    console.log("Seed complete:", results);
 
     res.json({
       success: true,

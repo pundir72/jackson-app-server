@@ -484,18 +484,13 @@ router.get("/conversions/settings", protect, async (req, res) => {
       },
     ];
 
-    // Dynamically calculate minRedemption (20% of coinsPerDollar)
-    const BASE_MIN_COINS = 20;
-    const BASE_COINS_PER_DOLLAR = 100;
-    const dynamicMinRedemption = Math.round(settings.coinsPerDollar * (BASE_MIN_COINS / BASE_COINS_PER_DOLLAR));
-
     res.json({
       success: true,
       data: {
         conversionRules,
         defaultRule: {
           coinsPerDollar: settings.coinsPerDollar,
-          minRedemption: dynamicMinRedemption, // Always calculate dynamically
+          minRedemption: settings.minRedemption,
           maxRedemption: settings.maxRedemption,
           defaultCurrency: settings.currency,
           conversionRates: coinConversionRates,
@@ -505,7 +500,7 @@ router.get("/conversions/settings", protect, async (req, res) => {
   } catch (error) {
     console.error("Error getting conversion settings:", error);
     res.status(500).json({
-      success: true, // Return success with defaults
+      success: true,
       data: {
         conversionRules: [
           {
@@ -521,7 +516,7 @@ router.get("/conversions/settings", protect, async (req, res) => {
         ],
         defaultRule: {
           coinsPerDollar: 100,
-          minRedemption: 20, // 20 coins when 100 coins = $1
+          minRedemption: 100,
           maxRedemption: 10000,
           defaultCurrency: "USD",
         },

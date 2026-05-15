@@ -212,10 +212,8 @@ class BesitosService {
     }
 
     try {
-      const response = await this.client.get(
-        `/data/surveys/wall/${this.partnerId}/${userId}`,
-        { params: queryParams }
-      );
+      const endpoint = `/data/surveys/wall/${this.partnerId}/${userId}`;
+      const response = await this.client.get(endpoint, { params: queryParams });
       return response.data;
     } catch (error) {
       console.error("Besitos getSurveysWall error:", error);
@@ -327,7 +325,6 @@ class BesitosService {
           params: { limit: 1 },
         }
       );
-      console.log("Besitos health check response:", response.data);
       return {
         status: "ok",
         configured: true,

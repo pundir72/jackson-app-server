@@ -35,7 +35,7 @@ router.post('/event', protect, async (req, res) => {
     }
 
     // Get user to extract device info if not provided
-    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    const user = await User.findById(req.user.userId).select('deviceInfo metadata').lean();
     
     // Build device identifiers (use provided or from user profile)
     const finalDeviceIds = {
@@ -48,12 +48,17 @@ router.post('/event', protect, async (req, res) => {
       ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
     };
 
+    // Add Adjust device ID (ADID) — recommended by Adjust docs
+    const adid = user?.metadata?.adjust?.userId;
+
     // Build event data
     const eventData = {
       event_token: eventToken,
       ...(revenue !== undefined && revenue !== null ? { revenue: Number(revenue) } : {}),
       currency: currency,
-      ...finalDeviceIds
+      ...finalDeviceIds,
+      ...(adid && { adid }),
+      ip_address: req.ip,
     };
 
     // Add callback params if provided
@@ -119,7 +124,7 @@ router.post('/purchase', protect, async (req, res) => {
     }
 
     // Get user to extract device info if not provided
-    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    const user = await User.findById(req.user.userId).select('deviceInfo metadata').lean();
     
     // Build device identifiers
     const finalDeviceIds = {
@@ -131,6 +136,8 @@ router.post('/purchase', protect, async (req, res) => {
       ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
       ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
     };
+
+    const adid = user?.metadata?.adjust?.userId;
 
     // Use provided event token or default from env
     const finalEventToken = eventToken || process.env.ADJUST_PURCHASE_EVENT_TOKEN;
@@ -148,7 +155,7 @@ router.post('/purchase', protect, async (req, res) => {
       eventToken: finalEventToken,
       revenue: Number(revenue),
       currency: currency,
-      deviceIds: finalDeviceIds,
+      deviceIds: { ...finalDeviceIds, ...(adid && { adid }), ip_address: req.ip },
       callbackParams: {
         productId: productId || null,
         purchaseType: purchaseType || null
@@ -184,7 +191,7 @@ router.post('/game-complete', protect, async (req, res) => {
     const { eventToken, gameId, reward, deviceIds = {} } = req.body;
 
     // Get user to extract device info if not provided
-    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    const user = await User.findById(req.user.userId).select('deviceInfo metadata').lean();
     
     // Build device identifiers
     const finalDeviceIds = {
@@ -196,6 +203,8 @@ router.post('/game-complete', protect, async (req, res) => {
       ...(deviceIds.idfv || user?.deviceInfo?.idfv ? { idfv: deviceIds.idfv || user.deviceInfo.idfv } : {}),
       ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
     };
+
+    const adid = user?.metadata?.adjust?.userId;
 
     // Use provided event token or default from env
     const finalEventToken = eventToken || process.env.ADJUST_GAME_COMPLETE_EVENT_TOKEN;
@@ -211,7 +220,7 @@ router.post('/game-complete', protect, async (req, res) => {
     const result = await adjustService.trackGameCompletion({
       userId: req.user.userId,
       eventToken: finalEventToken,
-      deviceIds: finalDeviceIds,
+      deviceIds: { ...finalDeviceIds, ...(adid && { adid }), ip_address: req.ip },
       callbackParams: {
         gameId: gameId || null,
         reward: reward || null
@@ -275,7 +284,7 @@ router.post('/ad-revenue', protect, async (req, res) => {
     }
 
     // Get user to extract device info if not provided
-    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    const user = await User.findById(req.user.userId).select('deviceInfo metadata').lean();
     
     // Build device identifiers
     const finalDeviceIds = {
@@ -288,6 +297,8 @@ router.post('/ad-revenue', protect, async (req, res) => {
       ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
     };
 
+    const adid = user?.metadata?.adjust?.userId;
+
     // Track ad revenue
     const result = await adjustService.sendAdRevenue({
       revenue: Number(revenue),
@@ -295,7 +306,9 @@ router.post('/ad-revenue', protect, async (req, res) => {
       ad_revenue_network: adRevenueNetwork,
       ad_revenue_placement: adRevenuePlacement || null,
       ad_revenue_unit: adRevenueUnit || null,
-      ...finalDeviceIds
+      ...finalDeviceIds,
+      ...(adid && { adid }),
+      ip_address: req.ip,
     });
 
     res.json({
@@ -324,7 +337,7 @@ router.post('/session', protect, async (req, res) => {
     const { deviceIds = {} } = req.body;
 
     // Get user to extract device info if not provided
-    const user = await User.findById(req.user.userId).select('deviceInfo').lean();
+    const user = await User.findById(req.user.userId).select('deviceInfo metadata').lean();
     
     // Build device identifiers
     const finalDeviceIds = {
@@ -337,10 +350,14 @@ router.post('/session', protect, async (req, res) => {
       ...(deviceIds.android_id || user?.deviceInfo?.androidId ? { android_id: deviceIds.android_id || user.deviceInfo.androidId } : {})
     };
 
+    const adid = user?.metadata?.adjust?.userId;
+
     // Track session
     const result = await adjustService.sendSession({
       created_at: new Date().toISOString(),
-      ...finalDeviceIds
+      ...finalDeviceIds,
+      ...(adid && { adid }),
+      ip_address: req.ip,
     });
 
     res.json({
@@ -444,6 +461,38 @@ router.get('/events', protect, async (req, res) => {
       error: 'Failed to get events',
       message: error.message
     });
+  }
+});
+
+/**
+ * @route   POST /api/adjust/device-id
+ * @desc    Store Adjust Device ID (ADID) on user record after SDK init
+ *          This allows processInstall to match future install callbacks to this user
+ * @access  Private (requires authentication)
+ * @body    {string} adjustDeviceId - The ADID from Adjust SDK after init
+ */
+router.post('/device-id', protect, async (req, res) => {
+  try {
+    const { adjustDeviceId } = req.body;
+    if (!adjustDeviceId) {
+      return res.status(400).json({ success: false, error: 'adjustDeviceId is required' });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (!user.metadata) user.metadata = {};
+    if (!user.metadata.adjust) user.metadata.adjust = {};
+    user.metadata.adjust.userId = adjustDeviceId;
+    await user.save();
+
+    console.log(`Stored Adjust device ID ${adjustDeviceId} for user ${user._id}`);
+    res.json({ success: true, message: 'Adjust device ID stored' });
+  } catch (error) {
+    console.error('Error storing Adjust device ID:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

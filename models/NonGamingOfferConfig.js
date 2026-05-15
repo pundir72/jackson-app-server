@@ -169,9 +169,10 @@ const nonGamingOfferConfigSchema = new mongoose.Schema(
 
     // ── Publisher revenue data ────────────────────────────────────────────────
     publisherRevenue: {
-      value:    { type: Number, default: 0 },
-      cpi:      { type: Number, default: 0 },
-      currency: { type: String, default: "USD" },
+      value:         { type: Number, default: 0 },
+      cpi:           { type: Number, default: 0 },
+      currency:      { type: String, default: "USD" },
+      coinsPerDollar: { type: Number, default: 100 },
     },
 
     // ── Raw SDK data (full API response preserved for reference) ─────────────

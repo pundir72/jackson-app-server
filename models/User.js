@@ -93,7 +93,7 @@ const userSchema = new mongoose.Schema({
     email: {
         type: String,
         required: false,
-        unique: false,
+        unique: true,
         lowercase: true,
         trim: true,
         validate: {
@@ -185,7 +185,7 @@ const userSchema = new mongoose.Schema({
     profile: {
         avatar: {
             type: String,
-            default: 'https://rewardsapi.hireagent.co/uploads/avatars/1762258339619-142648919.jpg'
+            default: 'https://rewardsuatapi.hireagent.co/uploads/avatars/1762258339619-142648919.jpg'
         },
         bio: {
             type: String,
@@ -382,11 +382,29 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    nonGameOffersCompleted: {
+        type: Number,
+        default: 0
+    },
+    purchaseCount: {
+        type: Number,
+        default: 0
+    },
+    totalPlaytimeMinutes: {
+        type: Number,
+        default: 0
+    },
 
     // Adjust SDK retention tracking — per-user, survives reinstalls & account switches
     adjustRetention: {
         firstOpenAt:    { type: Date,    default: null },
         firedMilestones: { type: [Number], default: []  }, // e.g. [1, 3, 7]
+    },
+
+    // Adjust milestone events fired-state — per-user, prevents re-fire across devices
+    // Keys like "spinner3", "survey10", "gameDownload5th", etc.
+    adjustMilestones: {
+        firedKeys: { type: [String], default: [] },
     },
     
     // Analytics for admin dashboard
@@ -576,6 +594,31 @@ const userSchema = new mongoose.Schema({
         },
         lastMessageAt: {
             type: Date
+        },
+        // Snapshot of game offer at install time - freezes goals, rewards, conversion rate
+        // so admin changes don't affect users who already started a game
+        offerSnapshot: {
+            capturedAt: {
+                type: Date,
+                default: Date.now
+            },
+            coinsPerDollar: {
+                type: Number
+            },
+            goals: [{
+                goalId: String,
+                title: String,
+                coinReward: Number,
+                position: Number,
+                days_left: Number
+            }],
+            rewards: {
+                coins: { type: Number, default: 0 },
+                gold: { type: Number, default: 0 }
+            },
+            besitosRawData: {
+                type: mongoose.Schema.Types.Mixed
+            }
         }
     }],
 

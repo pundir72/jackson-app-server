@@ -251,10 +251,24 @@ router.post(
 
       // Build event data for Adjust
       console.log("\n📦 [Adjust V2 Route] Building event data...");
+
+      // Add Adjust device ID (ADID) — recommended by Adjust docs:
+      // "For iOS devices, you should use the adid advertising ID.
+      //  This enables you to match device data when the IDFA isn't available."
+      const adid = userDocument?.metadata?.adjust?.userId;
+
+      // Add client IP — recommended for third-party linking (e.g. Google)
+      const ipAddress = req.ip;
+
+      console.log("   - adid from user metadata:", adid || "NOT AVAILABLE");
+      console.log("   - ip_address from request:", ipAddress);
+
       const eventData = {
         event_token: eventToken,
-        s2s: "1", // Required for S2S requests
+          s2s: "1",
         ...deviceIds,
+        ...(adid && { adid }),
+        ...(ipAddress && { ip_address: ipAddress }),
       };
 
       console.log("   - Base eventData:", JSON.stringify(eventData, null, 2));
@@ -551,16 +565,20 @@ router.post("/retention/milestone", protect, async (req, res) => {
 router.get("/counts", protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId)
-      .select("surveys games withdrawals spinCount continuousProgress")
+      .select("surveys games withdrawals spinCount nonGameOffersCompleted purchaseCount totalPlaytimeMinutes continuousProgress adjustMilestones")
       .lean();
 
     if (!user) return res.status(404).json({ success: false, error: "User not found" });
 
-    const surveysCompleted   = (user.surveys  || []).filter((s) => s.completed).length;
+    const surveysCompleted   = (user.surveys  || []).filter((s) => s.status === "completed").length;
     const gamesDownloaded    = (user.games    || []).filter((g) => g.installedAt || g.status === "installed").length;
     const withdrawalsCount   = (user.withdrawals || []).length;
-    const spinCount          = user.spinCount || 0;
-    const challengesCompleted = user.continuousProgress?.challengesCompleted || 0;
+    const spinCount               = user.spinCount || 0;
+    const nonGameOffersCompleted  = user.nonGameOffersCompleted || 0;
+    const purchaseCount           = user.purchaseCount || 0;
+    const totalPlaytimeMinutes    = user.totalPlaytimeMinutes || 0;
+    const challengesCompleted     = user.continuousProgress?.challengesCompleted || 0;
+    const firedKeys          = user.adjustMilestones?.firedKeys || [];
 
     res.json({
       success: true,
@@ -569,12 +587,43 @@ router.get("/counts", protect, async (req, res) => {
         gamesDownloaded,
         withdrawalsCount,
         spinCount,
+        nonGameOffersCompleted,
+        purchaseCount,
+        totalPlaytimeMinutes,
         challengesCompleted,
+        firedKeys,
       },
     });
   } catch (error) {
     console.error("[Adjust Counts] Error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch counts" });
+  }
+});
+
+/**
+ * @route   POST /api/v2/adjust/milestone
+ * @desc    Mark a milestone event key as fired for this user.
+ *          Idempotent — re-marking an already-fired key is a no-op.
+ * @body    { key: string }  e.g. { key: "spinner6" }
+ * @access  Private
+ */
+router.post("/milestone", protect, async (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key || typeof key !== "string") {
+      return res.status(400).json({ success: false, error: "Invalid or missing key" });
+    }
+
+    await User.findByIdAndUpdate(req.user.userId, {
+      $addToSet: { "adjustMilestones.firedKeys": key },
+    });
+
+    console.log(`[Adjust Milestone] Key "${key}" recorded — user: ${req.user.userId}`);
+
+    res.json({ success: true, data: { key, recorded: true } });
+  } catch (error) {
+    console.error("[Adjust Milestone] POST milestone error:", error);
+    res.status(500).json({ success: false, error: "Failed to record milestone" });
   }
 });
 

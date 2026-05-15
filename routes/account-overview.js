@@ -6,6 +6,7 @@ const accountOverviewService = require('../utils/accountOverview');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const UserAchievement = require('../models/UserAchievement');
+const AdRewardConfig = require('../models/AdRewardConfig');
 
 // All configuration is now dynamic and user-specific
 // No static configuration needed
@@ -220,16 +221,14 @@ router.get('/ad-reward/cooldown', protect, async (req, res) => {
       });
     }
 
-    // Configuration: 4 hour cooldown, 50 coins reward
-    const COOLDOWN_HOURS = 4;
-    const REWARD_COINS = 50;
-    const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
+    const adConfig = await AdRewardConfig.getActiveConfig();
+    const cooldownHours = adConfig.cooldownHours;
+    const rewardCoins = adConfig.coins;
+    const COOLDOWN_MS = cooldownHours * 60 * 60 * 1000;
 
-    // Get last ad reward time from user metadata
-    // Store in user.adRewardTracking.lastAdRewardAt or use metadata
     const lastAdRewardAt = user.adRewardTracking?.lastAdRewardAt || null;
     const now = new Date();
-    
+
     let nextRewardAt = null;
     let isAvailable = false;
     let timeRemaining = 0;
@@ -237,18 +236,15 @@ router.get('/ad-reward/cooldown', protect, async (req, res) => {
     if (lastAdRewardAt) {
       const lastRewardTime = new Date(lastAdRewardAt);
       const timeSinceLastReward = now.getTime() - lastRewardTime.getTime();
-      
+
       if (timeSinceLastReward >= COOLDOWN_MS) {
-        // Cooldown has passed
         isAvailable = true;
-        nextRewardAt = now; // Available now
+        nextRewardAt = now;
       } else {
-        // Still in cooldown
         timeRemaining = COOLDOWN_MS - timeSinceLastReward;
         nextRewardAt = new Date(lastRewardTime.getTime() + COOLDOWN_MS);
       }
     } else {
-      // Never claimed before - available immediately
       isAvailable = true;
       nextRewardAt = now;
     }
@@ -256,8 +252,8 @@ router.get('/ad-reward/cooldown', protect, async (req, res) => {
     res.json({
       success: true,
       data: {
-        cooldownHours: COOLDOWN_HOURS,
-        rewardCoins: REWARD_COINS,
+        cooldownHours,
+        rewardCoins,
         isAvailable,
         nextRewardAt: nextRewardAt.toISOString(),
         timeRemainingMs: timeRemaining,
@@ -285,12 +281,11 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
     const { rewardAmount, ads } = req.body;
     const userId = req.user.userId;
 
-    // Configuration: 4 hour cooldown, 50 coins reward
-    const COOLDOWN_HOURS = 4;
-    const REWARD_COINS = 50;
-    const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
+    const adConfig = await AdRewardConfig.getActiveConfig();
+    const cooldownHours = adConfig.cooldownHours;
+    const defaultCoins = adConfig.coins;
+    const COOLDOWN_MS = cooldownHours * 60 * 60 * 1000;
 
-    // Get user (include name fields for transaction log)
     const user = await User.findById(userId).select('wallet adRewardTracking firstName lastName username');
 
     if (!user) {
@@ -339,15 +334,12 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
       }
     }
 
-    // Use provided rewardAmount or default to 50 coins
-    const coinsToReward = rewardAmount && rewardAmount > 0 ? rewardAmount : REWARD_COINS;
+    const coinsToReward = rewardAmount && rewardAmount > 0 ? rewardAmount : defaultCoins;
 
-    // Initialize wallet if needed
     if (!user.wallet) {
       user.wallet = { balance: 0, lastUpdated: now };
     }
 
-    // Credit coins to user
     user.wallet.balance = (user.wallet.balance || 0) + coinsToReward;
     user.wallet.lastUpdated = now;
     user.markModified('wallet');
@@ -363,7 +355,18 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
     const totalClaimed = user.adRewardTracking.totalAdRewardsClaimed;
     const referenceId = `AD-REWARD-${userId}-${Date.now()}`;
 
-    // Create transaction log with user name
+    const transactionMeta = {
+      source: 'ad_reward',
+      userName: userDisplayName,
+      userId,
+      rewardAmount: coinsToReward,
+      ads: ads || null,
+      cooldownHours: cooldownHours,
+      claimedAt: now.toISOString(),
+      totalAdRewardsClaimed: totalClaimed,
+      configId: adConfig._id.toString(),
+    };
+
     const transaction = new Transaction({
       user: userId,
       type: 'reward',
@@ -372,16 +375,7 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
       description: `Ad Reward - ${userDisplayName} watched ad and earned ${coinsToReward} coins`,
       status: 'completed',
       referenceId,
-      metadata: {
-        source: 'ad_reward',
-        userName: userDisplayName,
-        userId,
-        rewardAmount: coinsToReward,
-        ads: ads || null,
-        cooldownHours: COOLDOWN_HOURS,
-        claimedAt: now.toISOString(),
-        totalAdRewardsClaimed: totalClaimed
-      }
+      metadata: transactionMeta,
     });
 
     // Save user and transaction
@@ -415,7 +409,7 @@ router.post('/ad-reward/claim', protect, async (req, res) => {
           description: transaction.description
         },
         cooldown: {
-          hours: COOLDOWN_HOURS,
+          hours: cooldownHours,
           nextRewardAt: new Date(now.getTime() + COOLDOWN_MS).toISOString()
         },
         totalAdRewardsClaimed: totalClaimed,

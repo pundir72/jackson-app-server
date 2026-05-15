@@ -2,11 +2,13 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const User = require('../models/User');
+const Game = require('../models/Game');
 const Transaction = require('../models/Transaction');
 const UserChallengeProgress = require('../models/UserChallengeProgress');
 const GameMessage = require('../models/GameMessage');
 const BoosterReward = require('../models/BoosterReward');
 const AIChat = require('../models/AIChat');
+const { attachSnapshots, buildBitlabsSnapshotFromOffer, getCoinsPerDollar } = require('../utils/snapshotGameOffer');
 const { OpenAI } = require('openai');
 
 // Initialize OpenAI
@@ -75,6 +77,7 @@ router.get('/', protect, async (req, res) => {
           
           // Sync games from Besitos
           let syncedCount = 0;
+          const newlyAddedGameIds = [];
           for (const besitosGame of allBesitosGames) {
             const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
             if (!gameId || gameId === 'undefined' || gameId === 'null') {
@@ -95,6 +98,7 @@ router.get('/', protect, async (req, res) => {
               };
               user.games.push(newGame);
               syncedCount++;
+              newlyAddedGameIds.push(gameId);
               console.log(`[MY-GAMES] ➕ Added game: ${gameId} (${newGame.status})`);
             } else {
               // Update existing game status if needed
@@ -111,6 +115,10 @@ router.get('/', protect, async (req, res) => {
             }
           }
           
+          if (syncedCount > 0) {
+            await attachSnapshots(user, newlyAddedGameIds);
+          }
+
           if (syncedCount > 0 || user.isModified('games')) {
             await user.save();
             console.log(`[MY-GAMES] ✅ Synced ${syncedCount} new games to user.games array. Total games: ${user.games.length}`);
@@ -230,6 +238,7 @@ router.post('/sync', protect, async (req, res) => {
     const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
     
     let syncedCount = 0;
+    const newlyAddedGameIds = [];
     for (const besitosGame of allBesitosGames) {
       const gameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
       if (!gameId || gameId === 'undefined' || gameId === 'null') continue;
@@ -245,9 +254,83 @@ router.post('/sync', protect, async (req, res) => {
           date: besitosGame.downloaded_at ? new Date(besitosGame.downloaded_at) : new Date()
         });
         syncedCount++;
+        newlyAddedGameIds.push(gameId);
       }
     }
     
+    if (syncedCount > 0) {
+      await attachSnapshots(user, newlyAddedGameIds);
+    }
+
+    // ── Bitlabs sync ──
+    let bitlabsSyncedCount = 0;
+    try {
+      const bitlabsService = require('../services/bitlabs.service');
+      const bitlabsOffers = await bitlabsService.getUserDownloadedGamesWithDetails(user._id.toString());
+      console.log('[MY-GAMES-SYNC-BITLABS] offers returned:', bitlabsOffers?.length || 0);
+      if (bitlabsOffers && Array.isArray(bitlabsOffers) && bitlabsOffers.length > 0) {
+        const bitlabsGames = await Game.find({ sdkProvider: { $in: ['Bitlabs', 'bitlabs', 'BitLabs', 'BITLABS'] } }).lean();
+        console.log('[MY-GAMES-SYNC-BITLABS] Game docs found:', bitlabsGames?.length || 0);
+        const gameMap = new Map();
+        const nameMap = new Map();
+        bitlabsGames.forEach(g => {
+          const ids = [g.gameId, g.gameDetails?.id, g.gameDetails?.offer_id, g.metadata?.externalId, String(g._id)].filter(Boolean);
+          ids.forEach(id => { if (!gameMap.has(id)) gameMap.set(id, g); });
+          if (g.gameDetails?.name) nameMap.set(g.gameDetails.name.toLowerCase().trim(), g);
+        });
+        console.log('[MY-GAMES-SYNC-BITLABS] gameMap size:', gameMap.size, 'nameMap size:', nameMap.size);
+
+        const snapCoinsPerDollar = await getCoinsPerDollar();
+        for (const offer of bitlabsOffers) {
+          const offerId = String(offer.id || offer.offer_id || '');
+          console.log('[MY-GAMES-SYNC-BITLABS] processing offer:', offerId, 'product_name:', offer.product_name);
+          let gameDoc = gameMap.get(String(offer.id));
+          if (!gameDoc) gameDoc = gameMap.get(String(offer.offer_id));
+          if (!gameDoc && offer.product_name) {
+            const nameKey = String(offer.product_name).toLowerCase().trim();
+            gameDoc = nameMap.get(nameKey);
+            if (!gameDoc) {
+              for (const [key, doc] of nameMap) {
+                if (key.includes(nameKey) || nameKey.includes(key)) {
+                  gameDoc = doc;
+                  break;
+                }
+              }
+            }
+          }
+          if (!gameDoc) { console.log('[MY-GAMES-SYNC-BITLABS] no Game doc match for offer:', offerId); continue; }
+
+          const gameIdStr = gameDoc._id.toString();
+          console.log('[MY-GAMES-SYNC-BITLABS] matched Game doc:', gameDoc._id, 'gameId:', gameDoc.gameId);
+          if (existingGameIds.has(gameIdStr)) { console.log('[MY-GAMES-SYNC-BITLABS] already in user.games, skipping'); continue; }
+
+          const fullTotalPoints = gameDoc.besitosRawData?.total_points;
+          const snapshot = buildBitlabsSnapshotFromOffer(offer, snapCoinsPerDollar, fullTotalPoints);
+          if (!snapshot || !snapshot.goals.length) { console.log('[MY-GAMES-SYNC-BITLABS] snapshot build failed or empty goals'); continue; }
+          console.log('[MY-GAMES-SYNC-BITLABS] snapshot built, goals:', snapshot.goals.length);
+
+          user.games.push({
+            gameId: gameDoc._id,
+            provider: 'bitlabs',
+            installedAt: new Date(),
+            offerSnapshot: snapshot,
+          });
+          bitlabsSyncedCount++;
+          existingGameIds.add(gameIdStr);
+          console.log('[MY-GAMES-SYNC-BITLABS] synced! total:', bitlabsSyncedCount);
+        }
+      } else {
+        console.log('[MY-GAMES-SYNC-BITLABS] no Bitlabs offers found or empty array');
+      }
+    } catch (bitlabsErr) {
+      console.error('[MY-GAMES-SYNC-BITLABS] Error:', bitlabsErr.message);
+      console.error('[MY-GAMES-SYNC-BITLABS] Stack:', bitlabsErr.stack);
+    }
+
+    if (bitlabsSyncedCount > 0) {
+      syncedCount += bitlabsSyncedCount;
+    }
+
     if (syncedCount > 0 || user.isModified('games')) {
       await user.save();
     }
@@ -256,9 +339,8 @@ router.post('/sync', protect, async (req, res) => {
       success: true,
       data: {
         synced: syncedCount,
-        total: user.games.length,
-        inProgress: inProgressGames.length,
-        completed: completedGames.length
+        bitlabsSynced: bitlabsSyncedCount,
+        total: user.games.length
       }
     });
   } catch (error) {

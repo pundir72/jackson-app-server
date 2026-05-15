@@ -71,11 +71,12 @@ const taskProgressionRuleSchema = new mongoose.Schema(
     },
 
     // Next batch size - number of tasks in subsequent batches
+    // When set to 0 or null, all remaining tasks unlock freely after first batch is completed
+    // and user can claim reward at any time after completing first batch
     nextBatchSize: {
       type: Number,
-      required: true,
-      min: 1,
-      default: 5,
+      default: 0,
+      min: 0,
     },
 
     // Maximum number of batches (null = unlimited)
@@ -345,7 +346,6 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
 
   // First batch: tasks 1 to firstBatchSize
   if (taskOrder <= this.firstBatchSize) {
-    // Check if previous tasks in the batch are completed
     if (completedTasksCount >= taskOrder - 1) {
       return { canUnlock: true, reason: "First batch task" };
     } else {
@@ -358,7 +358,7 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
     }
   }
 
-  // Subsequent batches: require first batch completed + reward transferred
+  // First batch completion check
   const firstBatchCompleted = completedTasksCount >= this.firstBatchSize;
 
   if (!firstBatchCompleted) {
@@ -368,6 +368,17 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
     };
   }
 
+  // If nextBatchSize is 0 or null, no batch progression:
+  // After completing first batch, all remaining tasks unlock freely
+  // User can claim reward whenever they want without batch restriction
+  if (!this.nextBatchSize || this.nextBatchSize === 0) {
+    return {
+      canUnlock: true,
+      reason: "First batch completed — all tasks unlocked",
+    };
+  }
+
+  // Subsequent batches: require first batch completed + reward transferred
   if (!rewardTransferred) {
     return {
       canUnlock: false,
@@ -377,7 +388,7 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
 
   // Calculate which batch this task belongs to
   const tasksAfterFirstBatch = taskOrder - this.firstBatchSize;
-  const batchNumber = Math.ceil(tasksAfterFirstBatch / this.nextBatchSize) + 1; // Batch 2, 3, 4...
+  const batchNumber = Math.ceil(tasksAfterFirstBatch / this.nextBatchSize) + 1;
 
   // Check max batches limit
   if (this.maxBatches && batchNumber > this.maxBatches) {
@@ -388,15 +399,12 @@ taskProgressionRuleSchema.methods.canUnlockTask = function (
   }
 
   // Calculate how many tasks should be completed to unlock this task
-  // Tasks in previous batches (batch 1 + batches 2 to batchNumber-1)
   const tasksInPreviousBatches =
     this.firstBatchSize + (batchNumber - 2) * this.nextBatchSize;
 
-  // Position of this task within its batch (1-based)
   const positionInBatch =
     ((taskOrder - this.firstBatchSize - 1) % this.nextBatchSize) + 1;
 
-  // To unlock this task, user needs to complete all previous batches + previous tasks in current batch
   const requiredCompletedTasks = tasksInPreviousBatches + positionInBatch - 1;
 
   if (completedTasksCount >= requiredCompletedTasks) {
@@ -420,7 +428,7 @@ taskProgressionRuleSchema.methods.isValidConfiguration = function () {
     return false;
   }
 
-  if (!this.nextBatchSize || this.nextBatchSize < 1) {
+  if (this.nextBatchSize !== undefined && this.nextBatchSize !== null && this.nextBatchSize < 0) {
     return false;
   }
 

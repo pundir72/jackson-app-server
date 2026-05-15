@@ -40,13 +40,30 @@ const batchClaimSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Transaction',
     default: null
+  },
+  taskIds: [{
+    type: String
+  }],
+  idempotencyKey: {
+    type: String,
+    unique: true,
+    sparse: true,
+    default: null
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'failed'],
+    default: 'pending'
   }
 }, {
   timestamps: true
 });
 
-// Compound index to prevent duplicate claims
+// Compound index to prevent duplicate batch claims
 batchClaimSchema.index({ userId: 1, gameId: 1, batchNumber: 1 }, { unique: true });
+
+// Index to prevent per-task double-claim across batches
+batchClaimSchema.index({ userId: 1, gameId: 1, taskIds: 1 });
 
 const BatchClaim = mongoose.model('BatchClaim', batchClaimSchema);
 

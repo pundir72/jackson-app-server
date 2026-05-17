@@ -51,10 +51,9 @@ async function checkGameAvailability(
     if (normalizedProvider === "besitos") {
       const besitosService = require("../services/besitos.service");
       const externalId = game.gameDetails?.id || game.gameId;
+      const gameLabel = `${game.title} (gameId: ${game.gameId}, externalId: ${externalId})`;
 
-      if (!externalId) {
-        return false;
-      }
+      if (!externalId) return false;
 
       try {
         const platformValue = (userProfile.platform || "android").toLowerCase();
@@ -70,9 +69,7 @@ async function checkGameAvailability(
           ? response
           : response?.data || [];
 
-        if (!Array.isArray(offers) || offers.length === 0) {
-          return false;
-        }
+        if (!Array.isArray(offers) || offers.length === 0) return false;
 
         const gameTitle = game.title?.toLowerCase().trim() || game.gameDetails?.name?.toLowerCase().trim();
 
@@ -89,15 +86,11 @@ async function checkGameAvailability(
           return matchByOfferId || matchByBundleId || matchByTitle;
         });
 
-        if (!matchingOffer) {
-          return false;
-        }
+        if (!matchingOffer) return false;
 
         const budgetStatus = matchingOffer.budget_status;
         const isBudgetActive = budgetStatus === "Active";
-        if (!isBudgetActive) {
-          return false;
-        }
+        if (!isBudgetActive) return false;
 
         if (userId) {
           const userCheckPlatform = finalPlatform === "ios" ? "ios" : "android";
@@ -124,12 +117,8 @@ async function checkGameAvailability(
               return String(id) === String(externalId);
             });
 
-            if (!isInUserAvailable && !isInUserProgress) {
-              return false;
-            }
-          } catch (userDataError) {
-            // On user-data failure, fall back to budget-only check (already passed)
-          }
+            if (!isInUserAvailable && !isInUserProgress) return false;
+          } catch (_) { /* fall through — budget-only check */ }
         }
 
         return true;

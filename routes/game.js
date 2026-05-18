@@ -823,9 +823,9 @@ router.post("/earn", protect, async (req, res) => {
 
     const coinsNum = Number(coins);
     const baseXpNum = Number(xp);
-    const userId = req.user.userId; // Get from auth middleware
+    const userId = req.user.userId;
 
-    // Validation
+    // Validate basic types
     if (isNaN(coinsNum) || coinsNum < 0 || isNaN(baseXpNum) || baseXpNum < 0) {
       return res.status(400).json({
         success: false,
@@ -833,7 +833,15 @@ router.post("/earn", protect, async (req, res) => {
       });
     }
 
-    // Validate batch fields (if provided)
+    // Require gameId for all earnings claims
+    if (!gameId) {
+      return res.status(400).json({
+        success: false,
+        message: "gameId is required for earnings claim",
+      });
+    }
+
+    // Validate batch fields
     if (batchNumber !== undefined) {
       if (!Number.isInteger(batchNumber) || batchNumber < 1) {
         return res.status(400).json({
@@ -849,7 +857,7 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // Per-call cap check
+    // Per-call cap
     if (coinsNum > 100000 || baseXpNum > 100000) {
       return res.status(400).json({
         success: false,
@@ -865,15 +873,24 @@ router.post("/earn", protect, async (req, res) => {
       });
     }
 
-    // NEW: Check if batches already claimed (prevent duplicate claims)
-    if (gameId && batchNumber !== undefined) {
+    // Find Game document for ObjectId linking
+    const gameDoc = await Game.findOne({ gameId }).select("_id").lean();
+    if (!gameDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "Game not found",
+      });
+    }
+
+    // Check if batches already claimed
+    if (batchNumber !== undefined) {
       const batchNumbersToCheck = Array.from(
         { length: batchesClaimed },
         (_, i) => batchNumber + i,
       );
       const existingClaim = await BatchClaim.findOne({
         userId: user._id,
-        gameId: gameId,
+        gameId,
         batchNumber: { $in: batchNumbersToCheck },
       });
 
@@ -887,11 +904,11 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // NEW: Verify no task IDs have been claimed before (per-task deduplication)
-    if (gameId && taskIds && taskIds.length > 0) {
+    // Verify no task IDs have been claimed before
+    if (taskIds && taskIds.length > 0) {
       const alreadyClaimedTask = await BatchClaim.findOne({
         userId: user._id,
-        gameId: gameId,
+        gameId,
         taskIds: { $in: taskIds },
       }).select('taskIds batchNumber').lean();
 
@@ -907,13 +924,12 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // NEW: Verify actual task completion for claimed batches (prevent fraudulent claims)
-    if (gameId && batchNumber !== undefined) {
+    // Verify actual task completion
+    if (batchNumber !== undefined) {
       const progression = user.taskProgression?.get?.(gameId);
       const completedTasks = progression?.completedTasks || 0;
       const endBatch = batchNumber + batchesClaimed - 1;
 
-      // Find the progression rule for this user to calculate expected batch completion
       const userMembershipTier = getUserMembershipTier(user);
       const gamesPlayed = user.games?.length || 0;
       const progressionRule = await TaskProgressionRule.findBestMatchForUser({
@@ -926,10 +942,9 @@ router.post("/earn", protect, async (req, res) => {
         const firstBatchSize = progressionRule.firstBatchSize || 1;
         const nextBatchSize = progressionRule.nextBatchSize || 0;
 
-        // Verify sequential claiming (no skipping batches)
         const lastClaimedBatch = await BatchClaim.findOne({
           userId: user._id,
-          gameId: gameId,
+          gameId,
         }).sort({ batchNumber: -1 }).select('batchNumber').lean();
         const maxClaimedBatch = lastClaimedBatch?.batchNumber || 0;
 
@@ -940,24 +955,15 @@ router.post("/earn", protect, async (req, res) => {
           });
         }
 
-        // Calculate the highest batch number the user has earned via completed tasks
         let maxClaimableBatch = 0;
         if (completedTasks >= firstBatchSize) {
           maxClaimableBatch = 1;
           if (nextBatchSize === 0) {
-            // nextBatchSize=0: batch 2 = all remaining tasks
-            // requires rewardTransferred before claiming batch 2
-            if (progression?.rewardTransferred) {
-              maxClaimableBatch = 2;
-            }
-          } else {
-            // nextBatchSize>0: each batch needs nextBatchSize more completed tasks
-            // but requires rewardTransferred before claiming any batch beyond 1
-            if (progression?.rewardTransferred) {
-              const extraCompleted = completedTasks - firstBatchSize;
-              const extraBatches = Math.floor(extraCompleted / nextBatchSize);
-              maxClaimableBatch = 1 + extraBatches;
-            }
+            const extraCompleted = completedTasks - firstBatchSize;
+            maxClaimableBatch = 1 + extraCompleted;
+          } else if (progression?.rewardTransferred) {
+            const extraCompleted = completedTasks - firstBatchSize;
+            maxClaimableBatch = 1 + extraCompleted;
           }
         }
 
@@ -970,30 +976,32 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // Find Game document to get ObjectId for proper linking
-    let gameDoc = null;
-    if (gameId) {
-      gameDoc = await Game.findOne({ gameId: gameId }).select("_id").lean();
-    }
-
-    // Generate a unique idempotency key for this claim
-    const idempotencyKey = `earn-${userId}-${gameId || 'manual'}-${batchNumber || '0'}-${batchesClaimed || '1'}-${Date.now()}`;
-
-    // STEP 1: Create BatchClaim records FIRST (atomic lock via unique index)
-    // Wallet is NOT mutated yet — if this insert fails, no harm done
+    // STEP 1: Insert BatchClaim records first (atomic lock via unique index)
+    // Recovery: mark old stuck pending claims (>5 min old) as failed so user can retry
     const batchClaims = [];
-    if (gameId && batchNumber !== undefined) {
+    if (batchNumber !== undefined) {
+      await BatchClaim.updateMany(
+        {
+          userId: user._id,
+          gameId,
+          status: 'pending',
+          claimedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
+        },
+        { $set: { status: 'failed' } },
+      );
+
       for (let i = 0; i < batchesClaimed; i++) {
         batchClaims.push({
           userId: user._id,
-          gameId: gameId,
+          gameId,
           batchNumber: batchNumber + i,
           coins: coinsNum / batchesClaimed,
           xp: baseXpNum / batchesClaimed,
           gameTitle: gameTitle || null,
           claimedAt: new Date(),
           taskIds: taskIds || [],
-          idempotencyKey: `${idempotencyKey}-${i}`,
+          // Deterministic idempotency key (no timestamp) so retries produce same key
+          idempotencyKey: `earn-${userId}-${gameId}-${batchNumber + i}`,
           status: 'pending',
         });
       }
@@ -1012,8 +1020,7 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // STEP 2: Apply XP tier multiplier and prepare user mutations
-    // (safe because the BatchClaim lock ensures exclusive access)
+    // STEP 2: Apply XP tier multiplier
     const { finalXP, multiplier: tierMultiplier } =
       await applyTierMultiplierToXP(user, baseXpNum);
 
@@ -1025,8 +1032,7 @@ router.post("/earn", protect, async (req, res) => {
     user.xp.current = Number(user.xp.current || 0) + finalXP;
     user.xp.total = Number(user.xp.total || 0) + finalXP;
 
-    // Optional lightweight history on user.games entry if present
-    if (gameId && Array.isArray(user.games)) {
+    if (Array.isArray(user.games)) {
       const idx = user.games.findIndex(
         (g) => String(g.gameId) === String(gameId),
       );
@@ -1043,21 +1049,21 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // STEP 3: Create transaction record
+    // STEP 3: Save user first, then create transaction record
+    await user.save();
+
     const transaction = new Transaction({
       user: user._id,
       type: "credit",
       amount: coinsNum,
       balanceType: "coins",
-      description: gameId
-        ? `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ""}`
-        : `Manual game earnings${reason ? ` - ${reason}` : ""}`,
+      description: `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ""}`,
       status: "completed",
-      referenceId: `GAME-EARN-${gameId || "manual"}-${Date.now()}`,
-      gameId: gameId || null,
-      game: gameDoc?._id || null,
+      referenceId: `GAME-EARN-${gameId}-${Date.now()}`,
+      gameId,
+      game: gameDoc._id,
       metadata: {
-        gameId: gameId || null,
+        gameId,
         offerId: offerId || null,
         reason: reason || null,
         source: "game_earn",
@@ -1067,31 +1073,30 @@ router.post("/earn", protect, async (req, res) => {
         batchNumber: batchNumber || null,
         batchesClaimed: batchesClaimed || null,
         gameTitle: gameTitle || null,
-        idempotencyKey: idempotencyKey,
+        idempotencyKey: batchClaims.length > 0 ? batchClaims[0].idempotencyKey : `earn-${userId}-${gameId}-manual`,
       },
     });
 
-    // STEP 4: Update BatchClaim records with transactionId and mark as completed
+    await transaction.save();
+
+    // STEP 4: Mark BatchClaims as completed
     if (batchClaims.length > 0) {
       const batchNumbers = batchClaims.map(b => b.batchNumber);
       await BatchClaim.updateMany(
-        { userId: user._id, gameId: gameId, batchNumber: { $in: batchNumbers } },
+        { userId: user._id, gameId, batchNumber: { $in: batchNumbers } },
         { $set: { transactionId: transaction._id, status: 'completed' } },
       );
     }
 
-    // Save user + transaction atomically
-    await Promise.all([user.save(), transaction.save()]);
-
-    // Track achievements for game earnings
+    // Track achievements async
     setImmediate(async () => {
       try {
         await trackAchievements(userId, "wallet", {
           coins: coinsNum,
           xp: finalXP,
           category: "game_earn",
-          gameId: gameId,
-          reason: reason,
+          gameId,
+          reason,
         });
 
         await trackAchievements(userId, "xp", {
@@ -1108,8 +1113,8 @@ router.post("/earn", protect, async (req, res) => {
       data: {
         wallet: { balance: user.wallet.balance },
         xp: { current: user.xp.current, total: user.xp.total },
-        batchesClaimed: batchClaims.length, // NEW
-        batchNumbers: batchClaims.map((b) => b.batchNumber), // NEW
+        batchesClaimed: batchClaims.length,
+        batchNumbers: batchClaims.map((b) => b.batchNumber),
       },
     });
   } catch (error) {

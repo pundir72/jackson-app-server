@@ -724,15 +724,23 @@ function injectEverflowUserId(url, userId) {
   }
 }
 
-// Besitos: URL returned by getSurveysWall(userId) already has the user token baked
-// into the path (e.g. /survey/redirect/{partner}/{surveyId}/{userToken}/{uuid}).
-// Do NOT append any query param — Besitos does not expect one and it breaks the redirect.
+// Besitos: injects uid=userId
+function injectBesitosUserId(url, userId) {
+  if (!url || !userId) return url || "";
+  try {
+    const u = new URL(url);
+    u.searchParams.set("uid", String(userId));
+    return u.toString();
+  } catch {
+    return `${url}${url.includes("?") ? "&" : "?"}uid=${encodeURIComponent(userId)}`;
+  }
+}
 
 function injectUserId(url, sdkName, userId) {
   if (sdkName === "bitlabs")  return injectBitlabsUserId(url, userId);
   if (sdkName === "affise")   return injectAffiseUserId(url, userId);
   if (sdkName === "everflow") return injectEverflowUserId(url, userId);
-  if (sdkName === "besitos")  return url || ""; // user already embedded in URL path by Besitos API
+  if (sdkName === "besitos")  return injectBesitosUserId(url, userId);
   return url || "";
 }
 
@@ -946,30 +954,28 @@ router.get("/user/surveys", protect, async (req, res) => {
     }
 
     if (hasBesitos) {
-      // Besitos URLs are user-specific — getSurveysWall(userId) generates a redirect URL
-      // with the user's partner_user_id baked into the path token.
-      // DB-stored URLs use "admin-preview" token and are invalid for real users.
+      // Fallback: always seed freshBySdk.besitos from DB so admin-synced surveys
+      // are never silently hidden when the live Besitos API call fails.
+      const besitosFallback = dbSurveys
+        .filter(s => s.sdkName === "besitos")
+        .map(s => ({ id: String(s.externalId), clickUrl: s.clickUrl || s.surveyUrl || "", url: s.clickUrl || s.surveyUrl || "" }));
+
       try {
         const besitosService = require("../services/besitos.service");
         if (besitosService.isConfigured()) {
-          const userIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-                      || req.socket?.remoteAddress
-                      || "127.0.0.1";
-          const besitosParams = { device: "mobile", user_ip: userIp };
-          if (userProfile.gender)      besitosParams.gender = userProfile.gender === "male" ? "m" : "f";
-          if (userProfile.dateOfBirth) besitosParams.dob    = userProfile.dateOfBirth.toISOString().split("T")[0];
-
-          // partner_user_id is in the PATH — Besitos generates a user-specific redirect URL
-          const raw  = await besitosService.getSurveysWall(String(userId), besitosParams);
-          const list = Array.isArray(raw) ? raw : (raw?.data || raw?.surveys || []);
-          freshBySdk.besitos = list.map(s => ({ id: s.id?.toString() || "", clickUrl: s.url || "", url: s.url || "" }));
+          // Besitos wall endpoint is user-specific — pass userId for personalised URLs
+          const raw = await besitosService.getSurveysWall(String(userId), { device: "mobile" });
+          const list = Array.isArray(raw) ? raw : (raw?.data || raw?.surveys || raw?.result || raw?.offers || []);
+          freshBySdk.besitos = list.length > 0
+            ? list.map(s => ({ id: s.id?.toString() || "", clickUrl: s.url || "", url: s.url || "" }))
+            : besitosFallback;
         } else {
-          console.warn("[user/surveys] Besitos is not configured — surveys hidden");
-          freshBySdk.besitos = [];
+          console.warn("[user/surveys] Besitos is not configured — using DB fallback");
+          freshBySdk.besitos = besitosFallback;
         }
       } catch (err) {
         console.error("[user/surveys] Besitos getSurveysWall error:", err.message || err);
-        freshBySdk.besitos = [];
+        freshBySdk.besitos = besitosFallback;
       }
     }
 

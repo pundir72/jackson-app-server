@@ -724,15 +724,23 @@ function injectEverflowUserId(url, userId) {
   }
 }
 
-// Besitos: URL returned by getSurveysWall(userId) already has the user token baked
-// into the path (e.g. /survey/redirect/{partner}/{surveyId}/{userToken}/{uuid}).
-// Do NOT append any query param — Besitos does not expect one and it breaks the redirect.
+// Besitos: injects uid=userId
+function injectBesitosUserId(url, userId) {
+  if (!url || !userId) return url || "";
+  try {
+    const u = new URL(url);
+    u.searchParams.set("uid", String(userId));
+    return u.toString();
+  } catch {
+    return `${url}${url.includes("?") ? "&" : "?"}uid=${encodeURIComponent(userId)}`;
+  }
+}
 
 function injectUserId(url, sdkName, userId) {
   if (sdkName === "bitlabs")  return injectBitlabsUserId(url, userId);
   if (sdkName === "affise")   return injectAffiseUserId(url, userId);
   if (sdkName === "everflow") return injectEverflowUserId(url, userId);
-  if (sdkName === "besitos")  return url || ""; // user already embedded in URL path by Besitos API
+  if (sdkName === "besitos")  return injectBesitosUserId(url, userId);
   return url || "";
 }
 
@@ -919,6 +927,57 @@ router.get("/user/non-gaming-offers", protect, async (req, res) => {
 // matches against admin-configured docs, injects tracking URL.
 // ─────────────────────────────────────────────────────────────────────────────
 
+async function fetchBitlabsSurveys() {
+  try {
+    const bitlabsService = require("../services/bitlabs.service");
+    const r = await bitlabsService.getSurveys({ platform: "mobile" });
+    return r.success ? (r.data || []) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function fetchBesitosSurveys(userId, dbSurveys) {
+  const besitosFallback = dbSurveys
+    .filter(s => s.sdkName === "besitos")
+    .map(s => ({ id: String(s.externalId), clickUrl: s.clickUrl || s.surveyUrl || "", url: s.clickUrl || s.surveyUrl || "" }));
+
+  try {
+    const besitosService = require("../services/besitos.service");
+    if (!besitosService.isConfigured()) {
+      console.warn("[user/surveys] Besitos is not configured — using DB fallback");
+      return besitosFallback;
+    }
+    const raw = await besitosService.getSurveysWall(String(userId), { device: "mobile" });
+    const list = Array.isArray(raw) ? raw : (raw?.data || raw?.surveys || raw?.result || raw?.offers || []);
+    if (list.length === 0) return besitosFallback;
+    return list.map(s => ({ id: s.id?.toString() || "", clickUrl: s.url || "", url: s.url || "" }));
+  } catch (err) {
+    console.error("[user/surveys] Besitos getSurveysWall error:", err.message || err);
+    return besitosFallback;
+  }
+}
+
+function matchSurveysToFresh(dbSurveys, freshBySdk, userId) {
+  return dbSurveys.map(o => {
+    const freshList = freshBySdk[o.sdkName] || [];
+    const fresh = freshList.find(f => String(f.id || f.surveyId || f.offerId || "") === String(o.externalId));
+    const rawUrl = fresh
+      ? (fresh.clickUrl || fresh.url || fresh.surveyUrl || fresh.click_url || o.clickUrl || o.surveyUrl || "")
+      : (o.clickUrl || o.surveyUrl || "");
+    const trackingUrl = injectUserId(rawUrl, o.sdkName, userId);
+
+    return {
+      id: o._id, externalId: o.externalId, sdkName: o.sdkName, provider: o.provider,
+      title: o.title, description: o.description, offerType: o.offerType,
+      coinReward: o.coinReward, userRewardCoins: o.userRewardCoins, userRewardXP: o.userRewardXP,
+      estimatedTime: o.estimatedTime, clickUrl: trackingUrl, thumbnail: o.thumbnail,
+      cpi: o.cpi, loi: o.loi, rating: o.rating, targetAudience: o.targetAudience,
+      isAvailable: !!fresh,
+    };
+  });
+}
+
 router.get("/user/surveys", protect, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
@@ -927,100 +986,25 @@ router.get("/user/surveys", protect, async (req, res) => {
     const pageNum  = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    // 1. Load admin-configured live surveys from DB
     const dbSurveys = await SurveyConfig.find({ status: "live", isActive: true, offerType: "survey" }).sort({ createdAt: -1 }).lean();
     if (!dbSurveys.length) return res.json({ success: true, data: [], total: 0, page: pageNum, limit: limitNum });
 
-    // 2. Fetch fresh surveys from each provider
-    const freshBySdk = {};
-
     const hasBitlabs = dbSurveys.some(s => s.sdkName === "bitlabs");
-    const hasBesitos  = dbSurveys.some(s => s.sdkName === "besitos");
+    const hasBesitos = dbSurveys.some(s => s.sdkName === "besitos");
 
-    if (hasBitlabs) {
-      try {
-        const bitlabsService = require("../services/bitlabs.service");
-        const r = await bitlabsService.getSurveys({ platform: "mobile" });
-        freshBySdk.bitlabs = r.success ? (r.data || []) : [];
-      } catch (_) { freshBySdk.bitlabs = []; }
-    }
+    const freshBySdk = {};
+    if (hasBitlabs) freshBySdk.bitlabs = await fetchBitlabsSurveys();
+    if (hasBesitos) freshBySdk.besitos = await fetchBesitosSurveys(userId, dbSurveys);
 
-    if (hasBesitos) {
-      // Besitos URLs are user-specific — getSurveysWall(userId) generates a redirect URL
-      // with the user's partner_user_id baked into the path token.
-      // DB-stored URLs use "admin-preview" token and are invalid for real users.
-      try {
-        const besitosService = require("../services/besitos.service");
-        if (besitosService.isConfigured()) {
-          const userIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-                      || req.socket?.remoteAddress
-                      || "127.0.0.1";
-          const besitosParams = { device: "mobile", user_ip: userIp };
-          if (userProfile.gender)      besitosParams.gender = userProfile.gender === "male" ? "m" : "f";
-          if (userProfile.dateOfBirth) besitosParams.dob    = userProfile.dateOfBirth.toISOString().split("T")[0];
+    const result = matchSurveysToFresh(dbSurveys, freshBySdk, userId);
 
-          // partner_user_id is in the PATH — Besitos generates a user-specific redirect URL
-          const raw  = await besitosService.getSurveysWall(String(userId), besitosParams);
-          const list = Array.isArray(raw) ? raw : (raw?.data || raw?.surveys || []);
-          freshBySdk.besitos = list.map(s => ({ id: s.id?.toString() || "", clickUrl: s.url || "", url: s.url || "" }));
-        } else {
-          console.warn("[user/surveys] Besitos is not configured — surveys hidden");
-          freshBySdk.besitos = [];
-        }
-      } catch (err) {
-        console.error("[user/surveys] Besitos getSurveysWall error:", err.message || err);
-        freshBySdk.besitos = [];
-      }
-    }
+    const available = result.filter(o => o.isAvailable && isEligible(userProfile, o.targetAudience));
 
-    // 3. Match and inject userId tracking URLs
-    const result = dbSurveys.map(o => {
-      const freshList = freshBySdk[o.sdkName] || [];
-      const fresh = freshList.find(f => String(f.id || f.surveyId || f.offerId || "") === String(o.externalId));
-
-      const rawUrl = fresh
-        ? (fresh.clickUrl || fresh.url || fresh.surveyUrl || fresh.click_url || o.clickUrl || o.surveyUrl || "")
-        : (o.clickUrl || o.surveyUrl || "");
-      const trackingUrl = injectUserId(rawUrl, o.sdkName, userId);
-
-      return {
-        id             : o._id,
-        externalId     : o.externalId,
-        sdkName        : o.sdkName,
-        provider       : o.provider,
-        title          : o.title,
-        description    : o.description,
-        offerType      : o.offerType,
-        coinReward     : o.coinReward,
-        userRewardCoins: o.userRewardCoins,
-        userRewardXP   : o.userRewardXP,
-        estimatedTime  : o.estimatedTime,
-        clickUrl       : trackingUrl,
-        thumbnail      : o.thumbnail,
-        cpi            : o.cpi,
-        loi            : o.loi,
-        rating         : o.rating,
-        targetAudience : o.targetAudience,
-        isAvailable    : !!fresh,
-      };
-    });
-
-    // 4. Only return surveys currently live in the SDK AND matching user's audience segment
-    const available = result.filter(o => {
-      const isAvail = o.isAvailable;
-      const isElig = isEligible(userProfile, o.targetAudience);
-
-      return isAvail && isElig;
-    });
-
-    // 5. Apply XP tier multiplier — fetch once for this user, apply to all surveys
-    const userCurrentXP = userProfile.xp?.current || 0;
-    const xpMultiplier = await getAccessBenefitsMultiplier(userCurrentXP);
-    const withXP = available.map(o => {
-      const originalXP = o.userRewardXP;
-      const adjustedXP = originalXP > 0 ? Math.round(originalXP * xpMultiplier) : originalXP;
-      return { ...o, userRewardXP: adjustedXP };
-    });
+    const xpMultiplier = await getAccessBenefitsMultiplier(userProfile.xp?.current || 0);
+    const withXP = available.map(o => ({
+      ...o,
+      userRewardXP: o.userRewardXP > 0 ? Math.round(o.userRewardXP * xpMultiplier) : o.userRewardXP,
+    }));
 
     const paginated = withXP.slice((pageNum - 1) * limitNum, pageNum * limitNum);
     res.json({ success: true, data: paginated, total: withXP.length, page: pageNum, limit: limitNum });

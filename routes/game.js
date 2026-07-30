@@ -39,200 +39,140 @@ function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
  * @param {Object} userProfile - User profile for API calls
  * @returns {Promise<boolean>} True if game is available, false otherwise
  */
-async function checkGameAvailability(
-  game,
-  userProfile,
-  userId = null,
-  isRetry = false,
-) {
+function matchBesitosOffer(offer, externalId, gameTitle, gameBundleId) {
+  const offerId = offer.id || offer.offer_id || offer.game_id;
+  const bundleId = offer.bundle_id;
+  const offerTitle = offer.title?.toLowerCase().trim();
+
+  const matchByOfferId = String(offerId) === String(externalId);
+  const matchByBundleId = bundleId && gameBundleId && String(bundleId) === String(gameBundleId);
+  const matchByTitle = offerTitle && gameTitle && offerTitle === gameTitle;
+
+  return matchByOfferId || matchByBundleId || matchByTitle;
+}
+
+function findMatchingBesitosOffer(offers, externalId, gameTitle, gameBundleId) {
+  return offers.find((offer) => matchBesitosOffer(offer, externalId, gameTitle, gameBundleId));
+}
+
+async function checkUserBesitosAvailability(userId, externalId, platform) {
+  if (!userId) return true;
+
+  const besitosService = require("../services/besitos.service");
+  const userCheckPlatform = platform === "ios" ? "ios" : "android";
+
+  try {
+    const userData = await besitosService.getUserData(userId, { device_platform: userCheckPlatform });
+    const userDataResponse = userData.data || userData;
+
+    const inProgressGames = userDataResponse.in_progress || userDataResponse.data?.in_progress || [];
+    const availableGames = userDataResponse.available || userDataResponse.data?.available || [];
+
+    const gameIds = [externalId];
+    const hasInProgress = inProgressGames.some((g) => gameIds.includes(String(g.id || g.game_id || g.offer_id)));
+    const hasAvailable = availableGames.some((g) => gameIds.includes(String(g.id || g.game_id || g.offer_id)));
+
+    if (!hasAvailable && !hasInProgress) return false;
+  } catch (_) {
+    // Besitos user API unavailable — fall through to budget-only availability
+  }
+
+  return true;
+}
+
+async function checkBesitosAvailability(game, userProfile, userId) {
+  const besitosService = require("../services/besitos.service");
+  const externalId = game.gameDetails?.id || game.gameId;
+  if (!externalId) return false;
+
+  const platformValue = (userProfile.platform || "android").toLowerCase();
+  const finalPlatform = platformValue === "mobile" ? "android" : platformValue;
+  const requestParams = {
+    device_platform: finalPlatform,
+    country: userProfile.country || "US",
+    _t: Date.now(),
+  };
+
+  const response = await besitosService.getOffers(requestParams);
+  const offers = Array.isArray(response) ? response : response?.data || [];
+  if (!Array.isArray(offers) || offers.length === 0) return false;
+
+  const gameTitle = game.title?.toLowerCase().trim() || game.gameDetails?.name?.toLowerCase().trim();
+  const gameBundleId = game.gameDetails?.bundle_id;
+  const matchingOffer = findMatchingBesitosOffer(offers, externalId, gameTitle, gameBundleId);
+
+  if (!matchingOffer || matchingOffer.budget_status !== "Active") return false;
+
+  return checkUserBesitosAvailability(userId, externalId, finalPlatform);
+}
+
+async function checkBitlabsAvailability(game, userProfile, userId) {
+  const bitlabsService = require("../services/bitlabs.service");
+  const gameIdToFind = game.gameId?.toString().trim();
+  if (!gameIdToFind) return false;
+
+  let devices = [];
+  const platform = userProfile.platform || "mobile";
+  if (platform === "ios" || platform === "iphone") {
+    devices = ["iphone"];
+  } else if (platform === "android") {
+    devices = ["android"];
+  } else if (platform === "mobile") {
+    devices = ["iphone", "android"];
+  }
+
+  const queryParams = {
+    is_game: true,
+    devices: devices.length > 0 ? devices : ["android", "iphone"],
+    sdk: "CUSTOM",
+  };
+  const result = await bitlabsService.getPublisherOffers(queryParams);
+  const offers = Array.isArray(result?.data) ? result.data : [];
+  if (!offers.length) return false;
+
+  const matchesGameId = (offer) => {
+    const offerId =
+      offer.id?.toString().trim() ||
+      offer.offer_id?.toString().trim() ||
+      offer.game_id?.toString().trim() ||
+      "";
+    const productId =
+      offer.product_id?.toString().trim() ||
+      offer.productId?.toString().trim() ||
+      "";
+    const appId = offer.app_metadata?.app_id?.toString().trim() || "";
+
+    return (
+      offerId === gameIdToFind ||
+      productId === gameIdToFind ||
+      appId === gameIdToFind
+    );
+  };
+
+  const matchingOffer = offers.find(matchesGameId);
+  if (!matchingOffer) return false;
+
+  if (userId && matchingOffer.click_url) {
+    let clickUrl = matchingOffer.click_url;
+    if (clickUrl.includes("s1=")) {
+      clickUrl = clickUrl.replace(/s1=[^&]*/, `s1=${userId}`);
+    } else {
+      const separator = clickUrl.includes("?") ? "&" : "?";
+      clickUrl = `${clickUrl}${separator}s1=${userId}`;
+    }
+    return { available: true, clickUrl };
+  }
+  return { available: true, clickUrl: matchingOffer.click_url || null };
+}
+
+async function checkGameAvailability(game, userProfile, userId = null, isRetry = false) {
   try {
     const normalizedProvider = (game.sdkProvider || "").toLowerCase();
 
     if (normalizedProvider === "besitos") {
-      const besitosService = require("../services/besitos.service");
-      const externalId = game.gameDetails?.id || game.gameId;
-
-      if (!externalId) {
-        return false;
-      }
-
-      try {
-        const platformValue = (userProfile.platform || "android").toLowerCase();
-        const finalPlatform = platformValue === "mobile" ? "android" : platformValue;
-        const requestParams = {
-          device_platform: finalPlatform,
-          country: userProfile.country || "US",
-          _t: Date.now(),
-        };
-        const response = await besitosService.getOffers(requestParams);
-
-        const offers = Array.isArray(response)
-          ? response
-          : response?.data || [];
-
-        if (!Array.isArray(offers) || offers.length === 0) {
-          return false;
-        }
-
-        const gameTitle = game.title?.toLowerCase().trim() || game.gameDetails?.name?.toLowerCase().trim();
-
-        const matchingOffer = offers.find((offer) => {
-          const offerId = offer.id || offer.offer_id || offer.game_id;
-          const bundleId = offer.bundle_id;
-          const offerTitle = offer.title?.toLowerCase().trim();
-
-          const matchByOfferId = String(offerId) === String(externalId);
-          const matchByBundleId = bundleId && game.gameDetails?.bundle_id &&
-            String(bundleId) === String(game.gameDetails.bundle_id);
-          const matchByTitle = offerTitle && gameTitle && offerTitle === gameTitle;
-
-          return matchByOfferId || matchByBundleId || matchByTitle;
-        });
-
-        if (!matchingOffer) {
-          return false;
-        }
-
-        const budgetStatus = matchingOffer.budget_status;
-        const isBudgetActive = budgetStatus === "Active";
-        if (!isBudgetActive) {
-          return false;
-        }
-
-        if (userId) {
-          const userCheckPlatform = finalPlatform === "ios" ? "ios" : "android";
-          try {
-            const userData = await besitosService.getUserData(userId, { device_platform: userCheckPlatform });
-            const userDataResponse = userData.data || userData;
-
-            const inProgressGames =
-              userDataResponse.in_progress ||
-              userDataResponse.data?.in_progress ||
-              [];
-            const availableGames =
-              userDataResponse.available ||
-              userDataResponse.data?.available ||
-              [];
-
-            const isInUserProgress = inProgressGames.some((g) => {
-              const id = g.id || g.game_id || g.offer_id;
-              return String(id) === String(externalId);
-            });
-
-            const isInUserAvailable = availableGames.some((g) => {
-              const id = g.id || g.game_id || g.offer_id;
-              return String(id) === String(externalId);
-            });
-
-            if (!isInUserAvailable && !isInUserProgress) {
-              return false;
-            }
-          } catch (userDataError) {
-            // On user-data failure, fall back to budget-only check (already passed)
-          }
-        }
-
-        return true;
-      } catch (error) {
-        console.error(
-          `   ❌ [BESITOS] Error checking Besitos availability for game ${game.gameId}:`,
-          {
-            message: error.message,
-            status: error.status || error.response?.status,
-          },
-        );
-        return false;
-      }
+      return await checkBesitosAvailability(game, userProfile, userId);
     } else if (normalizedProvider === "bitlabs") {
-      const bitlabsService = require("../services/bitlabs.service");
-      const gameIdToFind = game.gameId?.toString().trim();
-
-      if (!gameIdToFind) {
-        return false;
-      }
-
-      try {
-        let devices = [];
-        const platform = userProfile.platform || "mobile";
-        if (platform === "ios" || platform === "iphone") {
-          devices = ["iphone"];
-        } else if (platform === "android") {
-          devices = ["android"];
-        } else if (platform === "mobile") {
-          devices = ["iphone", "android"];
-        }
-
-        const queryParams = {
-          is_game: true,
-          devices: devices.length > 0 ? devices : ["android", "iphone"],
-          // countries: [userProfile.country || "US"], // COMMENTED OUT FOR TESTING
-          sdk: "CUSTOM",
-        };
-        const result = await bitlabsService.getPublisherOffers(queryParams);
-        const offers = Array.isArray(result?.data) ? result.data : [];
-
-        if (!offers.length) {
-          return false;
-        }
-
-        const matchesGameId = (offer) => {
-          const offerId =
-            offer.id?.toString().trim() ||
-            offer.offer_id?.toString().trim() ||
-            offer.game_id?.toString().trim() ||
-            "";
-          const productId =
-            offer.product_id?.toString().trim() ||
-            offer.productId?.toString().trim() ||
-            "";
-          const appId = offer.app_metadata?.app_id?.toString().trim() || "";
-
-          return (
-            offerId === gameIdToFind ||
-            productId === gameIdToFind ||
-            appId === gameIdToFind
-          );
-        };
-
-        const matchingOffer = offers.find(matchesGameId);
-
-        if (!matchingOffer) {
-          return false;
-        }
-
-        if (matchingOffer) {
-          // Inject userId into Bitlabs s1 parameter (required by Bitlabs for redirect tracking)
-          if (userId && matchingOffer.click_url) {
-            let clickUrl = matchingOffer.click_url;
-            // Replace existing s1= parameter or add if not present
-            if (clickUrl.includes("s1=")) {
-              clickUrl = clickUrl.replace(/s1=[^&]*/, `s1=${userId}`);
-            } else {
-              const separator = clickUrl.includes("?") ? "&" : "?";
-              clickUrl = `${clickUrl}${separator}s1=${userId}`;
-            }
-            return {
-              available: true,
-              clickUrl,
-            };
-          }
-          return {
-            available: true,
-            clickUrl: matchingOffer.click_url || null,
-          };
-        }
-
-        return false;
-      } catch (error) {
-        console.error(
-          `❌ [BITLABS] Error checking Bitlabs availability:`,
-          {
-            message: error.message,
-            status: error.status || error.response?.status,
-          },
-        );
-        return false;
-      }
+      return await checkBitlabsAvailability(game, userProfile, userId);
     } else {
       return false;
     }
@@ -244,6 +184,7 @@ async function checkGameAvailability(
     return false;
   }
 }
+
 // Get user's games (downloaded/installed games list)
 router.get("/", protect, async (req, res) => {
   try {
@@ -401,14 +342,12 @@ router.get("/", protect, async (req, res) => {
     // Enrich with game metadata from Game collection
     const enriched = await Promise.all(
       slice.map(async (g) => {
-        let meta = null;
-        try {
-          meta = await Game.findOne({ gameId: g.gameId })
-            .select(
-              "title description category uiSection gender ageGroup metadata gameDetails rewards",
-            )
-            .lean();
-        } catch (_) {}
+        const meta = await Game.findOne({ gameId: g.gameId })
+          .select(
+            "title description category uiSection gender ageGroup metadata gameDetails rewards",
+          )
+          .lean()
+          .catch(() => null);
 
         return {
           gameId: g.gameId,
@@ -778,14 +717,12 @@ router.get("/downloads", protect, async (req, res) => {
     // Enrich minimal metadata from Game collection if possible
     const enriched = await Promise.all(
       slice.map(async (g) => {
-        let meta = null;
-        try {
-          meta = await Game.findOne({ gameId: g.gameId })
-            .select(
-              "title category uiSection gender ageGroup metadata.thumbnail gameDetails",
-            )
-            .lean();
-        } catch (_) {}
+        const meta = await Game.findOne({ gameId: g.gameId })
+          .select(
+            "title category uiSection gender ageGroup metadata.thumbnail gameDetails",
+          )
+          .lean()
+          .catch(() => null);
         return {
           gameId: g.gameId,
           offerId: g.offerId || null,
@@ -827,11 +764,103 @@ router.get("/downloads", protect, async (req, res) => {
   }
 });
 
+function validateEarnInputs({ gameId, coins, xp, batchNumber, batchesClaimed }) {
+  const coinsNum = Number(coins);
+  const baseXpNum = Number(xp);
+  const errors = [];
+
+  if (isNaN(coinsNum) || coinsNum < 0 || isNaN(baseXpNum) || baseXpNum < 0) {
+    errors.push("coins and xp must be non-negative numbers");
+  }
+  if (!gameId) {
+    errors.push("gameId is required for earnings claim");
+  }
+  if (coinsNum > 100000 || baseXpNum > 100000) {
+    errors.push("coins/xp exceed per-call cap");
+  }
+  if (batchNumber !== undefined) {
+    if (!Number.isInteger(batchNumber) || batchNumber < 1) {
+      errors.push("batchNumber must be a positive integer");
+    }
+    if (!Number.isInteger(batchesClaimed) || batchesClaimed < 1) {
+      errors.push("batchesClaimed must be a positive integer");
+    }
+  }
+
+  return { coinsNum, baseXpNum, errors };
+}
+
+async function checkAlreadyClaimed(userId, safeGameId, batchNumber, batchesClaimed, safeTaskIds) {
+  if (batchNumber !== undefined) {
+    const batchNumbersToCheck = Array.from({ length: batchesClaimed }, (_, i) => batchNumber + i);
+    const existingClaim = await BatchClaim.findOne({
+      userId, gameId: safeGameId, batchNumber: { $in: batchNumbersToCheck },
+    });
+    if (existingClaim) {
+      return { message: `Batch ${existingClaim.batchNumber} already claimed for this game`, alreadyClaimed: true, claimedBatchNumber: existingClaim.batchNumber };
+    }
+  }
+
+  if (safeTaskIds.length > 0) {
+    const alreadyClaimedTask = await BatchClaim.findOne({
+      userId, gameId: safeGameId, taskIds: { $in: safeTaskIds },
+    }).select('taskIds batchNumber').lean();
+
+    if (alreadyClaimedTask) {
+      const dupTaskId = safeTaskIds.find(tid => alreadyClaimedTask.taskIds?.includes(tid));
+      return { message: `Task ${dupTaskId} was already claimed in batch ${alreadyClaimedTask.batchNumber}`, alreadyClaimed: true, duplicateTaskId: dupTaskId, claimedInBatch: alreadyClaimedTask.batchNumber };
+    }
+  }
+
+  return null;
+}
+
+async function validateBatchProgression(user, safeGameId, batchNumber, batchesClaimed) {
+  if (batchNumber === undefined) return null;
+
+  const progression = user.taskProgression?.get?.(safeGameId);
+  const completedTasks = progression?.completedTasks || 0;
+  const endBatch = batchNumber + batchesClaimed - 1;
+
+  const userMembershipTier = getUserMembershipTier(user);
+  const gamesPlayed = user.games?.length || 0;
+  const progressionRule = await TaskProgressionRule.findBestMatchForUser({
+    xp: user.xp?.current || 0, gamesPlayed, membershipTier: userMembershipTier || 'free',
+  });
+
+  if (!progressionRule) return null;
+
+  const firstBatchSize = progressionRule.firstBatchSize || 1;
+  const nextBatchSize = progressionRule.nextBatchSize || 0;
+  const lastClaimed = await BatchClaim.findOne({
+    userId: user._id, gameId: safeGameId,
+  }).sort({ batchNumber: -1 }).select('batchNumber').lean();
+  const maxClaimedBatch = lastClaimed?.batchNumber || 0;
+
+  if (batchNumber > maxClaimedBatch + 1) {
+    return `Cannot skip batches. Next claimable batch is ${maxClaimedBatch + 1}`;
+  }
+
+  let maxClaimableBatch = 0;
+  if (completedTasks >= firstBatchSize) {
+    maxClaimableBatch = 1;
+    if (nextBatchSize === 0 || progression?.rewardTransferred) {
+      maxClaimableBatch = 1 + (completedTasks - firstBatchSize);
+    }
+  }
+
+  if (endBatch > maxClaimableBatch) {
+    return `Insufficient completed tasks for batch ${endBatch}. Maximum claimable: ${maxClaimableBatch} (tasks completed: ${completedTasks})`;
+  }
+
+  return null;
+}
+
 // Credit earned XP and coins to the authenticated user
 router.post("/earn", protect, async (req, res) => {
   try {
     const {
-      gameId,
+      gameId: rawGameId,
       offerId,
       coins = 0,
       xp = 0,
@@ -839,182 +868,65 @@ router.post("/earn", protect, async (req, res) => {
       batchNumber,
       batchesClaimed,
       gameTitle,
-      taskIds = [],
+      taskIds: rawTaskIds = [],
     } = req.body;
 
-    const coinsNum = Number(coins);
-    const baseXpNum = Number(xp);
-    const userId = req.user.userId; // Get from auth middleware
+    const safeGameId = String(rawGameId || "");
+    const safeTaskIds = Array.isArray(rawTaskIds) ? rawTaskIds.map(String) : [];
+    const { coinsNum, baseXpNum, errors } = validateEarnInputs({
+      gameId: safeGameId, coins, xp, batchNumber, batchesClaimed,
+    });
 
-    // Validation
-    if (isNaN(coinsNum) || coinsNum < 0 || isNaN(baseXpNum) || baseXpNum < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "coins and xp must be non-negative numbers",
-      });
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, message: errors.join("; ") });
     }
 
-    // Validate batch fields (if provided)
-    if (batchNumber !== undefined) {
-      if (!Number.isInteger(batchNumber) || batchNumber < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "batchNumber must be a positive integer",
-        });
-      }
-      if (!Number.isInteger(batchesClaimed) || batchesClaimed < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "batchesClaimed must be a positive integer",
-        });
-      }
-    }
-
-    // Per-call cap check
-    if (coinsNum > 100000 || baseXpNum > 100000) {
-      return res.status(400).json({
-        success: false,
-        message: "coins/xp exceed per-call cap",
-      });
-    }
-
+    const userId = req.user.userId;
     const user = await User.findById(userId).select("wallet xp games vip taskProgression");
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // NEW: Check if batches already claimed (prevent duplicate claims)
-    if (gameId && batchNumber !== undefined) {
-      const batchNumbersToCheck = Array.from(
-        { length: batchesClaimed },
-        (_, i) => batchNumber + i,
-      );
-      const existingClaim = await BatchClaim.findOne({
-        userId: user._id,
-        gameId: gameId,
-        batchNumber: { $in: batchNumbersToCheck },
-      });
-
-      if (existingClaim) {
-        return res.status(400).json({
-          success: false,
-          message: `Batch ${existingClaim.batchNumber} already claimed for this game`,
-          alreadyClaimed: true,
-          claimedBatchNumber: existingClaim.batchNumber,
-        });
-      }
+    const gameDoc = await Game.findOne({ gameId: safeGameId }).select("_id").lean();
+    if (!gameDoc) {
+      return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    // NEW: Verify no task IDs have been claimed before (per-task deduplication)
-    if (gameId && taskIds && taskIds.length > 0) {
-      const alreadyClaimedTask = await BatchClaim.findOne({
-        userId: user._id,
-        gameId: gameId,
-        taskIds: { $in: taskIds },
-      }).select('taskIds batchNumber').lean();
-
-      if (alreadyClaimedTask) {
-        const dupTaskId = taskIds.find(tid => alreadyClaimedTask.taskIds?.includes(tid));
-        return res.status(400).json({
-          success: false,
-          message: `Task ${dupTaskId} was already claimed in batch ${alreadyClaimedTask.batchNumber}`,
-          alreadyClaimed: true,
-          duplicateTaskId: dupTaskId,
-          claimedInBatch: alreadyClaimedTask.batchNumber,
-        });
-      }
+    const alreadyClaimed = await checkAlreadyClaimed(user._id, safeGameId, batchNumber, batchesClaimed, safeTaskIds);
+    if (alreadyClaimed) {
+      return res.status(400).json({ success: false, ...alreadyClaimed });
     }
 
-    // NEW: Verify actual task completion for claimed batches (prevent fraudulent claims)
-    if (gameId && batchNumber !== undefined) {
-      const progression = user.taskProgression?.get?.(gameId);
-      const completedTasks = progression?.completedTasks || 0;
-      const endBatch = batchNumber + batchesClaimed - 1;
-
-      // Find the progression rule for this user to calculate expected batch completion
-      const userMembershipTier = getUserMembershipTier(user);
-      const gamesPlayed = user.games?.length || 0;
-      const progressionRule = await TaskProgressionRule.findBestMatchForUser({
-        xp: user.xp?.current || 0,
-        gamesPlayed,
-        membershipTier: userMembershipTier || 'free',
-      });
-
-      if (progressionRule) {
-        const firstBatchSize = progressionRule.firstBatchSize || 1;
-        const nextBatchSize = progressionRule.nextBatchSize || 0;
-
-        // Verify sequential claiming (no skipping batches)
-        const lastClaimedBatch = await BatchClaim.findOne({
-          userId: user._id,
-          gameId: gameId,
-        }).sort({ batchNumber: -1 }).select('batchNumber').lean();
-        const maxClaimedBatch = lastClaimedBatch?.batchNumber || 0;
-
-        if (batchNumber > maxClaimedBatch + 1) {
-          return res.status(400).json({
-            success: false,
-            message: `Cannot skip batches. Next claimable batch is ${maxClaimedBatch + 1}`,
-          });
-        }
-
-        // Calculate the highest batch number the user has earned via completed tasks
-        let maxClaimableBatch = 0;
-        if (completedTasks >= firstBatchSize) {
-          maxClaimableBatch = 1;
-          if (nextBatchSize === 0) {
-            // nextBatchSize=0: batch 2 = all remaining tasks
-            // requires rewardTransferred before claiming batch 2
-            if (progression?.rewardTransferred) {
-              maxClaimableBatch = 2;
-            }
-          } else {
-            // nextBatchSize>0: each batch needs nextBatchSize more completed tasks
-            // but requires rewardTransferred before claiming any batch beyond 1
-            if (progression?.rewardTransferred) {
-              const extraCompleted = completedTasks - firstBatchSize;
-              const extraBatches = Math.floor(extraCompleted / nextBatchSize);
-              maxClaimableBatch = 1 + extraBatches;
-            }
-          }
-        }
-
-        if (endBatch > maxClaimableBatch) {
-          return res.status(400).json({
-            success: false,
-            message: `Insufficient completed tasks for batch ${endBatch}. Maximum claimable: ${maxClaimableBatch} (tasks completed: ${completedTasks})`,
-          });
-        }
-      }
+    const progressionError = await validateBatchProgression(user, safeGameId, batchNumber, batchesClaimed);
+    if (progressionError) {
+      return res.status(400).json({ success: false, message: progressionError });
     }
 
-    // Find Game document to get ObjectId for proper linking
-    let gameDoc = null;
-    if (gameId) {
-      gameDoc = await Game.findOne({ gameId: gameId }).select("_id").lean();
-    }
-
-    // Generate a unique idempotency key for this claim
-    const idempotencyKey = `earn-${userId}-${gameId || 'manual'}-${batchNumber || '0'}-${batchesClaimed || '1'}-${Date.now()}`;
-
-    // STEP 1: Create BatchClaim records FIRST (atomic lock via unique index)
-    // Wallet is NOT mutated yet — if this insert fails, no harm done
+    // STEP 1: Insert BatchClaim records first (atomic lock via unique index)
+    // Recovery: mark old stuck pending claims (>5 min old) as failed so user can retry
     const batchClaims = [];
-    if (gameId && batchNumber !== undefined) {
+    if (batchNumber !== undefined) {
+      await BatchClaim.updateMany(
+        {
+          userId: user._id,
+          gameId: safeGameId,
+          status: 'pending',
+          claimedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
+        },
+        { $set: { status: 'failed' } },
+      );
+
       for (let i = 0; i < batchesClaimed; i++) {
         batchClaims.push({
           userId: user._id,
-          gameId: gameId,
+          gameId: safeGameId,
           batchNumber: batchNumber + i,
           coins: coinsNum / batchesClaimed,
           xp: baseXpNum / batchesClaimed,
           gameTitle: gameTitle || null,
           claimedAt: new Date(),
-          taskIds: taskIds || [],
-          idempotencyKey: `${idempotencyKey}-${i}`,
+          taskIds: safeTaskIds,
+          idempotencyKey: `earn-${userId}-${safeGameId}-${batchNumber + i}`,
           status: 'pending',
         });
       }
@@ -1033,8 +945,7 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // STEP 2: Apply XP tier multiplier and prepare user mutations
-    // (safe because the BatchClaim lock ensures exclusive access)
+    // STEP 2: Apply XP tier multiplier
     const { finalXP, multiplier: tierMultiplier } =
       await applyTierMultiplierToXP(user, baseXpNum);
 
@@ -1046,10 +957,9 @@ router.post("/earn", protect, async (req, res) => {
     user.xp.current = Number(user.xp.current || 0) + finalXP;
     user.xp.total = Number(user.xp.total || 0) + finalXP;
 
-    // Optional lightweight history on user.games entry if present
-    if (gameId && Array.isArray(user.games)) {
+    if (Array.isArray(user.games)) {
       const idx = user.games.findIndex(
-        (g) => String(g.gameId) === String(gameId),
+        (g) => String(g.gameId) === safeGameId,
       );
       if (idx >= 0) {
         user.games[idx].lastEarnedAt = new Date();
@@ -1064,21 +974,22 @@ router.post("/earn", protect, async (req, res) => {
       }
     }
 
-    // STEP 3: Create transaction record
+    // STEP 3: Save user first, then create transaction record
+    await user.save();
+
+    const batchSuffixStr = batchNumber ? ` - Batch ${batchNumber}` : "";
     const transaction = new Transaction({
       user: user._id,
       type: "credit",
       amount: coinsNum,
       balanceType: "coins",
-      description: gameId
-        ? `Game earnings - ${gameId}${batchNumber ? ` - Batch ${batchNumber}` : ""}`
-        : `Manual game earnings${reason ? ` - ${reason}` : ""}`,
+      description: `Game earnings - ${safeGameId}${batchSuffixStr}`,
       status: "completed",
-      referenceId: `GAME-EARN-${gameId || "manual"}-${Date.now()}`,
-      gameId: gameId || null,
-      game: gameDoc?._id || null,
+      referenceId: `GAME-EARN-${safeGameId}-${Date.now()}`,
+      gameId: safeGameId,
+      game: gameDoc._id,
       metadata: {
-        gameId: gameId || null,
+        gameId: safeGameId,
         offerId: offerId || null,
         reason: reason || null,
         source: "game_earn",
@@ -1088,31 +999,30 @@ router.post("/earn", protect, async (req, res) => {
         batchNumber: batchNumber || null,
         batchesClaimed: batchesClaimed || null,
         gameTitle: gameTitle || null,
-        idempotencyKey: idempotencyKey,
+        idempotencyKey: batchClaims.length > 0 ? batchClaims[0].idempotencyKey : `earn-${userId}-${safeGameId}-manual`,
       },
     });
 
-    // STEP 4: Update BatchClaim records with transactionId and mark as completed
+    await transaction.save();
+
+    // STEP 4: Mark BatchClaims as completed
     if (batchClaims.length > 0) {
       const batchNumbers = batchClaims.map(b => b.batchNumber);
       await BatchClaim.updateMany(
-        { userId: user._id, gameId: gameId, batchNumber: { $in: batchNumbers } },
+        { userId: user._id, gameId: safeGameId, batchNumber: { $in: batchNumbers } },
         { $set: { transactionId: transaction._id, status: 'completed' } },
       );
     }
 
-    // Save user + transaction atomically
-    await Promise.all([user.save(), transaction.save()]);
-
-    // Track achievements for game earnings
+    // Track achievements async
     setImmediate(async () => {
       try {
         await trackAchievements(userId, "wallet", {
           coins: coinsNum,
           xp: finalXP,
           category: "game_earn",
-          gameId: gameId,
-          reason: reason,
+          gameId: safeGameId,
+          reason,
         });
 
         await trackAchievements(userId, "xp", {
@@ -1129,8 +1039,8 @@ router.post("/earn", protect, async (req, res) => {
       data: {
         wallet: { balance: user.wallet.balance },
         xp: { current: user.xp.current, total: user.xp.total },
-        batchesClaimed: batchClaims.length, // NEW
-        batchNumbers: batchClaims.map((b) => b.batchNumber), // NEW
+        batchesClaimed: batchClaims.length,
+        batchNumbers: batchClaims.map((b) => b.batchNumber),
       },
     });
   } catch (error) {

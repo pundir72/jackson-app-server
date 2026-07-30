@@ -5,6 +5,13 @@ const DailyChallenge = require('../models/DailyChallenge');
 const bitlabsOfferCache = require('./bitlabsOfferCache');
 const { processDecayForAllUsers } = require('./xpDecayV2');
 const config = require('../config/config');
+const besitosService = require('../services/besitos.service');
+const User = require('../models/User');
+const SurveyConfig = require('../models/SurveyConfig');
+const NonGamingOfferConfig = require('../models/NonGamingOfferConfig');
+const BesitosConversion = require('../models/BesitosConversion');
+const Transaction = require('../models/Transaction');
+const { applyTierMultiplierToXP } = require('./xpTierMultiplier');
 
 /**
  * Scheduler for My Account Overview daily tasks
@@ -32,6 +39,9 @@ class Scheduler {
 
     // Start Bitlabs offer cache refresh
     this.startBitlabsOfferRefresh();
+
+    // Start Besitos conversion poll
+    this.scheduleBesitosConversionPoll();
 
     console.log('Scheduler started successfully');
   }
@@ -252,6 +262,123 @@ class Scheduler {
       console.error('Error in manual Bitlabs offer refresh:', error);
       throw error;
     }
+  }
+
+  /**
+   * Schedule Besitos conversion polling
+   * Runs every 5 minutes to poll Besitos Conversion Data API for completed surveys/deals
+   * and credit admin-configured rewards to the respective users
+   */
+  scheduleBesitosConversionPoll() {
+    let lastPolledAt = null;
+
+    const job = cron.schedule('*/5 * * * *', async () => {
+      try {
+        if (!besitosService.getConversions) {
+          return;
+        }
+
+        const now = new Date();
+        const fromDate = lastPolledAt || new Date(Date.now() - 24 * 60 * 60 * 1000);
+        lastPolledAt = now;
+
+        const dateParams = {
+          from_date: fromDate.toISOString().split('T')[0],
+          to_date: now.toISOString().split('T')[0],
+          per_page: 1000
+        };
+
+        const [surveyResponse, dealResponse] = await Promise.all([
+          besitosService.getConversions({ ...dateParams, type: 'survey' }).catch(() => ({ data: [] })),
+          besitosService.getConversions({ ...dateParams, type: 'offer' }).catch(() => ({ data: [] })),
+        ]);
+
+        const surveyConversions = surveyResponse?.data || [];
+        const dealConversions = dealResponse?.data || [];
+
+        const allConversions = [
+          ...surveyConversions.map(c => ({ ...c, _isSurvey: true })),
+          ...dealConversions.map(c => ({ ...c, _isSurvey: false })),
+        ];
+
+        if (allConversions.length === 0) return;
+
+        let credited = 0;
+
+        for (const conv of allConversions) {
+          try {
+            const existing = await BesitosConversion.findOne({ conversionId: String(conv.transaction_id) });
+            if (existing) continue;
+
+            const extId = conv.survey_id || conv.offer_id || conv.deal_id;
+            if (!extId) continue;
+
+            const adminConfig = conv._isSurvey
+              ? await SurveyConfig.findOne({ externalId: String(extId), status: 'live' }).lean()
+              : await NonGamingOfferConfig.findOne({ externalId: String(extId), status: 'live' }).lean();
+
+            if (!adminConfig) continue;
+
+            const coinReward = adminConfig.coinReward || adminConfig.userRewardCoins || 0;
+            const xpReward = adminConfig.userRewardXP || 0;
+            if (coinReward <= 0 && xpReward <= 0) continue;
+
+            const user = await User.findById(conv.user_id).select('wallet xp');
+            if (!user) continue;
+
+            user.wallet.balance = (user.wallet.balance || 0) + coinReward;
+
+            const baseXp = xpReward > 0 ? xpReward : Math.round(coinReward * 0.5);
+            const { finalXP } = await applyTierMultiplierToXP(user, baseXp);
+
+            user.xp.current = (user.xp.current || 0) + finalXP;
+
+            const transaction = new Transaction({
+              user: user._id,
+              type: 'credit',
+              amount: coinReward,
+              description: `${conv._isSurvey ? 'Survey' : 'Deal'} completed - Besitos`,
+              status: 'completed',
+              referenceId: String(conv.transaction_id),
+              metadata: { source: 'besitos_conversion_poller', offerId: extId, xpEarned: finalXP }
+            });
+
+            const besitosConv = new BesitosConversion({
+              userId: user._id,
+              besitosUserId: conv.user_id,
+              offerId: extId,
+              offerName: conv.offer_name || conv.note || '',
+              offerType: conv._isSurvey ? 'survey' : 'other',
+              conversionId: String(conv.transaction_id),
+              conversionStatus: 'completed',
+              creditedCoins: coinReward,
+              creditedXP: finalXP,
+              isCredited: true,
+              creditedAt: new Date(),
+              eventTimestamp: conv.date_time ? new Date(conv.date_time) : new Date(),
+              revenue: { amount: conv.payout || 0, currency: 'USD' }
+            });
+
+            await Promise.all([user.save(), transaction.save(), besitosConv.save()]);
+            credited++;
+          } catch (err) {
+            console.error(`Error processing Besitos conversion ${conv.transaction_id}:`, err.message);
+          }
+        }
+
+        if (credited > 0) {
+          console.log(`Besitos conversion poll: ${credited} new conversions credited`);
+        }
+      } catch (error) {
+        console.error('Error in Besitos conversion poll:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+
+    this.jobs.push(job);
+    console.log('Besitos conversion poll scheduled (every 5 minutes)');
   }
 }
 

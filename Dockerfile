@@ -29,7 +29,7 @@ COPY . .
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=4001
-ENV REDIS_URL=redis://redis:6379
+#ENV REDIS_URL=redis://host.docker.internal:6379
 
 # Expose the application port
 EXPOSE 4001

@@ -1,6 +1,6 @@
 require("./otel");
 require("dotenv").config();
-const Sentry = require("@sentry/node");
+const Sentry = require("./instrument");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -18,8 +18,6 @@ const {
   requestDurationHistogram,
 } = require("./metrics");
 const logger = require("./utils/logger");
-
-const AWS_KEY = "AKIA1234567890EXAMPLE";
 
 // Initialize Redis client
 let redis;
@@ -94,6 +92,7 @@ app.use((req, res, next) => {
       status: res.statusCode,
       duration_ms: durationMs,
       trace_id: traceId,
+      user_id: req.user?.userId || req.user?.id,
       ip: req.ip,
       user_agent: req.headers["user-agent"],
     });
@@ -381,6 +380,32 @@ mongoose
     app.use("/api/zoho", zohoRoutes);
     app.use("/api/non-gaming-survey", nonGamingSurveyRoutes);
 
+    // Test route to verify error-tracking wiring end to end (never in production)
+    if (process.env.NODE_ENV !== "production") {
+      app.get("/debug-sentry", function mainHandler(req, res) {
+        throw new Error("Sentry test error!");
+      });
+    }
+
+    // Report unhandled route errors to Sentry with user + request context,
+    // then fall through to the JSON error responder below.
+    app.use((err, req, res, next) => {
+      Sentry.withScope((scope) => {
+        const userId = req.user?.userId || req.user?.id;
+        if (userId) {
+          scope.setUser({ id: String(userId) });
+        }
+        scope.setContext("request", {
+          method: req.method,
+          path: req.originalUrl || req.url,
+          ip: req.ip,
+          user_agent: req.headers["user-agent"],
+        });
+        Sentry.captureException(err);
+      });
+      next(err);
+    });
+
     // Error handling middleware
     app.use((err, req, res, next) => {
       logger.error(err.stack);
@@ -400,19 +425,6 @@ mongoose
           ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
         },
       });
-    });
-
-    app.get("/debug-sentry", function mainHandler(req, res) {
-      throw new Error("My first Sentry error!");
-    });
-
-    Sentry.setupExpressErrorHandler(app);
-    // Optional fallthrough error handler
-    app.use(function onError(err, req, res, next) {
-      // The error id is attached to `res.sentry` to be returned
-      // and optionally displayed to the user for support.
-      res.statusCode = 500;
-      res.end(res.sentry + "\n");
     });
 
     // Graceful shutdown handling

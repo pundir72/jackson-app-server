@@ -4,6 +4,14 @@ module.exports = {
   // Environment
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: process.env.PORT || 3000,
+  PASSWORD_RESET_CLIENT_URL:
+    process.env.PASSWORD_RESET_CLIENT_URL ||
+    (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*"
+      ? process.env.FRONTEND_URL
+      : null) ||
+    (process.env.NODE_ENV === "production"
+      ? "https://jacksonrewardsapp.vercel.app"
+      : "http://localhost:3000"),
 
   // Database
   MONGODB_URI:

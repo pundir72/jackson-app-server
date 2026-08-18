@@ -4,6 +4,14 @@ module.exports = {
   // Environment
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: process.env.PORT || 3000,
+  PASSWORD_RESET_CLIENT_URL:
+    process.env.PASSWORD_RESET_CLIENT_URL ||
+    (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*"
+      ? process.env.FRONTEND_URL
+      : null) ||
+    (process.env.NODE_ENV === "production"
+      ? "https://jacksonrewardsapp.vercel.app"
+      : "http://localhost:3000"),
 
   // Database
   MONGODB_URI:
@@ -54,6 +62,13 @@ module.exports = {
   // Google Play Integrity
   GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT: process.env.GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT,
   ANDROID_PACKAGE_NAME: process.env.ANDROID_PACKAGE_NAME,
+  // Comma-separated SHA-256 certificate digests of your app's signing certificates.
+  // Find via: keytool -printcert -jarfile your-app.apk | grep "SHA256:"
+  // Example: "a1b2c3d4e5f6...,b2c3d4e5f6a7..."
+  EXPECTED_CERT_DIGESTS: process.env.EXPECTED_CERT_DIGESTS,
+  // How long a challenge nonce stays valid (seconds). Default: 300 (5 minutes).
+  INTEGRITY_NONCE_TTL_SECONDS: process.env.INTEGRITY_NONCE_TTL_SECONDS || 300,
+  INTEGRITY_TEST_TOKEN: process.env.INTEGRITY_TEST_TOKEN || null,
 
   // Google Play In-App Purchase (IAP)
   GOOGLE_PLAY_SERVICE_ACCOUNT: process.env.GOOGLE_PLAY_SERVICE_ACCOUNT, // JSON string of service account credentials

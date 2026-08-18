@@ -129,7 +129,7 @@ const walkathonSchema = new mongoose.Schema({
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    default: null
   },
   configVersion: {
     type: Number,

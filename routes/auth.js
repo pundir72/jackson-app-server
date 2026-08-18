@@ -14,6 +14,7 @@ const {
   findVerifiedOTPByPhone,
 } = require("../utils/phoneUtils");
 const { applyXPDecay } = require("../utils/xpDecayV2");
+const config = require("../config/config");
 
 // 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
@@ -1539,12 +1540,19 @@ router.post(
       if (isEmail) {
         // Send email with reset link
         try {
-          const resetUrl = `https://jacksonrewardsapp.vercel.app/reset-password?token=${resetToken}`;
+          // The reset page must belong to the same environment as this API.
+          // A hard-coded production URL caused UAT/local tokens to be submitted
+          // to a different backend and rejected immediately.
+          const resetUrl = new URL(
+            "/reset-password",
+            config.PASSWORD_RESET_CLIENT_URL,
+          );
+          resetUrl.searchParams.set("token", resetToken);
 
           // Send password reset email
           await sendPasswordResetEmail(
             user.email,
-            resetUrl,
+            resetUrl.toString(),
             user.firstName || "User",
           );
 
@@ -1552,7 +1560,9 @@ router.post(
             message:
               "Password reset instructions have been sent to your email address",
             resetUrl:
-              process.env.NODE_ENV === "development" ? resetUrl : undefined,
+              process.env.NODE_ENV === "development"
+                ? resetUrl.toString()
+                : undefined,
           });
         } catch (emailError) {
           console.error("Email sending error:", emailError);

@@ -234,6 +234,62 @@ router.put('/challenges/:id', adminAuth, [
 });
 
 /**
+ * @route   POST /api/admin/walkathon/challenges/:id/activate
+ * @desc    Activate a walkathon whose configured dates include the current time
+ * @access  Admin
+ */
+router.post('/challenges/:id/activate', adminAuth, async (req, res) => {
+  try {
+    const walkathon = await Walkathon.findById(req.params.id);
+    if (!walkathon) {
+      return res.status(404).json({
+        success: false,
+        error: 'Walkathon not found'
+      });
+    }
+
+    const now = new Date();
+    if (now < walkathon.weekStart || now > walkathon.weekEnd) {
+      return res.status(400).json({
+        success: false,
+        error: 'Walkathon dates do not include the current time',
+        details: {
+          weekStart: walkathon.weekStart,
+          weekEnd: walkathon.weekEnd,
+          currentTime: now
+        }
+      });
+    }
+
+    await Walkathon.updateMany(
+      {
+        _id: { $ne: walkathon._id },
+        status: 'active'
+      },
+      { status: 'completed' }
+    );
+
+    walkathon.isActive = true;
+    walkathon.status = 'active';
+    await walkathon.save();
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Walkathon activated successfully',
+        walkathon: walkathon.getDisplayData()
+      }
+    });
+  } catch (error) {
+    console.error('Error activating walkathon:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to activate walkathon'
+    });
+  }
+});
+
+/**
  * @route   DELETE /api/admin/walkathon/challenges/:id
  * @desc    Delete walkathon challenge
  * @access  Admin
@@ -411,6 +467,30 @@ router.get('/stats', adminAuth, [
 });
 
 // ==================== MANUAL ACTIONS ====================
+
+/**
+ * @route   POST /api/admin/walkathon/sync-lifecycle
+ * @desc    Create/activate the current walkathon and prepare the next week
+ * @access  Admin
+ */
+router.post('/sync-lifecycle', adminAuth, async (req, res) => {
+  try {
+    const result = await walkathonService.syncWalkathonLifecycle();
+    res.json({
+      success: true,
+      data: {
+        message: 'Walkathon lifecycle synchronized successfully',
+        ...result
+      }
+    });
+  } catch (error) {
+    console.error('Error synchronizing walkathon lifecycle:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to synchronize walkathon lifecycle'
+    });
+  }
+});
 
 /**
  * @route   POST /api/admin/walkathon/reset-weekly

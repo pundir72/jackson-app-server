@@ -123,6 +123,13 @@ pipeline {
 
                 cp ${ENV_FILE_PATH} ${WORKSPACE}/.env
                 echo "✅ .env file copied to workspace"
+
+                # Stamp this build as the Sentry release so every error
+                # maps to the exact deploy that introduced it
+                sed -i '/^SENTRY_RELEASE=/d' ${WORKSPACE}/.env
+                echo "SENTRY_RELEASE=build-${BUILD_NUMBER}" >> ${WORKSPACE}/.env
+                echo "✅ SENTRY_RELEASE=build-${BUILD_NUMBER} stamped into .env"
+
                 ls -la ${WORKSPACE}/.env
                 '''
             }

@@ -10,3 +10,9 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    networks:
+      - sre-net
+
+networks:
+  sre-net:
+    external: true

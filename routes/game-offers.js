@@ -176,7 +176,7 @@ router.post("/install", protect, async (req, res) => {
     
     // CRITICAL: Must select 'games' field to update it
     const user = await User.findById(req.user.userId).select(
-      "games profile location"
+      "games profile location createdAt"
     );
 
     if (!user) {
@@ -278,13 +278,18 @@ router.post("/install", protect, async (req, res) => {
         
         const inProgressGames = besitosData.in_progress || besitosData.data?.in_progress || [];
         const completedGames = besitosData.completed || besitosData.data?.completed || [];
-        const allBesitosGames = [...inProgressGames, ...completedGames];
-        
+        const accountCreatedAt = user.createdAt || new Date(0);
+        const allBesitosGames = [...inProgressGames, ...completedGames].filter(g => {
+          const installedAt = g.downloaded_at ? new Date(g.downloaded_at) : null;
+          if (!installedAt) return true; // no date = treat as new install, allow it
+          return installedAt >= accountCreatedAt;
+        });
+
         if (allBesitosGames.length > 0) {
           if (!user.games) user.games = [];
           const existingGameIds = new Set((user.games || []).map(g => String(g.gameId)));
           let syncedCount = 0;
-          
+
           for (const besitosGame of allBesitosGames) {
             const besitosGameId = String(besitosGame.id || besitosGame.offer_id || besitosGame.game_id);
             if (!besitosGameId || besitosGameId === 'undefined' || besitosGameId === 'null') continue;

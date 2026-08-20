@@ -76,7 +76,12 @@ const vipSubscriptionSchema = new mongoose.Schema({
     region: { type: String, default: 'US' },
     source: { type: String, default: 'app' }, // app, web, admin
     campaign: String,
-    referrer: String
+    referrer: String,
+    transactionId: String,
+    originalTransactionId: String,
+    productId: String,
+    appStoreEnvironment: String,
+    sessionId: String
   },
   createdAt: { 
     type: Date, 
@@ -101,6 +106,7 @@ vipSubscriptionSchema.index({ stripeSubscriptionId: 1 });
 vipSubscriptionSchema.index({ stripeCustomerId: 1 }); // Added index for stripeCustomerId
 vipSubscriptionSchema.index({ endDate: 1, status: 1 });
 vipSubscriptionSchema.index({ createdAt: -1 });
+vipSubscriptionSchema.index({ 'metadata.transactionId': 1 }, { unique: true, sparse: true });
 
 // Static method to get active subscription for user
 vipSubscriptionSchema.statics.getActiveSubscription = function(userId) {

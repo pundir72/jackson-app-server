@@ -145,6 +145,11 @@ module.exports = {
   // Supported Ad Networks: Facebook, Google AdMob, Digital Turbine, Inmobi, Mintegral, Bidmachine, Liftoff/Vungle, Pangle, Moloco, Google Ad Manager
   APPLOVIN_MAX_SDK_KEY: process.env.APPLOVIN_MAX_SDK_KEY,
 
+  // Apple App Store receipt verification
+  APP_STORE_SHARED_SECRET: process.env.APP_STORE_SHARED_SECRET,
+  APP_BUNDLE_ID: process.env.APP_BUNDLE_ID || 'com.jackson.rewards.app',
+  IOS_AUTH_URL_SCHEME: process.env.IOS_AUTH_URL_SCHEME || 'jacksonrewards',
+
   // Adjust - S2S API for event tracking
   // Documentation: https://dev.adjust.com/en/api/s2s-api
   ADJUST_API_TOKEN: process.env.ADJUST_API_TOKEN,

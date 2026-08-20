@@ -1090,6 +1090,16 @@ router.post(
 // SOCIAL LOGIN ROUTES
 // ========================================
 
+// Must match CFBundleURLSchemes in the iOS app's Info.plist. The previous
+// com.jackson.app scheme was never registered by iOS, so Safari could not hand
+// the OAuth callback back to the application.
+const mobileAuthScheme = (config.IOS_AUTH_URL_SCHEME || 'jacksonrewards')
+  .replace(/[^a-zA-Z0-9+.-]/g, '');
+const mobileAuthUrl = (path, params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return `${mobileAuthScheme}://auth/${path}${query ? `?${query}` : ''}`;
+};
+
 // Google OAuth Routes
 router.get(
   "/google",
@@ -1100,7 +1110,9 @@ router.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: "/login",
+    failureRedirect: mobileAuthUrl('error', {
+      message: 'Google authentication failed'
+    }),
   }),
   async (req, res) => {
     try {
@@ -1128,10 +1140,10 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        const errorMessage = encodeURIComponent(message);
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
-        );
+        return res.redirect(mobileAuthUrl('error', {
+          message,
+          accountStatus: status
+        }));
       }
 
       // Update login analytics and device info (same as normal login)
@@ -1185,13 +1197,17 @@ router.get(
       });
 
       // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=google&userId=${user._id}`;
+      const redirectUrl = mobileAuthUrl('callback', {
+        token,
+        provider: 'google',
+        userId: user._id.toString()
+      });
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Google OAuth callback error:", error);
-      res.redirect(
-        `com.jackson.app://auth/error?message=Google authentication failed`,
-      );
+      res.redirect(mobileAuthUrl('error', {
+        message: 'Google authentication failed'
+      }));
     }
   },
 );
@@ -1237,22 +1253,17 @@ router.get(
           err,
         );
         // Redirect to mobile app error deep link
-        const errorMessage = encodeURIComponent(
-          err.message || "Facebook authentication failed",
-        );
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}`,
-        );
+        return res.redirect(mobileAuthUrl('error', {
+          message: err.message || 'Facebook authentication failed'
+        }));
       }
       if (!req.user) {
         console.error(
           "[Facebook Mobile Callback] No user after authentication",
         );
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "Facebook authentication failed - no user data",
-          )}`,
-        );
+        return res.redirect(mobileAuthUrl('error', {
+          message: 'Facebook authentication failed - no user data'
+        }));
       }
       next(); // Continue to the callback handler
     });
@@ -1263,11 +1274,9 @@ router.get(
 
       if (!user) {
         console.error("[Facebook Mobile Callback] User is null");
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "User not found after Facebook authentication",
-          )}`,
-        );
+        return res.redirect(mobileAuthUrl('error', {
+          message: 'User not found after Facebook authentication'
+        }));
       }
 
       // Check if user account status allows login (only active users can login)
@@ -1290,10 +1299,10 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        const errorMessage = encodeURIComponent(message);
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
-        );
+        return res.redirect(mobileAuthUrl('error', {
+          message,
+          accountStatus: status
+        }));
       }
 
       // Apply XP decay BEFORE resetting lastActive so inactivity is measured correctly
@@ -1349,9 +1358,11 @@ router.get(
       });
 
       // Redirect to mobile app with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(
+      const redirectUrl = mobileAuthUrl('callback', {
         token,
-      )}&provider=facebook&userId=${user._id.toString()}`;
+        provider: 'facebook',
+        userId: user._id.toString()
+      });
 
       console.log(
         "[Facebook Mobile Callback] Success - Redirecting to mobile app:",
@@ -1377,12 +1388,9 @@ router.get(
         hasUser: !!req.user,
       });
 
-      const errorMessage = error.message || "Facebook authentication failed";
-      return res.redirect(
-        `com.jackson.app://auth/error?message=${encodeURIComponent(
-          errorMessage,
-        )}`,
-      );
+      return res.redirect(mobileAuthUrl('error', {
+        message: error.message || 'Facebook authentication failed'
+      }));
     }
   },
 );

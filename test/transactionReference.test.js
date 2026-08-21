@@ -1,6 +1,7 @@
 const {
   buildWalkathonReferenceId,
   getAdminTransactionId,
+  getAdminTransactionMetadata,
   getEntityId,
 } = require("../utils/transactionReference");
 
@@ -41,5 +42,14 @@ describe("transaction reference helpers", () => {
     expect(
       getAdminTransactionId({ _id: "fallback", referenceId })
     ).toBe(referenceId);
+  });
+
+  test("normalizes legacy Walkathon XP for the admin transaction list", () => {
+    expect(
+      getAdminTransactionMetadata({
+        amount: 0,
+        metadata: { source: "walkathon", xpEarned: 10 },
+      })
+    ).toEqual({ source: "walkathon", xpEarned: 10, finalXp: 10 });
   });
 });

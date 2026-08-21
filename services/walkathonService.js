@@ -323,7 +323,8 @@ async function claimReward(userId, milestone) {
     const transaction = new Transaction({
       user: userId,
       type: 'credit',
-      amount: reward.coinEarned,
+      amount: finalXP,
+      balanceType: 'xp',
       description: `Walkathon Reward - ${milestone} steps milestone`,
       status: 'completed',
       metadata: {
@@ -331,6 +332,9 @@ async function claimReward(userId, milestone) {
         weekKey: activeWalkathon.weekKey,
         milestone: milestone,
         xpEarned: reward.xpEarned,
+        finalXp: finalXP,
+        coins: reward.coinEarned || 0,
+        tierMultiplier,
         source: 'walkathon'
       },
       referenceId: buildWalkathonReferenceId(activeWalkathon, milestone)

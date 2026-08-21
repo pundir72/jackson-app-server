@@ -36,8 +36,22 @@ function getAdminTransactionId(transaction) {
   return referenceId;
 }
 
+function getAdminTransactionMetadata(transaction) {
+  const metadata = { ...(transaction?.metadata || {}) };
+
+  // Legacy Walkathon transactions stored the XP only as `xpEarned` while the
+  // admin client formats XP from `finalXp`. Normalize the response so existing
+  // claims display their actual reward instead of "0 coins".
+  if (metadata.source === "walkathon" && metadata.finalXp == null) {
+    metadata.finalXp = metadata.xpEarned ?? 0;
+  }
+
+  return metadata;
+}
+
 module.exports = {
   buildWalkathonReferenceId,
   getAdminTransactionId,
+  getAdminTransactionMetadata,
   getEntityId,
 };

@@ -112,7 +112,16 @@ async function joinWalkathon(userId, weekKey = null) {
     // Check if user already joined
     const existingProgress = await UserWalkathonProgress.findOne({ userId, weekKey: walkathon.weekKey });
     if (existingProgress) {
-      throw new Error('User has already joined this walkathon');
+      // Joining is idempotent. A previous request may have saved the progress
+      // record even if its response was interrupted, so return the existing
+      // participation instead of presenting a false failure to the app.
+      await existingProgress.populate('walkathonId');
+      return {
+        success: true,
+        message: 'User has already joined this walkathon',
+        alreadyJoined: true,
+        progress: existingProgress.getProgressData()
+      };
     }
 
     // Create user progress record
@@ -128,6 +137,11 @@ async function joinWalkathon(userId, weekKey = null) {
     });
 
     await progress.save();
+
+    // getProgressData() requires the full Walkathon document for milestones,
+    // rewards, and percentage calculations. A newly created document contains
+    // only the walkathon ObjectId until it is explicitly populated.
+    await progress.populate('walkathonId');
 
     // Update walkathon participant count
     await Walkathon.findByIdAndUpdate(walkathon._id, {

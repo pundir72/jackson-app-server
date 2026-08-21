@@ -10,7 +10,7 @@ const StepData = require('../models/StepData');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Leaderboard = require('../models/Leaderboard');
-const { 
+const {
   getISOWeekKey, 
   getWeekBounds, 
   getDefaultRewardTiers, 
@@ -20,6 +20,10 @@ const {
   generateWalkathonStats,
   getTimeRemaining
 } = require('../utils/walkathonHelpers');
+const {
+  buildWalkathonReferenceId,
+  getEntityId
+} = require('../utils/transactionReference');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
@@ -312,6 +316,8 @@ async function claimReward(userId, milestone) {
     );
     user.xp.current = (user.xp.current || 0) + finalXP;
     user.xp.total = (user.xp.total || 0) + finalXP;
+
+    const walkathonId = getEntityId(activeWalkathon);
     
     // Create transaction record
     const transaction = new Transaction({
@@ -321,13 +327,13 @@ async function claimReward(userId, milestone) {
       description: `Walkathon Reward - ${milestone} steps milestone`,
       status: 'completed',
       metadata: {
-        walkathonId: progress.walkathonId,
+        walkathonId,
         weekKey: activeWalkathon.weekKey,
         milestone: milestone,
         xpEarned: reward.xpEarned,
         source: 'walkathon'
       },
-      referenceId: `WALKATHON-${progress.walkathonId}-${milestone}-${Date.now()}`
+      referenceId: buildWalkathonReferenceId(activeWalkathon, milestone)
     });
 
     await transaction.save();
@@ -342,7 +348,7 @@ async function claimReward(userId, milestone) {
     await user.save();
 
     // Update walkathon stats
-    await Walkathon.findByIdAndUpdate(progress.walkathonId, {
+    await Walkathon.findByIdAndUpdate(walkathonId, {
       $inc: { totalRewardsClaimed: 1 }
     });
 

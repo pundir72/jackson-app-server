@@ -482,7 +482,38 @@ router.post('/complete-purchase', auth, [
     if (!receiptVerification.valid) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid App Store receipt'
+        error: 'Invalid App Store receipt',
+        details: receiptVerification.error,
+        appleStatus: receiptVerification.status
+      });
+    }
+
+    if (receiptVerification.transactionId !== transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'The App Store transaction does not match the verified receipt'
+      });
+    }
+
+    // Apple transactions are immutable. Treat retries as idempotent so a slow
+    // network response cannot turn a successful App Store purchase into a
+    // visible "Payment Failed" state.
+    const completedPurchase = await VIPSubscription.findOne({
+      'metadata.transactionId': receiptVerification.transactionId
+    });
+    if (completedPurchase) {
+      if (completedPurchase.userId.toString() !== userId.toString()) {
+        return res.status(409).json({
+          success: false,
+          error: 'This App Store transaction belongs to another account'
+        });
+      }
+      return res.json({
+        success: true,
+        data: {
+          subscription: completedPurchase.getSummary(),
+          message: 'Subscription was already activated'
+        }
       });
     }
 
@@ -531,8 +562,10 @@ router.post('/complete-purchase', auth, [
       metadata: {
         region: 'US',
         source: 'ios_app',
-        transactionId,
+        transactionId: receiptVerification.transactionId,
+        originalTransactionId: receiptVerification.originalTransactionId,
         productId,
+        appStoreEnvironment: receiptVerification.environment,
         sessionId
       }
     });
@@ -540,12 +573,12 @@ router.post('/complete-purchase', auth, [
     await subscription.save();
 
     // Update user's VIP status
-    const user = await User.findById(userId);
-    if (user) {
-      user.vip.level = tierId;
-      user.vip.isActive = true;
-      await user.save();
-    }
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'vip.level': tierId,
+        'vip.isActive': true
+      }
+    });
 
     res.json({
       success: true,

@@ -1,6 +1,39 @@
 const https = require('https');
 const config = require('../config/config');
 
+const requestAppleVerification = (hostname, verificationData) => {
+  const postData = JSON.stringify(verificationData);
+  const options = {
+    hostname,
+    port: 443,
+    path: '/verifyReceipt',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (error) {
+          reject(new Error('Failed to parse Apple response: ' + error.message));
+        }
+      });
+    });
+    req.on('error', (error) => {
+      reject(new Error('Apple verification request failed: ' + error.message));
+    });
+    req.write(postData);
+    req.end();
+  });
+};
+
 /**
  * App Store Receipt Verification Utility
  * Handles iOS App Store receipt verification for in-app purchases
@@ -14,103 +47,70 @@ const config = require('../config/config');
  */
 const verifyAppStoreReceipt = async (receiptData, productId) => {
   try {
-    // In production, use Apple's verification service
-    // For development/testing, we'll simulate verification
-    
-    if (process.env.NODE_ENV === 'development') {
-      // Development mode - simulate successful verification
-      return {
-        valid: true,
-        transactionId: `txn_${Date.now()}`,
-        productId: productId,
-        purchaseDate: new Date().toISOString(),
-        expiresDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        originalTransactionId: `orig_txn_${Date.now()}`,
-        bundleId: config.APP_BUNDLE_ID || 'com.yourapp.bundle',
-        environment: 'Sandbox'
-      };
-    }
-
-    // Production verification with Apple
+    // TestFlight uses sandbox receipts even when the API itself is deployed in
+    // a non-production environment, so every environment must verify with Apple.
     const verificationData = {
       'receipt-data': receiptData,
       'password': config.APP_STORE_SHARED_SECRET, // Your App Store shared secret
       'exclude-old-transactions': true
     };
 
-    const postData = JSON.stringify(verificationData);
-    
-    const options = {
-      hostname: 'buy.itunes.apple.com', // Use 'sandbox.itunes.apple.com' for testing
-      port: 443,
-      path: '/verifyReceipt',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      }
-    };
+    if (!config.APP_STORE_SHARED_SECRET) {
+      return {
+        valid: false,
+        error: 'APP_STORE_SHARED_SECRET is not configured on the API server'
+      };
+    }
 
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-        
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        
-        res.on('end', () => {
-          try {
-            const response = JSON.parse(data);
-            
-            if (response.status === 0) {
-              // Receipt is valid
-              const receipt = response.receipt;
-              const inApp = receipt.in_app || [];
-              
-              // Find the specific product in the receipt
-              const productTransaction = inApp.find(transaction => 
-                transaction.product_id === productId
-              );
-              
-              if (productTransaction) {
-                resolve({
-                  valid: true,
-                  transactionId: productTransaction.transaction_id,
-                  productId: productTransaction.product_id,
-                  purchaseDate: new Date(parseInt(productTransaction.purchase_date_ms)).toISOString(),
-                  expiresDate: productTransaction.expires_date_ms ? 
-                    new Date(parseInt(productTransaction.expires_date_ms)).toISOString() : null,
-                  originalTransactionId: productTransaction.original_transaction_id,
-                  bundleId: receipt.bundle_id,
-                  environment: response.environment
-                });
-              } else {
-                resolve({
-                  valid: false,
-                  error: 'Product not found in receipt'
-                });
-              }
-            } else {
-              // Receipt is invalid
-              resolve({
-                valid: false,
-                error: getAppStoreErrorDescription(response.status)
-              });
-            }
-          } catch (error) {
-            reject(new Error('Failed to parse Apple response: ' + error.message));
-          }
-        });
-      });
-      
-      req.on('error', (error) => {
-        reject(new Error('Apple verification request failed: ' + error.message));
-      });
-      
-      req.write(postData);
-      req.end();
-    });
+    // Always try production first. TestFlight/sandbox receipts return 21007 and
+    // must be retried against Apple's sandbox endpoint.
+    let response = await requestAppleVerification('buy.itunes.apple.com', verificationData);
+    if (response.status === 21007) {
+      response = await requestAppleVerification('sandbox.itunes.apple.com', verificationData);
+    } else if (response.status === 21008) {
+      response = await requestAppleVerification('buy.itunes.apple.com', verificationData);
+    }
+
+    if (response.status !== 0) {
+      return {
+        valid: false,
+        status: response.status,
+        error: getAppStoreErrorDescription(response.status)
+      };
+    }
+
+    const receipt = response.receipt || {};
+    if (config.APP_BUNDLE_ID && receipt.bundle_id !== config.APP_BUNDLE_ID) {
+      return {
+        valid: false,
+        error: `Receipt bundle ID ${receipt.bundle_id || '(missing)'} does not match this application`
+      };
+    }
+    const transactions = [
+      ...(Array.isArray(receipt.in_app) ? receipt.in_app : []),
+      ...(Array.isArray(response.latest_receipt_info) ? response.latest_receipt_info : [])
+    ];
+    const productTransactions = transactions
+      .filter((transaction) => transaction.product_id === productId)
+      .sort((a, b) => Number(b.purchase_date_ms || 0) - Number(a.purchase_date_ms || 0));
+    const productTransaction = productTransactions[0];
+
+    if (!productTransaction) {
+      return { valid: false, error: 'Product not found in receipt' };
+    }
+
+    return {
+      valid: true,
+      transactionId: productTransaction.transaction_id,
+      productId: productTransaction.product_id,
+      purchaseDate: new Date(Number(productTransaction.purchase_date_ms)).toISOString(),
+      expiresDate: productTransaction.expires_date_ms
+        ? new Date(Number(productTransaction.expires_date_ms)).toISOString()
+        : null,
+      originalTransactionId: productTransaction.original_transaction_id,
+      bundleId: receipt.bundle_id,
+      environment: response.environment
+    };
     
   } catch (error) {
     console.error('App Store verification error:', error);

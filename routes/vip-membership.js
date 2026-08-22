@@ -367,12 +367,15 @@ router.post('/initiate-purchase', auth, [
     const { tierId, plan, region = 'US' } = req.body;
     const userId = req.user.userId;
 
-    // Check if user already has active subscription
+    // An active subscriber may change tier/plan (e.g. Gold -> Platinum).
+    // Only an identical repurchase is rejected; the previous subscription is
+    // closed in complete-purchase once Apple verifies the new transaction.
     const activeSubscription = await VIPSubscription.getActiveSubscription(userId);
-    if (activeSubscription && activeSubscription.isActive()) {
+    const isTierChange = !!(activeSubscription && activeSubscription.isActive());
+    if (isTierChange && activeSubscription.tier === tierId && activeSubscription.plan === plan) {
       return res.status(400).json({
         success: false,
-        error: 'User already has an active subscription'
+        error: 'You are already subscribed to this tier and plan'
       });
     }
 
@@ -414,6 +417,9 @@ router.post('/initiate-purchase', auth, [
         expiresAt: purchaseSession.expiresAt,
         appStoreProductId: `${tierId}_${plan}`, // iOS App Store product ID
         pricing: tierPricing[plan], // Full pricing details for frontend
+        tierChange: isTierChange
+          ? { fromTier: activeSubscription.tier, fromPlan: activeSubscription.plan }
+          : null,
         instructions: {
           title: 'Complete Purchase',
           description: 'Use the session ID to complete your purchase in the App Store',
@@ -517,13 +523,21 @@ router.post('/complete-purchase', auth, [
       });
     }
 
-    // Check if user already has active subscription
+    // A verified purchase from a user with an active subscription is a
+    // tier/plan change: close the previous subscription and activate the new
+    // one. Identical repurchases were already rejected at initiate-purchase,
+    // and true duplicates are caught by the transaction idempotency check
+    // above, so reaching here with the same tier+plan means a genuine new
+    // Apple transaction that must not be discarded.
     const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
     if (existingSubscription && existingSubscription.isActive()) {
-      return res.status(400).json({
-        success: false,
-        error: 'User already has an active subscription'
-      });
+      existingSubscription.status = 'cancelled';
+      existingSubscription.autoRenew = false;
+      existingSubscription.endDate = new Date();
+      existingSubscription.metadata.replacedByTransactionId = receiptVerification.transactionId;
+      existingSubscription.metadata.replacedAt = new Date();
+      existingSubscription.metadata.replacementReason = 'tier_change';
+      await existingSubscription.save();
     }
 
     // Get pricing for the tier and plan

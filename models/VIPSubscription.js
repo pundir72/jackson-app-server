@@ -81,7 +81,12 @@ const vipSubscriptionSchema = new mongoose.Schema({
     originalTransactionId: String,
     productId: String,
     appStoreEnvironment: String,
-    sessionId: String
+    sessionId: String,
+    // Set on the OLD subscription when a verified purchase replaces it
+    // (tier/plan change, e.g. Gold -> Platinum)
+    replacedByTransactionId: String,
+    replacedAt: Date,
+    replacementReason: String
   },
   createdAt: { 
     type: Date, 

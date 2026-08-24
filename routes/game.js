@@ -2042,7 +2042,12 @@ router.get("/discover", protect, async (req, res) => {
       console.log(`[DISCOVER RESPONSE] gameId=${g.gameId} rewards.coins=${g.rewards?.coins} goalsCount=${g.goals?.length} goalsTotalCoins=${g.goals?.reduce((s, gl) => s + (gl.coinReward || 0), 0)}`);
     });
 
-    const uiSections = await Game.distinct("uiSection");
+    // Exclude blank/missing section names: a game saved with an empty
+    // uiSection put "" into this list, which drove the iOS game-list screen
+    // into an infinite fetch loop (BUG_017 freeze).
+    const uiSections = (await Game.distinct("uiSection")).filter(
+      (s) => typeof s === "string" && s.trim() !== ""
+    );
 
     // Set cache-control headers to prevent 304 Not Modified responses
     res.set({

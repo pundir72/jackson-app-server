@@ -233,8 +233,103 @@ const getSubscriptionStatus = async (receiptData) => {
   }
 };
 
+// SHA-256 fingerprint of Apple Root CA - G3 (https://www.apple.com/certificateauthority/),
+// the root of the certificate chain embedded in every StoreKit 2 signed transaction.
+const APPLE_ROOT_CA_G3_FINGERPRINT256 =
+  '63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79';
+
+const base64UrlToBuffer = (value) =>
+  Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+
+/**
+ * Verify a StoreKit 2 signed transaction (JWS) entirely offline.
+ *
+ * StoreKit 2 purchases do not always produce the legacy app-store receipt file
+ * (notably in TestFlight/sandbox), but they always carry a jwsRepresentation
+ * signed by Apple. The JWS embeds its x5c certificate chain; verification
+ * checks the chain links, pins the root to Apple Root CA - G3, verifies the
+ * ES256 signature with the leaf certificate, then validates the payload claims
+ * against what the client reported.
+ *
+ * @param {string} jws - The signed transaction (header.payload.signature)
+ * @param {Object} expected - { bundleId, productId, transactionId }
+ * @returns {Object} Same shape as verifyAppStoreReceipt results
+ */
+const verifyAppStoreJws = (jws, expected = {}) => {
+  const crypto = require('crypto');
+  try {
+    if (typeof jws !== 'string' || jws.split('.').length !== 3) {
+      return { valid: false, error: 'Malformed signed transaction (JWS)' };
+    }
+    const [headerB64, payloadB64, signatureB64] = jws.split('.');
+    const header = JSON.parse(base64UrlToBuffer(headerB64).toString('utf8'));
+    if (header.alg !== 'ES256' || !Array.isArray(header.x5c) || header.x5c.length < 2) {
+      return { valid: false, error: 'Unsupported signed transaction header' };
+    }
+
+    const chain = header.x5c.map(
+      (cert) => new crypto.X509Certificate(Buffer.from(cert, 'base64'))
+    );
+    for (let i = 0; i < chain.length - 1; i++) {
+      if (!chain[i].verify(chain[i + 1].publicKey)) {
+        return { valid: false, error: 'Signed transaction certificate chain is invalid' };
+      }
+    }
+    const rootCert = chain[chain.length - 1];
+    if (rootCert.fingerprint256 !== APPLE_ROOT_CA_G3_FINGERPRINT256) {
+      return { valid: false, error: 'Signed transaction is not rooted in Apple Root CA - G3' };
+    }
+
+    const signatureValid = crypto.verify(
+      'sha256',
+      Buffer.from(`${headerB64}.${payloadB64}`),
+      { key: chain[0].publicKey, dsaEncoding: 'ieee-p1363' },
+      base64UrlToBuffer(signatureB64)
+    );
+    if (!signatureValid) {
+      return { valid: false, error: 'Signed transaction signature verification failed' };
+    }
+
+    const payload = JSON.parse(base64UrlToBuffer(payloadB64).toString('utf8'));
+
+    if (expected.bundleId && payload.bundleId !== expected.bundleId) {
+      return {
+        valid: false,
+        error: `Signed transaction bundle ID ${payload.bundleId || '(missing)'} does not match this application`
+      };
+    }
+    if (expected.productId && payload.productId !== expected.productId) {
+      return { valid: false, error: 'Signed transaction product does not match the purchase' };
+    }
+    if (expected.transactionId && String(payload.transactionId) !== String(expected.transactionId)) {
+      return { valid: false, error: 'Signed transaction ID does not match the purchase' };
+    }
+    if (payload.revocationDate) {
+      return { valid: false, error: 'This App Store transaction has been revoked' };
+    }
+
+    return {
+      valid: true,
+      method: 'jws',
+      transactionId: String(payload.transactionId),
+      productId: payload.productId,
+      purchaseDate: payload.purchaseDate
+        ? new Date(payload.purchaseDate).toISOString()
+        : null,
+      expiresDate: payload.expiresDate
+        ? new Date(payload.expiresDate).toISOString()
+        : null,
+      originalTransactionId: String(payload.originalTransactionId || payload.transactionId),
+      environment: payload.environment
+    };
+  } catch (error) {
+    return { valid: false, error: 'Signed transaction verification error: ' + error.message };
+  }
+};
+
 module.exports = {
   verifyAppStoreReceipt,
+  verifyAppStoreJws,
   validateSubscriptionPurchase,
   getSubscriptionStatus,
   getAppStoreErrorDescription

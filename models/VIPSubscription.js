@@ -81,6 +81,7 @@ const vipSubscriptionSchema = new mongoose.Schema({
     originalTransactionId: String,
     productId: String,
     appStoreEnvironment: String,
+    verificationMethod: String, // 'receipt' | 'jws'
     sessionId: String,
     // Set on the OLD subscription when a verified purchase replaces it
     // (tier/plan change, e.g. Gold -> Platinum)

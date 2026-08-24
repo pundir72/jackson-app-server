@@ -7,7 +7,8 @@ const VIPTier = require('../models/VIPTier');
 const VIPSubscription = require('../models/VIPSubscription');
 const { getVIPPricing } = require('../utils/pricing');
 const { getUserVIPBenefits } = require('../utils/vipBenefits');
-const { verifyAppStoreReceipt } = require('../utils/appStoreVerification');
+const { verifyAppStoreReceipt, verifyAppStoreJws } = require('../utils/appStoreVerification');
+const config = require('../config/config');
 
 // ==================== VIP MEMBERSHIP SCREEN ====================
 
@@ -448,7 +449,11 @@ router.post('/initiate-purchase', auth, [
  */
 router.post('/complete-purchase', auth, [
   body('sessionId').notEmpty().withMessage('Session ID is required'),
-  body('appStoreReceipt').notEmpty().withMessage('App Store receipt is required'),
+  // StoreKit 2 purchases (TestFlight/sandbox especially) may not produce the
+  // legacy base64 receipt; they always carry a signed transaction (JWS).
+  // Either proof of purchase is accepted.
+  body('appStoreReceipt').optional({ checkFalsy: true }).isString(),
+  body('jwsRepresentation').optional({ checkFalsy: true }).isString(),
   body('transactionId').notEmpty().withMessage('Transaction ID is required'),
   body('productId').notEmpty().withMessage('Product ID is required')
 ], async (req, res) => {
@@ -462,8 +467,15 @@ router.post('/complete-purchase', auth, [
       });
     }
 
-    const { sessionId, appStoreReceipt, transactionId, productId } = req.body;
+    const { sessionId, appStoreReceipt, jwsRepresentation, transactionId, productId } = req.body;
     const userId = req.user.userId;
+
+    if (!appStoreReceipt && !jwsRepresentation) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either an App Store receipt or a signed transaction (jwsRepresentation) is required'
+      });
+    }
 
     // Verify the session exists and is valid
     // In production, you would validate this against your session store
@@ -483,8 +495,15 @@ router.post('/complete-purchase', auth, [
       });
     }
 
-    // Verify App Store receipt (in production, use Apple's verification service)
-    const receiptVerification = await verifyAppStoreReceipt(appStoreReceipt, productId);
+    // Verify proof of purchase: legacy receipt via Apple's verifyReceipt API,
+    // or a StoreKit 2 signed transaction verified offline against Apple's CA.
+    const receiptVerification = appStoreReceipt
+      ? await verifyAppStoreReceipt(appStoreReceipt, productId)
+      : verifyAppStoreJws(jwsRepresentation, {
+          bundleId: config.APP_BUNDLE_ID,
+          productId,
+          transactionId
+        });
     if (!receiptVerification.valid) {
       return res.status(400).json({
         success: false,
@@ -580,6 +599,7 @@ router.post('/complete-purchase', auth, [
         originalTransactionId: receiptVerification.originalTransactionId,
         productId,
         appStoreEnvironment: receiptVerification.environment,
+        verificationMethod: receiptVerification.method || 'receipt',
         sessionId
       }
     });

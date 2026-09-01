@@ -1100,6 +1100,35 @@ const mobileAuthUrl = (path, params = {}) => {
   return `${mobileAuthScheme}://auth/${path}${query ? `?${query}` : ''}`;
 };
 
+// SFSafariViewController (used by the Capacitor Browser plugin on iOS) refuses
+// plain HTTP 302 redirects to custom URL schemes and shows "Safari cannot open
+// the page because the address is invalid" - even when the scheme is
+// registered. Navigation to a custom scheme from a user gesture is always
+// allowed, so instead of redirecting we serve a tiny page that retries via
+// JavaScript and always offers a tappable "Return to app" button.
+const sendMobileAuthRedirect = (res, url) => {
+  const safeUrl = String(url)
+    .replace(/"/g, '%22')
+    .replace(/</g, '%3C')
+    .replace(/>/g, '%3E');
+  res.set('Cache-Control', 'no-store');
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Returning to Jackson</title>
+<style>
+body{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}
+a.btn{display:inline-block;margin-top:24px;padding:14px 32px;background:linear-gradient(180deg,#9eadf7 0%,#716ae7 100%);color:#fff;border-radius:12px;text-decoration:none;font-weight:600;font-size:17px}
+p{color:#a4a4a4;font-size:15px}
+</style></head>
+<body>
+<h2>Signing you in&hellip;</h2>
+<p>If the app does not open automatically,<br>tap the button below.</p>
+<a class="btn" href="${safeUrl}">Return to Jackson</a>
+<script>setTimeout(function(){window.location.href="${safeUrl}";},80);</script>
+</body></html>`);
+};
+
 // Google OAuth Routes
 router.get(
   "/google",
@@ -1140,7 +1169,7 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        return res.redirect(mobileAuthUrl('error', {
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
           message,
           accountStatus: status
         }));
@@ -1202,10 +1231,10 @@ router.get(
         provider: 'google',
         userId: user._id.toString()
       });
-      res.redirect(redirectUrl);
+      sendMobileAuthRedirect(res, redirectUrl);
     } catch (error) {
       console.error("Google OAuth callback error:", error);
-      res.redirect(mobileAuthUrl('error', {
+      sendMobileAuthRedirect(res, mobileAuthUrl('error', {
         message: 'Google authentication failed'
       }));
     }
@@ -1253,7 +1282,7 @@ router.get(
           err,
         );
         // Redirect to mobile app error deep link
-        return res.redirect(mobileAuthUrl('error', {
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
           message: err.message || 'Facebook authentication failed'
         }));
       }
@@ -1261,7 +1290,7 @@ router.get(
         console.error(
           "[Facebook Mobile Callback] No user after authentication",
         );
-        return res.redirect(mobileAuthUrl('error', {
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
           message: 'Facebook authentication failed - no user data'
         }));
       }
@@ -1274,7 +1303,7 @@ router.get(
 
       if (!user) {
         console.error("[Facebook Mobile Callback] User is null");
-        return res.redirect(mobileAuthUrl('error', {
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
           message: 'User not found after Facebook authentication'
         }));
       }
@@ -1299,7 +1328,7 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        return res.redirect(mobileAuthUrl('error', {
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
           message,
           accountStatus: status
         }));
@@ -1374,7 +1403,7 @@ router.get(
         },
       );
 
-      return res.redirect(redirectUrl);
+      return sendMobileAuthRedirect(res, redirectUrl);
     } catch (error) {
       console.error(
         "[Facebook Mobile Callback] Error in callback handler:",
@@ -1388,7 +1417,7 @@ router.get(
         hasUser: !!req.user,
       });
 
-      return res.redirect(mobileAuthUrl('error', {
+      return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
         message: error.message || 'Facebook authentication failed'
       }));
     }

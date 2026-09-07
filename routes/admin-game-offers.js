@@ -3417,6 +3417,62 @@ router.get("/welcome-bonus-timer", adminAuth, async (req, res) => {
   }
 });
 
+/**
+ * Helpers for reading gameBonusTasks entries.
+ *
+ * Deleting a Game or a GameTask does not remove the gameBonusTasks entries that
+ * reference it, so `populate` resolves those refs to null. Dereferencing them
+ * threw "Cannot read properties of null (reading '_id')" and took down every
+ * bonus-task read AND the save endpoint - the admin panel reported
+ * "Failed to update game bonus tasks" for every game, not just the stale one,
+ * because the orphan sat at index 0 and crashed the lookup before it matched.
+ *
+ * These resolve defensively and skip entries whose documents are gone.
+ */
+const bonusConfigGameId = (config) =>
+  config?.gameId?._id?.toString() || config?.gameId?.toString() || null;
+
+const findGameBonusConfig = (rule, gameId, { enabledOnly = false } = {}) =>
+  (rule?.gameBonusTasks || []).find(
+    (config) =>
+      bonusConfigGameId(config) === gameId &&
+      (!enabledOnly || config.isEnabled)
+  );
+
+const formatGameBonusConfig = (config) => {
+  const bonusTasks = (config.bonusTasks || []).filter((bt) => bt.isEnabled);
+  const resolved = bonusTasks.filter((bt) => bt.taskId);
+
+  if (resolved.length !== bonusTasks.length) {
+    console.warn(
+      `[WelcomeBonusTimer] Skipping ${bonusTasks.length - resolved.length} bonus task(s) with a deleted GameTask on game ${bonusConfigGameId(config)}`
+    );
+  }
+
+  return {
+    gameId: config.gameId?._id || config.gameId,
+    gameTitle: config.gameId?.title || null,
+    gameGameId: config.gameId?.gameId || null,
+    minimumEventThreshold: config.minimumEventThreshold,
+    completionDeadlineHours: config.completionDeadlineHours || 24,
+    taskLogic: "sequential", // Always sequential
+    bonusTasks: resolved
+      .sort((a, b) => a.order - b.order)
+      .map((bt) => ({
+        taskId: bt.taskId._id || bt.taskId,
+        order: bt.order,
+        name: bt.taskId.name || null,
+        description: bt.taskId.description || null,
+        completionRule: bt.taskId.completionRule || null,
+        rewardType: bt.taskId.rewardType || null,
+        rewardValue: bt.taskId.rewardValue || null,
+        unlockCondition: bt.unlockCondition,
+        isEnabled: bt.isEnabled,
+      })),
+    isEnabled: config.isEnabled,
+  };
+};
+
 // Get welcome bonus timer rule for a specific game
 router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
   try {
@@ -3442,9 +3498,9 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
       });
     }
 
-    const gameBonusConfig = rule.gameBonusTasks.find(
-      (config) => config.gameId._id.toString() === gameId && config.isEnabled
-    );
+    const gameBonusConfig = findGameBonusConfig(rule, gameId, {
+      enabledOnly: true,
+    });
 
     if (!gameBonusConfig) {
       return res.json({
@@ -3455,29 +3511,7 @@ router.get("/welcome-bonus-timer/game/:gameId", adminAuth, async (req, res) => {
     }
 
     // Format response for frontend
-    const formattedData = {
-      gameId: gameBonusConfig.gameId._id || gameBonusConfig.gameId,
-      gameTitle: gameBonusConfig.gameId.title || null,
-      gameGameId: gameBonusConfig.gameId.gameId || null,
-      minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
-      completionDeadlineHours: 24, // Fixed 24 hours
-      taskLogic: "sequential", // Always sequential
-      bonusTasks: gameBonusConfig.bonusTasks
-        .filter((bt) => bt.isEnabled)
-        .sort((a, b) => a.order - b.order)
-        .map((bt) => ({
-          taskId: bt.taskId._id || bt.taskId,
-          order: bt.order,
-          name: bt.taskId.name || null,
-          description: bt.taskId.description || null,
-          completionRule: bt.taskId.completionRule || null,
-          rewardType: bt.taskId.rewardType || null,
-          rewardValue: bt.taskId.rewardValue || null,
-          unlockCondition: bt.unlockCondition,
-          isEnabled: bt.isEnabled,
-        })),
-      isEnabled: gameBonusConfig.isEnabled,
-    };
+    const formattedData = formatGameBonusConfig(gameBonusConfig);
 
     res.json({
       success: true,
@@ -3772,39 +3806,25 @@ router.post(
         "name description completionRule rewardType rewardValue"
       );
 
-      const gameBonusConfig = rule.gameBonusTasks.find(
-        (config) => config.gameId._id.toString() === gameId
-      );
+      const gameBonusConfig = findGameBonusConfig(rule, gameId);
 
-      // Format response for frontend
-      const formattedData = {
-        gameId: gameBonusConfig.gameId._id || gameBonusConfig.gameId,
-        gameTitle: gameBonusConfig.gameId.title || null,
-        gameGameId: gameBonusConfig.gameId.gameId || null,
-        minimumEventThreshold: gameBonusConfig.minimumEventThreshold,
-        completionDeadlineHours: gameBonusConfig.completionDeadlineHours || 24,
-        taskLogic: "sequential", // Always sequential
-        bonusTasks: gameBonusConfig.bonusTasks
-          .filter((bt) => bt.isEnabled)
-          .sort((a, b) => a.order - b.order)
-          .map((bt) => ({
-            taskId: bt.taskId._id || bt.taskId,
-            order: bt.order,
-            name: bt.taskId.name || null,
-            description: bt.taskId.description || null,
-            completionRule: bt.taskId.completionRule || null,
-            rewardType: bt.taskId.rewardType || null,
-            rewardValue: bt.taskId.rewardValue || null,
-            unlockCondition: bt.unlockCondition,
-            isEnabled: bt.isEnabled,
-          })),
-        isEnabled: gameBonusConfig.isEnabled,
-      };
+      // The save above already succeeded, so never fail the request just
+      // because the response could not be formatted.
+      if (!gameBonusConfig) {
+        console.warn(
+          `[WelcomeBonusTimer] Saved bonus tasks for game ${gameId} but could not locate the entry to format a response`
+        );
+        return res.json({
+          success: true,
+          message: "Game bonus tasks configured successfully",
+          data: null,
+        });
+      }
 
       res.json({
         success: true,
         message: "Game bonus tasks configured successfully",
-        data: formattedData,
+        data: formatGameBonusConfig(gameBonusConfig),
       });
     } catch (error) {
       console.error("Error updating game bonus tasks:", error);
@@ -3890,34 +3910,22 @@ router.get(
         });
       }
 
-      // Format all game bonus task configurations
-      const configurations = rule.gameBonusTasks
-        .filter((config) => config.isEnabled)
-        .map((config) => ({
-          gameId: config.gameId._id || config.gameId,
-          gameTitle: config.gameId?.title || null,
-          gameGameId: config.gameId?.gameId || null,
-          minimumEventThreshold: config.minimumEventThreshold,
-          completionDeadlineHours: config.completionDeadlineHours || 24,
-          taskLogic: "sequential", // Always sequential
-          bonusTasks: config.bonusTasks
-            .filter((bt) => bt.isEnabled)
-            .sort((a, b) => a.order - b.order)
-            .map((bt) => ({
-              taskId: bt.taskId._id || bt.taskId,
-              order: bt.order,
-              name: bt.taskId?.name || null,
-              description: bt.taskId?.description || null,
-              completionRule: bt.taskId?.completionRule || null,
-              rewardType: bt.taskId?.rewardType || null,
-              rewardValue: bt.taskId?.rewardValue || null,
-              unlockCondition: bt.unlockCondition,
-              isEnabled: bt.isEnabled,
-            })),
-          isEnabled: config.isEnabled,
-          createdAt: config.createdAt,
-          updatedAt: config.updatedAt,
-        }));
+      // Format all game bonus task configurations. Entries whose Game document
+      // was deleted are skipped rather than listed with a null gameId.
+      const enabled = rule.gameBonusTasks.filter((config) => config.isEnabled);
+      const listable = enabled.filter((config) => config.gameId);
+
+      if (listable.length !== enabled.length) {
+        console.warn(
+          `[WelcomeBonusTimer] Skipping ${enabled.length - listable.length} bonus task configuration(s) whose Game was deleted`
+        );
+      }
+
+      const configurations = listable.map((config) => ({
+        ...formatGameBonusConfig(config),
+        createdAt: config.createdAt,
+        updatedAt: config.updatedAt,
+      }));
 
       res.json({
         success: true,

@@ -34,6 +34,71 @@ function calculateStepwiseXP(taskNumber, baseXP, multiplier) {
 }
 
 /**
+ * UI sections that are a superset of another section.
+ *
+ * "Most Played Screen" is the full screen reached by tapping "See All" on the
+ * home page's "Most Played" row. Admin exposed the two as independently
+ * configurable sections, so the screen could show a different set of games than
+ * the row that opened it - and in practice showed none at all, because games
+ * were only ever tagged "Most Played". Tapping "See All" opened an empty screen.
+ *
+ * The screen is now always a superset of its row: it returns the row's games
+ * plus anything tagged for the screen itself, so one configuration drives both
+ * while extra screen-only games remain possible.
+ *
+ * Keys are normalized (trimmed, lowercased, whitespace collapsed); values are
+ * the exact strings stored on Game.uiSection.
+ */
+const UI_SECTION_SUPERSETS = {
+  "most played screen": ["Most Played Screen", "Most Played"],
+};
+
+const normalizeUiSection = (section) =>
+  String(section || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+/**
+ * Builds the Mongo filter value for a requested uiSection - a plain string for
+ * normal sections, or an $in over the whole set for a superset section.
+ */
+const uiSectionFilterValue = (section) => {
+  const sections = UI_SECTION_SUPERSETS[normalizeUiSection(section)];
+  return sections ? { $in: sections } : section;
+};
+
+/**
+ * The same game can exist as several Game documents - one per
+ * (gameId, gender, uiSection, ageGroup) variant - so widening the query to more
+ * than one section can return the same game twice. Keep one document per
+ * gameId, preferring the variant tagged for the requested section over the one
+ * inherited from the section it supersets.
+ */
+const dedupeGamesByGameId = (games, requestedSection) => {
+  const normalizedRequested = normalizeUiSection(requestedSection);
+  const byGameId = new Map();
+
+  for (const game of games) {
+    const key = String(game.gameId || game._id);
+    const existing = byGameId.get(key);
+    if (!existing) {
+      byGameId.set(key, game);
+      continue;
+    }
+    const isExactMatch =
+      normalizeUiSection(game.uiSection) === normalizedRequested;
+    const existingIsExactMatch =
+      normalizeUiSection(existing.uiSection) === normalizedRequested;
+    if (isExactMatch && !existingIsExactMatch) {
+      byGameId.set(key, game);
+    }
+  }
+
+  return [...byGameId.values()];
+};
+
+/**
  * Check if a game is currently available from its SDK provider
  * @param {Object} game - Game document from database
  * @param {Object} userProfile - User profile for API calls
@@ -1240,7 +1305,13 @@ router.get("/discover", protect, async (req, res) => {
       filter.isActive = true;
     }
 
-    if (uiSection) filter.uiSection = uiSection;
+    if (uiSection) filter.uiSection = uiSectionFilterValue(uiSection);
+
+    // A superset section queries more than one uiSection, so its results need
+    // de-duplicating by gameId afterwards.
+    const isSupersetSection = Boolean(
+      UI_SECTION_SUPERSETS[normalizeUiSection(uiSection)]
+    );
 
     // Device platform filter
     const userDeviceType = user.device?.type?.toLowerCase();
@@ -1341,7 +1412,7 @@ router.get("/discover", protect, async (req, res) => {
 
     // Check games matching user profile instead
     const userProfileFilter = { isActive: true };
-    if (uiSection) userProfileFilter.uiSection = uiSection;
+    if (uiSection) userProfileFilter.uiSection = uiSectionFilterValue(uiSection);
     // Use user's actual gender if query param doesn't match
     if (userProfile.gender && userProfile.gender !== "other") {
       userProfileFilter.gender = userProfile.gender;
@@ -1376,6 +1447,10 @@ router.get("/discover", protect, async (req, res) => {
     // Get all matching games first (before pagination)
     // Sort by createdAt (same as survey/non-gaming sync pattern)
     let allGames = await Game.find(filter).sort({ createdAt: -1 }).lean();
+
+    if (isSupersetSection) {
+      allGames = dedupeGamesByGameId(allGames, uiSection);
+    }
 
     // Hide already downloaded/installed games from discovery listings
     // This ensures games the user has already downloaded are not shown again

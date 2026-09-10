@@ -20,6 +20,16 @@ const gameTaskSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  // True when this task was mirrored from a provider's goal list rather than
+  // curated by an admin. A game can carry 20+ provider goals against a handful
+  // of curated tasks, so these are HIDDEN by default from the player-facing
+  // task list and the admin pickers, and shown only in the classification
+  // editor that exists to work through them.
+  isProviderSynced: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   // The provider's own id for this task - BitLabs events[].id, Besitos
   // goals[].goal_id. Webhooks identify a completed goal by this, so without it
   // there is no reliable way to match a callback to a task. The Besitos webhook

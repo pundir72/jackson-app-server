@@ -2428,7 +2428,14 @@ router.get("/:gameId/tasks", protect, async (req, res) => {
         })
       : null;
 
-    let query = { gameId: gameId, isActive: true };
+    // Provider-synced tasks exist so challenges can count goal completions;
+    // they are bookkeeping, not curated content. A game can carry 20+ of them
+    // against a handful of real tasks, so they are never shown to players.
+    let query = {
+      gameId: gameId,
+      isActive: true,
+      isProviderSynced: { $ne: true },
+    };
 
     // Exclude bonus tasks from normal task list (only if game is in first 3)
     if (rule && isInFirstThree) {

@@ -2288,131 +2288,45 @@ router.post("/complete", protect, async (req, res) => {
         }
         break;
 
-      case "game":
+      case "game": {
         /**
-         * TEMPORARY OVERRIDE:
-         * For game-type daily challenges, skip all gameplay validation and
-         * always allow completion when user hits "Mark complete".
+         * Completion is validated against play time reported for TODAY'S
+         * challenge, held in progress.progress.metadata.playTimeMinutes and
+         * written by PUT /api/daily-challenge/update-progress.
          *
-         * WARNING: This means users can complete the challenge and earn rewards
-         * without actually playing the game. Re-enable the original validation
-         * below when you want to enforce real gameplay.
+         * This replaces a temporary override that set actionValidated = true
+         * unconditionally, letting anyone claim a game challenge reward without
+         * playing. It also replaces the strict validation that sat commented
+         * out beneath it, which read user.games[].totalDuration - a field the
+         * strict User schema does not define, so it was always undefined - and
+         * inferred play time from a firstPlayed/lastPlayed span, which measures
+         * elapsed wall-clock rather than play and is trivially inflated.
+         *
+         * Challenge-scoped, app-reported minutes are the only trustworthy
+         * signal we currently have, so they are the only one used.
+         *
+         * NOTE: no app reports play time yet, so game challenges cannot be
+         * completed until that lands. That is deliberate - failing closed is
+         * correct, and there are currently no game-type challenges configured.
          */
-        actionValidated = true;
+        const requiredMinutes = Number(challenge.requirements?.timeLimit) || 0;
+        const reportedMinutes =
+          Number(progress.progress?.metadata?.playTimeMinutes) || 0;
 
-        /*
-        // ORIGINAL STRICT VALIDATION (commented out):
-        // Verify game was played for required time
-        const gameId =
-          challenge.assignedGame?.gameId ||
-          challenge.gameId ||
-          progress.selectedGame?.gameId;
-
-        if (!gameId) {
-          validationError = "Game not selected or assigned for this challenge";
+        if (!requiredMinutes) {
+          validationError =
+            "This challenge has no play time requirement configured. Please contact support.";
+        } else if (reportedMinutes <= 0) {
+          validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge.`;
+        } else if (reportedMinutes < requiredMinutes) {
+          validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
+            reportedMinutes
+          )} minutes`;
         } else {
-          // Get game ID string for comparison
-          const gameIdString = gameId.toString ? gameId.toString() : gameId;
-
-          // Check if game was actually played today by checking user's game history
-          const userWithGames = await User.findById(userId).select("games");
-          const gamePlayed = userWithGames?.games?.find((g) => {
-            const userGameId = g.gameId?.toString
-              ? g.gameId.toString()
-              : g.gameId;
-            return userGameId === gameIdString;
-          });
-
-          // STRICT VALIDATION: Game must be played, not just downloaded
-          if (!gamePlayed || !gamePlayed.lastPlayed) {
-            validationError =
-              "Please play the game first to complete this challenge";
-          } else {
-            // Check if game was played today
-            const lastPlayedDate = new Date(gamePlayed.lastPlayed);
-            const todayStart = new Date(normalizedStart);
-            const isPlayedToday = lastPlayedDate >= todayStart;
-
-            if (!isPlayedToday) {
-              validationError =
-                "Please play the game today to complete this challenge";
-            } else if (challenge.requirements?.timeLimit) {
-              // TIME REQUIREMENT: Must play for the required time
-              // Check if minimum play time was met - REQUIRED for completion
-              const requiredMinutes = challenge.requirements.timeLimit;
-
-              // Get play time from progress metadata (updated by app when user plays)
-              const playTimeMinutes =
-                progress.progress?.metadata?.playTimeMinutes || 0;
-
-              // Also check game's totalDuration if available (in seconds, convert to minutes)
-              // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
-              const gameTotalDurationMinutes = gamePlayed.totalDuration
-                ? Math.floor((gamePlayed.totalDuration || 0) / 60)
-                : 0;
-
-              // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
-              let todayPlayTimeMinutes = 0;
-              if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
-                const firstPlayed = new Date(gamePlayed.firstPlayed);
-                const lastPlayed = new Date(gamePlayed.lastPlayed);
-                const todayStart = new Date(normalizedStart);
-
-                // Only calculate if both timestamps are today
-                if (firstPlayed >= todayStart && lastPlayed >= todayStart) {
-                  const timeDiffMinutes =
-                    (lastPlayed - firstPlayed) / (1000 * 60);
-                  // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
-                  todayPlayTimeMinutes = Math.min(timeDiffMinutes, 480);
-                }
-              }
-
-              // Use the maximum of all sources, but STRICTLY require play time tracking
-              const actualPlayTime = Math.max(
-                playTimeMinutes,
-                gameTotalDurationMinutes,
-                todayPlayTimeMinutes
-              );
-
-              // STRICT VALIDATION: Require actual play time tracking
-              // Reject if no play time is tracked at all
-              if (
-                playTimeMinutes === 0 &&
-                gameTotalDurationMinutes === 0 &&
-                todayPlayTimeMinutes === 0
-              ) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
-              } else if (actualPlayTime < requiredMinutes) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
-                  actualPlayTime
-                )} minutes`;
-              } else {
-                actionValidated = true;
-              }
-            } else {
-              // No time requirement - but still require game to be actually played
-              // Check if game has been played (not just downloaded) by verifying playCount or progress
-              const hasActualPlay =
-                gamePlayed.playCount > 0 ||
-                (gamePlayed.progress !== undefined &&
-                  gamePlayed.progress > 0) ||
-                (gamePlayed.level !== undefined && gamePlayed.level > 1) ||
-                (gamePlayed.firstPlayed &&
-                  gamePlayed.lastPlayed &&
-                  new Date(gamePlayed.lastPlayed).getTime() >
-                    new Date(gamePlayed.firstPlayed).getTime() + 60000); // At least 1 minute difference
-
-              if (!hasActualPlay) {
-                validationError =
-                  "Please actually play the game (not just download) to complete this challenge";
-              } else {
-                actionValidated = true;
-              }
-            }
-          }
+          actionValidated = true;
         }
-        */
         break;
+      }
 
       case "survey":
         // Verify SDK task was completed (for survey challenges)

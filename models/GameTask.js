@@ -20,6 +20,38 @@ const gameTaskSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  // The provider's own id for this task - BitLabs events[].id, Besitos
+  // goals[].goal_id. Webhooks identify a completed goal by this, so without it
+  // there is no reliable way to match a callback to a task. The Besitos webhook
+  // already tried to query `besitosGoalId`, a field this strict schema never
+  // defined, so that lookup could never match.
+  externalTaskId: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  // BitLabs type_id, kept for traceability and so a re-sync can re-derive the
+  // classification. Null for Besitos, which exposes no semantic type.
+  providerTypeId: {
+    type: Number,
+    default: null
+  },
+  // What kind of action this task represents. Multi-valued because real tasks
+  // are composite - "Reach Area 11 and Make 1 purchase" is both a milestone and
+  // a purchase, and collapsing that to one value loses a challenge match.
+  eventTypes: {
+    type: [String],
+    enum: ['install', 'purchase', 'milestone', 'playtime'],
+    default: []
+  },
+  // Where the classification came from. Only 'provider' and 'admin' may satisfy
+  // a purchase/milestone challenge; 'inferred' is a keyword suggestion awaiting
+  // human confirmation and must never pay a reward on its own.
+  classificationSource: {
+    type: String,
+    enum: ['provider', 'admin', 'inferred', null],
+    default: null
+  },
   rewardType: {
     type: String,
     enum: ['xp', 'coins'],
@@ -158,6 +190,10 @@ gameTaskSchema.pre('save', function(next) {
 });
 
 // Indexes for efficient queries
+// Webhooks look a task up by game + provider task id on every goal completion,
+// so this is the hot path for challenge counting.
+gameTaskSchema.index({ gameId: 1, externalTaskId: 1 });
+gameTaskSchema.index({ eventTypes: 1, classificationSource: 1 });
 gameTaskSchema.index({ gameId: 1, order: 1 });
 gameTaskSchema.index({ gameId: 1, isActive: 1 });
 gameTaskSchema.index({ rewardType: 1 });

@@ -655,6 +655,50 @@ router.get("/challenges/:id", adminAuth, async (req, res) => {
   }
 });
 
+/**
+ * Validates a Game challenge's objective.
+ *
+ * Game challenges used to support only "play for N minutes", so this demanded a
+ * positive timeLimit. They now carry an explicit objective, and requiring
+ * timeLimit would reject every purchase/milestone challenge.
+ *
+ * Accepts a legacy body that sends only timeLimit, so existing admin clients
+ * keep working until the objective controls ship.
+ */
+const validateGameObjective = (requirements = {}) => {
+  const OBJECTIVES = ["playtime", "purchases", "milestones", "tasks"];
+  const { objective, target, timeLimit, gameScope } = requirements || {};
+
+  if (gameScope !== undefined && !["any", "specific"].includes(gameScope)) {
+    return 'gameScope must be "any" or "specific"';
+  }
+
+  // Legacy shape: no objective, timeLimit alone means play time.
+  if (objective === undefined || objective === null || objective === "") {
+    const minutes = Number(timeLimit);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return "Game challenges require an objective, or a positive timeLimit (minutes) for play-time challenges";
+    }
+    return null;
+  }
+
+  if (!OBJECTIVES.includes(objective)) {
+    return `Invalid objective. Must be one of: ${OBJECTIVES.join(", ")}`;
+  }
+
+  // playtime may take its value from either target or the legacy timeLimit
+  const amount =
+    objective === "playtime" ? Number(target ?? timeLimit) : Number(target);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return objective === "playtime"
+      ? "Play-time challenges require a positive target (minutes)"
+      : `${objective} challenges require a positive target`;
+  }
+
+  return null;
+};
+
 // Create new daily challenge
 router.post(
   "/challenges",
@@ -744,21 +788,13 @@ router.post(
         });
       }
 
-      // Additional validation: for Game type, ensure timeLimit is provided
+      // Game challenges must declare what they require
       if (req.body.type === "game") {
-        const timeLimit =
-          req.body.requirements && req.body.requirements.timeLimit;
-        if (
-          timeLimit === undefined ||
-          timeLimit === null ||
-          Number.isNaN(Number(timeLimit)) ||
-          Number(timeLimit) <= 0
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Time-based Game challenges require a positive timeLimit (minutes)",
-          });
+        const objectiveError = validateGameObjective(req.body.requirements);
+        if (objectiveError) {
+          return res
+            .status(400)
+            .json({ success: false, message: objectiveError });
         }
       }
 
@@ -1153,22 +1189,14 @@ router.put(
         });
       }
 
-      // If the type is being set/changed to game, ensure timeLimit is present
+      // If the type is being set/changed to game, validate its objective
       const nextType = req.body.type;
       if (nextType === "game") {
-        const timeLimit =
-          req.body.requirements && req.body.requirements.timeLimit;
-        if (
-          timeLimit === undefined ||
-          timeLimit === null ||
-          Number.isNaN(Number(timeLimit)) ||
-          Number(timeLimit) <= 0
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Time-based Game challenges require a positive timeLimit (minutes)",
-          });
+        const objectiveError = validateGameObjective(req.body.requirements);
+        if (objectiveError) {
+          return res
+            .status(400)
+            .json({ success: false, message: objectiveError });
         }
       }
 

@@ -88,8 +88,22 @@ const spinWheelLogSchema = new mongoose.Schema({
     transactionId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Transaction'
+    },
+
+    // The daily challenge this spin was made for, when it came from
+    // POST /api/daily-challenge/spin. Null for ordinary spin-wheel spins.
+    //
+    // Without this, challenge spins were indistinguishable from ordinary ones:
+    // the challenge looked up "any spin by this user today", so a regular spin
+    // satisfied the challenge and, worse, blocked the challenge spin outright.
+    // It also made counting multiple spins for one challenge impossible.
+    challenge: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'DailyChallenge',
+        default: null,
+        index: true
     }
-    
+
 }, {
     timestamps: true
 });

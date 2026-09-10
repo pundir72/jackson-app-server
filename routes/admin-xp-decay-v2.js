@@ -9,6 +9,43 @@ const { adminAuth } = require('../middleware/adminAuth')
 // Apply admin auth to all routes
 router.use(adminAuth)
 
+// XPDecaySettingV2.inactiveDuration is consumed as a number of DAYS
+// (see utils/xpDecayV2.js checkInactivity).
+const DURATION_UNIT_IN_DAYS = { day: 1, week: 7, month: 30 }
+
+/**
+ * Parses an inactivity duration into days.
+ *
+ * The admin form takes free text and its own validation accepts
+ * "7 Days" / "3 Weeks" / "2 Months", but this used to read only the leading
+ * number and throw the unit away - so "3 Weeks" was stored as 3 and then read
+ * back as 3 days. Every Weeks or Months value was wrong by 7x or 30x, silently.
+ *
+ * A bare number is treated as days, which is what the field stores.
+ * Returns null when the value cannot be parsed or the unit is unrecognised, so
+ * the caller's existing validation rejects it instead of guessing.
+ */
+function parseInactivityDurationToDays(value) {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  const match = String(value)
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/)
+  if (!match) return null
+
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return null
+
+  const unit = match[2].toLowerCase().replace(/s$/, '')
+  const multiplier = unit ? DURATION_UNIT_IN_DAYS[unit] : 1
+  if (!multiplier) return null
+
+  return Math.round(amount * multiplier)
+}
+
 /**
  * Helper function to get XP Range from XPTierV2 model
  * Auto-populates XP range based on selected tier
@@ -208,8 +245,7 @@ router.post('/xp-decay-v2', async (req, res) => {
     // Parse inactivityDuration if it's a string like "1 day"
     let inactiveDurationValue = inactiveDuration
     if (inactivityDuration) {
-      const match = inactivityDuration.match(/(\d+)/)
-      inactiveDurationValue = match ? parseInt(match[1]) : 1
+      inactiveDurationValue = parseInactivityDurationToDays(inactivityDuration)
     }
 
     // CRITICAL FIX: Validate tier value is one of the allowed values (case-insensitive check)
@@ -429,8 +465,7 @@ router.put('/xp-decay-v2/:id', async (req, res) => {
     // Parse inactivityDuration if it's a string like "1 day"
     let inactiveDurationValue = inactiveDuration
     if (inactivityDuration) {
-      const match = inactivityDuration.match(/(\d+)/)
-      inactiveDurationValue = match ? parseInt(match[1]) : undefined
+      inactiveDurationValue = parseInactivityDurationToDays(inactivityDuration)
     }
 
     const setting = await XPDecaySettingV2.findById(req.params.id)

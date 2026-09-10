@@ -106,6 +106,33 @@ const dailyChallengeSchema = new mongoose.Schema(
         default: null,
         min: 0,
       },
+      // What a Game challenge actually asks for. Legacy challenges have no
+      // objective and are treated as 'playtime' with target = timeLimit, so
+      // they keep working untouched.
+      //
+      //   playtime   - play for `target` minutes (app-reported)
+      //   purchases  - complete `target` purchase-tagged provider goals
+      //   milestones - complete `target` milestone-tagged provider goals
+      //   tasks      - complete `target` provider goals of any kind
+      objective: {
+        type: String,
+        enum: ['playtime', 'purchases', 'milestones', 'tasks', null],
+        default: null,
+      },
+      // How many of the above are required.
+      target: {
+        type: Number,
+        default: null,
+        min: 1,
+      },
+      // 'any' counts progress in whatever game the user is playing, which is
+      // what the client asked for: a user cannot be made to install a specific
+      // new game every day. 'specific' pins the challenge to one game.
+      gameScope: {
+        type: String,
+        enum: ['any', 'specific'],
+        default: 'specific',
+      },
       // Spin challenges: how many spins are required. Defaults to 1 so
       // challenges created before this field existed behave exactly as before.
       spinCount: {

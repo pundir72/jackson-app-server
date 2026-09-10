@@ -15,6 +15,10 @@ const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
 const BesitosConversion = require("../models/BesitosConversion");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const {
+  resolveObjective,
+  describeObjective,
+} = require("../utils/challengeObjective");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const BonusDay = require("../models/BonusDay");
@@ -2323,21 +2327,39 @@ router.post("/complete", protect, async (req, res) => {
          * completed until that lands. That is deliberate - failing closed is
          * correct, and there are currently no game-type challenges configured.
          */
-        const requiredMinutes = Number(challenge.requirements?.timeLimit) || 0;
-        const reportedMinutes =
-          Number(progress.progress?.metadata?.playTimeMinutes) || 0;
+        const { objective, target } = resolveObjective(challenge);
 
-        if (!requiredMinutes) {
+        if (!objective || !target) {
           validationError =
-            "This challenge has no play time requirement configured. Please contact support.";
-        } else if (reportedMinutes <= 0) {
-          validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge.`;
-        } else if (reportedMinutes < requiredMinutes) {
-          validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
-            reportedMinutes
-          )} minutes`;
-        } else {
+            "This challenge has no requirement configured. Please contact support.";
+          break;
+        }
+
+        if (objective === "playtime") {
+          const reportedMinutes =
+            Number(progress.progress?.metadata?.playTimeMinutes) || 0;
+
+          if (reportedMinutes <= 0) {
+            validationError = `Please play the game for at least ${target} minutes. Play time must be tracked to complete this challenge.`;
+          } else if (reportedMinutes < target) {
+            validationError = `Please play the game for at least ${target} minutes to complete this challenge. Current play time: ${Math.floor(
+              reportedMinutes
+            )} minutes`;
+          } else {
+            actionValidated = true;
+          }
+          break;
+        }
+
+        // Event-driven objectives (purchases / milestones / tasks) are counted
+        // from provider goal completions arriving on webhooks, recorded into
+        // progress.currentStep. The user cannot self-report these.
+        const completedCount = Number(progress.progress?.currentStep) || 0;
+
+        if (completedCount >= target) {
           actionValidated = true;
+        } else {
+          validationError = `${describeObjective(challenge)} to complete this challenge. Completed ${completedCount} of ${target}.`;
         }
         break;
       }

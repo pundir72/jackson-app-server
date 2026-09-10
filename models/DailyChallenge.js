@@ -106,6 +106,20 @@ const dailyChallengeSchema = new mongoose.Schema(
         default: null,
         min: 0,
       },
+      // Spin challenges: how many spins are required. Defaults to 1 so
+      // challenges created before this field existed behave exactly as before.
+      spinCount: {
+        type: Number,
+        default: 1,
+        min: 1,
+      },
+      // Optional window the required spins must happen within, measured from
+      // when the user starts the challenge. Null means "any time today".
+      spinWindowMinutes: {
+        type: Number,
+        default: null,
+        min: 1,
+      },
       prerequisites: [
         {
           challengeId: {

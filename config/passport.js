@@ -3,6 +3,7 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const FacebookStrategy = require('passport-facebook').Strategy;
 const User = require('../models/User');
 const config = require('./config');
+const { getOAuthNames } = require('../utils/oauthProfile');
 
 // Serialize user for the session
 passport.serializeUser((user, done) => {
@@ -32,6 +33,7 @@ passport.use(new GoogleStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
     try {
         console.log(profile, "----------profile");
+        const oauthNames = getOAuthNames(profile);
         // Check if user already exists
         let user = await User.findOne({
             $or: [
@@ -42,21 +44,31 @@ passport.use(new GoogleStrategy({
 
         if (user) {
             // Update existing user's Google info
+            let shouldSave = false;
             if (!user.social) {
                 user.social = {};
             }
             if (!user.social.googleId) {
                 user.social.googleId = profile.id;
                 user.social.googleAccessToken = accessToken;
-                await user.save();
+                shouldSave = true;
             }
+            if (!user.firstName?.trim()) {
+                user.firstName = oauthNames.firstName;
+                shouldSave = true;
+            }
+            if (!user.lastName?.trim()) {
+                user.lastName = oauthNames.lastName;
+                shouldSave = true;
+            }
+            if (shouldSave) await user.save();
             return done(null, user);
         }
 
         // Create new user
         const newUser = new User({
-            firstName: profile.name.givenName,
-            lastName: profile.name.familyName,
+            firstName: oauthNames.firstName,
+            lastName: oauthNames.lastName,
             email: profile.emails[0].value,
             mobile: generateRandomMobile(), // Will be filled during onboarding
             password: 'google_oauth_' + Math.random().toString(36).substring(7), // Random password for OAuth users
@@ -137,6 +149,7 @@ passport.use(new FacebookStrategy({
     scope: ['email']
 }, async (accessToken, refreshToken, profile, done) => {
     try {
+        const oauthNames = getOAuthNames(profile);
         // Check if user already exists
         let user = await User.findOne({
             $or: [
@@ -147,18 +160,31 @@ passport.use(new FacebookStrategy({
 
         if (user) {
             // Update existing user's Facebook info
+            let shouldSave = false;
+            if (!user.social) {
+                user.social = {};
+            }
             if (!user.social.facebookId) {
                 user.social.facebookId = profile.id;
                 user.social.facebookAccessToken = accessToken;
-                await user.save();
+                shouldSave = true;
             }
+            if (!user.firstName?.trim()) {
+                user.firstName = oauthNames.firstName;
+                shouldSave = true;
+            }
+            if (!user.lastName?.trim()) {
+                user.lastName = oauthNames.lastName;
+                shouldSave = true;
+            }
+            if (shouldSave) await user.save();
             return done(null, user);
         }
 
         // Create new user
         const newUser = new User({
-            firstName: profile.name.givenName || profile.displayName.split(' ')[0],
-            lastName: profile.name.familyName || profile.displayName.split(' ').slice(1).join(' '),
+            firstName: oauthNames.firstName,
+            lastName: oauthNames.lastName,
             email: profile.emails?.[0]?.value || `fb_${profile.id}@facebook.com`,
             mobile: generateRandomMobile(), // Will be filled during onboarding
             password: 'facebook_oauth_' + Math.random().toString(36).substring(7), // Random password for OAuth users
@@ -210,4 +236,4 @@ passport.use(new FacebookStrategy({
     }
 }));
 
-module.exports = passport; 
+module.exports = passport;

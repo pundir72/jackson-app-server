@@ -14,6 +14,10 @@ const User = require("../models/User");
 const WalletAuditLog = require("../models/WalletAuditLog");
 const XPTier = require("../models/XPTier");
 const ConversionSettings = require("../models/ConversionSettings");
+const {
+  getAdminTransactionId,
+  getAdminTransactionMetadata,
+} = require("../utils/transactionReference");
 
 // ==================== SCREEN 1: TRANSACTION LOG ====================
 
@@ -125,7 +129,8 @@ router.get(
       // Format for frontend
       const formattedTransactions = transactions.map((tx) => ({
         ...tx,
-        transactionId: tx.referenceId,
+        transactionId: getAdminTransactionId(tx),
+        metadata: getAdminTransactionMetadata(tx),
         userId: tx.user?._id || tx.user,
         userName: tx.user
           ? `${tx.user.firstName} ${tx.user.lastName}`

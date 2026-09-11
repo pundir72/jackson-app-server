@@ -13,6 +13,9 @@ const GameTask = require("../models/GameTask");
 const GameDisplayRule = require("../models/GameDisplayRule");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const WelcomeBonusTimer = require("../models/WelcomeBonusTimer");
+const {
+  syncProviderTasksForGame,
+} = require("../utils/syncProviderTasks");
 const User = require("../models/User");
 const besitosController = require("../controllers/besitos.controller");
 const bitlabsController = require("../controllers/bitlabs.controller");
@@ -1457,6 +1460,11 @@ router.post(
         new: true,
       });
 
+      // Mirror the provider's goals into GameTasks so daily challenges can
+      // count them. Awaited but non-fatal - the util swallows its own errors,
+      // because a sync failure must not fail the game import.
+      await syncProviderTasksForGame(upserted, req.user?.userId);
+
       res.status(201).json({
         success: true,
         message: "Game created/updated successfully",
@@ -1955,6 +1963,10 @@ router.put(
         runValidators: true,
       });
 
+      // Re-sync provider goals after a refresh so new goals appear and existing
+      // classifications are re-derived. Admin classifications are preserved.
+      await syncProviderTasksForGame(game, req.user?.userId);
+
       res.json({
         success: true,
         message: "Game updated successfully",
@@ -2041,7 +2053,13 @@ router.get("/games/:gameId/tasks", adminAuth, async (req, res) => {
       excludeBonus = "false",
     } = req.query;
 
+    // Provider-synced tasks are hidden unless explicitly asked for. They exist
+    // for challenge counting and would swamp the curated task list; the
+    // classification editor passes includeProviderSynced=true to see them.
     let query = { gameId };
+    if (String(req.query.includeProviderSynced) !== "true") {
+      query.isProviderSynced = { $ne: true };
+    }
 
     // Search functionality
     if (search) {
@@ -2286,6 +2304,65 @@ router.delete("/tasks/:id", adminAuth, async (req, res) => {
 });
 
 // Toggle task override
+// Set a task's event classification.
+//
+// Purchase and milestone challenges only count tasks whose classification came
+// from the provider or from an admin - a keyword-inferred guess must never pay
+// a reward. Saving here always promotes the source to "admin", which also
+// protects the choice from being overwritten by the next provider re-sync.
+router.patch("/tasks/:id/classification", adminAuth, async (req, res) => {
+  try {
+    const { eventTypes } = req.body;
+    const ALLOWED = ["install", "purchase", "milestone", "playtime"];
+
+    if (!Array.isArray(eventTypes)) {
+      return res.status(400).json({
+        success: false,
+        message: "eventTypes must be an array",
+      });
+    }
+
+    const invalid = eventTypes.filter((t) => !ALLOWED.includes(t));
+    if (invalid.length) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid event type(s): ${invalid.join(", ")}. Allowed: ${ALLOWED.join(", ")}`,
+      });
+    }
+
+    const task = await GameTask.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+
+    // Deduplicate so the same type cannot be stored twice
+    task.eventTypes = [...new Set(eventTypes)];
+    task.classificationSource = "admin";
+    task.updatedBy = req.user?.userId;
+    await task.save();
+
+    res.json({
+      success: true,
+      message: "Task classification updated",
+      data: {
+        id: task._id,
+        name: task.name,
+        eventTypes: task.eventTypes,
+        classificationSource: task.classificationSource,
+        externalTaskId: task.externalTaskId,
+        providerTypeId: task.providerTypeId,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating task classification:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update task classification",
+      error: error.message,
+    });
+  }
+});
+
 router.patch("/tasks/:id/toggle-override", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;

@@ -10,6 +10,23 @@ const { adminAuth } = require('../middleware/adminAuth');
 router.use(adminAuth);
 
 /**
+ * Coerces an XP bound to a finite number, or null when it is absent or not
+ * numeric.
+ *
+ * The old checks were `value === undefined || value === null || value < 0`,
+ * which an empty string slips straight through: `'' < 0` is false. Mongoose
+ * then casts `''` to null, the schema's `required` fails, and the request dies
+ * as a generic 500 - the admin panel showed "Failed to create XP Tier V2" with
+ * no hint that a required field had simply been left blank.
+ */
+function toFiniteNumber(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * Helper function to get Access Benefit (XP Multiplier) from XPMultiplier model
  * Maps tier enum to XPMultiplier tier format: Junior -> JUNIOR, Middle -> MID, Senior -> SENIOR
  */
@@ -148,29 +165,32 @@ router.post('/xp-tiers-v2', async (req, res) => {
       });
     }
 
-    if (xpMin === undefined || xpMin === null || xpMin < 0) {
+    const parsedXpMin = toFiniteNumber(xpMin);
+    if (parsedXpMin === null || parsedXpMin < 0) {
       return res.status(400).json({
         success: false,
-        error: 'XP Min is required and must be >= 0'
+        error: 'XP Min is required and must be a number greater than or equal to 0'
       });
     }
 
-    // For Senior tier, xpMax can be null/undefined/0 (represents 300+)
+    const parsedXpMax = toFiniteNumber(xpMax);
+
+    // For Senior tier, xpMax can be empty/0 (represents 300+)
     // For Junior and Middle, xpMax is required and must be > 0
-    if (tier !== 'Senior' && (xpMax === undefined || xpMax === null || xpMax === 0)) {
+    if (tier !== 'Senior' && (parsedXpMax === null || parsedXpMax === 0)) {
       return res.status(400).json({
         success: false,
-        error: 'XP Max is required for Junior and Middle tiers and must be greater than 0'
+        error: 'XP Max is required for Junior and Middle tiers and must be a number greater than 0'
       });
     }
 
-    // For Senior tier, normalize xpMax: if 0, null, or undefined, set to null
-    let normalizedXpMax = xpMax;
-    if (tier === 'Senior' && (xpMax === 0 || xpMax === null || xpMax === undefined)) {
-      normalizedXpMax = null;
-    }
+    // For Senior tier, normalize xpMax: empty or 0 means no upper bound
+    const normalizedXpMax =
+      tier === 'Senior' && (parsedXpMax === null || parsedXpMax === 0)
+        ? null
+        : parsedXpMax;
 
-    if (tier !== 'Senior' && xpMin >= normalizedXpMax) {
+    if (tier !== 'Senior' && parsedXpMin >= normalizedXpMax) {
       return res.status(400).json({
         success: false,
         error: 'XP Min must be less than XP Max'
@@ -196,14 +216,14 @@ router.post('/xp-tiers-v2', async (req, res) => {
     // Create XP range string
     let xpRange;
     if (tier === 'Senior' && normalizedXpMax === null) {
-      xpRange = `${xpMin}+`;
+      xpRange = `${parsedXpMin}+`;
     } else {
-      xpRange = `${xpMin} - ${normalizedXpMax}`;
+      xpRange = `${parsedXpMin} - ${normalizedXpMax}`;
     }
 
     const newTier = new XPTierV2({
       tier,
-      xpMin,
+      xpMin: parsedXpMin,
       xpMax: normalizedXpMax,
       xpRange,
       accessBenefit,
@@ -277,20 +297,35 @@ router.put('/xp-tiers-v2/:id', async (req, res) => {
       }
     }
 
-    // Validate XP range
-    const finalXpMin = xpMin !== undefined ? xpMin : tierDoc.xpMin;
-    let finalXpMax = xpMax !== undefined ? xpMax : tierDoc.xpMax;
+    // Validate XP range. Anything supplied must be numeric - an empty string
+    // would otherwise pass these comparisons and fail later as a generic 500.
     const finalTier = tier || tierDoc.tier;
 
-    // For Senior tier, normalize xpMax: if 0, null, or undefined, set to null
-    if (finalTier === 'Senior' && (finalXpMax === 0 || finalXpMax === null || finalXpMax === undefined)) {
+    let finalXpMin = tierDoc.xpMin;
+    if (xpMin !== undefined) {
+      finalXpMin = toFiniteNumber(xpMin);
+      if (finalXpMin === null || finalXpMin < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'XP Min must be a number greater than or equal to 0'
+        });
+      }
+    }
+
+    let finalXpMax = tierDoc.xpMax;
+    if (xpMax !== undefined) {
+      finalXpMax = toFiniteNumber(xpMax);
+    }
+
+    // For Senior tier, empty or 0 means no upper bound
+    if (finalTier === 'Senior' && (finalXpMax === 0 || finalXpMax === null)) {
       finalXpMax = null;
     }
 
-    if (finalTier !== 'Senior' && (finalXpMax === null || finalXpMax === undefined || finalXpMax === 0)) {
+    if (finalTier !== 'Senior' && (finalXpMax === null || finalXpMax === 0)) {
       return res.status(400).json({
         success: false,
-        error: 'XP Max is required for Junior and Middle tiers and must be greater than 0'
+        error: 'XP Max is required for Junior and Middle tiers and must be a number greater than 0'
       });
     }
 
@@ -303,7 +338,7 @@ router.put('/xp-tiers-v2/:id', async (req, res) => {
 
     // Update fields
     if (tier !== undefined) tierDoc.tier = tier;
-    if (xpMin !== undefined) tierDoc.xpMin = xpMin;
+    if (xpMin !== undefined) tierDoc.xpMin = finalXpMin;
     if (xpMax !== undefined) {
       tierDoc.xpMax = finalTier === 'Senior' ? null : finalXpMax;
     }

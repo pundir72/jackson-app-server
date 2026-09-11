@@ -4,6 +4,14 @@ module.exports = {
   // Environment
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: process.env.PORT || 3000,
+  PASSWORD_RESET_CLIENT_URL:
+    process.env.PASSWORD_RESET_CLIENT_URL ||
+    (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*"
+      ? process.env.FRONTEND_URL
+      : null) ||
+    (process.env.NODE_ENV === "production"
+      ? "https://jacksonrewardsapp.vercel.app"
+      : "http://localhost:3000"),
 
   // Database
   MONGODB_URI:
@@ -136,6 +144,11 @@ module.exports = {
   // AppLovin MAX is a client-side SDK for rewarded ads mediation
   // Supported Ad Networks: Facebook, Google AdMob, Digital Turbine, Inmobi, Mintegral, Bidmachine, Liftoff/Vungle, Pangle, Moloco, Google Ad Manager
   APPLOVIN_MAX_SDK_KEY: process.env.APPLOVIN_MAX_SDK_KEY,
+
+  // Apple App Store receipt verification
+  APP_STORE_SHARED_SECRET: process.env.APP_STORE_SHARED_SECRET,
+  APP_BUNDLE_ID: process.env.APP_BUNDLE_ID || 'com.jackson.rewards.app',
+  IOS_AUTH_URL_SCHEME: process.env.IOS_AUTH_URL_SCHEME || 'jacksonrewards',
 
   // Adjust - S2S API for event tracking
   // Documentation: https://dev.adjust.com/en/api/s2s-api

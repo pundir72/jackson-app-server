@@ -14,6 +14,7 @@ const {
   findVerifiedOTPByPhone,
 } = require("../utils/phoneUtils");
 const { applyXPDecay } = require("../utils/xpDecayV2");
+const config = require("../config/config");
 
 // 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
@@ -1089,6 +1090,45 @@ router.post(
 // SOCIAL LOGIN ROUTES
 // ========================================
 
+// Must match CFBundleURLSchemes in the iOS app's Info.plist. The previous
+// com.jackson.app scheme was never registered by iOS, so Safari could not hand
+// the OAuth callback back to the application.
+const mobileAuthScheme = (config.IOS_AUTH_URL_SCHEME || 'jacksonrewards')
+  .replace(/[^a-zA-Z0-9+.-]/g, '');
+const mobileAuthUrl = (path, params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return `${mobileAuthScheme}://auth/${path}${query ? `?${query}` : ''}`;
+};
+
+// SFSafariViewController (used by the Capacitor Browser plugin on iOS) refuses
+// plain HTTP 302 redirects to custom URL schemes and shows "Safari cannot open
+// the page because the address is invalid" - even when the scheme is
+// registered. Navigation to a custom scheme from a user gesture is always
+// allowed, so instead of redirecting we serve a tiny page that retries via
+// JavaScript and always offers a tappable "Return to app" button.
+const sendMobileAuthRedirect = (res, url) => {
+  const safeUrl = String(url)
+    .replace(/"/g, '%22')
+    .replace(/</g, '%3C')
+    .replace(/>/g, '%3E');
+  res.set('Cache-Control', 'no-store');
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Returning to Jackson</title>
+<style>
+body{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}
+a.btn{display:inline-block;margin-top:24px;padding:14px 32px;background:linear-gradient(180deg,#9eadf7 0%,#716ae7 100%);color:#fff;border-radius:12px;text-decoration:none;font-weight:600;font-size:17px}
+p{color:#a4a4a4;font-size:15px}
+</style></head>
+<body>
+<h2>Signing you in&hellip;</h2>
+<p>If the app does not open automatically,<br>tap the button below.</p>
+<a class="btn" href="${safeUrl}">Return to Jackson</a>
+<script>setTimeout(function(){window.location.href="${safeUrl}";},80);</script>
+</body></html>`);
+};
+
 // Google OAuth Routes
 router.get(
   "/google",
@@ -1099,7 +1139,9 @@ router.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: "/login",
+    failureRedirect: mobileAuthUrl('error', {
+      message: 'Google authentication failed'
+    }),
   }),
   async (req, res) => {
     try {
@@ -1127,10 +1169,10 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        const errorMessage = encodeURIComponent(message);
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
-        );
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+          message,
+          accountStatus: status
+        }));
       }
 
       // Update login analytics and device info (same as normal login)
@@ -1184,13 +1226,17 @@ router.get(
       });
 
       // Redirect to frontend with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${token}&provider=google&userId=${user._id}`;
-      res.redirect(redirectUrl);
+      const redirectUrl = mobileAuthUrl('callback', {
+        token,
+        provider: 'google',
+        userId: user._id.toString()
+      });
+      sendMobileAuthRedirect(res, redirectUrl);
     } catch (error) {
       console.error("Google OAuth callback error:", error);
-      res.redirect(
-        `com.jackson.app://auth/error?message=Google authentication failed`,
-      );
+      sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+        message: 'Google authentication failed'
+      }));
     }
   },
 );
@@ -1236,22 +1282,17 @@ router.get(
           err,
         );
         // Redirect to mobile app error deep link
-        const errorMessage = encodeURIComponent(
-          err.message || "Facebook authentication failed",
-        );
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}`,
-        );
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+          message: err.message || 'Facebook authentication failed'
+        }));
       }
       if (!req.user) {
         console.error(
           "[Facebook Mobile Callback] No user after authentication",
         );
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "Facebook authentication failed - no user data",
-          )}`,
-        );
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+          message: 'Facebook authentication failed - no user data'
+        }));
       }
       next(); // Continue to the callback handler
     });
@@ -1262,11 +1303,9 @@ router.get(
 
       if (!user) {
         console.error("[Facebook Mobile Callback] User is null");
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${encodeURIComponent(
-            "User not found after Facebook authentication",
-          )}`,
-        );
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+          message: 'User not found after Facebook authentication'
+        }));
       }
 
       // Check if user account status allows login (only active users can login)
@@ -1289,10 +1328,10 @@ router.get(
             "Your account is inactive. Please contact support to reactivate your account.";
         }
 
-        const errorMessage = encodeURIComponent(message);
-        return res.redirect(
-          `com.jackson.app://auth/error?message=${errorMessage}&accountStatus=${status}`,
-        );
+        return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+          message,
+          accountStatus: status
+        }));
       }
 
       // Apply XP decay BEFORE resetting lastActive so inactivity is measured correctly
@@ -1348,9 +1387,11 @@ router.get(
       });
 
       // Redirect to mobile app with token
-      const redirectUrl = `com.jackson.app://auth/callback?token=${encodeURIComponent(
+      const redirectUrl = mobileAuthUrl('callback', {
         token,
-      )}&provider=facebook&userId=${user._id.toString()}`;
+        provider: 'facebook',
+        userId: user._id.toString()
+      });
 
       console.log(
         "[Facebook Mobile Callback] Success - Redirecting to mobile app:",
@@ -1362,7 +1403,7 @@ router.get(
         },
       );
 
-      return res.redirect(redirectUrl);
+      return sendMobileAuthRedirect(res, redirectUrl);
     } catch (error) {
       console.error(
         "[Facebook Mobile Callback] Error in callback handler:",
@@ -1376,12 +1417,9 @@ router.get(
         hasUser: !!req.user,
       });
 
-      const errorMessage = error.message || "Facebook authentication failed";
-      return res.redirect(
-        `com.jackson.app://auth/error?message=${encodeURIComponent(
-          errorMessage,
-        )}`,
-      );
+      return sendMobileAuthRedirect(res, mobileAuthUrl('error', {
+        message: error.message || 'Facebook authentication failed'
+      }));
     }
   },
 );
@@ -1539,12 +1577,19 @@ router.post(
       if (isEmail) {
         // Send email with reset link
         try {
-          const resetUrl = `https://jacksonrewardsapp.vercel.app/reset-password?token=${resetToken}`;
+          // The reset page must belong to the same environment as this API.
+          // A hard-coded production URL caused UAT/local tokens to be submitted
+          // to a different backend and rejected immediately.
+          const resetUrl = new URL(
+            "/reset-password",
+            config.PASSWORD_RESET_CLIENT_URL,
+          );
+          resetUrl.searchParams.set("token", resetToken);
 
           // Send password reset email
           await sendPasswordResetEmail(
             user.email,
-            resetUrl,
+            resetUrl.toString(),
             user.firstName || "User",
           );
 
@@ -1552,7 +1597,9 @@ router.post(
             message:
               "Password reset instructions have been sent to your email address",
             resetUrl:
-              process.env.NODE_ENV === "development" ? resetUrl : undefined,
+              process.env.NODE_ENV === "development"
+                ? resetUrl.toString()
+                : undefined,
           });
         } catch (emailError) {
           console.error("Email sending error:", emailError);

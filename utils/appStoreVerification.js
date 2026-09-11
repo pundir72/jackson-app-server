@@ -1,6 +1,39 @@
 const https = require('https');
 const config = require('../config/config');
 
+const requestAppleVerification = (hostname, verificationData) => {
+  const postData = JSON.stringify(verificationData);
+  const options = {
+    hostname,
+    port: 443,
+    path: '/verifyReceipt',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (error) {
+          reject(new Error('Failed to parse Apple response: ' + error.message));
+        }
+      });
+    });
+    req.on('error', (error) => {
+      reject(new Error('Apple verification request failed: ' + error.message));
+    });
+    req.write(postData);
+    req.end();
+  });
+};
+
 /**
  * App Store Receipt Verification Utility
  * Handles iOS App Store receipt verification for in-app purchases
@@ -14,103 +47,70 @@ const config = require('../config/config');
  */
 const verifyAppStoreReceipt = async (receiptData, productId) => {
   try {
-    // In production, use Apple's verification service
-    // For development/testing, we'll simulate verification
-    
-    if (process.env.NODE_ENV === 'development') {
-      // Development mode - simulate successful verification
-      return {
-        valid: true,
-        transactionId: `txn_${Date.now()}`,
-        productId: productId,
-        purchaseDate: new Date().toISOString(),
-        expiresDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        originalTransactionId: `orig_txn_${Date.now()}`,
-        bundleId: config.APP_BUNDLE_ID || 'com.yourapp.bundle',
-        environment: 'Sandbox'
-      };
-    }
-
-    // Production verification with Apple
+    // TestFlight uses sandbox receipts even when the API itself is deployed in
+    // a non-production environment, so every environment must verify with Apple.
     const verificationData = {
       'receipt-data': receiptData,
       'password': config.APP_STORE_SHARED_SECRET, // Your App Store shared secret
       'exclude-old-transactions': true
     };
 
-    const postData = JSON.stringify(verificationData);
-    
-    const options = {
-      hostname: 'buy.itunes.apple.com', // Use 'sandbox.itunes.apple.com' for testing
-      port: 443,
-      path: '/verifyReceipt',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      }
-    };
+    if (!config.APP_STORE_SHARED_SECRET) {
+      return {
+        valid: false,
+        error: 'APP_STORE_SHARED_SECRET is not configured on the API server'
+      };
+    }
 
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-        
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        
-        res.on('end', () => {
-          try {
-            const response = JSON.parse(data);
-            
-            if (response.status === 0) {
-              // Receipt is valid
-              const receipt = response.receipt;
-              const inApp = receipt.in_app || [];
-              
-              // Find the specific product in the receipt
-              const productTransaction = inApp.find(transaction => 
-                transaction.product_id === productId
-              );
-              
-              if (productTransaction) {
-                resolve({
-                  valid: true,
-                  transactionId: productTransaction.transaction_id,
-                  productId: productTransaction.product_id,
-                  purchaseDate: new Date(parseInt(productTransaction.purchase_date_ms)).toISOString(),
-                  expiresDate: productTransaction.expires_date_ms ? 
-                    new Date(parseInt(productTransaction.expires_date_ms)).toISOString() : null,
-                  originalTransactionId: productTransaction.original_transaction_id,
-                  bundleId: receipt.bundle_id,
-                  environment: response.environment
-                });
-              } else {
-                resolve({
-                  valid: false,
-                  error: 'Product not found in receipt'
-                });
-              }
-            } else {
-              // Receipt is invalid
-              resolve({
-                valid: false,
-                error: getAppStoreErrorDescription(response.status)
-              });
-            }
-          } catch (error) {
-            reject(new Error('Failed to parse Apple response: ' + error.message));
-          }
-        });
-      });
-      
-      req.on('error', (error) => {
-        reject(new Error('Apple verification request failed: ' + error.message));
-      });
-      
-      req.write(postData);
-      req.end();
-    });
+    // Always try production first. TestFlight/sandbox receipts return 21007 and
+    // must be retried against Apple's sandbox endpoint.
+    let response = await requestAppleVerification('buy.itunes.apple.com', verificationData);
+    if (response.status === 21007) {
+      response = await requestAppleVerification('sandbox.itunes.apple.com', verificationData);
+    } else if (response.status === 21008) {
+      response = await requestAppleVerification('buy.itunes.apple.com', verificationData);
+    }
+
+    if (response.status !== 0) {
+      return {
+        valid: false,
+        status: response.status,
+        error: getAppStoreErrorDescription(response.status)
+      };
+    }
+
+    const receipt = response.receipt || {};
+    if (config.APP_BUNDLE_ID && receipt.bundle_id !== config.APP_BUNDLE_ID) {
+      return {
+        valid: false,
+        error: `Receipt bundle ID ${receipt.bundle_id || '(missing)'} does not match this application`
+      };
+    }
+    const transactions = [
+      ...(Array.isArray(receipt.in_app) ? receipt.in_app : []),
+      ...(Array.isArray(response.latest_receipt_info) ? response.latest_receipt_info : [])
+    ];
+    const productTransactions = transactions
+      .filter((transaction) => transaction.product_id === productId)
+      .sort((a, b) => Number(b.purchase_date_ms || 0) - Number(a.purchase_date_ms || 0));
+    const productTransaction = productTransactions[0];
+
+    if (!productTransaction) {
+      return { valid: false, error: 'Product not found in receipt' };
+    }
+
+    return {
+      valid: true,
+      transactionId: productTransaction.transaction_id,
+      productId: productTransaction.product_id,
+      purchaseDate: new Date(Number(productTransaction.purchase_date_ms)).toISOString(),
+      expiresDate: productTransaction.expires_date_ms
+        ? new Date(Number(productTransaction.expires_date_ms)).toISOString()
+        : null,
+      originalTransactionId: productTransaction.original_transaction_id,
+      bundleId: receipt.bundle_id,
+      environment: response.environment
+    };
     
   } catch (error) {
     console.error('App Store verification error:', error);
@@ -233,8 +233,103 @@ const getSubscriptionStatus = async (receiptData) => {
   }
 };
 
+// SHA-256 fingerprint of Apple Root CA - G3 (https://www.apple.com/certificateauthority/),
+// the root of the certificate chain embedded in every StoreKit 2 signed transaction.
+const APPLE_ROOT_CA_G3_FINGERPRINT256 =
+  '63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79';
+
+const base64UrlToBuffer = (value) =>
+  Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+
+/**
+ * Verify a StoreKit 2 signed transaction (JWS) entirely offline.
+ *
+ * StoreKit 2 purchases do not always produce the legacy app-store receipt file
+ * (notably in TestFlight/sandbox), but they always carry a jwsRepresentation
+ * signed by Apple. The JWS embeds its x5c certificate chain; verification
+ * checks the chain links, pins the root to Apple Root CA - G3, verifies the
+ * ES256 signature with the leaf certificate, then validates the payload claims
+ * against what the client reported.
+ *
+ * @param {string} jws - The signed transaction (header.payload.signature)
+ * @param {Object} expected - { bundleId, productId, transactionId }
+ * @returns {Object} Same shape as verifyAppStoreReceipt results
+ */
+const verifyAppStoreJws = (jws, expected = {}) => {
+  const crypto = require('crypto');
+  try {
+    if (typeof jws !== 'string' || jws.split('.').length !== 3) {
+      return { valid: false, error: 'Malformed signed transaction (JWS)' };
+    }
+    const [headerB64, payloadB64, signatureB64] = jws.split('.');
+    const header = JSON.parse(base64UrlToBuffer(headerB64).toString('utf8'));
+    if (header.alg !== 'ES256' || !Array.isArray(header.x5c) || header.x5c.length < 2) {
+      return { valid: false, error: 'Unsupported signed transaction header' };
+    }
+
+    const chain = header.x5c.map(
+      (cert) => new crypto.X509Certificate(Buffer.from(cert, 'base64'))
+    );
+    for (let i = 0; i < chain.length - 1; i++) {
+      if (!chain[i].verify(chain[i + 1].publicKey)) {
+        return { valid: false, error: 'Signed transaction certificate chain is invalid' };
+      }
+    }
+    const rootCert = chain[chain.length - 1];
+    if (rootCert.fingerprint256 !== APPLE_ROOT_CA_G3_FINGERPRINT256) {
+      return { valid: false, error: 'Signed transaction is not rooted in Apple Root CA - G3' };
+    }
+
+    const signatureValid = crypto.verify(
+      'sha256',
+      Buffer.from(`${headerB64}.${payloadB64}`),
+      { key: chain[0].publicKey, dsaEncoding: 'ieee-p1363' },
+      base64UrlToBuffer(signatureB64)
+    );
+    if (!signatureValid) {
+      return { valid: false, error: 'Signed transaction signature verification failed' };
+    }
+
+    const payload = JSON.parse(base64UrlToBuffer(payloadB64).toString('utf8'));
+
+    if (expected.bundleId && payload.bundleId !== expected.bundleId) {
+      return {
+        valid: false,
+        error: `Signed transaction bundle ID ${payload.bundleId || '(missing)'} does not match this application`
+      };
+    }
+    if (expected.productId && payload.productId !== expected.productId) {
+      return { valid: false, error: 'Signed transaction product does not match the purchase' };
+    }
+    if (expected.transactionId && String(payload.transactionId) !== String(expected.transactionId)) {
+      return { valid: false, error: 'Signed transaction ID does not match the purchase' };
+    }
+    if (payload.revocationDate) {
+      return { valid: false, error: 'This App Store transaction has been revoked' };
+    }
+
+    return {
+      valid: true,
+      method: 'jws',
+      transactionId: String(payload.transactionId),
+      productId: payload.productId,
+      purchaseDate: payload.purchaseDate
+        ? new Date(payload.purchaseDate).toISOString()
+        : null,
+      expiresDate: payload.expiresDate
+        ? new Date(payload.expiresDate).toISOString()
+        : null,
+      originalTransactionId: String(payload.originalTransactionId || payload.transactionId),
+      environment: payload.environment
+    };
+  } catch (error) {
+    return { valid: false, error: 'Signed transaction verification error: ' + error.message };
+  }
+};
+
 module.exports = {
   verifyAppStoreReceipt,
+  verifyAppStoreJws,
   validateSubscriptionPurchase,
   getSubscriptionStatus,
   getAppStoreErrorDescription

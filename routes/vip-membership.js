@@ -7,7 +7,8 @@ const VIPTier = require('../models/VIPTier');
 const VIPSubscription = require('../models/VIPSubscription');
 const { getVIPPricing } = require('../utils/pricing');
 const { getUserVIPBenefits } = require('../utils/vipBenefits');
-const { verifyAppStoreReceipt } = require('../utils/appStoreVerification');
+const { verifyAppStoreReceipt, verifyAppStoreJws } = require('../utils/appStoreVerification');
+const config = require('../config/config');
 
 // ==================== VIP MEMBERSHIP SCREEN ====================
 
@@ -367,12 +368,15 @@ router.post('/initiate-purchase', auth, [
     const { tierId, plan, region = 'US' } = req.body;
     const userId = req.user.userId;
 
-    // Check if user already has active subscription
+    // An active subscriber may change tier/plan (e.g. Gold -> Platinum).
+    // Only an identical repurchase is rejected; the previous subscription is
+    // closed in complete-purchase once Apple verifies the new transaction.
     const activeSubscription = await VIPSubscription.getActiveSubscription(userId);
-    if (activeSubscription && activeSubscription.isActive()) {
+    const isTierChange = !!(activeSubscription && activeSubscription.isActive());
+    if (isTierChange && activeSubscription.tier === tierId && activeSubscription.plan === plan) {
       return res.status(400).json({
         success: false,
-        error: 'User already has an active subscription'
+        error: 'You are already subscribed to this tier and plan'
       });
     }
 
@@ -414,6 +418,9 @@ router.post('/initiate-purchase', auth, [
         expiresAt: purchaseSession.expiresAt,
         appStoreProductId: `${tierId}_${plan}`, // iOS App Store product ID
         pricing: tierPricing[plan], // Full pricing details for frontend
+        tierChange: isTierChange
+          ? { fromTier: activeSubscription.tier, fromPlan: activeSubscription.plan }
+          : null,
         instructions: {
           title: 'Complete Purchase',
           description: 'Use the session ID to complete your purchase in the App Store',
@@ -442,7 +449,11 @@ router.post('/initiate-purchase', auth, [
  */
 router.post('/complete-purchase', auth, [
   body('sessionId').notEmpty().withMessage('Session ID is required'),
-  body('appStoreReceipt').notEmpty().withMessage('App Store receipt is required'),
+  // StoreKit 2 purchases (TestFlight/sandbox especially) may not produce the
+  // legacy base64 receipt; they always carry a signed transaction (JWS).
+  // Either proof of purchase is accepted.
+  body('appStoreReceipt').optional({ checkFalsy: true }).isString(),
+  body('jwsRepresentation').optional({ checkFalsy: true }).isString(),
   body('transactionId').notEmpty().withMessage('Transaction ID is required'),
   body('productId').notEmpty().withMessage('Product ID is required')
 ], async (req, res) => {
@@ -456,8 +467,15 @@ router.post('/complete-purchase', auth, [
       });
     }
 
-    const { sessionId, appStoreReceipt, transactionId, productId } = req.body;
+    const { sessionId, appStoreReceipt, jwsRepresentation, transactionId, productId } = req.body;
     const userId = req.user.userId;
+
+    if (!appStoreReceipt && !jwsRepresentation) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either an App Store receipt or a signed transaction (jwsRepresentation) is required'
+      });
+    }
 
     // Verify the session exists and is valid
     // In production, you would validate this against your session store
@@ -477,22 +495,68 @@ router.post('/complete-purchase', auth, [
       });
     }
 
-    // Verify App Store receipt (in production, use Apple's verification service)
-    const receiptVerification = await verifyAppStoreReceipt(appStoreReceipt, productId);
+    // Verify proof of purchase: legacy receipt via Apple's verifyReceipt API,
+    // or a StoreKit 2 signed transaction verified offline against Apple's CA.
+    const receiptVerification = appStoreReceipt
+      ? await verifyAppStoreReceipt(appStoreReceipt, productId)
+      : verifyAppStoreJws(jwsRepresentation, {
+          bundleId: config.APP_BUNDLE_ID,
+          productId,
+          transactionId
+        });
     if (!receiptVerification.valid) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid App Store receipt'
+        error: 'Invalid App Store receipt',
+        details: receiptVerification.error,
+        appleStatus: receiptVerification.status
       });
     }
 
-    // Check if user already has active subscription
-    const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
-    if (existingSubscription && existingSubscription.isActive()) {
+    if (receiptVerification.transactionId !== transactionId) {
       return res.status(400).json({
         success: false,
-        error: 'User already has an active subscription'
+        error: 'The App Store transaction does not match the verified receipt'
       });
+    }
+
+    // Apple transactions are immutable. Treat retries as idempotent so a slow
+    // network response cannot turn a successful App Store purchase into a
+    // visible "Payment Failed" state.
+    const completedPurchase = await VIPSubscription.findOne({
+      'metadata.transactionId': receiptVerification.transactionId
+    });
+    if (completedPurchase) {
+      if (completedPurchase.userId.toString() !== userId.toString()) {
+        return res.status(409).json({
+          success: false,
+          error: 'This App Store transaction belongs to another account'
+        });
+      }
+      return res.json({
+        success: true,
+        data: {
+          subscription: completedPurchase.getSummary(),
+          message: 'Subscription was already activated'
+        }
+      });
+    }
+
+    // A verified purchase from a user with an active subscription is a
+    // tier/plan change: close the previous subscription and activate the new
+    // one. Identical repurchases were already rejected at initiate-purchase,
+    // and true duplicates are caught by the transaction idempotency check
+    // above, so reaching here with the same tier+plan means a genuine new
+    // Apple transaction that must not be discarded.
+    const existingSubscription = await VIPSubscription.getActiveSubscription(userId);
+    if (existingSubscription && existingSubscription.isActive()) {
+      existingSubscription.status = 'cancelled';
+      existingSubscription.autoRenew = false;
+      existingSubscription.endDate = new Date();
+      existingSubscription.metadata.replacedByTransactionId = receiptVerification.transactionId;
+      existingSubscription.metadata.replacedAt = new Date();
+      existingSubscription.metadata.replacementReason = 'tier_change';
+      await existingSubscription.save();
     }
 
     // Get pricing for the tier and plan
@@ -531,8 +595,11 @@ router.post('/complete-purchase', auth, [
       metadata: {
         region: 'US',
         source: 'ios_app',
-        transactionId,
+        transactionId: receiptVerification.transactionId,
+        originalTransactionId: receiptVerification.originalTransactionId,
         productId,
+        appStoreEnvironment: receiptVerification.environment,
+        verificationMethod: receiptVerification.method || 'receipt',
         sessionId
       }
     });
@@ -540,12 +607,12 @@ router.post('/complete-purchase', auth, [
     await subscription.save();
 
     // Update user's VIP status
-    const user = await User.findById(userId);
-    if (user) {
-      user.vip.level = tierId;
-      user.vip.isActive = true;
-      await user.save();
-    }
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'vip.level': tierId,
+        'vip.isActive': true
+      }
+    });
 
     res.json({
       success: true,

@@ -10,7 +10,7 @@ const StepData = require('../models/StepData');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Leaderboard = require('../models/Leaderboard');
-const { 
+const {
   getISOWeekKey, 
   getWeekBounds, 
   getDefaultRewardTiers, 
@@ -20,6 +20,10 @@ const {
   generateWalkathonStats,
   getTimeRemaining
 } = require('../utils/walkathonHelpers');
+const {
+  buildWalkathonReferenceId,
+  getEntityId
+} = require('../utils/transactionReference');
 const { applyTierMultiplierToXP } = require('../utils/xpTierMultiplier');
 
 /**
@@ -112,7 +116,16 @@ async function joinWalkathon(userId, weekKey = null) {
     // Check if user already joined
     const existingProgress = await UserWalkathonProgress.findOne({ userId, weekKey: walkathon.weekKey });
     if (existingProgress) {
-      throw new Error('User has already joined this walkathon');
+      // Joining is idempotent. A previous request may have saved the progress
+      // record even if its response was interrupted, so return the existing
+      // participation instead of presenting a false failure to the app.
+      await existingProgress.populate('walkathonId');
+      return {
+        success: true,
+        message: 'User has already joined this walkathon',
+        alreadyJoined: true,
+        progress: existingProgress.getProgressData()
+      };
     }
 
     // Create user progress record
@@ -128,6 +141,11 @@ async function joinWalkathon(userId, weekKey = null) {
     });
 
     await progress.save();
+
+    // getProgressData() requires the full Walkathon document for milestones,
+    // rewards, and percentage calculations. A newly created document contains
+    // only the walkathon ObjectId until it is explicitly populated.
+    await progress.populate('walkathonId');
 
     // Update walkathon participant count
     await Walkathon.findByIdAndUpdate(walkathon._id, {
@@ -298,22 +316,28 @@ async function claimReward(userId, milestone) {
     );
     user.xp.current = (user.xp.current || 0) + finalXP;
     user.xp.total = (user.xp.total || 0) + finalXP;
+
+    const walkathonId = getEntityId(activeWalkathon);
     
     // Create transaction record
     const transaction = new Transaction({
       user: userId,
       type: 'credit',
-      amount: reward.coinEarned,
+      amount: finalXP,
+      balanceType: 'xp',
       description: `Walkathon Reward - ${milestone} steps milestone`,
       status: 'completed',
       metadata: {
-        walkathonId: progress.walkathonId,
+        walkathonId,
         weekKey: activeWalkathon.weekKey,
         milestone: milestone,
         xpEarned: reward.xpEarned,
+        finalXp: finalXP,
+        coins: reward.coinEarned || 0,
+        tierMultiplier,
         source: 'walkathon'
       },
-      referenceId: `WALKATHON-${progress.walkathonId}-${milestone}-${Date.now()}`
+      referenceId: buildWalkathonReferenceId(activeWalkathon, milestone)
     });
 
     await transaction.save();
@@ -328,7 +352,7 @@ async function claimReward(userId, milestone) {
     await user.save();
 
     // Update walkathon stats
-    await Walkathon.findByIdAndUpdate(progress.walkathonId, {
+    await Walkathon.findByIdAndUpdate(walkathonId, {
       $inc: { totalRewardsClaimed: 1 }
     });
 
@@ -438,12 +462,88 @@ async function createNextWeekWalkathon(config = {}) {
       createdBy: config.createdBy || null
     });
 
-    await walkathon.save();
-    return walkathon;
+    try {
+      await walkathon.save();
+      return walkathon;
+    } catch (error) {
+      // Multiple API instances can run the lifecycle at the same time. Treat a
+      // weekKey duplicate as a successful concurrent creation.
+      if (error?.code === 11000) {
+        return await Walkathon.findOne({ weekKey: nextWeekKey });
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Error creating next week walkathon:', error);
     throw error;
   }
+}
+
+/**
+ * Ensure the current ISO week has an active walkathon and the next week has an
+ * upcoming one. This is safe to call at startup and from the hourly scheduler.
+ * Cancelled or explicitly disabled walkathons are never reactivated.
+ *
+ * @returns {Promise<Object>} Lifecycle result
+ */
+async function syncWalkathonLifecycle() {
+  const now = new Date();
+  const currentWeekKey = getISOWeekKey(now);
+  const { weekStart, weekEnd } = getWeekBounds(now);
+
+  const completed = await Walkathon.updateMany(
+    {
+      status: 'active',
+      weekEnd: { $lt: now }
+    },
+    { status: 'completed' }
+  );
+
+  let currentWalkathon = await Walkathon.findOne({ weekKey: currentWeekKey });
+
+  if (!currentWalkathon) {
+    try {
+      currentWalkathon = await Walkathon.create({
+        weekKey: currentWeekKey,
+        weekStart,
+        weekEnd,
+        title: 'Weekly Walkathon Challenge',
+        description: 'Complete daily step goals to earn XP rewards!',
+        rewardTiers: getDefaultRewardTiers(),
+        eligibility: getDefaultEligibility(),
+        status: 'active',
+        isActive: true,
+        createdBy: null
+      });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      currentWalkathon = await Walkathon.findOne({ weekKey: currentWeekKey });
+    }
+  } else if (
+    currentWalkathon.isActive &&
+    currentWalkathon.status === 'upcoming' &&
+    now >= currentWalkathon.weekStart &&
+    now <= currentWalkathon.weekEnd
+  ) {
+    currentWalkathon.status = 'active';
+    await currentWalkathon.save();
+  }
+
+  const nextWeekDate = new Date(now);
+  nextWeekDate.setUTCDate(nextWeekDate.getUTCDate() + 7);
+  const nextWeekKey = getISOWeekKey(nextWeekDate);
+  let nextWalkathon = await Walkathon.findOne({ weekKey: nextWeekKey });
+
+  if (!nextWalkathon) {
+    nextWalkathon = await createNextWeekWalkathon();
+  }
+
+  return {
+    success: true,
+    currentWalkathon: currentWalkathon?.getDisplayData() || null,
+    nextWalkathon: nextWalkathon?.getDisplayData() || null,
+    completedCount: completed.modifiedCount || 0
+  };
 }
 
 /**
@@ -453,25 +553,18 @@ async function createNextWeekWalkathon(config = {}) {
 async function resetWeeklyWalkathon() {
   try {
     const currentWeekKey = getISOWeekKey();
-    const nextWeekKey = getISOWeekKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
 
-    // Mark current week as completed
-    await Walkathon.updateMany(
-      { weekKey: currentWeekKey, status: 'active' },
-      { status: 'completed' }
-    );
-
-    // Mark user progress as expired
-    await UserWalkathonProgress.updateMany(
-      { weekKey: currentWeekKey, status: 'active' },
+    // Expire only progress from prior weeks. The previous implementation ran
+    // on Sunday and accidentally completed the still-current ISO week.
+    const expiredProgress = await UserWalkathonProgress.updateMany(
+      {
+        weekKey: { $ne: currentWeekKey },
+        status: { $in: ['joined', 'active'] }
+      },
       { status: 'expired' }
     );
 
-    // Create next week's walkathon if it doesn't exist
-    const existingNextWeek = await Walkathon.findOne({ weekKey: nextWeekKey });
-    if (!existingNextWeek) {
-      await createNextWeekWalkathon();
-    }
+    const lifecycle = await syncWalkathonLifecycle();
 
     // Update step-based leaderboard
     await updateStepLeaderboard();
@@ -480,7 +573,8 @@ async function resetWeeklyWalkathon() {
       success: true,
       message: 'Weekly walkathon reset completed',
       currentWeek: currentWeekKey,
-      nextWeek: nextWeekKey
+      nextWeek: lifecycle.nextWalkathon?.weekKey || null,
+      expiredProgressCount: expiredProgress.modifiedCount || 0
     };
   } catch (error) {
     console.error('Error resetting weekly walkathon:', error);
@@ -558,6 +652,7 @@ module.exports = {
   getWalkathonLeaderboard,
   getUserRank,
   createNextWeekWalkathon,
+  syncWalkathonLifecycle,
   resetWeeklyWalkathon,
   updateStepLeaderboard,
   getWalkathonStats

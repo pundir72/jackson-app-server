@@ -13,6 +13,15 @@ const { getISOWeekKey, getWeekBounds } = require('./walkathonHelpers');
  */
 function initializeWalkathonScheduler() {
   console.log('Initializing Walkathon Scheduler...');
+
+  // Repair/initialize lifecycle immediately after every server restart instead
+  // of waiting for the next cron tick.
+  walkathonService.syncWalkathonLifecycle()
+    .then((result) => console.log('Walkathon lifecycle synchronized:', {
+      currentWeek: result.currentWalkathon?.weekKey || null,
+      nextWeek: result.nextWalkathon?.weekKey || null
+    }))
+    .catch((error) => console.error('Initial walkathon lifecycle sync failed:', error));
   
   // Weekly reset - Every Sunday at midnight UTC
   cron.schedule('0 0 * * 0', async () => {
@@ -64,17 +73,12 @@ function initializeWalkathonScheduler() {
   // Hourly progress check - Every hour
   cron.schedule('0 * * * *', async () => {
     try {
-      const currentWalkathon = await walkathonService.getCurrentWalkathon();
-      if (currentWalkathon) {
-        const now = new Date();
-        const weekEnd = new Date(currentWalkathon.weekEnd);
-        
-        // If walkathon has ended, mark it as completed
-        if (now > weekEnd && currentWalkathon.status === 'active') {
-          await currentWalkathon.updateOne({ status: 'completed' });
-          console.log('Walkathon marked as completed:', currentWalkathon.weekKey);
-        }
-      }
+      const result = await walkathonService.syncWalkathonLifecycle();
+      console.log('Walkathon lifecycle synchronized:', {
+        currentWeek: result.currentWalkathon?.weekKey || null,
+        nextWeek: result.nextWalkathon?.weekKey || null,
+        completedCount: result.completedCount
+      });
     } catch (error) {
       console.error('Error in hourly progress check:', error);
     }

@@ -17,6 +17,9 @@ const Transaction = require("../models/Transaction");
 const AdjustCallback = require("../models/AdjustCallback");
 const Game = require("../models/Game");
 const GameTask = require("../models/GameTask");
+const {
+  recordTaskCompletionForChallenge,
+} = require("../utils/challengeEventProgress");
 const TaskProgressionRule = require("../models/TaskProgressionRule");
 const { applyTierMultiplierToXP } = require("../utils/xpTierMultiplier");
 const {
@@ -829,18 +832,35 @@ router.get("/besitos/postback", async (req, res) => {
             if (game) {
               console.log("✅ Game found:", game._id, game.title);
 
-              // Find the task by goal_id - check multiple possible formats
+              // Find the task by the provider's own id.
+              //
+              // This previously queried `besitosGoalId` and
+              // `besitosRawData.goal_id`, neither of which the strict GameTask
+              // schema defines - so both branches could never match and the
+              // lookup fell through to regex-matching a numeric goal_id against
+              // the task NAME, which essentially never hits. Tasks now store
+              // `externalTaskId`.
               const task = await GameTask.findOne({
                 gameId: game._id,
                 $or: [
-                  { besitosGoalId: goal_id },
-                  { "besitosRawData.goal_id": goal_id },
+                  { externalTaskId: String(goal_id) },
                   { name: { $regex: new RegExp(goal_id, "i") } },
                 ],
               }).lean();
 
               if (task) {
                 console.log("✅ Task found:", task._id, task.name);
+
+                // Count this goal toward today's daily challenge, if one is
+                // running and this task matches its objective. Deliberately
+                // does not short-circuit the normal game-task processing below -
+                // the user earns their task reward either way.
+                await recordTaskCompletionForChallenge({
+                  userId: user._id,
+                  task,
+                  game,
+                  transactionId: transaction_id || goal_id,
+                });
 
                 // Get full user with taskProgression
                 const fullUser = await User.findById(user._id).select(

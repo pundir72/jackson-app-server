@@ -15,6 +15,10 @@ const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
 const BesitosConversion = require("../models/BesitosConversion");
 const SpinWheelLog = require("../models/SpinWheelLog");
+const {
+  resolveObjective,
+  describeObjective,
+} = require("../utils/challengeObjective");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const BonusDay = require("../models/BonusDay");
@@ -1766,25 +1770,78 @@ router.post("/spin", protect, async (req, res) => {
       });
     }
 
-    // Check if already spun today for this challenge
-    const existingSpin = await SpinWheelLog.findOne({
+    // How many spins this challenge requires, and the window they must happen
+    // in. Challenges created before these fields existed default to 1 spin and
+    // no window, which is exactly the old behaviour.
+    const requiredSpins = Math.max(
+      1,
+      Number(challenge.requirements?.spinCount) || 1,
+    );
+    const spinWindowMinutes =
+      Number(challenge.requirements?.spinWindowMinutes) || null;
+
+    // Count spins made FOR THIS CHALLENGE. Previously this matched any spin by
+    // the user that day, so an ordinary spin-wheel spin both satisfied the
+    // challenge and blocked the challenge's own spin endpoint.
+    const spinWindowStart =
+      spinWindowMinutes && progress.startedAt
+        ? new Date(
+            Math.max(
+              new Date(progress.startedAt).getTime(),
+              normalizedStart.getTime(),
+            ),
+          )
+        : normalizedStart;
+    const spinWindowEnd =
+      spinWindowMinutes && progress.startedAt
+        ? new Date(
+            Math.min(
+              new Date(spinWindowStart).getTime() + spinWindowMinutes * 60000,
+              normalizedEnd.getTime(),
+            ),
+          )
+        : normalizedEnd;
+
+    const spinsSoFar = await SpinWheelLog.countDocuments({
       user: userId,
-      createdAt: { $gte: normalizedStart, $lte: normalizedEnd },
+      challenge: challenge._id,
+      createdAt: { $gte: spinWindowStart, $lte: spinWindowEnd },
     });
 
-    if (existingSpin) {
+    // Window expired before the required spins were made
+    if (spinWindowMinutes && new Date() > spinWindowEnd) {
+      return res.status(400).json({
+        success: false,
+        error: `The ${spinWindowMinutes} minute window for this challenge has passed. You completed ${spinsSoFar} of ${requiredSpins} spins.`,
+        data: { spinsCompleted: spinsSoFar, spinsRequired: requiredSpins },
+      });
+    }
+
+    if (spinsSoFar >= requiredSpins) {
+      const existingSpin = await SpinWheelLog.findOne({
+        user: userId,
+        challenge: challenge._id,
+        createdAt: { $gte: spinWindowStart, $lte: spinWindowEnd },
+      }).sort({ createdAt: -1 });
       return res.json({
         success: true,
-        message: "You have already spun today for this challenge",
+        message:
+          requiredSpins > 1
+            ? `You have already completed all ${requiredSpins} spins for this challenge`
+            : "You have already spun today for this challenge",
         data: {
-          spinId: existingSpin._id,
-          reward: {
-            id: existingSpin.reward,
-            name: existingSpin.rewardName,
-            type: existingSpin.rewardType,
-            amount: existingSpin.rewardAmount,
-          },
-          createdAt: existingSpin.createdAt,
+          spinId: existingSpin?._id || null,
+          spinsCompleted: spinsSoFar,
+          spinsRequired: requiredSpins,
+          reward: existingSpin
+            ? {
+                id: existingSpin.reward,
+                name: existingSpin.rewardName,
+                type: existingSpin.rewardType,
+                amount: existingSpin.rewardAmount,
+              }
+            : null,
+          createdAt: existingSpin?.createdAt || null,
         },
       });
     }
@@ -1881,6 +1938,9 @@ router.post("/spin", protect, async (req, res) => {
     )}`;
     const spinLog = new SpinWheelLog({
       user: userId,
+      // Tag the spin with its challenge so it can be counted for this
+      // challenge only, and so ordinary spin-wheel spins never satisfy it.
+      challenge: challenge._id,
       spinId: spinId,
       reward: selectedReward._id,
       rewardName: selectedReward.name,
@@ -1947,6 +2007,22 @@ router.post("/spin", protect, async (req, res) => {
 
     // Save spin log
     await spinLog.save();
+
+    // Record progress so multi-spin challenges can report "2 of 3". Counted
+    // from the saved logs rather than incremented, so a retry cannot inflate it.
+    const spinsCompleted = await SpinWheelLog.countDocuments({
+      user: userId,
+      challenge: challenge._id,
+      createdAt: { $gte: spinWindowStart, $lte: spinWindowEnd },
+    });
+    progress.progress = progress.progress || {};
+    progress.progress.currentStep = spinsCompleted;
+    progress.progress.totalSteps = requiredSpins;
+    progress.progress.percentage = Math.min(
+      100,
+      Math.floor((spinsCompleted / requiredSpins) * 100),
+    );
+    await progress.save();
 
     // Increment account overview challenges completed counter
     try {
@@ -2165,254 +2241,128 @@ router.post("/complete", protect, async (req, res) => {
     let validationError = null;
 
     switch (challenge.type) {
-      case "spin":
-        // Verify user actually spun the wheel today
-        // Use normalizedStart and normalizedEnd to ensure UTC date matching
-        const userIdObjectId = mongoose.Types.ObjectId.isValid(userId)
-          ? new mongoose.Types.ObjectId(userId)
-          : userId;
-
-        console.log("🔍 [POST /complete] Spin validation check:", {
-          userId,
-          userIdObjectId: userIdObjectId.toString(),
-          challengeId: challenge._id,
-          challengeType: challenge.type,
-          normalizedStart: normalizedStart.toISOString(),
-          normalizedEnd: normalizedEnd.toISOString(),
-        });
-
-        // Try query with both string and ObjectId userId to handle any format issues
-        const spinLog = await SpinWheelLog.findOne({
-          $or: [{ user: userId }, { user: userIdObjectId }],
-          createdAt: {
-            $gte: normalizedStart,
-            $lte: normalizedEnd,
-          },
-        }).sort({ createdAt: -1 });
-
-        console.log("🔍 [POST /complete] Spin log query result:", {
-          userId,
-          spinLogFound: !!spinLog,
-          spinLogId: spinLog?._id,
-          spinLogCreatedAt: spinLog?.createdAt?.toISOString(),
-          spinLogUser: spinLog?.user?.toString(),
-          query: {
-            user: userId,
-            createdAt: {
-              $gte: normalizedStart.toISOString(),
-              $lte: normalizedEnd.toISOString(),
-            },
-          },
-        });
-
-        // Check for ANY spins for this user (to diagnose if it's a user ID issue)
-        const anySpinsCount = await SpinWheelLog.countDocuments({
-          $or: [{ user: userId }, { user: userIdObjectId }],
-        });
-
-        // Also check with just string userId (in case ObjectId conversion is the issue)
-        const stringOnlyCount = await SpinWheelLog.countDocuments({
-          user: userId,
-        });
-
-        // Also check with ObjectId only
-        const objectIdOnlyCount = await SpinWheelLog.countDocuments({
-          user: userIdObjectId,
-        });
-
-        // Also check all recent spins for debugging
-        const allRecentSpins = await SpinWheelLog.find({
-          $or: [{ user: userId }, { user: userIdObjectId }],
-        })
-          .sort({ createdAt: -1 })
-          .limit(5)
-          .select("createdAt user")
-          .lean();
-
-        // Also try a raw query to see all spins in the database (for debugging)
-        const allSpinsSample = await SpinWheelLog.find({})
-          .sort({ createdAt: -1 })
-          .limit(3)
-          .select("user createdAt")
-          .lean();
-
-        console.log("🔍 [POST /complete] Recent spins for user:", {
-          userId,
-          totalRecentSpins: allRecentSpins.length,
-          anySpinsCount,
-          stringOnlyCount,
-          objectIdOnlyCount,
-          recentSpins: allRecentSpins.map((spin) => ({
-            id: spin._id,
-            createdAt: spin.createdAt?.toISOString(),
-            user: spin.user?.toString(),
-            userType: typeof spin.user,
-            isToday:
-              spin.createdAt >= normalizedStart &&
-              spin.createdAt <= normalizedEnd,
-          })),
-          allSpinsSample: allSpinsSample.map((spin) => ({
-            user: spin.user?.toString(),
-            createdAt: spin.createdAt?.toISOString(),
-            matchesUserId:
-              spin.user?.toString() === userId ||
-              spin.user?.toString() === userIdObjectId.toString(),
-          })),
-        });
-
-        if (!spinLog) {
-          // Provide more helpful error message with clear instructions
-          if (anySpinsCount === 0) {
-            validationError =
-              "Please spin the wheel first to complete this challenge. Call POST /api/daily-challenge/spin before completing.";
-          } else {
-            validationError =
-              "Please spin the wheel today to complete this challenge. You have spun before, but not today. Call POST /api/daily-challenge/spin first.";
-          }
-          console.log("❌ [POST /complete] Spin validation failed:", {
-            userId,
-            error: validationError,
-            anySpinsCount,
-            normalizedStart: normalizedStart.toISOString(),
-            normalizedEnd: normalizedEnd.toISOString(),
-            requiredAction:
-              "Call POST /api/daily-challenge/spin before completing",
-          });
-        } else {
-          actionValidated = true;
-          console.log("✅ [POST /complete] Spin validation passed:", {
-            userId,
-            spinLogId: spinLog._id,
-            spinLogCreatedAt: spinLog.createdAt?.toISOString(),
-          });
-        }
-        break;
-
-      case "game":
+      case "spin": {
         /**
-         * TEMPORARY OVERRIDE:
-         * For game-type daily challenges, skip all gameplay validation and
-         * always allow completion when user hits "Mark complete".
+         * Requires the configured number of spins to have been made FOR THIS
+         * CHALLENGE, within its optional window.
          *
-         * WARNING: This means users can complete the challenge and earn rewards
-         * without actually playing the game. Re-enable the original validation
-         * below when you want to enforce real gameplay.
+         * This previously matched any SpinWheelLog by the user that day, so an
+         * ordinary spin-wheel spin satisfied the challenge without the user
+         * ever touching it. Spins are now tagged with their challenge (see
+         * POST /daily-challenge/spin), which also makes multi-spin challenges
+         * countable.
          */
-        actionValidated = true;
+        const requiredSpins = Math.max(
+          1,
+          Number(challenge.requirements?.spinCount) || 1,
+        );
+        const spinWindowMinutes =
+          Number(challenge.requirements?.spinWindowMinutes) || null;
 
-        /*
-        // ORIGINAL STRICT VALIDATION (commented out):
-        // Verify game was played for required time
-        const gameId =
-          challenge.assignedGame?.gameId ||
-          challenge.gameId ||
-          progress.selectedGame?.gameId;
+        const spinWindowStart =
+          spinWindowMinutes && progress.startedAt
+            ? new Date(
+                Math.max(
+                  new Date(progress.startedAt).getTime(),
+                  normalizedStart.getTime(),
+                ),
+              )
+            : normalizedStart;
+        const spinWindowEnd =
+          spinWindowMinutes && progress.startedAt
+            ? new Date(
+                Math.min(
+                  new Date(spinWindowStart).getTime() +
+                    spinWindowMinutes * 60000,
+                  normalizedEnd.getTime(),
+                ),
+              )
+            : normalizedEnd;
 
-        if (!gameId) {
-          validationError = "Game not selected or assigned for this challenge";
+        const spinsCompleted = await SpinWheelLog.countDocuments({
+          user: userId,
+          challenge: challenge._id,
+          createdAt: { $gte: spinWindowStart, $lte: spinWindowEnd },
+        });
+
+        if (spinsCompleted >= requiredSpins) {
+          actionValidated = true;
+        } else if (spinsCompleted === 0) {
+          validationError =
+            requiredSpins > 1
+              ? `Please spin the wheel ${requiredSpins} times to complete this challenge. Call POST /api/daily-challenge/spin.`
+              : "Please spin the wheel first to complete this challenge. Call POST /api/daily-challenge/spin before completing.";
         } else {
-          // Get game ID string for comparison
-          const gameIdString = gameId.toString ? gameId.toString() : gameId;
-
-          // Check if game was actually played today by checking user's game history
-          const userWithGames = await User.findById(userId).select("games");
-          const gamePlayed = userWithGames?.games?.find((g) => {
-            const userGameId = g.gameId?.toString
-              ? g.gameId.toString()
-              : g.gameId;
-            return userGameId === gameIdString;
-          });
-
-          // STRICT VALIDATION: Game must be played, not just downloaded
-          if (!gamePlayed || !gamePlayed.lastPlayed) {
-            validationError =
-              "Please play the game first to complete this challenge";
-          } else {
-            // Check if game was played today
-            const lastPlayedDate = new Date(gamePlayed.lastPlayed);
-            const todayStart = new Date(normalizedStart);
-            const isPlayedToday = lastPlayedDate >= todayStart;
-
-            if (!isPlayedToday) {
-              validationError =
-                "Please play the game today to complete this challenge";
-            } else if (challenge.requirements?.timeLimit) {
-              // TIME REQUIREMENT: Must play for the required time
-              // Check if minimum play time was met - REQUIRED for completion
-              const requiredMinutes = challenge.requirements.timeLimit;
-
-              // Get play time from progress metadata (updated by app when user plays)
-              const playTimeMinutes =
-                progress.progress?.metadata?.playTimeMinutes || 0;
-
-              // Also check game's totalDuration if available (in seconds, convert to minutes)
-              // Note: totalDuration might be cumulative across all sessions, so we need to check today's play time
-              const gameTotalDurationMinutes = gamePlayed.totalDuration
-                ? Math.floor((gamePlayed.totalDuration || 0) / 60)
-                : 0;
-
-              // Calculate play time today from firstPlayed and lastPlayed if both exist and are today
-              let todayPlayTimeMinutes = 0;
-              if (gamePlayed.firstPlayed && gamePlayed.lastPlayed) {
-                const firstPlayed = new Date(gamePlayed.firstPlayed);
-                const lastPlayed = new Date(gamePlayed.lastPlayed);
-                const todayStart = new Date(normalizedStart);
-
-                // Only calculate if both timestamps are today
-                if (firstPlayed >= todayStart && lastPlayed >= todayStart) {
-                  const timeDiffMinutes =
-                    (lastPlayed - firstPlayed) / (1000 * 60);
-                  // Cap at reasonable maximum (e.g., 8 hours = 480 minutes) to prevent abuse
-                  todayPlayTimeMinutes = Math.min(timeDiffMinutes, 480);
-                }
-              }
-
-              // Use the maximum of all sources, but STRICTLY require play time tracking
-              const actualPlayTime = Math.max(
-                playTimeMinutes,
-                gameTotalDurationMinutes,
-                todayPlayTimeMinutes
-              );
-
-              // STRICT VALIDATION: Require actual play time tracking
-              // Reject if no play time is tracked at all
-              if (
-                playTimeMinutes === 0 &&
-                gameTotalDurationMinutes === 0 &&
-                todayPlayTimeMinutes === 0
-              ) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes. Play time must be tracked to complete this challenge. Use the update-progress endpoint to report your play time.`;
-              } else if (actualPlayTime < requiredMinutes) {
-                validationError = `Please play the game for at least ${requiredMinutes} minutes to complete this challenge. Current play time: ${Math.floor(
-                  actualPlayTime
-                )} minutes`;
-              } else {
-                actionValidated = true;
-              }
-            } else {
-              // No time requirement - but still require game to be actually played
-              // Check if game has been played (not just downloaded) by verifying playCount or progress
-              const hasActualPlay =
-                gamePlayed.playCount > 0 ||
-                (gamePlayed.progress !== undefined &&
-                  gamePlayed.progress > 0) ||
-                (gamePlayed.level !== undefined && gamePlayed.level > 1) ||
-                (gamePlayed.firstPlayed &&
-                  gamePlayed.lastPlayed &&
-                  new Date(gamePlayed.lastPlayed).getTime() >
-                    new Date(gamePlayed.firstPlayed).getTime() + 60000); // At least 1 minute difference
-
-              if (!hasActualPlay) {
-                validationError =
-                  "Please actually play the game (not just download) to complete this challenge";
-              } else {
-                actionValidated = true;
-              }
-            }
-          }
+          validationError = `Please complete all ${requiredSpins} spins for this challenge. You have completed ${spinsCompleted}.`;
         }
-        */
+
+        console.log("[POST /complete] Spin validation:", {
+          userId,
+          challengeId: challenge._id?.toString(),
+          spinsCompleted,
+          requiredSpins,
+          validated: actionValidated,
+        });
         break;
+      }
+
+      case "game": {
+        /**
+         * Completion is validated against play time reported for TODAY'S
+         * challenge, held in progress.progress.metadata.playTimeMinutes and
+         * written by PUT /api/daily-challenge/update-progress.
+         *
+         * This replaces a temporary override that set actionValidated = true
+         * unconditionally, letting anyone claim a game challenge reward without
+         * playing. It also replaces the strict validation that sat commented
+         * out beneath it, which read user.games[].totalDuration - a field the
+         * strict User schema does not define, so it was always undefined - and
+         * inferred play time from a firstPlayed/lastPlayed span, which measures
+         * elapsed wall-clock rather than play and is trivially inflated.
+         *
+         * Challenge-scoped, app-reported minutes are the only trustworthy
+         * signal we currently have, so they are the only one used.
+         *
+         * NOTE: no app reports play time yet, so game challenges cannot be
+         * completed until that lands. That is deliberate - failing closed is
+         * correct, and there are currently no game-type challenges configured.
+         */
+        const { objective, target } = resolveObjective(challenge);
+
+        if (!objective || !target) {
+          validationError =
+            "This challenge has no requirement configured. Please contact support.";
+          break;
+        }
+
+        if (objective === "playtime") {
+          const reportedMinutes =
+            Number(progress.progress?.metadata?.playTimeMinutes) || 0;
+
+          if (reportedMinutes <= 0) {
+            validationError = `Please play the game for at least ${target} minutes. Play time must be tracked to complete this challenge.`;
+          } else if (reportedMinutes < target) {
+            validationError = `Please play the game for at least ${target} minutes to complete this challenge. Current play time: ${Math.floor(
+              reportedMinutes
+            )} minutes`;
+          } else {
+            actionValidated = true;
+          }
+          break;
+        }
+
+        // Event-driven objectives (purchases / milestones / tasks) are counted
+        // from provider goal completions arriving on webhooks, recorded into
+        // progress.currentStep. The user cannot self-report these.
+        const completedCount = Number(progress.progress?.currentStep) || 0;
+
+        if (completedCount >= target) {
+          actionValidated = true;
+        } else {
+          validationError = `${describeObjective(challenge)} to complete this challenge. Completed ${completedCount} of ${target}.`;
+        }
+        break;
+      }
 
       case "survey":
         // Verify SDK task was completed (for survey challenges)

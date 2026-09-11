@@ -130,7 +130,7 @@ function getDefaultRewardTiers() {
  */
 function getDefaultEligibility() {
   return {
-    countries: ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'SE', 'NO', 'DK', 'FI'],
+    countries: ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'SE', 'NO', 'DK', 'FI', 'IN'],
     minXPLevel: 0,
     maxXPLevel: 999999,
     ageRestrictions: {

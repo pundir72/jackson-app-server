@@ -19,6 +19,7 @@ const {
   resolveObjective,
   describeObjective,
 } = require("../utils/challengeObjective");
+const { resolveGameDeepLink } = require("../utils/gameDeepLink");
 const SpinWheelReward = require("../models/SpinWheelReward");
 const SpinWheelConfig = require("../models/SpinWheelConfig");
 const BonusDay = require("../models/BonusDay");
@@ -267,6 +268,10 @@ router.get("/available-games", protect, async (req, res) => {
 
     // If challenge has gameId and sdkProvider, return the game details
     if (challenge.gameId && challenge.sdkProvider) {
+      // gameDetails is a snapshot with no downloadUrl; resolve from the Game.
+      const challengeGameDoc = await Game.findOne({
+        gameId: challenge.gameId,
+      }).lean();
       return res.json({
         success: true,
         data: {
@@ -281,7 +286,7 @@ router.get("/available-games", protect, async (req, res) => {
               square_image: challenge.gameDetails?.square_image || "",
               large_image: challenge.gameDetails?.large_image || "",
               category: challenge.gameDetails?.category || "",
-              downloadUrl: challenge.gameDetails?.downloadUrl || "",
+              downloadUrl: resolveGameDeepLink(challengeGameDoc, userId) || "",
               sdkProvider: challenge.sdkProvider,
             },
           ],
@@ -306,7 +311,7 @@ router.get("/available-games", protect, async (req, res) => {
               large_image: game.gameDetails?.large_image || "",
               category:
                 game.metadata?.genre || game.gameDetails?.category || "",
-              downloadUrl: game.gameDetails?.downloadUrl || "",
+              downloadUrl: resolveGameDeepLink(game, userId) || "",
               sdkProvider: game.sdkProvider,
             },
           ],
@@ -764,7 +769,7 @@ router.get("/today", protect, async (req, res) => {
             name: selectedGameDoc.title,
             gameId: selectedGameDoc.gameId,
             iconUrl: selectedGameDoc.metadata?.iconUrl,
-            deepLink: selectedGameDoc.metadata?.deepLink,
+            deepLink: resolveGameDeepLink(selectedGameDoc, userId),
             isRequired: false,
             isSelected: true,
             selectedAt: progress.selectedGame.selectedAt,
@@ -778,20 +783,24 @@ router.get("/today", protect, async (req, res) => {
           name: challenge.assignedGame.gameId.title,
           gameId: challenge.assignedGame.gameId.gameId,
           iconUrl: challenge.assignedGame.gameId.metadata?.iconUrl,
-          deepLink: challenge.assignedGame.gameId.metadata?.deepLink,
+          deepLink: resolveGameDeepLink(challenge.assignedGame.gameId, userId),
           isRequired: challenge.assignedGame.isRequired,
           isSelected: false,
         };
         gameName = challenge.assignedGame.gameId.title;
       } else if (challenge.gameId && challenge.gameDetails?.name) {
-        // Challenge has gameId and gameDetails
+        // gameDetails is a snapshot whose downloadUrl is never populated, so
+        // load the Game to resolve the launch URL from its provider payload.
+        const challengeGameDoc = await Game.findOne({
+          gameId: challenge.gameId,
+        }).lean();
         activeGame = {
           id: challenge.gameId,
           name: challenge.gameDetails.name,
           gameId: challenge.gameId,
           iconUrl:
             challenge.gameDetails.image || challenge.gameDetails.square_image,
-          deepLink: challenge.gameDetails.downloadUrl,
+          deepLink: resolveGameDeepLink(challengeGameDoc, userId),
           isRequired: false,
           isSelected: false,
         };
@@ -1538,7 +1547,7 @@ router.post("/select-game", protect, async (req, res) => {
           id: game._id,
           title: game.title,
           iconUrl: game.metadata?.iconUrl,
-          deepLink: game.metadata?.deepLink,
+          deepLink: resolveGameDeepLink(game, userId),
         },
         canPlayNow: true,
       },
@@ -1649,15 +1658,16 @@ router.post("/start", protect, async (req, res) => {
     // Get the game to play
     let gameToPlay = null;
     if (challenge.gameId) {
-      // Use challenge's own gameId and gameDetails
-      gameToPlay = {
-        _id: challenge.gameId,
-        title: challenge.gameDetails?.name || challenge.title,
-        metadata: {
-          deepLink: challenge.gameDetails?.downloadUrl,
-          packageName: challenge.gameId,
-        },
-      };
+      // The challenge stores only a provider gameId and a metadata snapshot,
+      // and that snapshot's downloadUrl is never populated. Load the Game so
+      // the launch URL can be resolved from its stored provider payload.
+      gameToPlay =
+        (await Game.findOne({ gameId: challenge.gameId })) || {
+          _id: challenge.gameId,
+          title: challenge.gameDetails?.name || challenge.title,
+          gameDetails: challenge.gameDetails,
+          metadata: { packageName: challenge.gameId },
+        };
     } else if (challenge.assignedGame?.gameId) {
       gameToPlay = challenge.assignedGame.gameId;
     } else if (progress.selectedGame?.gameId) {
@@ -1681,7 +1691,7 @@ router.post("/start", protect, async (req, res) => {
       responseData.data.game = {
         id: gameToPlay._id,
         title: gameToPlay.title,
-        deepLink: gameToPlay.metadata?.deepLink,
+        deepLink: resolveGameDeepLink(gameToPlay, userId),
         packageName: gameToPlay.metadata?.packageName,
       };
     }

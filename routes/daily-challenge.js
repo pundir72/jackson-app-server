@@ -1131,6 +1131,148 @@ router.get("/today", protect, async (req, res) => {
   }
 });
 
+
+/**
+ * @route   GET /api/daily-challenge/my-challenges
+ * @desc    Get user's own challenges
+ * @access  Private
+ */
+router.get("/my-challenges", protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { page = 1, limit = 10, status, type } = req.query;
+
+    const query = { createdBy: userId };
+    if (status) query.status = status;
+    if (type) query.type = type;
+
+    const challenges = await DailyChallenge.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .select(
+        "title description type coinReward xpReward status challengeDate createdAt",
+      );
+
+    const total = await DailyChallenge.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        challenges: challenges.map((challenge) => challenge.getDisplayData()),
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error getting user challenges:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get user challenges",
+    });
+  }
+});
+
+
+
+// ==================== USER HISTORY ====================
+
+/**
+ * @route   GET /api/daily-challenge/history
+ * @desc    Get user's challenge history
+ * @query   {number} limit - Number of records (default: 30)
+ * @access  Private
+ */
+router.get("/history", protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = parseInt(req.query.limit) || 30;
+
+    const history = await UserChallengeProgress.getUserHistory(userId, limit);
+
+    res.json({
+      success: true,
+      data: {
+        history,
+        total: history.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error getting history:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get challenge history",
+    });
+  }
+});
+
+
+// ==================== USER STATS ====================
+
+/**
+ * @route   GET /api/daily-challenge/stats
+ * @desc    Get user's challenge statistics
+ * @access  Private
+ */
+router.get("/stats", protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const stats = await UserChallengeProgress.getUserStats(userId);
+
+    // Transform stats into readable format
+    const statsMap = {};
+    let totalChallenges = 0;
+    let totalCompleted = 0;
+    let totalCoins = 0;
+    let totalXP = 0;
+
+    stats.forEach((stat) => {
+      statsMap[stat._id] = {
+        count: stat.count,
+        coins: stat.totalCoins + stat.totalBonusCoins,
+        xp: stat.totalXP + stat.totalBonusXP,
+      };
+      totalChallenges += stat.count;
+      if (stat._id === "completed") {
+        totalCompleted = stat.count;
+        totalCoins = stat.totalCoins + stat.totalBonusCoins;
+        totalXP = stat.totalXP + stat.totalBonusXP;
+      }
+    });
+
+    const completionRate =
+      totalChallenges > 0
+        ? ((totalCompleted / totalChallenges) * 100).toFixed(2)
+        : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalChallenges,
+        totalCompleted,
+        completionRate: parseFloat(completionRate),
+        totalCoinsEarned: totalCoins,
+        totalXPEarned: totalXP,
+        byStatus: statsMap,
+      },
+    });
+  } catch (error) {
+    console.error("Error getting stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get challenge statistics",
+    });
+  }
+});
+
+// Registered before the parameterised "/:id" route below - Express matches in
+// registration order, so these would otherwise be read as challenge ids.
+
 /**
  * @route   GET /api/daily-challenge/:id
  * @desc    Get a specific daily challenge by ID
@@ -1173,6 +1315,140 @@ router.get("/:id", protect, async (req, res) => {
     });
   }
 });
+
+// ==================== UPDATE PROGRESS ====================
+
+/**
+ * @route   PUT /api/daily-challenge/update-progress
+ * @desc    Update daily challenge progress (e.g., game play time)
+ * @body    {number} playTimeMinutes - Minutes played (for game challenges)
+ * @body    {number} percentage - Progress percentage (0-100)
+ * @body    {object} metadata - Additional progress metadata
+ * @access  Private
+ */
+router.put("/update-progress", protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { playTimeMinutes, percentage, metadata } = req.body;
+    const now = new Date();
+
+    // Normalize today's date to UTC start-of-day
+    const today = new Date();
+    const normalizedStart = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
+    );
+    const normalizedEnd = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        23,
+        59,
+        59,
+        999,
+      ),
+    );
+
+    // Get today's challenge
+    const challenge = await DailyChallenge.findOne({
+      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
+      isVisible: true,
+      status: { $in: ["scheduled", "live"] },
+    });
+
+    if (!challenge) {
+      return res.status(404).json({
+        success: false,
+        error: "No challenge available for today",
+      });
+    }
+
+    // Get user's progress
+    let progress = await UserChallengeProgress.getUserChallengeForDate(
+      userId,
+      normalizedStart,
+    );
+
+    if (!progress) {
+      return res.status(400).json({
+        success: false,
+        error: "Challenge not started. Please start the challenge first.",
+      });
+    }
+
+    // Update progress metadata
+    if (!progress.progress.metadata) {
+      progress.progress.metadata = {};
+    }
+
+    // Update play time if provided (for game challenges)
+    if (playTimeMinutes !== undefined && playTimeMinutes !== null) {
+      const currentPlayTime = progress.progress.metadata.playTimeMinutes || 0;
+      // Only update if new value is greater (prevent decreasing)
+      progress.progress.metadata.playTimeMinutes = Math.max(
+        currentPlayTime,
+        Number(playTimeMinutes) || 0,
+      );
+    }
+
+    // Update percentage if provided
+    if (percentage !== undefined && percentage !== null) {
+      await progress.updateProgress(Number(percentage));
+    } else if (playTimeMinutes !== undefined) {
+      // Auto-update percentage based on play time if timeLimit exists
+      if (challenge.requirements?.timeLimit && challenge.type === "game") {
+        const requiredMinutes = challenge.requirements.timeLimit;
+        const currentPlayTime = progress.progress.metadata.playTimeMinutes || 0;
+        const progressPercentage = Math.min(
+          100,
+          Math.floor((currentPlayTime / requiredMinutes) * 100),
+        );
+        await progress.updateProgress(progressPercentage);
+      }
+    }
+
+    // Merge additional metadata
+    if (metadata && typeof metadata === "object") {
+      progress.progress.metadata = {
+        ...progress.progress.metadata,
+        ...metadata,
+        lastUpdated: now.toISOString(),
+      };
+    }
+
+    await progress.save();
+
+    res.json({
+      success: true,
+      message: "Progress updated successfully",
+      data: {
+        progress: {
+          percentage: progress.progress.percentage,
+          playTimeMinutes: progress.progress.metadata?.playTimeMinutes || 0,
+          status: progress.status,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error updating progress:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to update progress",
+    });
+  }
+});
+
+// Registered before the parameterised "/:id" route below: Express matches in
+// order, so "/update-progress" would otherwise be swallowed as an id and the
+// play-time report would fail with "Failed to update challenge".
 
 /**
  * @route   PUT /api/daily-challenge/:id
@@ -1385,51 +1661,6 @@ router.delete("/:id", protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to delete challenge",
-    });
-  }
-});
-
-/**
- * @route   GET /api/daily-challenge/my-challenges
- * @desc    Get user's own challenges
- * @access  Private
- */
-router.get("/my-challenges", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { page = 1, limit = 10, status, type } = req.query;
-
-    const query = { createdBy: userId };
-    if (status) query.status = status;
-    if (type) query.type = type;
-
-    const challenges = await DailyChallenge.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .select(
-        "title description type coinReward xpReward status challengeDate createdAt",
-      );
-
-    const total = await DailyChallenge.countDocuments(query);
-
-    res.json({
-      success: true,
-      data: {
-        challenges: challenges.map((challenge) => challenge.getDisplayData()),
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit),
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error getting user challenges:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to get user challenges",
     });
   }
 });
@@ -3247,226 +3478,6 @@ router.post("/claim-reward", protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to claim reward",
-    });
-  }
-});
-
-// ==================== UPDATE PROGRESS ====================
-
-/**
- * @route   PUT /api/daily-challenge/update-progress
- * @desc    Update daily challenge progress (e.g., game play time)
- * @body    {number} playTimeMinutes - Minutes played (for game challenges)
- * @body    {number} percentage - Progress percentage (0-100)
- * @body    {object} metadata - Additional progress metadata
- * @access  Private
- */
-router.put("/update-progress", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { playTimeMinutes, percentage, metadata } = req.body;
-    const now = new Date();
-
-    // Normalize today's date to UTC start-of-day
-    const today = new Date();
-    const normalizedStart = new Date(
-      Date.UTC(
-        today.getUTCFullYear(),
-        today.getUTCMonth(),
-        today.getUTCDate(),
-        0,
-        0,
-        0,
-        0,
-      ),
-    );
-    const normalizedEnd = new Date(
-      Date.UTC(
-        today.getUTCFullYear(),
-        today.getUTCMonth(),
-        today.getUTCDate(),
-        23,
-        59,
-        59,
-        999,
-      ),
-    );
-
-    // Get today's challenge
-    const challenge = await DailyChallenge.findOne({
-      challengeDate: { $gte: normalizedStart, $lte: normalizedEnd },
-      isVisible: true,
-      status: { $in: ["scheduled", "live"] },
-    });
-
-    if (!challenge) {
-      return res.status(404).json({
-        success: false,
-        error: "No challenge available for today",
-      });
-    }
-
-    // Get user's progress
-    let progress = await UserChallengeProgress.getUserChallengeForDate(
-      userId,
-      normalizedStart,
-    );
-
-    if (!progress) {
-      return res.status(400).json({
-        success: false,
-        error: "Challenge not started. Please start the challenge first.",
-      });
-    }
-
-    // Update progress metadata
-    if (!progress.progress.metadata) {
-      progress.progress.metadata = {};
-    }
-
-    // Update play time if provided (for game challenges)
-    if (playTimeMinutes !== undefined && playTimeMinutes !== null) {
-      const currentPlayTime = progress.progress.metadata.playTimeMinutes || 0;
-      // Only update if new value is greater (prevent decreasing)
-      progress.progress.metadata.playTimeMinutes = Math.max(
-        currentPlayTime,
-        Number(playTimeMinutes) || 0,
-      );
-    }
-
-    // Update percentage if provided
-    if (percentage !== undefined && percentage !== null) {
-      await progress.updateProgress(Number(percentage));
-    } else if (playTimeMinutes !== undefined) {
-      // Auto-update percentage based on play time if timeLimit exists
-      if (challenge.requirements?.timeLimit && challenge.type === "game") {
-        const requiredMinutes = challenge.requirements.timeLimit;
-        const currentPlayTime = progress.progress.metadata.playTimeMinutes || 0;
-        const progressPercentage = Math.min(
-          100,
-          Math.floor((currentPlayTime / requiredMinutes) * 100),
-        );
-        await progress.updateProgress(progressPercentage);
-      }
-    }
-
-    // Merge additional metadata
-    if (metadata && typeof metadata === "object") {
-      progress.progress.metadata = {
-        ...progress.progress.metadata,
-        ...metadata,
-        lastUpdated: now.toISOString(),
-      };
-    }
-
-    await progress.save();
-
-    res.json({
-      success: true,
-      message: "Progress updated successfully",
-      data: {
-        progress: {
-          percentage: progress.progress.percentage,
-          playTimeMinutes: progress.progress.metadata?.playTimeMinutes || 0,
-          status: progress.status,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error updating progress:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to update progress",
-    });
-  }
-});
-
-// ==================== USER HISTORY ====================
-
-/**
- * @route   GET /api/daily-challenge/history
- * @desc    Get user's challenge history
- * @query   {number} limit - Number of records (default: 30)
- * @access  Private
- */
-router.get("/history", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const limit = parseInt(req.query.limit) || 30;
-
-    const history = await UserChallengeProgress.getUserHistory(userId, limit);
-
-    res.json({
-      success: true,
-      data: {
-        history,
-        total: history.length,
-      },
-    });
-  } catch (error) {
-    console.error("Error getting history:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to get challenge history",
-    });
-  }
-});
-
-// ==================== USER STATS ====================
-
-/**
- * @route   GET /api/daily-challenge/stats
- * @desc    Get user's challenge statistics
- * @access  Private
- */
-router.get("/stats", protect, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-
-    const stats = await UserChallengeProgress.getUserStats(userId);
-
-    // Transform stats into readable format
-    const statsMap = {};
-    let totalChallenges = 0;
-    let totalCompleted = 0;
-    let totalCoins = 0;
-    let totalXP = 0;
-
-    stats.forEach((stat) => {
-      statsMap[stat._id] = {
-        count: stat.count,
-        coins: stat.totalCoins + stat.totalBonusCoins,
-        xp: stat.totalXP + stat.totalBonusXP,
-      };
-      totalChallenges += stat.count;
-      if (stat._id === "completed") {
-        totalCompleted = stat.count;
-        totalCoins = stat.totalCoins + stat.totalBonusCoins;
-        totalXP = stat.totalXP + stat.totalBonusXP;
-      }
-    });
-
-    const completionRate =
-      totalChallenges > 0
-        ? ((totalCompleted / totalChallenges) * 100).toFixed(2)
-        : 0;
-
-    res.json({
-      success: true,
-      data: {
-        totalChallenges,
-        totalCompleted,
-        completionRate: parseFloat(completionRate),
-        totalCoinsEarned: totalCoins,
-        totalXPEarned: totalXP,
-        byStatus: statsMap,
-      },
-    });
-  } catch (error) {
-    console.error("Error getting stats:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to get challenge statistics",
     });
   }
 });

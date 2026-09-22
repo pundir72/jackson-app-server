@@ -1,7 +1,14 @@
 pipeline {
     agent any
 
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+    }
+
     parameters {
+        booleanParam(name: 'DEPLOY_CONTAINER', defaultValue: false, description: 'Replace the application container on this agent')
+        string(name: 'ENV_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins secret-file credential for deployment environment variables')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run unit tests')
         booleanParam(name: 'RUN_GITLEAKS', defaultValue: true, description: 'Run secrets scan')
         booleanParam(name: 'RUN_SONAR', defaultValue: false, description: 'Run SonarQube analysis')
@@ -12,8 +19,6 @@ pipeline {
     }
 
     environment {
-        BRANCH_NAME = 'main-v3'
-        ENV_FILE_PATH = '/var/www/env-backups/.env.jackson-app-server'
         IMAGE_NAME = 'jackson-app-server'
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
@@ -22,15 +27,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM',
-                    branches: [[name: "${BRANCH_NAME}"]],
-                    doGenerateSubmoduleConfigurations: false,
-                    extensions: [[$class: 'WipeWorkspace']],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/pundir72/jackson-app-server.git',
-                        credentialsId: 'jackson-github'
-                    ]]
-                ])
+                checkout scm
             }
         }
 
@@ -69,8 +66,8 @@ pipeline {
                 sh '''
                 docker run --rm \
                     -v "$PWD:/repo" \
-                    zricethezav/gitleaks:latest detect \
-                    --source="/repo" \
+                    zricethezav/gitleaks:v8.24.3 detect \
+                    --source="/repo" --redact \
                     --report-format=json \
                     --report-path=/repo/gitleaks-report.json \
                     --exit-code=1
@@ -85,7 +82,7 @@ pipeline {
             steps {
                 sh '''
                 if [ -z "${SONAR_HOST_URL}" ] || [ -z "${SONAR_PROJECT_KEY}" ] || [ -z "${SONAR_TOKEN}" ]; then
-                    echo "❌ SonarQube env vars missing: SONAR_HOST_URL, SONAR_PROJECT_KEY, SONAR_TOKEN"
+                    echo "SonarQube env vars missing: SONAR_HOST_URL, SONAR_PROJECT_KEY, SONAR_TOKEN"
                     exit 1
                 fi
 
@@ -109,28 +106,6 @@ pipeline {
             steps {
                 sh '''
                 npm audit --audit-level=high
-                '''
-            }
-        }
-
-        stage('Copy .env') {
-            steps {
-                sh '''
-                if [ ! -f "${ENV_FILE_PATH}" ]; then
-                    echo "❌ .env file not found at ${ENV_FILE_PATH}"
-                    exit 1
-                fi
-
-                cp ${ENV_FILE_PATH} ${WORKSPACE}/.env
-                echo "✅ .env file copied to workspace"
-
-                # Stamp this build as the Sentry release so every error
-                # maps to the exact deploy that introduced it
-                sed -i '/^SENTRY_RELEASE=/d' ${WORKSPACE}/.env
-                echo "SENTRY_RELEASE=build-${BUILD_NUMBER}" >> ${WORKSPACE}/.env
-                echo "✅ SENTRY_RELEASE=build-${BUILD_NUMBER} stamped into .env"
-
-                ls -la ${WORKSPACE}/.env
                 '''
             }
         }
@@ -171,7 +146,7 @@ pipeline {
                 fi
 
                 if [ -z "${REGISTRY}" ]; then
-                    echo "❌ IMAGE_REGISTRY not set and DOCKERHUB_USERNAME missing"
+                    echo "IMAGE_REGISTRY not set and DOCKERHUB_USERNAME missing"
                     exit 1
                 fi
 
@@ -182,24 +157,23 @@ pipeline {
         }
 
         stage('Deploy Container') {
+            when { expression { return params.DEPLOY_CONTAINER } }
             steps {
-                sh '''
-                docker stop jackson-app-server || true
-                docker rm jackson-app-server || true
-
-                if [ ! -f "${WORKSPACE}/.env" ]; then
-                    echo "❌ .env file missing. Deployment aborted!"
-                    exit 1
-                fi
-
-                docker run -d \
-                  --env-file ${WORKSPACE}/.env \
-                  -p 4001:4001 \
-                  --name jackson-app-server \
-                  ${IMAGE_NAME}:${IMAGE_TAG}
-
-                echo "🚀 Docker container deployed successfully!"
-                '''
+                script {
+                    if (!params.ENV_CREDENTIALS_ID.trim()) {
+                        error('Set ENV_CREDENTIALS_ID to a Jenkins secret-file credential before deployment.')
+                    }
+                }
+                withCredentials([file(credentialsId: params.ENV_CREDENTIALS_ID, variable: 'APP_ENV_FILE')]) {
+                    sh '''
+                    test -s "$APP_ENV_FILE"
+                    docker stop jackson-app-server || true
+                    docker rm jackson-app-server || true
+                    docker run -d --restart unless-stopped \
+                        --env-file "$APP_ENV_FILE" -p 4001:4001 \
+                        --name jackson-app-server "$IMAGE_NAME:$IMAGE_TAG"
+                    '''
+                }
             }
         }
 
@@ -209,7 +183,7 @@ pipeline {
             }
             steps {
                 sh '''
-                BASE_URL="http://localhost:4001" bash scripts/run-k6.sh load-tests/k6-smoke.js
+                docker run --rm --network host -e BASE_URL="http://localhost:4001" -v "$PWD/load-tests:/tests:ro" grafana/k6 run /tests/k6-smoke.js
                 '''
             }
         }
@@ -217,10 +191,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment successful!"
+            echo "Pipeline completed successfully."
         }
         failure {
-            echo "❌ Build failed — secrets or errors detected."
+            echo "Build failed — secrets or errors detected."
         }
     }
 }

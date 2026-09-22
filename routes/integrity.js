@@ -23,9 +23,9 @@ const protect = require('../middleware/auth');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 
-// ---------------------------------------------------------------------------
+
 // Rate limiters (per authenticated user, keyed by user id set by protect middleware)
-// ---------------------------------------------------------------------------
+
 
 /**
  * Build a rate limiter keyed on the authenticated user's id.
@@ -67,9 +67,9 @@ const verifyRateLimit = userRateLimiter({
     message: 'Too many verification requests — please wait before retrying',
 });
 
-// ---------------------------------------------------------------------------
+
 // POST /api/integrity/challenge
-// ---------------------------------------------------------------------------
+
 router.post('/challenge', protect, challengeRateLimit, async (req, res) => {
     try {
         const userId = (req.user.userId || req.user._id || req.user.id).toString();
@@ -103,10 +103,10 @@ router.post('/challenge', protect, challengeRateLimit, async (req, res) => {
     }
 });
 
-// ---------------------------------------------------------------------------
+
 // POST /api/integrity/verify
 // Explicit standalone verification (e.g., session-level pre-auth for critical flows).
-// ---------------------------------------------------------------------------
+
 router.post('/verify', protect, verifyRateLimit, async (req, res) => {
     try {
         const { integrityToken } = req.body;
@@ -194,10 +194,10 @@ router.post('/verify', protect, verifyRateLimit, async (req, res) => {
     }
 });
 
-// ---------------------------------------------------------------------------
+
 // GET /api/integrity/status
 // Lightweight status check — reads the integrity state attached by middleware.
-// ---------------------------------------------------------------------------
+
 router.get('/status', protect, (req, res) => {
     const state = req.integrityVerification;
 

@@ -317,7 +317,7 @@ router.post("/rewarded-ad/complete", protect, async (req, res) => {
     //   await progress.markCompleted({ coins: challenge.coinReward, xp: challenge.xpReward });
     //   coinsToCredit = challenge.coinReward;
     //   xpToCredit = challenge.xpReward;
-    //   console.log(`✅ Daily challenge completed via AppLovin MAX for user ${user._id}`);
+    //   console.log(` Daily challenge completed via AppLovin MAX for user ${user._id}`);
     // } else {
     //   coinsToCredit = reward?.amount || 100;
     //   xpToCredit = Math.floor(coinsToCredit / 10);
@@ -356,7 +356,7 @@ router.post("/rewarded-ad/complete", protect, async (req, res) => {
 
     const finalXP = 0;
     // console.log(
-    //   `✅ Rewards credited via AppLovin MAX: ${coinsToCredit} coins, ${finalXP} XP`
+    //   ` Rewards credited via AppLovin MAX: ${coinsToCredit} coins, ${finalXP} XP`
     // );
 
     res.json({

@@ -697,7 +697,7 @@ exports.getUserOfferHistory = async (req, res) => {
     );
 
     // Debug logging
-    // console.log("🔵 [BITLABS CONTROLLER] Raw Bitlabs result:", {
+    // console.log(" [BITLABS CONTROLLER] Raw Bitlabs result:", {
     //   hasData: !!bitlabsResult?.data,
     //   hasId: !!bitlabsResult?.id,
     //   isArray: Array.isArray(bitlabsResult),
@@ -716,7 +716,7 @@ exports.getUserOfferHistory = async (req, res) => {
       bitlabsData = bitlabsData.data;
     }
 
-    // console.log("🔵 [BITLABS CONTROLLER] Extracted bitlabsData:", {
+    // console.log(" [BITLABS CONTROLLER] Extracted bitlabsData:", {
     //   hasId: !!bitlabsData?.id,
     //   bitlabsDataId: bitlabsData?.id,
     //   bitlabsDataIdType: bitlabsData?.id != null ? typeof bitlabsData.id : "n/a",
@@ -936,7 +936,7 @@ exports.getUserOfferHistory = async (req, res) => {
           offers = [bitlabsData];
         }
       }
-      // console.log("🔵 [BITLABS CONTROLLER] Single offer extraction result:", {
+      // console.log(" [BITLABS CONTROLLER] Single offer extraction result:", {
       //   offersCount: offers.length,
       //   hasOffer: offers.length > 0,
       //   offerId: offers[0]?.id,
@@ -955,12 +955,12 @@ exports.getUserOfferHistory = async (req, res) => {
         // Some APIs return { offers: [...] }
         offers = Array.isArray(bitlabsData.offers) ? bitlabsData.offers : [];
       }
-      // console.log("🔵 [BITLABS CONTROLLER] Multiple offers extraction result:", {
+      // console.log(" [BITLABS CONTROLLER] Multiple offers extraction result:", {
       //   offersCount: offers.length,
       // });
     }
 
-    // console.log("🔵 [BITLABS CONTROLLER] Final offers array:", {
+    // console.log(" [BITLABS CONTROLLER] Final offers array:", {
     //   count: offers.length,
     //   firstOfferId: offers[0]?.id,
     //   firstOfferIdType: offers[0]?.id != null ? typeof offers[0].id : "n/a",
@@ -971,7 +971,7 @@ exports.getUserOfferHistory = async (req, res) => {
     // Track offers that need to be processed without game matching
     const offersWithoutGame = [];
 
-    // console.log("🔵 [BITLABS CONTROLLER] Starting to process offers:", {
+    // console.log(" [BITLABS CONTROLLER] Starting to process offers:", {
     //   totalOffers: offers.length,
     // });
 
@@ -984,7 +984,7 @@ exports.getUserOfferHistory = async (req, res) => {
       // Check for id field - Bitlabs might use 'id' or 'offer_id'; use route param if single-offer response has no id
       const offerIdValue =
         offer.id || offer.offer_id || offer._id || (offerId && String(offerId));
-      // console.log("🔵 [BITLABS CONTROLLER] Offer id resolution:", {
+      // console.log(" [BITLABS CONTROLLER] Offer id resolution:", {
       //   "offer.id": offer.id,
       //   "offer.offer_id": offer.offer_id,
       //   "offer._id": offer._id,
@@ -1005,7 +1005,7 @@ exports.getUserOfferHistory = async (req, res) => {
         offer.id = offerIdValue;
       }
 
-      // console.log("🔵 [BITLABS CONTROLLER] Processing offer:", {
+      // console.log(" [BITLABS CONTROLLER] Processing offer:", {
       //   offerId: offer.id,
       //   anchor: offer.anchor || offer.name || "n/a",
       //   hasEvents: !!offer.events,
@@ -1037,7 +1037,7 @@ exports.getUserOfferHistory = async (req, res) => {
         sdkProvider: { $in: ["Bitlabs", "bitlabs", "BitLabs", "BITLABS"] },
         $or: idConditions,
       };
-      // console.log("🔵 [BITLABS CONTROLLER] Game lookup query:", {
+      // console.log(" [BITLABS CONTROLLER] Game lookup query:", {
       //   offerIdStr,
       //   offerIdNum: Number.isNaN(offerIdNum) ? "NaN" : offerIdNum,
       //   idConditionsCount: idConditions.length,

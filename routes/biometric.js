@@ -11,7 +11,7 @@ const LOCKOUT_DURATION = 30 * 60 * 1000; // 30 minutes
 const LIVENESS_THRESHOLD = 0.8; // 80% confidence for liveness
 const FACE_VERIFICATION_THRESHOLD = 0.7; // 70% confidence for face match
 
-// 🔥 FIX: Mobile number normalization helper
+//  FIX: Mobile number normalization helper
 // Normalizes mobile numbers to handle +91, 91, 919999988888, etc.
 const normalizeMobile = (mobile) => {
   if (!mobile) return null;
@@ -34,7 +34,7 @@ const normalizeMobile = (mobile) => {
   return normalized;
 };
 
-// 🔥 FIX: Helper to find user by mobile with normalization
+//  FIX: Helper to find user by mobile with normalization
 const findUserByMobile = async (mobile) => {
   if (!mobile) return null;
 
@@ -204,7 +204,7 @@ router.post("/verify", async (req, res) => {
       expiresIn: "60d",
     });
 
-    // 🔥 FIX: Ensure biometric object exists before updating
+    //  FIX: Ensure biometric object exists before updating
     // Initialize biometric object if it doesn't exist
     const update = {
       $set: {
@@ -232,20 +232,20 @@ router.post("/verify", async (req, res) => {
         scanType || "os_face_id";
     }
 
-    // 🔥 FIX: Add logging before update
+    //  FIX: Add logging before update
     console.log(
       `[BIOMETRIC-VERIFY] Updating user ${user._id} with:`,
       JSON.stringify(update, null, 2),
     );
 
-    // 🔥 FIX: Use strict: false to allow saving fields not in schema
+    //  FIX: Use strict: false to allow saving fields not in schema
     const updateResult = await User.findByIdAndUpdate(user._id, update, {
       new: true,
-      strict: false, // 🔥 CRITICAL: Allow saving fields not in schema
+      strict: false, //  CRITICAL: Allow saving fields not in schema
       runValidators: false,
     });
 
-    // 🔥 FIX: Verify update was successful
+    //  FIX: Verify update was successful
     if (!updateResult) {
       console.error(`[BIOMETRIC-VERIFY] Failed to update user ${user._id}`);
       return res
@@ -253,7 +253,7 @@ router.post("/verify", async (req, res) => {
         .json({ error: "Failed to update biometric status" });
     }
 
-    // 🔥 FIX: Log updated user for debugging
+    //  FIX: Log updated user for debugging
     const updatedUser = await User.findById(user._id);
     console.log(`[BIOMETRIC-VERIFY] User after update:`, {
       setup: updatedUser.biometric?.setup,
@@ -309,7 +309,7 @@ router.post("/setup", async (req, res) => {
   try {
     const { mobile, type, verificationData, deviceId } = req.body;
 
-    // 🔥 FIX: Validate required fields
+    //  FIX: Validate required fields
     if (!mobile || !["face_id", "fingerprint"].includes(type)) {
       return res.status(400).json({ error: "Invalid request parameters" });
     }
@@ -318,7 +318,7 @@ router.post("/setup", async (req, res) => {
       return res.status(400).json({ error: "Device ID is required" });
     }
 
-    // 🔥 FIX: Extract and verify JWT token (same as /verify endpoint)
+    //  FIX: Extract and verify JWT token (same as /verify endpoint)
     let token = req.header("Authorization");
     if (token && token.startsWith("Bearer ")) {
       token = token.replace("Bearer ", "");
@@ -334,7 +334,7 @@ router.post("/setup", async (req, res) => {
       token = req.body.token;
     }
 
-    // 🔥 FIX: Verify JWT token to ensure user is authenticated
+    //  FIX: Verify JWT token to ensure user is authenticated
     let decoded;
     if (token) {
       try {
@@ -347,7 +347,7 @@ router.post("/setup", async (req, res) => {
       }
     }
 
-    // 🔥 FIX: Use normalized mobile lookup
+    //  FIX: Use normalized mobile lookup
     const user = await findUserByMobile(mobile);
 
     if (!user) {
@@ -357,7 +357,7 @@ router.post("/setup", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // 🔥 FIX: Verify token userId matches the user being updated (security check)
+    //  FIX: Verify token userId matches the user being updated (security check)
     if (decoded && decoded.userId && decoded.userId !== user._id.toString()) {
       return res.status(403).json({
         error: "Unauthorized: Token does not match user",
@@ -392,7 +392,7 @@ router.post("/setup", async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Log user found
+    //  FIX: Log user found
     console.log(
       `[BIOMETRIC-SETUP] Found user ${user._id} with mobile: ${user.mobile}`,
     );
@@ -438,7 +438,7 @@ router.post("/setup", async (req, res) => {
       }
     }
 
-    // 🔥 FIX: Use save() method instead of findByIdAndUpdate for better reliability with nested objects
+    //  FIX: Use save() method instead of findByIdAndUpdate for better reliability with nested objects
     // This ensures nested biometric fields are properly saved to the database
     console.log(
       `[BIOMETRIC-SETUP] Using save() method to ensure data persistence`,
@@ -544,7 +544,7 @@ router.post("/setup", async (req, res) => {
       mobile: updatedUser.mobile,
     });
 
-    // 🔥 CRITICAL: Log full biometric object to see what was actually saved
+    //  CRITICAL: Log full biometric object to see what was actually saved
     console.log(
       `[BIOMETRIC-SETUP] Full biometric object from database:`,
       JSON.stringify(updatedUser.biometric, null, 2),
@@ -593,7 +593,7 @@ router.post("/setup", async (req, res) => {
       livenessScore: verificationData?.livenessScore,
     });
 
-    // 🔥 FIX: Return consistent response structure
+    //  FIX: Return consistent response structure
     res.status(200).json({
       success: true,
       message: "Biometric setup successful",
@@ -634,7 +634,7 @@ router.post("/reset", async (req, res) => {
       return res.status(400).json({ error: "Mobile is required" });
     }
 
-    // 🔥 FIX: Use normalized mobile lookup
+    //  FIX: Use normalized mobile lookup
     const user = await findUserByMobile(mobile);
 
     if (!user) {
@@ -690,7 +690,7 @@ router.get("/status", async (req, res) => {
 
     let user;
 
-    // 🔥 FIX: Use normalized mobile lookup
+    //  FIX: Use normalized mobile lookup
     if (mobile) {
       user = await findUserByMobile(mobile);
       console.log(
@@ -722,7 +722,7 @@ router.get("/status", async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Log user found and current biometric state
+    //  FIX: Log user found and current biometric state
     console.log(`[BIOMETRIC-STATUS] User found: ${user._id}`, {
       mobile: user.mobile,
       biometricSetup: user.biometric?.setup,
@@ -735,15 +735,15 @@ router.get("/status", async (req, res) => {
     const isSetup = user.biometric?.setup === true;
     const biometricType = user.biometric?.type || "none";
 
-    // 🔥 FIX: Less strict verification logic
+    //  FIX: Less strict verification logic
     // For face_id: require faceVerification.verified OR fallback to isVerified
     // For fingerprint: always considered verified (no face scan needed)
     const biometricVerified =
       biometricType === "fingerprint" || // Fingerprint is always verified
       user.biometric?.faceVerification?.verified === true ||
-      (biometricType === "face_id" && user.isVerified === true); // 🔥 FALLBACK for old users
+      (biometricType === "face_id" && user.isVerified === true); //  FALLBACK for old users
 
-    // 🔥 FIX: Less strict registration logic
+    //  FIX: Less strict registration logic
     // If setup is true and type is not "none", consider registered
     // Verification is checked separately but doesn't block registration status
     const isRegistered =
@@ -751,7 +751,7 @@ router.get("/status", async (req, res) => {
       biometricType !== "none" &&
       (biometricVerified || biometricType === "fingerprint"); // Fingerprint doesn't need verification
 
-    // 🔥 FIX: Log registration calculation
+    //  FIX: Log registration calculation
     console.log(`[BIOMETRIC-STATUS] Registration check:`, {
       isSetup,
       biometricType,
@@ -829,7 +829,7 @@ router.post("/biometric-login", async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Use normalized mobile lookup
+    //  FIX: Use normalized mobile lookup
     let user;
     if (mobile) {
       user = await findUserByMobile(mobile);

@@ -1178,7 +1178,6 @@ router.get("/my-challenges", protect, async (req, res) => {
 });
 
 
-
 // ==================== USER HISTORY ====================
 
 /**

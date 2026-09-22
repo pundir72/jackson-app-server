@@ -42,9 +42,9 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// ============================================================================
+
 // RECEIPT UPLOAD & PROCESSING
-// ============================================================================
+
 
 /**
  * Upload receipt with image
@@ -442,9 +442,9 @@ router.delete('/:receiptId', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // RECEIPT PROCESSING & VALIDATION
-// ============================================================================
+
 
 /**
  * Simulate receipt validation (in real app, this would use OCR/AI)

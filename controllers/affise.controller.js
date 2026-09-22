@@ -236,7 +236,7 @@ exports.getAdminOffers = async (req, res) => {
         userRewardCoins,
         userRewardXP,
         reward: { coins: userRewardCoins, xp: userRewardXP, currency: "points" },
-        // ---------------
+
         epc:                 raw.epc,
         affiliate_epc:       raw.affiliate_epc,
         // targeting

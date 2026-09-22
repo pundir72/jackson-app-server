@@ -32,21 +32,21 @@ const verifyIntegrity = (options = {}) => {
     } = options;
 
     return async (req, res, next) => {
-        // ------------------------------------------------------------------
+
         // 1. Environment bypass (dev only — never skip in staging/production)
-        // ------------------------------------------------------------------
+
         if (skipForEnvironments.includes(config.NODE_ENV)) {
             logger.debug(`[${label}] Skipping in ${config.NODE_ENV}`);
             req.integrityVerification = { verified: false, skipped: true };
             return next();
         }
 
-        // ------------------------------------------------------------------
+
         // 1b. iOS bypass — Google Play Integrity is Android-only.
         //     iOS requests are identified by the x-platform header sent by
         //     the mobile app. iOS has its own attestation (DeviceCheck /
         //     App Attest) which can be wired in separately.
-        // ------------------------------------------------------------------
+
         const platform = (req.headers['x-platform'] || '').toLowerCase();
         if (platform === 'ios') {
             logger.debug(`[${label}] Skipping Play Integrity for iOS request`);
@@ -54,9 +54,9 @@ const verifyIntegrity = (options = {}) => {
             return next();
         }
 
-        // ------------------------------------------------------------------
+
         // 2. Token must be present — no token = reject immediately
-        // ------------------------------------------------------------------
+
         const integrityToken =
             req.headers['x-integrity-token'] ||
             (req.body && req.body.integrityToken);
@@ -71,10 +71,10 @@ const verifyIntegrity = (options = {}) => {
             });
         }
 
-        // ------------------------------------------------------------------
+
         // 3. Test token bypass — for local Postman testing only.
         //    Set INTEGRITY_TEST_TOKEN in .env. Never set this in production.
-        // ------------------------------------------------------------------
+
         const testToken = config.INTEGRITY_TEST_TOKEN;
         if (testToken && integrityToken === testToken) {
             logger.debug(`[${label}] Test token bypass used`);
@@ -83,18 +83,18 @@ const verifyIntegrity = (options = {}) => {
         }
 
         try {
-            // --------------------------------------------------------------
+
             // 3. Verify token with Google Play Integrity API
-            // --------------------------------------------------------------
+
             const packageName = config.ANDROID_PACKAGE_NAME;
             const verificationResult = await googlePlayIntegrity.verifyIntegrityToken(
                 integrityToken,
                 packageName
             );
 
-            // --------------------------------------------------------------
+
             // 4. Token invalid → reject (no fallback, no silent pass-through)
-            // --------------------------------------------------------------
+
             if (!verificationResult.isValid) {
                 logger.warn(`[${label}] Integrity verification failed`, {
                     userId: req.user?.userId || req.user?._id,
@@ -113,11 +113,11 @@ const verifyIntegrity = (options = {}) => {
                 });
             }
 
-            // --------------------------------------------------------------
+
             // 5. Nonce validation — single-use replay protection
             //    The nonce baked into the token must have been issued by us
             //    for this specific user, and must not have been used before.
-            // --------------------------------------------------------------
+
             const tokenNonce = verificationResult.requestDetails?.nonce;
             const userId = req.user?.userId || req.user?._id?.toString();
 
@@ -152,9 +152,9 @@ const verifyIntegrity = (options = {}) => {
                 });
             }
 
-            // --------------------------------------------------------------
+
             // 6. All checks passed — attach result and continue
-            // --------------------------------------------------------------
+
             logger.info(`[${label}] Integrity verified`, {
                 userId,
                 endpoint: req.originalUrl,
@@ -168,10 +168,10 @@ const verifyIntegrity = (options = {}) => {
             return next();
 
         } catch (err) {
-            // --------------------------------------------------------------
+
             // 7. Fail CLOSED — any unexpected error rejects the request.
             //    Never allow an attacker-triggered exception to open a bypass.
-            // --------------------------------------------------------------
+
             logger.error(`[${label}] Integrity verification error`, {
                 userId: req.user?.userId || req.user?._id,
                 endpoint: req.originalUrl,

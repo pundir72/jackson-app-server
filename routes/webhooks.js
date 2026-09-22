@@ -305,17 +305,12 @@ function verifyBesitosHash(queryParams, receivedVerifier) {
   console.log("\n--- Hash Verification Details ---");
   const secret = config.BESITOS_WEBHOOK_SECRET;
   console.log("Secret Key Configured:", secret ? "YES" : "NO");
-  console.log("Secret Key Length:", secret ? secret.length : 0);
-  console.log(
-    "Secret Key (first 10 chars):",
-    secret ? secret.substring(0, 10) + "..." : "N/A"
-  );
 
   if (!secret) {
     console.warn(
-      "⚠️ BESITOS_WEBHOOK_SECRET not configured, skipping verification"
+      "⚠️ BESITOS_WEBHOOK_SECRET not configured; rejecting verification"
     );
-    return true; // Allow if not configured
+    return false; // Reject unverifiable callbacks.
   }
 
   if (!receivedVerifier) {
@@ -369,7 +364,6 @@ function verifyBesitosHash(queryParams, receivedVerifier) {
     console.warn("Calculated Hash:", calculatedHash);
     console.warn("Received Verifier:", receivedVerifier);
     console.warn("Hash String Used:", hashString);
-    console.warn("Secret Key Used:", secret);
   } else {
     console.log("✅ Hash verification successful!");
   }
@@ -1816,7 +1810,6 @@ router.post("/everflow/postback", async (req, res) => {
   try {
     console.log("\n=== EVERFLOW POSTBACK START ===");
     console.log("Everflow postback received:", JSON.stringify(req.body, null, 2));
-    console.log("Headers:", JSON.stringify(req.headers, null, 2));
 
     const postbackData = req.body;
 

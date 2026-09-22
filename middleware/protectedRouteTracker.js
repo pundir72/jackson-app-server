@@ -71,13 +71,13 @@ function protectedRouteTracker(req, res, next) {
       // })
       //   .then(() => {
       //     console.log(
-      //       "✅ Activity tracked successfully for user:",
+      //       " Activity tracked successfully for user:",
       //       req.user.userId
       //     );
       //   })
       //   .catch((error) => {
       //     // Log error but don't fail the request
-      //     console.error("❌ Protected route activity tracking error:", error);
+      //     console.error(" Protected route activity tracking error:", error);
       //     console.error("Error Stack:", error.stack);
       //   });
       // console.log("=== END ACTIVITY TRACKER ===");

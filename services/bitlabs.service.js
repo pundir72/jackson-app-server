@@ -202,16 +202,16 @@ class BitlabsService {
       };
 
       // Log request details for debugging
-      // console.log("\n🔵 [BITLABS SERVICE] ========== GET OFFERS REQUEST ==========");
-      // // console.log("🔵 Endpoint:", endpoint);
-      // // console.log("🔵 Full URL:", fullURL);
-      // // console.log("🔵 Headers:", {
+      // console.log("\n [BITLABS SERVICE] ========== GET OFFERS REQUEST ==========");
+      // // console.log(" Endpoint:", endpoint);
+      // // console.log(" Full URL:", fullURL);
+      // // console.log(" Headers:", {
       //   "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
       //   "X-User-Id": userIdentifier,
       // });
-      // // console.log("🔵 Query Params:", JSON.stringify(normalizedParams, null, 2));
-      // // console.log("🔵 is_game value:", normalizedParams.is_game, "type:", typeof normalizedParams.is_game);
-      // // console.log("🔵 ==================================================\n");
+      // // console.log(" Query Params:", JSON.stringify(normalizedParams, null, 2));
+      // // console.log(" is_game value:", normalizedParams.is_game, "type:", typeof normalizedParams.is_game);
+      // // console.log(" ==================================================\n");
 
       const response = await this.client.get(endpoint, {
         headers: headers,
@@ -220,14 +220,14 @@ class BitlabsService {
       });
 
       // Log raw response structure
-      // console.log("\n🔵 [BITLABS SERVICE] ========== RAW API RESPONSE ==========");
-      // // console.log("🔵 Response Status:", response.status);
-      // // console.log("🔵 Response Data Type:", typeof response.data);
-      // // console.log("🔵 Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
+      // console.log("\n [BITLABS SERVICE] ========== RAW API RESPONSE ==========");
+      // // console.log(" Response Status:", response.status);
+      // // console.log(" Response Data Type:", typeof response.data);
+      // // console.log(" Response Data Keys:", response.data ? Object.keys(response.data) : "NO DATA");
       // if (response.data) {
-      //   // console.log("🔵 Response Data Structure:", JSON.stringify(response.data, null, 2).substring(0, 2000));
+      //   // console.log(" Response Data Structure:", JSON.stringify(response.data, null, 2).substring(0, 2000));
       // }
-      // // console.log("🔵 ==================================================\n");
+      // // console.log(" ==================================================\n");
 
       // Log raw Bitlabs API response for shopping and magic receipts
       // Extract raw offers first to check their types
@@ -333,51 +333,51 @@ class BitlabsService {
       let rawOffers = [];
       let startedOffers = [];
 
-      // console.log("\n🔵 [BITLABS SERVICE] ========== PARSING RESPONSE ==========");
-      // // console.log("🔵 Checking response.data structure...");
+      // console.log("\n [BITLABS SERVICE] ========== PARSING RESPONSE ==========");
+      // // console.log(" Checking response.data structure...");
 
       // Check if response.data is directly an array
       if (Array.isArray(response.data)) {
         rawOffers = response.data;
-        // console.log("🔵 ✅ Found offers as direct array:", rawOffers.length);
+        // console.log("  Found offers as direct array:", rawOffers.length);
       }
       // Check nested data structure (Bitlabs format: response.data.data.offers)
       else if (response.data?.data) {
         // Get available offers
         if (response.data.data.offers && Array.isArray(response.data.data.offers)) {
           rawOffers = response.data.data.offers;
-          // console.log("🔵 ✅ Found offers in response.data.data.offers:", rawOffers.length);
+          // console.log("  Found offers in response.data.data.offers:", rawOffers.length);
         }
         // Check other nested structures
         else if (Array.isArray(response.data.data)) {
           rawOffers = response.data.data;
-          // console.log("🔵 ✅ Found offers in response.data.data:", rawOffers.length);
+          // console.log("  Found offers in response.data.data:", rawOffers.length);
         }
       }
       // Check if offers are directly in response.data.offers (MOST COMMON)
       else if (response.data?.offers && Array.isArray(response.data.offers)) {
         rawOffers = response.data.offers;
-        // console.log("🔵 ✅ Found offers in response.data.offers:", rawOffers.length);
+        // console.log("  Found offers in response.data.offers:", rawOffers.length);
       }
       // Check other common structures
       else if (response.data?.items && Array.isArray(response.data.items)) {
         rawOffers = response.data.items;
-        // console.log("🔵 ✅ Found offers in response.data.items:", rawOffers.length);
+        // console.log("  Found offers in response.data.items:", rawOffers.length);
       } else if (
         response.data?.results &&
         Array.isArray(response.data.results)
       ) {
         rawOffers = response.data.results;
-        // console.log("🔵 ✅ Found offers in response.data.results:", rawOffers.length);
+        // console.log("  Found offers in response.data.results:", rawOffers.length);
       } else if (response.data?.list && Array.isArray(response.data.list)) {
         rawOffers = response.data.list;
-        // console.log("🔵 ✅ Found offers in response.data.list:", rawOffers.length);
+        // console.log("  Found offers in response.data.list:", rawOffers.length);
       } else {
-        // console.log("🔵 ❌ No offers array found in response!");
-        // console.log("🔵 Response.data type:", typeof response.data);
-        // console.log("🔵 Response.data keys:", response.data ? Object.keys(response.data) : "NO DATA");
+        // console.log("  No offers array found in response!");
+        // console.log(" Response.data type:", typeof response.data);
+        // console.log(" Response.data keys:", response.data ? Object.keys(response.data) : "NO DATA");
         if (response.data && typeof response.data === 'object') {
-          // console.log("🔵 Full response.data:", JSON.stringify(response.data, null, 2).substring(0, 1000));
+          // console.log(" Full response.data:", JSON.stringify(response.data, null, 2).substring(0, 1000));
         }
       }
 
@@ -387,15 +387,15 @@ class BitlabsService {
       if (isAdminRequest) {
         if (response.data?.data?.started_offers && Array.isArray(response.data.data.started_offers)) {
           startedOffers = response.data.data.started_offers;
-          // console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.data.started_offers:", startedOffers.length);
+          // console.log("  [ADMIN] Found started_offers in response.data.data.started_offers:", startedOffers.length);
         } else if (response.data?.started_offers && Array.isArray(response.data.started_offers)) {
           startedOffers = response.data.started_offers;
-          // console.log("🔵 ✅ [ADMIN] Found started_offers in response.data.started_offers:", startedOffers.length);
+          // console.log("  [ADMIN] Found started_offers in response.data.started_offers:", startedOffers.length);
         }
 
         // CRITICAL: Combine available offers and started offers for admin endpoints only
         if (startedOffers.length > 0) {
-          // console.log("🔵 [ADMIN] Combining available offers with started offers...");
+          // console.log(" [ADMIN] Combining available offers with started offers...");
           // Mark started offers and ensure they're recognized as games if they have game categories
           const markedStartedOffers = startedOffers.map(offer => {
             // Check if this is a game based on categories or app_metadata
@@ -415,17 +415,17 @@ class BitlabsService {
             };
           });
           rawOffers = [...rawOffers, ...markedStartedOffers];
-          // console.log("🔵 ✅ [ADMIN] Total offers after combining:", rawOffers.length);
-          // console.log("🔵 [ADMIN] Games in combined offers:", markedStartedOffers.filter(o => o.is_game === true).length);
+          // console.log("  [ADMIN] Total offers after combining:", rawOffers.length);
+          // console.log(" [ADMIN] Games in combined offers:", markedStartedOffers.filter(o => o.is_game === true).length);
         }
       } else {
         // For user-facing endpoints, log that we're NOT including started_offers
         if (response.data?.data?.started_offers && response.data.data.started_offers.length > 0) {
-          // console.log("🔵 ℹ️ [USER] Found started_offers but NOT including them (user already has these games)");
+          // console.log("  [USER] Found started_offers but NOT including them (user already has these games)");
         }
       }
 
-      // console.log("🔵 ==================================================\n");
+      // console.log(" ==================================================\n");
 
       // Helper function to determine offer type (only used if type not present)
       function getOfferType(offer) {
@@ -497,7 +497,6 @@ class BitlabsService {
             categoryStr.includes("magic receipt")
           );
         });
-
 
 
         // Log MAGIC RECEIPTS structure - show actual values inside objects and arrays
@@ -799,10 +798,10 @@ class BitlabsService {
       // Official docs: https://developer.bitlabs.ai/reference/getsurveysv2
       const endpoint = "/v2/client/surveys";
       const fullURL = `${this.baseURL}${endpoint}`;
-      // console.log("🔵 [BITLABS SURVEYS] Endpoint:", endpoint);
-      // console.log("🔵 [BITLABS SURVEYS] Full URL:", fullURL);
-      // console.log("🔵 [BITLABS SURVEYS] User ID:", userIdentifier);
-      // console.log("🔵 [BITLABS SURVEYS] Is Admin Request:", isAdminRequest);
+      // console.log(" [BITLABS SURVEYS] Endpoint:", endpoint);
+      // console.log(" [BITLABS SURVEYS] Full URL:", fullURL);
+      // console.log(" [BITLABS SURVEYS] User ID:", userIdentifier);
+      // console.log(" [BITLABS SURVEYS] Is Admin Request:", isAdminRequest);
 
       // Normalize parameters
       const { userId: _, platform, sdk, country, countries, devices, ...restParams } = queryParams;
@@ -853,12 +852,12 @@ class BitlabsService {
       };
 
       // Note: /v2/client/surveys uses standard query params (not comma-separated like publisher API)
-      // console.log("🔵 [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
-      // console.log("🔵 [BITLABS SURVEYS] Headers:", {
+      // console.log(" [BITLABS SURVEYS] Query Params:", JSON.stringify(normalizedParams, null, 2));
+      // console.log(" [BITLABS SURVEYS] Headers:", {
       //   "X-Api-Token": this.apiToken ? "***SET***" : "MISSING",
       //   "X-User-Id": userIdentifier,
       // });
-      // console.log("🔵 [BITLABS SURVEYS] ==================================================\n");
+      // console.log(" [BITLABS SURVEYS] ==================================================\n");
 
       let response;
       try {
@@ -870,7 +869,7 @@ class BitlabsService {
         // Log raw response from Bitlabs
 
       } catch (error) {
-        // 🔴 ENHANCED ERROR LOGGING: Log full error details for debugging
+        //  ENHANCED ERROR LOGGING: Log full error details for debugging
         const errorStatus = error.response?.status || error.status;
         const errorData = error.response?.data || error.data;
         
@@ -1077,7 +1076,6 @@ class BitlabsService {
       });
 
 
-
       // Return response with restriction reason if present
       return {
         success: true,
@@ -1087,7 +1085,7 @@ class BitlabsService {
         restrictionReason: restrictionReason || null, // Include restriction reason in response
       };
     } catch (error) {
-      // 🔴 ENHANCED ERROR LOGGING: Log full error details
+      //  ENHANCED ERROR LOGGING: Log full error details
       console.error(
         "\n🔴 [BITLABS API SERVICE] ========== getSurveys() ERROR =========="
       );
@@ -1315,7 +1313,6 @@ class BitlabsService {
           ),
         });
       }
-
 
 
       // Return raw Bitlabs cashback format - preserve original structure
@@ -2015,7 +2012,6 @@ class BitlabsService {
       });
 
 
-
       // Parse response - Publisher API may have different structure
       let offers = [];
       if (Array.isArray(response.data)) {
@@ -2085,7 +2081,7 @@ class BitlabsService {
           }
           return true;
         });
-        // console.log("🔵 [BITLABS PUBLISHER] Filtered offers by type '" + filterType + "':", filteredOffers.length);
+        // console.log(" [BITLABS PUBLISHER] Filtered offers by type '" + filterType + "':", filteredOffers.length);
         if (filteredOffers.length === 0 && offers.length > 0) {
           console.warn("⚠️ [BITLABS PUBLISHER] No offers matched filter type. Sample offer structure:", JSON.stringify(offers[0], null, 2).substring(0, 500));
         }

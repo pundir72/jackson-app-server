@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const express = require("express");
 const router = express.Router();
 const protect = require("../middleware/auth");
@@ -516,7 +517,7 @@ router.get("/progress-bar", protect, async (req, res) => {
       try {
         const adminApiUrl =
           process.env.ADMIN_API_BASE_URL ||
-          "https://rewardsapi.hireagent.co/api";
+          `${config.IMAGE_BASE_URL}/api`;
         const response = await axios.get(
           `${adminApiUrl}/admin/rewards/xp-tiers?status=true`,
           {

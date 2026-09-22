@@ -52,7 +52,7 @@ function selectRewardByProbability(eligibleRewards) {
     // Add current reward's probability to cumulative sum
     cumulative += probability;
     
-    // FIXED: Use <= to include the upper bound properly
+    // Use <= to include the upper bound properly
     // This ensures that when random equals cumulative, the reward is selected
     if (random <= cumulative) {
       return reward;

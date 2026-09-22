@@ -14,11 +14,8 @@ RUN apt-get update && apt-get install -y \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with better timeout and retry settings
-RUN npm install --timeout=300000 --retry=3
-
-# Install node-cache
-RUN npm install node-cache
+# Install the dependency versions recorded in the lockfile.
+RUN npm ci --omit=dev
 
 # Create log directory for file transports
 RUN mkdir -p /var/log/app
@@ -29,7 +26,6 @@ COPY . .
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=8000
-#ENV REDIS_URL=redis://localhost:6379
 
 # Expose the application port
 EXPOSE 8000

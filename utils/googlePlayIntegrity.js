@@ -16,11 +16,11 @@ const axios = require('axios');
 const config = require('../config/config');
 const logger = require('./logger');
 
-// ---------------------------------------------------------------------------
+
 // Expected certificate digests — SHA-256 of your app's signing certificate.
 // Add multiple entries if you have a debug + release key.
 // Config value: comma-separated hex strings, e.g. "abc123,def456"
-// ---------------------------------------------------------------------------
+
 function getExpectedCertDigests() {
     if (!config.EXPECTED_CERT_DIGESTS) {
         logger.warn('EXPECTED_CERT_DIGESTS not configured — certificate validation disabled');
@@ -112,20 +112,20 @@ class GooglePlayIntegrityService {
         const accountDetails  = payload.accountDetails  || {};
         const requestDetails  = payload.requestDetails  || {};
 
-        // ---------------------------------------------------------------
+
         // 1. App recognition — ONLY PLAY_RECOGNIZED is acceptable.
         //    UNRECOGNIZED_VERSION = sideloaded / tampered / version not yet
         //    indexed by Play — must never pass in production.
-        // ---------------------------------------------------------------
+
         const appVerdict = appIntegrity.appRecognitionVerdict;
         if (appVerdict !== 'PLAY_RECOGNIZED') {
             return this._fail(`App not recognized by Play Store (verdict: ${appVerdict})`);
         }
 
-        // ---------------------------------------------------------------
+
         // 2. Package name — the name baked into the token must match ours.
         //    Prevents tokens issued for other packages being accepted.
-        // ---------------------------------------------------------------
+
         const tokenPackage = appIntegrity.packageName || requestDetails.requestPackageName;
         if (tokenPackage !== config.ANDROID_PACKAGE_NAME) {
             return this._fail(
@@ -133,10 +133,10 @@ class GooglePlayIntegrityService {
             );
         }
 
-        // ---------------------------------------------------------------
+
         // 3. Certificate digest — must match our signing certificate.
         //    Repackaged APKs carry a different cert and will be rejected.
-        // ---------------------------------------------------------------
+
         const expectedDigests = getExpectedCertDigests();
         if (expectedDigests !== null) {
             const tokenCerts = (appIntegrity.certificateSha256Digest || [])
@@ -147,11 +147,11 @@ class GooglePlayIntegrityService {
             }
         }
 
-        // ---------------------------------------------------------------
+
         // 4. Device integrity — require MEETS_DEVICE_INTEGRITY.
         //    MEETS_BASIC_INTEGRITY only verifies the Android platform API
         //    and passes emulators / many rooted devices.
-        // ---------------------------------------------------------------
+
         const deviceVerdicts = deviceIntegrity.deviceRecognitionVerdict || [];
         const isDeviceTrusted = deviceVerdicts.includes('MEETS_DEVICE_INTEGRITY');
         if (!isDeviceTrusted) {
@@ -160,12 +160,12 @@ class GooglePlayIntegrityService {
             );
         }
 
-        // ---------------------------------------------------------------
+
         // 5. App licensing — must be LICENSED.
         //    Do NOT allow null/missing to pass — missing means Play couldn't
         //    verify the license, which is suspicious on a production device.
         //    Note: only enforce this if IAP / licensing is in use.
-        // ---------------------------------------------------------------
+
         const licensingVerdict = accountDetails.appLicensingVerdict;
         if (licensingVerdict !== 'LICENSED') {
             return this._fail(
@@ -173,11 +173,11 @@ class GooglePlayIntegrityService {
             );
         }
 
-        // ---------------------------------------------------------------
+
         // 6. Token freshness — must be within 5 minutes.
         //    The nonce already provides request-binding, but a stale token
         //    could indicate a re-use attempt with a captured token.
-        // ---------------------------------------------------------------
+
         const tokenTs = parseInt(requestDetails.timestampMillis, 10);
         if (isNaN(tokenTs)) {
             return this._fail('Token is missing a timestamp');

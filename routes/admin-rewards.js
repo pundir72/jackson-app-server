@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -718,7 +719,7 @@ router.post("/xp-tiers", upload.single("badgeFile"), async (req, res) => {
       borderColor: "#dee2e6", // Default border
       iconSrc:
         iconSrc ||
-        "https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png", // Use frontend provided or default
+        `${config.IMAGE_BASE_URL}/uploads/avatars/1758267852322-951613456.png`, // Use frontend provided or default
       xpMin,
       xpMax,
       xpRange: `${xpMin} - ${xpMax} XP`,

@@ -8,58 +8,6 @@ const VIPTier = require('../models/VIPTier');
 const { calculateSubscriptionCost, validatePricing } = require('../utils/pricing');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// Mock Stripe configuration (replace with actual Stripe setup)
-
-// Initialize Stripe (mock implementation)
-// const stripe = {
-//   paymentIntents: {
-//     create: async (params) => {
-//       // Mock payment intent creation
-//       return {
-//         id: `pi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-//         client_secret: `pi_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
-//         amount: params.amount,
-//         currency: params.currency,
-//         status: 'requires_payment_method'
-//       };
-//     },
-//     confirm: async (paymentIntentId) => {
-//       // Mock payment confirmation
-//       return {
-//         id: paymentIntentId,
-//         status: 'succeeded',
-//         amount: 10000,
-//         currency: 'usd'
-//       };
-//     }
-//   },
-//   subscriptions: {
-//     create: async (params) => {
-//       // Mock subscription creation
-//       return {
-//         id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-//         status: 'active',
-//         current_period_start: Math.floor(Date.now() / 1000),
-//         current_period_end: Math.floor(Date.now() / 1000) + (params.items[0].price_data.unit_amount === 1000 ? 30 : 365) * 24 * 60 * 60
-//       };
-//     },
-//     cancel: async (subscriptionId) => {
-//       // Mock subscription cancellation
-//       return {
-//         id: subscriptionId,
-//         status: 'canceled',
-//         canceled_at: Math.floor(Date.now() / 1000)
-//       };
-//     }
-//   },
-//   webhooks: {
-//     constructEvent: (body, signature, secret) => {
-//       // Mock webhook event construction
-//       return JSON.parse(body);
-//     }
-//   }
-// };
-
 // Initiate payment for VIP subscription
 router.post('/initiate', protect, [
   body('subscriptionId').isMongoId().withMessage('Invalid subscription ID'),
@@ -556,7 +504,7 @@ router.post('/webhook/apple-store', express.json(), async (req, res) => {
 // Handle Stripe webhooks
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    const STRIPE_CONFIG = { webhookSecret: "testing" }
+    const STRIPE_CONFIG = { webhookSecret: process.env.STRIPE_WEBHOOK_SECRET };
     const sig = req.headers['stripe-signature'];
     const endpointSecret = STRIPE_CONFIG.webhookSecret;
 
@@ -1195,10 +1143,5 @@ async function handleAppleStoreRevoke(unifiedReceipt) {
 }
 
 module.exports = router;
-
-
-
-
-
 
 

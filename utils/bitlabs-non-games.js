@@ -28,16 +28,16 @@ async function getNonGameOffers(params = {}) {
     } = params;
 
     // console.log(
-    //   "🟠 [BITLABS UTILITY] ========== getNonGameOffers called =========="
+    //   " [BITLABS UTILITY] ========== getNonGameOffers called =========="
     // );
-    // console.log("🟠 [BITLABS UTILITY] Input params:", {
+    // console.log(" [BITLABS UTILITY] Input params:", {
     //   userId,
     //   userProfile,
     //   type,
     //   category,
     //   devices,
     // });
-    // console.log("🟠 [BITLABS UTILITY] Building queryParams for Bitlabs API...");
+    // console.log(" [BITLABS UTILITY] Building queryParams for Bitlabs API...");
 
     // Build query parameters
     const queryParams = {};
@@ -79,7 +79,7 @@ async function getNonGameOffers(params = {}) {
       // Change this to "IN" if you want to test with India-targeted offers
       queryParams.country = "US";
       // console.log(
-      //   `⚠️ No country specified in userProfile. Defaulting to "US" for testing.`
+      //   ` No country specified in userProfile. Defaulting to "US" for testing.`
       // );
       // console.log(
       //   `   If offers are targeted to other countries (e.g., India), specify country in userProfile.`
@@ -95,7 +95,7 @@ async function getNonGameOffers(params = {}) {
     }
 
     // console.log(
-    //   "🟠 [BITLABS UTILITY] Final queryParams to send to Bitlabs API:",
+    //   " [BITLABS UTILITY] Final queryParams to send to Bitlabs API:",
     //   JSON.stringify(queryParams, null, 2)
     // );
 
@@ -113,7 +113,7 @@ async function getNonGameOffers(params = {}) {
     // Fetch surveys from dedicated endpoint
     if (type === "all" || type === "survey") {
       // console.log(
-      //   "🟠 [BITLABS UTILITY] Fetching surveys with queryParams:",
+      //   " [BITLABS UTILITY] Fetching surveys with queryParams:",
       //   queryParams
       // );
       fetchPromises.push(
@@ -121,9 +121,9 @@ async function getNonGameOffers(params = {}) {
           .getSurveys(queryParams, userId)
           .then((result) => {
             // console.log(
-            //   "🟠 [BITLABS UTILITY] ========== Survey API Response Received =========="
+            //   " [BITLABS UTILITY] ========== Survey API Response Received =========="
             // );
-            // console.log("🟠 [BITLABS UTILITY] Response summary:", {
+            // console.log(" [BITLABS UTILITY] Response summary:", {
             //   success: result.success,
             //   dataCount: result.data?.length || 0,
             //   error: result.error,
@@ -135,12 +135,12 @@ async function getNonGameOffers(params = {}) {
               );
               categorizedOffers.surveys = normalizedSurveys;
               // console.log(
-              //   "🟠 [BITLABS UTILITY] ✅ Added",
+              //   " [BITLABS UTILITY]  Added",
               //   normalizedSurveys.length,
               //   "normalized surveys to categorizedOffers"
               // );
               // if (normalizedSurveys.length > 0) {
-              //   console.log("🟠 [BITLABS UTILITY] First survey sample:", {
+              //   console.log(" [BITLABS UTILITY] First survey sample:", {
               //     id: normalizedSurveys[0]?.id,
               //     value: normalizedSurveys[0]?.value,
               //     cpi: normalizedSurveys[0]?.cpi,
@@ -153,11 +153,11 @@ async function getNonGameOffers(params = {}) {
               // }
             } else {
               // console.log(
-              //   "🟠 [BITLABS UTILITY] ⚠️ No surveys in response or request failed"
+              //   " [BITLABS UTILITY]  No surveys in response or request failed"
               // );
             }
             // console.log(
-            //   "🟠 [BITLABS UTILITY] ================================================="
+            //   " [BITLABS UTILITY] ================================================="
             // );
           })
           .catch((err) => {
@@ -356,8 +356,8 @@ async function getNonGameOffers(params = {}) {
       },
     };
 
-    // console.log("🟠 [BITLABS UTILITY] ========== Returning result ==========");
-    // console.log("🟠 [BITLABS UTILITY] Result summary:", {
+    // console.log(" [BITLABS UTILITY] ========== Returning result ==========");
+    // console.log(" [BITLABS UTILITY] Result summary:", {
     //   success: result.success,
     //   totalOffers: result.totalOffers,
     //   surveysCount: result.breakdown.surveys,
@@ -367,7 +367,7 @@ async function getNonGameOffers(params = {}) {
     //   otherCount: result.breakdown.other,
     //   estimatedEarnings: result.estimatedEarnings,
     // });
-    // console.log("🟠 [BITLABS UTILITY] ======================================");
+    // console.log(" [BITLABS UTILITY] ======================================");
 
     return result;
   } catch (error) {
@@ -400,11 +400,11 @@ async function getSurveys(params = {}) {
   const { userId, userProfile = {}, category } = params;
 
   try {
-    // 🔍 DEBUG: Log input parameters
-    // console.log("\n🔍 ========== getSurveys() - INPUT PARAMETERS ==========");
-    // console.log("👤 User ID:", userId);
-    // console.log("👤 User Profile:", JSON.stringify(userProfile, null, 2));
-    // console.log("📂 Category Filter:", category);
+    //  DEBUG: Log input parameters
+    // console.log("\n ========== getSurveys() - INPUT PARAMETERS ==========");
+    // console.log(" User ID:", userId);
+    // console.log(" User Profile:", JSON.stringify(userProfile, null, 2));
+    // console.log(" Category Filter:", category);
     // console.log("==================================================\n");
 
     const queryParams = {};
@@ -425,7 +425,7 @@ async function getSurveys(params = {}) {
       // Default to US for testing (same as getNonGameOffers)
       queryParams.country = "US";
       // console.log(
-      //   `⚠️ No country specified in userProfile. Defaulting to "US" for surveys.`
+      //   ` No country specified in userProfile. Defaulting to "US" for surveys.`
       // );
       // console.log(
       //   `   If surveys are targeted to other countries (e.g., India), specify country in userProfile.`
@@ -441,9 +441,9 @@ async function getSurveys(params = {}) {
     // If you need these, contact Bitlabs support to unlock them for your account.
     // For now, we'll work without them - surveys will still work correctly.
 
-    // 🔍 DEBUG: Log query params being sent
-    // console.log("\n🔍 ========== getSurveys() - QUERY PARAMS ==========");
-    // console.log("📋 Query Parameters:", JSON.stringify(queryParams, null, 2));
+    //  DEBUG: Log query params being sent
+    // console.log("\n ========== getSurveys() - QUERY PARAMS ==========");
+    // console.log(" Query Parameters:", JSON.stringify(queryParams, null, 2));
     // console.log("==================================================\n");
 
     const result = await bitlabsService.getSurveys(queryParams, userId);
@@ -466,11 +466,11 @@ async function getSurveys(params = {}) {
 
     let surveys = result.data || [];
 
-    // 🔍 DEBUG: Log raw surveys from service
+    //  DEBUG: Log raw surveys from service
     // console.log(
-    //   "\n🔍 ========== getSurveys() - RAW SURVEYS FROM SERVICE =========="
+    //   "\n ========== getSurveys() - RAW SURVEYS FROM SERVICE =========="
     // );
-    // console.log(`📊 Total Surveys: ${surveys.length}`);
+    // console.log(` Total Surveys: ${surveys.length}`);
     // if (surveys.length > 0) {
     //   surveys.forEach((survey, index) => {
     //     console.log(`\n   Survey ${index + 1} (Before Normalization):`);
@@ -492,21 +492,21 @@ async function getSurveys(params = {}) {
         return surveyCategory.toLowerCase().includes(category.toLowerCase());
       });
       // console.log(
-      //   `🔍 Filtered by category "${category}": ${beforeFilter} → ${surveys.length} surveys`
+      //   ` Filtered by category "${category}": ${beforeFilter} → ${surveys.length} surveys`
       // );
     }
 
     const normalizedSurveys = surveys.map((survey, index) => {
       const normalized = normalizeOffer(survey, userId);
 
-      // 🔍 DEBUG: Log normalization for first survey
+      //  DEBUG: Log normalization for first survey
       if (index === 0) {
-        // console.log("\n🔍 ========== NORMALIZATION EXAMPLE ==========");
-        // console.log("📋 Original Survey (from Bitlabs):");
+        // console.log("\n ========== NORMALIZATION EXAMPLE ==========");
+        // console.log(" Original Survey (from Bitlabs):");
         // console.log(`   value: ${survey.value}`);
         // console.log(`   cpi: ${survey.cpi}`);
         // console.log(`   id: ${survey.id}`);
-        // console.log("\n📋 Normalized Survey:");
+        // console.log("\n Normalized Survey:");
         // console.log(
         //   `   reward.coins: ${normalized.reward?.coins || "MISSING"}`
         // );
@@ -540,10 +540,10 @@ async function getSurveys(params = {}) {
       0
     );
 
-    // 🔍 DEBUG: Log final result
-    // console.log("\n🔍 ========== getSurveys() - FINAL RESULT ==========");
-    // console.log(`📊 Total Normalized Surveys: ${normalizedSurveys.length}`);
-    // console.log(`💰 Estimated Earnings: ${estimatedEarnings} coins`);
+    //  DEBUG: Log final result
+    // console.log("\n ========== getSurveys() - FINAL RESULT ==========");
+    // console.log(` Total Normalized Surveys: ${normalizedSurveys.length}`);
+    // console.log(` Estimated Earnings: ${estimatedEarnings} coins`);
     // normalizedSurveys.forEach((survey, index) => {
     //   console.log(`\n   Survey ${index + 1}:`);
     //   console.log(`     id: ${survey.id || survey.offerId || "N/A"}`);
@@ -576,7 +576,7 @@ async function getSurveys(params = {}) {
       restrictionReason: result.restrictionReason || null, // Pass through VPN/restriction info
     };
   } catch (error) {
-    // 🔴 ENHANCED ERROR LOGGING: Log full error details
+    //  ENHANCED ERROR LOGGING: Log full error details
     console.error(
       "\n🔴 [BITLABS UTILITY] ========== getSurveys() ERROR =========="
     );
@@ -673,7 +673,7 @@ async function getCashbackOffers(params = {}) {
       // Change this to "IN" if you want to test with India-targeted offers
       queryParams.country = "US";
       // console.log(
-      //   `⚠️ No country specified for cashback. Defaulting to "US" for testing.`
+      //   ` No country specified for cashback. Defaulting to "US" for testing.`
       // );
       // console.log(
       //   `   If offers are targeted to India, set userProfile.country = "IN"`

@@ -16,9 +16,9 @@ const {
   getFallbackFinancialInsights
 } = require('../utils/cashCoach');
 
-// ============================================================================
+
 // DASHBOARD & OVERVIEW ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get Cash Coach dashboard data
@@ -89,9 +89,9 @@ router.get('/dashboard', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // FINANCIAL GOALS & SLIDERS ENDPOINTS
-// ============================================================================
+
 
 /**
  * Update financial goals (slider values)
@@ -180,9 +180,9 @@ router.get('/financial-goals', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // HELP ME EARN ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get personalized earning recommendations
@@ -253,9 +253,9 @@ router.post('/initialize-goal', protect, [
   }
 });
 
-// ============================================================================
+
 // TASK PROGRESS & ACHIEVE YOUR GOAL ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get task progress
@@ -362,9 +362,9 @@ router.post('/reset-progress', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // LINKED ACCOUNTS & PAYOUT METHODS ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get linked accounts and payout methods
@@ -469,9 +469,9 @@ router.delete('/link-account/:accountId', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // CUSTOM GOALS ENDPOINTS
-// ============================================================================
+
 
 /**
  * Create a custom goal
@@ -639,9 +639,9 @@ router.delete('/custom-goals/:goalId', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // RECEIPT MANAGEMENT ENDPOINTS
-// ============================================================================
+
 
 /**
  * Upload a receipt
@@ -741,9 +741,9 @@ router.get('/receipts', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // FINANCIAL INSIGHTS ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get financial insights and recommendations
@@ -767,9 +767,9 @@ router.get('/insights', protect, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // EARNING HISTORY ENDPOINTS
-// ============================================================================
+
 
 /**
  * Get earning history

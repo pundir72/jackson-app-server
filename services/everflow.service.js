@@ -31,24 +31,24 @@ class EverflowService {
     // Everflow API uses X-Eflow-API-Key header only
     this.client.interceptors.request.use(
       (config) => {
-        // console.log("\n🟡 ========== EVERFLOW REQUEST INTERCEPTOR ==========");
-        // console.log("🟡 [INTERCEPTOR] Request method:", config.method);
-        // console.log("🟡 [INTERCEPTOR] Request URL:", config.url);
-        // console.log("🟡 [INTERCEPTOR] Full URL:", `${config.baseURL}${config.url}`);
-        // console.log("🟡 [INTERCEPTOR] Request params:", JSON.stringify(config.params, null, 2));
-        // console.log("🟡 [INTERCEPTOR] Request headers:", JSON.stringify(config.headers, null, 2));
+        // console.log("\n ========== EVERFLOW REQUEST INTERCEPTOR ==========");
+        // console.log(" [INTERCEPTOR] Request method:", config.method);
+        // console.log(" [INTERCEPTOR] Request URL:", config.url);
+        // console.log(" [INTERCEPTOR] Full URL:", `${config.baseURL}${config.url}`);
+        // console.log(" [INTERCEPTOR] Request params:", JSON.stringify(config.params, null, 2));
+        // console.log(" [INTERCEPTOR] Request headers:", JSON.stringify(config.headers, null, 2));
 
         if (this.apiKey) {
           config.headers["X-Eflow-API-Key"] = this.apiKey;
-          // console.log("🟡 [INTERCEPTOR] API Key added to headers");
+          // console.log(" [INTERCEPTOR] API Key added to headers");
         } else {
-          // console.warn("⚠️ [INTERCEPTOR] No API key available!");
+          // console.warn(" [INTERCEPTOR] No API key available!");
         }
-        // console.log("🟡 ===========================================\n");
+        // console.log(" ===========================================\n");
         return config;
       },
       (error) => {
-        // console.error("❌ [INTERCEPTOR] Request interceptor error:", error);
+        // console.error(" [INTERCEPTOR] Request interceptor error:", error);
         return Promise.reject(error);
       },
     );
@@ -88,22 +88,22 @@ class EverflowService {
 
         console.log("🟢 ===========================================\n");
 
-        // console.log("\n🟢 ========== EVERFLOW RESPONSE INTERCEPTOR ==========");
-        // console.log("🟢 [INTERCEPTOR] Response status:", response.status);
-        // console.log("🟢 [INTERCEPTOR] Response status text:", response.statusText);
-        // console.log("🟢 [INTERCEPTOR] Response headers:", JSON.stringify(response.headers, null, 2));
-        // console.log("🟢 [INTERCEPTOR] Response data keys:", Object.keys(response.data || {}));
-        // console.log("🟢 ===========================================\n");
+        // console.log("\n ========== EVERFLOW RESPONSE INTERCEPTOR ==========");
+        // console.log(" [INTERCEPTOR] Response status:", response.status);
+        // console.log(" [INTERCEPTOR] Response status text:", response.statusText);
+        // console.log(" [INTERCEPTOR] Response headers:", JSON.stringify(response.headers, null, 2));
+        // console.log(" [INTERCEPTOR] Response data keys:", Object.keys(response.data || {}));
+        // console.log(" ===========================================\n");
         return response;
       },
       (error) => {
-        // console.error("\n❌ ========== EVERFLOW RESPONSE ERROR INTERCEPTOR ==========");
-        // console.error("❌ [INTERCEPTOR] Error occurred in response interceptor");
+        // console.error("\n ========== EVERFLOW RESPONSE ERROR INTERCEPTOR ==========");
+        // console.error(" [INTERCEPTOR] Error occurred in response interceptor");
 
         if (error.response) {
-          // console.error("❌ [INTERCEPTOR] Error response status:", error.response.status);
-          // console.error("❌ [INTERCEPTOR] Error response data:", JSON.stringify(error.response.data, null, 2));
-          // console.error("❌ [INTERCEPTOR] Error response headers:", JSON.stringify(error.response.headers, null, 2));
+          // console.error(" [INTERCEPTOR] Error response status:", error.response.status);
+          // console.error(" [INTERCEPTOR] Error response data:", JSON.stringify(error.response.data, null, 2));
+          // console.error(" [INTERCEPTOR] Error response headers:", JSON.stringify(error.response.headers, null, 2));
           // Server responded with error status
           const errorData = {
             status: error.response.status,
@@ -112,8 +112,8 @@ class EverflowService {
           };
           throw errorData;
         } else if (error.request) {
-          // console.error("❌ [INTERCEPTOR] No response received from server");
-          // console.error("❌ [INTERCEPTOR] Request config:", {
+          // console.error(" [INTERCEPTOR] No response received from server");
+          // console.error(" [INTERCEPTOR] Request config:", {
           //   url: error.config?.url,
           //   method: error.config?.method,
           //   baseURL: error.config?.baseURL
@@ -125,7 +125,7 @@ class EverflowService {
             data: null,
           };
         } else {
-          // console.error("❌ [INTERCEPTOR] Request setup error:", error.message);
+          // console.error(" [INTERCEPTOR] Request setup error:", error.message);
           // Error in request setup
           throw {
             status: 500,
@@ -227,54 +227,54 @@ class EverflowService {
       // Extract userId if provided (for user-specific tracking)
       const { userId, ...apiParams } = queryParams;
 
-      // console.log("\n🟢 ========== EVERFLOW API REQUEST ==========");
-      // console.log("🟢 [EVERFLOW SERVICE] Request URL:", `${this.baseURL}${endpoint}`);
-      // console.log("🟢 [EVERFLOW SERVICE] Request params:", JSON.stringify(apiParams, null, 2));
-      // console.log("🟢 [EVERFLOW SERVICE] Full URL:", `${this.baseURL}${endpoint}?${new URLSearchParams(apiParams).toString()}`);
+      // console.log("\n ========== EVERFLOW API REQUEST ==========");
+      // console.log(" [EVERFLOW SERVICE] Request URL:", `${this.baseURL}${endpoint}`);
+      // console.log(" [EVERFLOW SERVICE] Request params:", JSON.stringify(apiParams, null, 2));
+      // console.log(" [EVERFLOW SERVICE] Full URL:", `${this.baseURL}${endpoint}?${new URLSearchParams(apiParams).toString()}`);
 
       // If userId is provided, we'll add it to click URLs later
       // Everflow uses sub_id1, sub_id2, etc. for user tracking in postbacks
       const response = await this.client.get(endpoint, { params: apiParams });
 
-      // console.log("🟢 [EVERFLOW SERVICE] Raw API Response received:");
-      // console.log("🟢 [EVERFLOW SERVICE] - Status:", response.status);
-      // console.log("🟢 [EVERFLOW SERVICE] - Status text:", response.statusText);
-      // console.log("🟢 [EVERFLOW SERVICE] - Response headers:", JSON.stringify(response.headers, null, 2));
-      // console.log("🟢 [EVERFLOW SERVICE] - Response data keys:", Object.keys(response.data || {}));
-      // console.log("🟢 [EVERFLOW SERVICE] - Full response data:", JSON.stringify(response.data, null, 2));
-      // console.log("🟢 [EVERFLOW SERVICE] - Has offers array:", !!response.data?.offers);
-      // console.log("🟢 [EVERFLOW SERVICE] - Offers count:", response.data?.offers?.length || 0);
-      // console.log("🟢 [EVERFLOW SERVICE] - Paging info:", JSON.stringify(response.data?.paging, null, 2));
+      // console.log(" [EVERFLOW SERVICE] Raw API Response received:");
+      // console.log(" [EVERFLOW SERVICE] - Status:", response.status);
+      // console.log(" [EVERFLOW SERVICE] - Status text:", response.statusText);
+      // console.log(" [EVERFLOW SERVICE] - Response headers:", JSON.stringify(response.headers, null, 2));
+      // console.log(" [EVERFLOW SERVICE] - Response data keys:", Object.keys(response.data || {}));
+      // console.log(" [EVERFLOW SERVICE] - Full response data:", JSON.stringify(response.data, null, 2));
+      // console.log(" [EVERFLOW SERVICE] - Has offers array:", !!response.data?.offers);
+      // console.log(" [EVERFLOW SERVICE] - Offers count:", response.data?.offers?.length || 0);
+      // console.log(" [EVERFLOW SERVICE] - Paging info:", JSON.stringify(response.data?.paging, null, 2));
 
       // if (response.data?.offers && response.data.offers.length > 0) {
-      //   console.log("🟢 [EVERFLOW SERVICE] - First offer sample:", JSON.stringify(response.data.offers[0], null, 2));
+      //   console.log(" [EVERFLOW SERVICE] - First offer sample:", JSON.stringify(response.data.offers[0], null, 2));
       // }
 
       // Everflow returns: { "offers": [...], "paging": {...} }
       let offers = [];
       if (response.data?.offers && Array.isArray(response.data.offers)) {
         offers = response.data.offers;
-        // console.log("🟢 [EVERFLOW SERVICE] - Extracted offers from response.data.offers:", offers.length);
+        // console.log(" [EVERFLOW SERVICE] - Extracted offers from response.data.offers:", offers.length);
       } else if (Array.isArray(response.data)) {
         offers = response.data;
-        // console.log("🟢 [EVERFLOW SERVICE] - Extracted offers from response.data (direct array):", offers.length);
+        // console.log(" [EVERFLOW SERVICE] - Extracted offers from response.data (direct array):", offers.length);
       } else {
-        // console.warn("⚠️ [EVERFLOW SERVICE] - No offers found in response structure!");
-        // console.warn("⚠️ [EVERFLOW SERVICE] - Response structure:", {
+        // console.warn(" [EVERFLOW SERVICE] - No offers found in response structure!");
+        // console.warn(" [EVERFLOW SERVICE] - Response structure:", {
         //   hasOffers: !!response.data?.offers,
         //   isDataArray: Array.isArray(response.data),
         //   dataType: typeof response.data,
         //   dataKeys: Object.keys(response.data || {})
         // });
       }
-      // console.log("🟢 ===========================================\n");
+      // console.log(" ===========================================\n");
 
-      // console.log("🟢 [EVERFLOW SERVICE] Normalizing offers...");
-      // console.log("🟢 [EVERFLOW SERVICE] - Total offers to normalize:", offers.length);
+      // console.log(" [EVERFLOW SERVICE] Normalizing offers...");
+      // console.log(" [EVERFLOW SERVICE] - Total offers to normalize:", offers.length);
 
       // Normalize offers and add user-specific tracking if userId provided
       const normalizedOffers = offers.map((offer, index) => {
-        // console.log(`🟢 [EVERFLOW SERVICE] Normalizing offer ${index + 1}/${offers.length}:`, {
+        // console.log(` [EVERFLOW SERVICE] Normalizing offer ${index + 1}/${offers.length}:`, {
         //   network_offer_id: offer.network_offer_id,
         //   name: offer.name,
         //   offer_status: offer.offer_status,
@@ -285,7 +285,7 @@ class EverflowService {
 
         const normalized = this.normalizeOffer(offer);
 
-        // console.log(`🟢 [EVERFLOW SERVICE] Normalized offer ${index + 1}:`, {
+        // console.log(` [EVERFLOW SERVICE] Normalized offer ${index + 1}:`, {
         //   offerId: normalized.offerId,
         //   title: normalized.title,
         //   clickUrl: normalized.clickUrl,
@@ -302,22 +302,22 @@ class EverflowService {
             url.searchParams.set("sub_id1", queryParams.userId);
             normalized.clickUrl = url.toString();
             normalized.deepLink = url.toString();
-            // console.log(`🟢 [EVERFLOW SERVICE] Added userId to clickUrl for offer ${index + 1}`);
+            // console.log(` [EVERFLOW SERVICE] Added userId to clickUrl for offer ${index + 1}`);
           } catch (e) {
             // If URL parsing fails, append as query param
             const separator = normalized.clickUrl.includes("?") ? "&" : "?";
             normalized.clickUrl = `${normalized.clickUrl}${separator}sub_id1=${queryParams.userId}`;
             normalized.deepLink = normalized.clickUrl;
-            // console.log(`🟢 [EVERFLOW SERVICE] Added userId to clickUrl (fallback method) for offer ${index + 1}`);
+            // console.log(` [EVERFLOW SERVICE] Added userId to clickUrl (fallback method) for offer ${index + 1}`);
           }
         }
 
         return normalized;
       });
 
-      // console.log("🟢 [EVERFLOW SERVICE] Final normalized offers count:", normalizedOffers.length);
+      // console.log(" [EVERFLOW SERVICE] Final normalized offers count:", normalizedOffers.length);
       // if (normalizedOffers.length > 0) {
-      //   console.log("🟢 [EVERFLOW SERVICE] First normalized offer sample:", JSON.stringify(normalizedOffers[0], null, 2));
+      //   console.log(" [EVERFLOW SERVICE] First normalized offer sample:", JSON.stringify(normalizedOffers[0], null, 2));
       // }
 
       return {

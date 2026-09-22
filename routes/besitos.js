@@ -29,9 +29,9 @@ const rateLimit = require('express-rate-limit');
 // Health check endpoint (public)
 router.get('/health', besitosController.healthCheck);
 
-// ===================================
+
 // User-facing endpoints (authenticated)
-// ===================================
+
 
 /**
  * @route   GET /api/besitos/offers
@@ -83,9 +83,9 @@ router.get('/messenger', auth, besitosController.getMessenger);
  */
 router.post('/conversion', auth, besitosController.submitConversion);
 
-// ===================================
+
 // Admin-only endpoints
-// ===================================
+
 
 /**
  * @route   GET /api/besitos/conversions

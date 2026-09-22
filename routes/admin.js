@@ -2166,7 +2166,6 @@ router.put(
       }
 
 
-
       res.json({
         success: true,
         message: 'User updated successfully',
@@ -3281,7 +3280,7 @@ router.get(
       }
 
       // ==================== ATTRIBUTION PERFORMANCE ====================
-      // FIXED: Use Adjust attribution data instead of OAuth provider
+      // Use Adjust attribution data instead of OAuth provider
       const AdjustCallback = require('../models/AdjustCallback')
 
       // Build date filter for Adjust callbacks
@@ -3448,7 +3447,7 @@ router.get(
           const revenue = revenueData[0]?.revenue || 0
           const rewardCost = costData[0]?.cost || 0
 
-          // FIXED: Include marketingCost in margin calculation
+          // Include marketingCost in margin calculation
           const margin = revenue - rewardCost - marketingCost
           const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0
 
@@ -5032,10 +5031,10 @@ router.get(
 
       // Step 1: Get source data from Adjust Report Service API
       // Fields VERIFIED against official docs:
-      // - installs ✅ (metric: 'installs')
-      // - revenue ✅ (metric: 'revenue')
-      // - marketingCost ✅ (metric: 'network_cost')
-      // - source/network ✅ (dimension: 'network')
+      // - installs  (metric: 'installs')
+      // - revenue  (metric: 'revenue')
+      // - marketingCost  (metric: 'network_cost')
+      // - source/network  (dimension: 'network')
       const adjustService = require('../services/adjust.service')
 
       if (!adjustService.isConfigured()) {
@@ -5056,7 +5055,7 @@ router.get(
       const end = formatDate(endDate) || new Date().toISOString().split("T")[0];
 
       const apiParams = {
-        dimensions: 'network', // ✅ Industry standard: 1 row per source (no country split by default)
+        dimensions: 'network', //  Industry standard: 1 row per source (no country split by default)
         metrics: 'installs,revenue,network_cost,clicks,impressions',
         date_period: `${start}:${end}`,
         app_token__in: adjustService.appToken,
@@ -5157,21 +5156,21 @@ router.get(
           const cpi = installs > 0 ? (marketingCost / installs).toFixed(2) : '0.00';
 
           // Get reward cost for this source from our DB
-          // COMMENTED OUT: rewardCost = 0; // ❌ Commented out as requested
+          // COMMENTED OUT: rewardCost = 0; //  Commented out as requested
           const rewardCost = 0; // TODO: Uncomment when reward cost tracking is needed
 
           return {
             id: index + 1,
-            source: network, // ✅ From Adjust API
-            installs: installs, // ✅ From Adjust API
-            d1Retention: parseFloat(d1Retention), // ✅ Calculated per source from DB
-            revenue: revenue, // ✅ From Adjust API
-            rewardCost: rewardCost, // ❌ COMMENTED OUT (0 for now)
-            marketingCost: marketingCost, // ✅ From Adjust API
-            margin: revenue - marketingCost, // ✅ FIXED: Includes marketingCost only (rewardCost = 0)
+            source: network, //  From Adjust API
+            installs: installs, //  From Adjust API
+            d1Retention: parseFloat(d1Retention), //  Calculated per source from DB
+            revenue: revenue, //  From Adjust API
+            rewardCost: rewardCost, //  COMMENTED OUT (0 for now)
+            marketingCost: marketingCost, //  From Adjust API
+            margin: revenue - marketingCost, //  Includes marketingCost only (rewardCost = 0)
             marginPercent: parseFloat(((revenue - marketingCost) / revenue * 100).toFixed(2) || 0),
-            roas: roas, // ✅ Industry standard: Return on Ad Spend
-            cpi: cpi, // ✅ Industry standard: Cost Per Install
+            roas: roas, //  Industry standard: Return on Ad Spend
+            cpi: cpi, //  Industry standard: Cost Per Install
             country: row.country_code || 'N/A',
             clicks: parseInt(row.clicks || 0, 10),
             impressions: parseInt(row.impressions || 0, 10)

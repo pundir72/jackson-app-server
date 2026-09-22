@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build:
@@ -8,6 +6,8 @@ services:
     image: jackson-app:uat
     container_name: jackson-app-uat
     restart: always
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     networks:

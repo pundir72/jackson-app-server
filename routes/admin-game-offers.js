@@ -1193,7 +1193,7 @@ router.post(
 
             if (external) {
               // console.log(
-              //   `✅ Found game in Bitlabs: ${JSON.stringify({
+              //   ` Found game in Bitlabs: ${JSON.stringify({
               //     id: external.id,
               //     gameId: external.gameId,
               //     title: external.title,
@@ -1218,7 +1218,7 @@ router.post(
 
             if (external) {
               // console.log(
-              //   `✅ Found game after refresh: ${JSON.stringify({
+              //   ` Found game after refresh: ${JSON.stringify({
               //     id: external.id,
               //     gameId: external.gameId,
               //     title: external.title,
@@ -4334,7 +4334,7 @@ router.get(
         baseQuery.status = status;
       }
 
-      // console.log("🔍 [ADMIN BACKEND] Base query:", baseQuery);
+      // console.log(" [ADMIN BACKEND] Base query:", baseQuery);
 
       // Fetch from both models based on offerType
       let allOffers = [];
@@ -4342,12 +4342,12 @@ router.get(
       if (offerType === "all" || offerType === "survey") {
         // Get surveys from SurveyOffer
         const surveyQuery = { ...baseQuery, offerType: "survey" };
-        // console.log("🔍 [ADMIN BACKEND] Survey query:", surveyQuery);
+        // console.log(" [ADMIN BACKEND] Survey query:", surveyQuery);
         const surveys = await SurveyOffer.find(surveyQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
-        // console.log(`✅ [ADMIN BACKEND] Found ${surveys.length} surveys`);
+        // console.log(` [ADMIN BACKEND] Found ${surveys.length} surveys`);
         allOffers.push(...surveys);
       }
 
@@ -4362,13 +4362,13 @@ router.get(
         if (offerType !== "all") {
           nonGameQuery.offerType = offerType;
         }
-        // console.log("🔍 [ADMIN BACKEND] Non-game query:", nonGameQuery);
+        // console.log(" [ADMIN BACKEND] Non-game query:", nonGameQuery);
         const nonGameOffers = await NonGameOffer.find(nonGameQuery)
           .populate("sdkId", "name displayName")
           .sort({ createdAt: -1 })
           .lean();
         // console.log(
-        //   `✅ [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
+        //   ` [ADMIN BACKEND] Found ${nonGameOffers.length} non-gaming offers`
         // );
 
         // Debug: Check all non-gaming offers regardless of query
@@ -4377,11 +4377,11 @@ router.get(
           .sort({ createdAt: -1 })
           .lean();
         // console.log(
-        //   `🔍 [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
+        //   ` [ADMIN BACKEND] Total non-gaming offers in DB: ${allNonGameOffersDebug.length}`
         // );
         if (allNonGameOffersDebug.length > 0) {
           // console.log(
-          //   "📋 [ADMIN BACKEND] All non-gaming offers in DB:",
+          //   " [ADMIN BACKEND] All non-gaming offers in DB:",
           //   allNonGameOffersDebug.map((o) => ({
           //     id: o._id,
           //     externalId: o.externalId,
@@ -4396,7 +4396,7 @@ router.get(
 
         if (nonGameOffers.length > 0) {
           // console.log(
-          //   "📋 [ADMIN BACKEND] Non-gaming offers matching query:",
+          //   " [ADMIN BACKEND] Non-gaming offers matching query:",
           //   nonGameOffers.slice(0, 3).map((o) => ({
           //     id: o._id,
           //     externalId: o.externalId,
@@ -4513,7 +4513,7 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
     const { sdk } = req.params;
     const { type = "all", devices, is_game = false, country, page = 1, limit = 20 } = req.query;
 
-    // console.log("🟡 [ADMIN BACKEND ROUTE] Received request:", {
+    // console.log(" [ADMIN BACKEND ROUTE] Received request:", {
     //   endpoint: "/non-game-offers/by-sdk/:sdk",
     //   sdk,
     //   queryParams: {
@@ -4768,7 +4768,7 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
         // Note: According to Besitos docs, user_ip is required, so we use localhost for admin preview
         surveysParams.user_ip = "127.0.0.1"; // Use localhost for admin preview to avoid VPN detection
 
-        // console.log("🔵 [BESITOS ADMIN] Fetching surveys for admin preview with params:", {
+        // console.log(" [BESITOS ADMIN] Fetching surveys for admin preview with params:", {
         //   device: surveysParams.device,
         //   user_ip: surveysParams.user_ip,
         //   note: "Using localhost IP for admin preview to avoid VPN detection"
@@ -4779,7 +4779,7 @@ router.get("/non-game-offers/by-sdk/:sdk", adminAuth, async (req, res) => {
           "admin-preview"
         );
 
-        // console.log("🔵 [BESITOS ADMIN] Survey response received:", {
+        // console.log(" [BESITOS ADMIN] Survey response received:", {
         //   isArray: Array.isArray(besitosResponse),
         //   count: Array.isArray(besitosResponse) ? besitosResponse.length : 0,
         //   hasData: !!besitosResponse?.data,
@@ -5110,11 +5110,11 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     if (country) {
       userProfile.country = country;
       // console.log(
-      //   `🌍 Sync request: Using country "${country}" for BitLabs offers`
+      //   ` Sync request: Using country "${country}" for BitLabs offers`
       // );
     } else {
       // console.log(
-      //   `⚠️ Sync request: No country specified. Will default to "US" in utility function.`
+      //   ` Sync request: No country specified. Will default to "US" in utility function.`
       // );
     }
 
@@ -5134,7 +5134,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
         userProfile.platform = "mobile"; // Default to mobile
       }
       // console.log(
-      //   `📱 Sync request: Using platform "${
+      //   ` Sync request: Using platform "${
       //     userProfile.platform
       //   }" for devices: ${devicesArray.join(", ")}`
       // );
@@ -5766,9 +5766,9 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           ? "survey"
           : offer.offerType || "other";
 
-        // 🔍 DEBUG: Log offer data for surveys before saving
+        //  DEBUG: Log offer data for surveys before saving
         if (isSurvey || offer.offerType === "survey") {
-          // console.log(`\n🔍 SYNC: Preparing to save Survey ${externalId}`);
+          // console.log(`\n SYNC: Preparing to save Survey ${externalId}`);
           // console.log(`   coinReward: ${coinReward}`);
           // console.log(`   offer.value: ${offer.value}`);
           // console.log(`   offer.cpi: ${offer.cpi}`);
@@ -5858,7 +5858,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
           },
           metadata: {
             // Store all normalized offer fields in the same format
-            // ⚠️ IMPORTANT: externalUrl is stored for REFERENCE ONLY (applies to ALL offer types).
+            //  IMPORTANT: externalUrl is stored for REFERENCE ONLY (applies to ALL offer types).
             //
             // INDUSTRIAL-LEVEL BEST PRACTICE (Based on Bitlabs Official Documentation):
             // - Click URLs are user-specific and contain session IDs linked to X-User-Id
@@ -6067,7 +6067,7 @@ router.post("/non-game-offers/sync/bitlabs", adminAuth, async (req, res) => {
     currentSDK.analytics.lastSyncAt = new Date();
     await currentSDK.save();
 
-    // // console.log("🔵 [ADMIN BACKEND SYNC] Sync completed:", {
+    // // console.log(" [ADMIN BACKEND SYNC] Sync completed:", {
     //   syncedCount,
     //   updatedCount,
     //   skippedCount,

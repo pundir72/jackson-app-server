@@ -694,14 +694,14 @@ class AdjustService {
    * @returns {Object} Attribution table data with installs, revenue, marketing cost
    * 
    * VERIFIED FIELDS FROM ADJUST OFFICIAL DOCUMENTATION:
-   * ✅ installs - Metric ID: 'installs' (https://dev.adjust.com/en/api/rs-api/reports/)
-   * ✅ revenue - Metric ID: 'revenue' (https://help.adjust.com/en/article/datascape-metrics-glossary)
-   * ✅ network_cost - Metric ID: 'network_cost' (https://dev.adjust.com/en/api/rs-api/filters-data/)
-   * ✅ clicks - Metric ID: 'clicks' (standard metric)
-   * ✅ impressions - Metric ID: 'impressions' (standard metric)
-   * ✅ network - Dimension: 'network' (https://help.adjust.com/en/article/datascape-dimensions-glossary)
-   * ❌ d1_retention - NOT in standard API (requires cohort_period=1)
-   * ❌ reward_cost - NOT tracked by Adjust (use our DB if needed)
+   *  installs - Metric ID: 'installs' (https://dev.adjust.com/en/api/rs-api/reports/)
+   *  revenue - Metric ID: 'revenue' (https://help.adjust.com/en/article/datascape-metrics-glossary)
+   *  network_cost - Metric ID: 'network_cost' (https://dev.adjust.com/en/api/rs-api/filters-data/)
+   *  clicks - Metric ID: 'clicks' (standard metric)
+   *  impressions - Metric ID: 'impressions' (standard metric)
+   *  network - Dimension: 'network' (https://help.adjust.com/en/article/datascape-dimensions-glossary)
+   *  d1_retention - NOT in standard API (requires cohort_period=1)
+   *  reward_cost - NOT tracked by Adjust (use our DB if needed)
    */
   async getAttributionTableData(params = {}) {
     const { startDate, endDate, source, country } = params;
@@ -718,11 +718,11 @@ class AdjustService {
       // Build API params for Adjust Report Service
       // Using JSON endpoint: https://automate.adjust.com/reports-service/report
       // VERIFIED metric names from official Adjust documentation:
-      // - installs ✅ (https://dev.adjust.com/en/api/rs-api/reports/)
-      // - revenue ✅ (https://help.adjust.com/en/article/datascape-metrics-glossary)
-      // - network_cost ✅ (https://dev.adjust.com/en/api/rs-api/filters-data/)
-      // - clicks ✅ (standard metric)
-      // - impressions ✅ (standard metric)
+      // - installs  (https://dev.adjust.com/en/api/rs-api/reports/)
+      // - revenue  (https://help.adjust.com/en/article/datascape-metrics-glossary)
+      // - network_cost  (https://dev.adjust.com/en/api/rs-api/filters-data/)
+      // - clicks  (standard metric)
+      // - impressions  (standard metric)
       const apiParams = {
         dimensions: 'network,campaign,country_code',
         metrics: 'installs,revenue,network_cost,clicks,impressions',
@@ -753,47 +753,47 @@ class AdjustService {
       // Transform to attribution table format
       // ALL FIELDS BELOW ARE VERIFIED AGAINST ADJUST OFFICIAL DOCUMENTATION
       const attributionData = rows.map((row, index) => {
-        // ✅ VERIFIED: installs (metric 'installs' from Adjust docs)
+        //  VERIFIED: installs (metric 'installs' from Adjust docs)
         const installs = parseInt(row.installs || 0, 10);
         
-        // ✅ VERIFIED: revenue (metric 'revenue' from Adjust docs)
+        //  VERIFIED: revenue (metric 'revenue' from Adjust docs)
         // Official doc: "The revenue your app has generated within a selected timeframe"
         const revenue = parseFloat(row.revenue || 0);
         
-        // ✅ VERIFIED: marketingCost (metric 'network_cost' from Adjust docs)
+        //  VERIFIED: marketingCost (metric 'network_cost' from Adjust docs)
         // Official doc: "Ad Spend (Network) - shows ad spend data retrieved using Network API"
         const marketingCost = parseFloat(row.network_cost || 0);
         
-        // ❌ NOT AVAILABLE: D1/D7 Retention
+        //  NOT AVAILABLE: D1/D7 Retention
         // Official doc: retention_rate_{N} requires cohort_period parameter (Cohort API)
         // Setting to 0 - can be calculated from DB later if needed
         const d1Retention = 0;
         const d7Retention = 0;
         
-        // ❌ COMMENTED OUT: Reward Cost (NOT tracked by Adjust)
+        //  COMMENTED OUT: Reward Cost (NOT tracked by Adjust)
         // Adjust only tracks ad spend (network_cost), NOT your internal reward costs
         // If needed, query our Transaction collection separately
         const rewardCost = 0; // Commented out as requested
         
-        // FIXED: Margin includes marketingCost (Bug 3 fix from senior dev)
+        // Margin includes marketingCost (Bug 3 fix from senior dev)
         const margin = revenue - marketingCost; // rewardCost is 0
         const marginPercent = revenue > 0 ? ((margin / revenue) * 100).toFixed(2) : 0;
 
         return {
           id: index + 1,
-          source: row.network || 'Organic', // ✅ VERIFIED: dimension 'network'
-          campaign: row.campaign || 'N/A', // ✅ VERIFIED: dimension 'campaign'
-          country: row.country_code || 'N/A', // ✅ VERIFIED: dimension 'country_code'
-          installs: installs, // ✅ From Adjust API
-          d1Retention: d1Retention, // ❌ Not from Adjust (0 for now)
-          d7Retention: d7Retention, // ❌ Not from Adjust (0 for now)
-          revenue: revenue, // ✅ From Adjust API (metric 'revenue')
-          rewardCost: rewardCost, // ❌ Commented out (0 for now)
-          marketingCost: marketingCost, // ✅ From Adjust API (metric 'network_cost')
+          source: row.network || 'Organic', //  VERIFIED: dimension 'network'
+          campaign: row.campaign || 'N/A', //  VERIFIED: dimension 'campaign'
+          country: row.country_code || 'N/A', //  VERIFIED: dimension 'country_code'
+          installs: installs, //  From Adjust API
+          d1Retention: d1Retention, //  Not from Adjust (0 for now)
+          d7Retention: d7Retention, //  Not from Adjust (0 for now)
+          revenue: revenue, //  From Adjust API (metric 'revenue')
+          rewardCost: rewardCost, //  Commented out (0 for now)
+          marketingCost: marketingCost, //  From Adjust API (metric 'network_cost')
           margin: margin,
           marginPercent: parseFloat(marginPercent),
-          clicks: parseInt(row.clicks || 0, 10), // ✅ From Adjust API
-          impressions: parseInt(row.impressions || 0, 10) // ✅ From Adjust API
+          clicks: parseInt(row.clicks || 0, 10), //  From Adjust API
+          impressions: parseInt(row.impressions || 0, 10) //  From Adjust API
         };
       });
 
@@ -824,10 +824,9 @@ class AdjustService {
   }
 }
 
-// ===========================================================================
-// ===========================================================================
+
 // NEW METHODS: Get Networks & Campaigns for Dropdown Auto-Population
-// ===========================================================================
+
 
 /**
  * Get all unique networks (marketing channels) from Adjust API

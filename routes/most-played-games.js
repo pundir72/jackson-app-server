@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
@@ -335,7 +336,7 @@ function getAllGames() {
       difficulty: 'High',
       timeRequired: '15 min',
       description: 'Navigate through space obstacles and collect cosmic rewards',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/orbit-fall.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/orbit-fall.jpg`,
       isNew: false,
       viewCount: 10400
     },
@@ -349,7 +350,7 @@ function getAllGames() {
       difficulty: 'Medium',
       timeRequired: '10 min',
       description: 'Solve challenging puzzles to earn rewards',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/puzzle-master.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/puzzle-master.jpg`,
       isNew: false,
       viewCount: 8500
     },
@@ -363,7 +364,7 @@ function getAllGames() {
       difficulty: 'Medium',
       timeRequired: '10 min',
       description: 'Test your vocabulary and earn coins',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/word-challenge.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/word-challenge.jpg`,
       isNew: true,
       viewCount: 6200
     },
@@ -377,7 +378,7 @@ function getAllGames() {
       difficulty: 'Low',
       timeRequired: '5 min',
       description: 'Train your memory and earn rewards',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/memory-game.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/memory-game.jpg`,
       isNew: false,
       viewCount: 12000
     },
@@ -391,7 +392,7 @@ function getAllGames() {
       difficulty: 'High',
       timeRequired: '20 min',
       description: 'Race against time and opponents',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/speed-racer.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/speed-racer.jpg`,
       isNew: true,
       viewCount: 7800
     }
@@ -429,7 +430,7 @@ function getGameData(gameId) {
     difficulty: 'Low',
     timeRequired: '5 min',
     description: 'A fun game to play',
-    imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/default.jpg',
+    imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/default.jpg`,
     isNew: false,
     viewCount: 0
   };

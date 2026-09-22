@@ -9,16 +9,14 @@ module.exports = {
     (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*"
       ? process.env.FRONTEND_URL
       : null) ||
-    (process.env.NODE_ENV === "production"
-      ? "https://jacksonrewardsapp.vercel.app"
-      : "http://localhost:3000"),
+    "http://localhost:3000",
 
   // Database
   MONGODB_URI:
     process.env.MONGODB_URI || "mongodb://localhost:27017/jackson-app",
 
   // JWT
-  JWT_SECRET: process.env.JWT_SECRET || "your-secret-key",
+  JWT_SECRET: process.env.JWT_SECRET,
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
 
   // Security
@@ -113,7 +111,7 @@ module.exports = {
   BESITOS_BASE_URL: process.env.BESITOS_BASE_URL || "https://api.besitos.ai",
   BESITOS_PARTNER_ID: process.env.BESITOS_PARTNER_ID,
   BESITOS_API_TOKEN: process.env.BESITOS_API_TOKEN,
-  BESITOS_WEBHOOK_SECRET: "NVvhXplfe9DUG9lgK8oy",
+  BESITOS_WEBHOOK_SECRET: process.env.BESITOS_WEBHOOK_SECRET,
 
   // Bitlabs - Game Offers & Surveys Platform
   // Base URL should NOT include /v1 - it will be added to the endpoint path

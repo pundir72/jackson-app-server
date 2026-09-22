@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const mongoose = require('mongoose');
 
 const vipTierSchema = new mongoose.Schema({
@@ -20,7 +21,7 @@ const vipTierSchema = new mongoose.Schema({
     title: { type: String, required: true },
     description: { type: String, required: true },
     icon: { type: String, required: true },
-    logo: { type: String, default: 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png' },
+    logo: { type: String, default: `${config.IMAGE_BASE_URL}/uploads/avatars/1758267852322-951613456.png` },
     order: { type: Number, default: 0 }
   }],
   pricing: {
@@ -114,18 +115,11 @@ vipTierSchema.methods.getBenefitsSummary = function() {
       title: title,
       description: benefit.description,
       icon: benefit.icon,
-      logo: benefit.logo || benefit.icon || 'https://rewardsapi.hireagent.co/uploads/avatars/1758267852322-951613456.png'
+      logo: benefit.logo || benefit.icon || `${config.IMAGE_BASE_URL}/uploads/avatars/1758267852322-951613456.png`
     };
   });
 };
 
 module.exports = mongoose.model('VIPTier', vipTierSchema);
-
-
-
-
-
-
-
 
 

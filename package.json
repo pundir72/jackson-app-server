@@ -6,21 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon --config nodemon.json server.js",
-    "dev:clean": "pkill -f 'node.*server.js' && sleep 2 && npm run dev",
     "test": "jest",
-    "test:password-reset": "jest tests/password-reset.test.js",
     "lint": "eslint .",
-    "sre:backup": "bash scripts/backup-mongo.sh",
-    "sre:restore": "bash scripts/restore-mongo.sh",
-    "sre:load:smoke": "bash scripts/run-k6.sh load-tests/k6-smoke.js",
-    "sre:load:stress": "bash scripts/run-k6.sh load-tests/k6-load.js",
-    "seed": "node data/seedMasterData.js",
-    "seed:home": "node scripts/seedHomeData.js",
-    "seed:cash-coach": "node scripts/seedCashCoach.js",
-    "update:game-prefs": "node scripts/updateGamePreferences.js",
-    "verify:game-prefs": "node scripts/verifyGamePreferences.js",
-    "fix:game-prefs": "node scripts/fixGamePreferences.js",
-    "test:otp": "node scripts/testOTP.js"
+    "backfill:task-classification": "node scripts/backfill-task-classification.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
@@ -40,7 +28,6 @@
     "cors": "^2.8.5",
     "cron": "^3.0.3",
     "dotenv": "^16.3.1",
-    "eslint": "^8.56.0",
     "express": "^4.18.2",
     "express-rate-limit": "^8.0.1",
     "express-validator": "^7.0.1",
@@ -49,7 +36,6 @@
     "googleapis": "^144.0.0",
     "helmet": "^7.0.0",
     "i18n": "^0.13.3",
-    "jest": "^29.7.0",
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.5.0",
@@ -68,15 +54,23 @@
     "sharp": "^0.32.6",
     "socket.io": "^4.7.2",
     "stripe": "^14.11.0",
-    "supertest": "^6.3.3",
     "twilio": "^4.12.0",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "ioredis": "^5.4.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",
     "@types/supertest": "^6.0.1",
     "nodemon": "^3.0.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
   }
 }

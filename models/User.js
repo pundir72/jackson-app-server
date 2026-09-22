@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -185,7 +186,7 @@ const userSchema = new mongoose.Schema({
     profile: {
         avatar: {
             type: String,
-            default: 'https://rewardsuatapi.hireagent.co/uploads/avatars/1762258339619-142648919.jpg'
+            default: `${config.IMAGE_BASE_URL}/uploads/avatars/1762258339619-142648919.jpg`
         },
         bio: {
             type: String,
@@ -525,7 +526,6 @@ const userSchema = new mongoose.Schema({
             type: Date
         }
     },
-
 
 
     // Games

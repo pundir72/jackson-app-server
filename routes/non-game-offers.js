@@ -489,7 +489,7 @@ async function getAdminConfiguredOffers(
           }
         }
 
-        // 🔵 RAW API RESPONSE - Direct response from third-party API
+        //  RAW API RESPONSE - Direct response from third-party API
         if (apiResult?.categorized) {
         }
 
@@ -1827,7 +1827,7 @@ router.get("/surveys", protect, async (req, res) => {
                 source = "admin_configured";
               }
             } catch (bitlabsError) {
-              // 🔴 ENHANCED ERROR LOGGING: Log full error details
+              //  ENHANCED ERROR LOGGING: Log full error details
               console.error(
                 "\n🔴 [USER BACKEND] ========== ERROR FETCHING SURVEYS FROM BITLABS ==========",
               );
@@ -2086,7 +2086,7 @@ router.get("/surveys", protect, async (req, res) => {
           category,
         });
 
-        // 🔵 RAW BITLABS API RESPONSE - Direct response from third-party API
+        //  RAW BITLABS API RESPONSE - Direct response from third-party API
 
         // CRITICAL: Check for VPN/restriction reasons
         if (result?.restrictionReason) {
@@ -2639,8 +2639,6 @@ router.get("/cashback", protect, async (req, res) => {
     const paginatedOffers = cashbackOffers.slice(startIndex, endIndex);
 
 
-
-
     res.json({
       success: true,
       data: {
@@ -2951,7 +2949,7 @@ router.post("/complete", protect, async (req, res) => {
       user.nonGameOffersCompleted = (user.nonGameOffersCompleted || 0) + 1;
       await Promise.all([user.save(), transaction.save()]);
 
-      // 🎯 ADJUST TRACKING: Non-game offer completed
+      //  ADJUST TRACKING: Non-game offer completed
       try {
         const { trackNonGamingOffer } = require('../utils/adjustTracker');
         await trackNonGamingOffer(user._id.toString(), {
@@ -3010,11 +3008,11 @@ router.post("/complete", protect, async (req, res) => {
  */
 router.post("/callback/bitlabs", async (req, res) => {
   try {
-    // 🔵 DEBUG: Log incoming callback request
+    //  DEBUG: Log incoming callback request
 
     const { signature, ...callbackData } = req.body;
 
-    // 🔵 DEBUG: Log callback data before verification
+    //  DEBUG: Log callback data before verification
 
     // Verify callback signature (HMAC verification prevents fraud)
     const verification = await bitlabsNonGames.verifyCallback({
@@ -3022,7 +3020,7 @@ router.post("/callback/bitlabs", async (req, res) => {
       signature,
     });
 
-    // 🔵 DEBUG: Log verification result
+    //  DEBUG: Log verification result
 
     if (!verification.success || !verification.isValid) {
       console.error("❌ [CALLBACK] ========== INVALID SIGNATURE ==========");
@@ -3044,9 +3042,9 @@ router.post("/callback/bitlabs", async (req, res) => {
     // Process callback data
     const { userId, offerId, reward, status, value } = callbackData;
 
-    // 🔵 DEBUG: Log valid callback details
+    //  DEBUG: Log valid callback details
 
-    // 🔵 DEBUG: Handle all statuses with detailed logging
+    //  DEBUG: Handle all statuses with detailed logging
     if (!userId || !offerId) {
       console.warn(
         "⚠️ [CALLBACK] ========== MISSING REQUIRED FIELDS ==========",
@@ -3082,7 +3080,7 @@ router.post("/callback/bitlabs", async (req, res) => {
       });
     }
 
-    // 🔵 DEBUG: Log user found
+    //  DEBUG: Log user found
 
     // Initialize coins variable for logging
     let coins = 0;
@@ -3145,7 +3143,7 @@ router.post("/callback/bitlabs", async (req, res) => {
       }
 
       if (coins > 0) {
-        // 🔵 DEBUG: Log reward calculation
+        //  DEBUG: Log reward calculation
 
         // FIX: Change 'xp' to 'baseXp' to match line 1348
         const baseXp = Math.round(coins * 0.5); // 50% of coins as XP
@@ -3171,7 +3169,7 @@ router.post("/callback/bitlabs", async (req, res) => {
         user.xp.current = xpBefore + finalXP;
         user.xp.total = (user.xp.total || 0) + finalXP;
 
-        // 🔵 DEBUG: Log before creating transaction
+        //  DEBUG: Log before creating transaction
 
         const transaction = new Transaction({
           user: user._id,
@@ -3198,7 +3196,7 @@ router.post("/callback/bitlabs", async (req, res) => {
         // Save user and transaction
         await Promise.all([user.save(), transaction.save()]);
 
-        // 🎯 ADJUST TRACKING: Non-game offer completed from Bitlabs callback
+        //  ADJUST TRACKING: Non-game offer completed from Bitlabs callback
         try {
           const { trackNonGamingOffer } = require('../utils/adjustTracker');
           await trackNonGamingOffer(user._id.toString(), {
@@ -3210,7 +3208,7 @@ router.post("/callback/bitlabs", async (req, res) => {
           console.error('Adjust non-game offer tracking failed:', adjustError);
         }
 
-        // 🔵 DEBUG: Log final reward summary
+        //  DEBUG: Log final reward summary
       } else {
         console.warn(
           "\n⚠️ [CALLBACK] ========== NO REWARD AMOUNT FOUND ==========",
@@ -3227,21 +3225,21 @@ router.post("/callback/bitlabs", async (req, res) => {
         );
       }
     } else if (status === "screened_out") {
-      // 🔵 DEBUG: Log screened out status
+      //  DEBUG: Log screened out status
     } else if (status === "rejected") {
-      // 🔵 DEBUG: Log rejected status
+      //  DEBUG: Log rejected status
     } else {
-      // 🔵 DEBUG: Log unknown status
+      //  DEBUG: Log unknown status
     }
 
-    // 🔵 DEBUG: Log callback processing completion
+    //  DEBUG: Log callback processing completion
 
     res.json({
       success: true,
       message: "Callback processed successfully",
     });
   } catch (error) {
-    // 🔴 DEBUG: Log callback processing error
+    //  DEBUG: Log callback processing error
     console.error(
       "\n🔴 [CALLBACK] ========== CALLBACK PROCESSING ERROR ==========",
     );

@@ -16,7 +16,7 @@ const {
 const { applyXPDecay } = require("../utils/xpDecayV2");
 const config = require("../config/config");
 
-// 🚨 DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
+//  DEVELOPMENT MODE: Using hardcoded OTP (1234) for all users
 // This bypasses Twilio SMS and uses a fixed OTP code for testing
 // REMOVE THIS IN PRODUCTION AND ENABLE REAL SMS OTP
 const rateLimit = require("express-rate-limit");
@@ -557,7 +557,7 @@ router.post(
 
       await user.save();
 
-      // 🎯 ADJUST TRACKING: User Registration
+      //  ADJUST TRACKING: User Registration
       try {
         const { trackRegistration } = require("../utils/adjustTracker");
         await trackRegistration(user._id.toString(), {
@@ -996,10 +996,10 @@ router.post(
 
       // Ensure user has ADMIN role (fix if missing)
       if (user.role !== "ADMIN") {
-        // console.log(`⚠️  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
+        // console.log(`  Admin login: User ${user.email} does not have ADMIN role. Updating...`);
         user.role = "ADMIN";
         await user.save();
-        // console.log(`✅ Updated user ${user.email} to ADMIN role`);
+        // console.log(` Updated user ${user.email} to ADMIN role`);
       }
 
       // Generate JWT token
@@ -1086,9 +1086,9 @@ router.post(
   },
 );
 
-// ========================================
+
 // SOCIAL LOGIN ROUTES
-// ========================================
+
 
 // Must match CFBundleURLSchemes in the iOS app's Info.plist. The previous
 // com.jackson.app scheme was never registered by iOS, so Safari could not hand
@@ -1211,7 +1211,7 @@ router.get(
         const updatedUser = await User.findByIdAndUpdate(user._id, updateData, {
           new: true,
         });
-        // console.log(`✅ Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
+        // console.log(` Google login tracked for user ${user.email}: loginCount = ${updatedUser?.loginCount || user.loginCount + 1}`);
       } catch (updateError) {
         console.error(
           "Error updating login analytics for Google login:",
@@ -1241,9 +1241,9 @@ router.get(
   },
 );
 
-// ========================================
+
 // MOBILE FACEBOOK OAUTH ROUTE
-// ========================================
+
 
 // Facebook OAuth Route for Mobile App Only
 // This route is for mobile app authentication - redirects to mobile deep link

@@ -8,6 +8,9 @@ const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const config = require("./config/config");
+if (!config.JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured before starting the server");
+}
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
@@ -218,7 +221,6 @@ mongoose
     const achievementRoutes = require("./routes/achievements");
     const leaderboardRoutes = require("./routes/leaderboard");
     const performanceRoutes = require("./routes/performance");
-    const testRoutes = require("./routes/test");
     const accountOverviewRoutes = require("./routes/account-overview");
     const myGamesRoutes = require("./routes/my-games");
     const adFreeRoutes = require("./routes/ad-free");
@@ -313,7 +315,6 @@ mongoose
     app.use("/api/achievements", achievementRoutes);
     app.use("/api/leaderboard", leaderboardRoutes);
     app.use("/api/performance", performanceRoutes);
-    app.use("/api/test", testRoutes);
     app.use("/api/account-overview", accountOverviewRoutes);
     app.use("/api/my-games", myGamesRoutes);
     app.use("/api/ad-free", adFreeRoutes);

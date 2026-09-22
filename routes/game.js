@@ -269,7 +269,7 @@ router.get("/", protect, async (req, res) => {
     try {
       const besitosService = require("../services/besitos.service");
       if (besitosService.isConfigured()) {
-        // console.log(`[GAME-LIST] 🔄 Starting sync from Besitos for user: ${user._id.toString()}`);
+        // console.log(`[GAME-LIST]  Starting sync from Besitos for user: ${user._id.toString()}`);
         const besitosResponse = await besitosService.getUserData(
           user._id.toString(),
         );
@@ -2659,7 +2659,7 @@ router.get("/:gameId/bonus-tasks", protect, async (req, res) => {
       });
     }
 
-    // NEW: Check if this game is in user's first 3 downloaded games
+    // Check if this game is in user's first 3 downloaded games
     const userGames = user.games || [];
     // Sort by installedAt/date (oldest first) to get download order
     const sortedGames = [...userGames].sort((a, b) => {
@@ -3412,7 +3412,7 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
 
     await user.save();
 
-    // 🎯 ADJUST TRACKING: Game Task Completion
+    //  ADJUST TRACKING: Game Task Completion
     try {
       const { trackTaskCompletion } = require("../utils/adjustTracker");
       await trackTaskCompletion(user._id.toString(), {

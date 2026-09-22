@@ -735,7 +735,7 @@ router.get('/callbacks', adminAuth, async (req, res) => {
        filters.network = [network];
      }
 
-    console.log('\n🔍 Adjust API Debug: /callbacks');
+    console.log('\n Adjust API Debug: /callbacks');
     console.log('   Date range:', `${start}:${end}`);
     console.log('   Short range (<=7 days):', isShortRange);
     console.log('   Time dimension:', timeDimension);
@@ -754,7 +754,7 @@ router.get('/callbacks', adminAuth, async (req, res) => {
         }
      });
 
-    console.log('✅ Adjust API Response Status:', response.status);
+    console.log(' Adjust API Response Status:', response.status);
     console.log('   Data rows:', getReportRows(response.data).length);
 
     if (!response.data) {

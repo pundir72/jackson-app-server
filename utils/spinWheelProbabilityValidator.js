@@ -8,11 +8,11 @@
  * 4. Global total probability should not exceed 100%
  * 
  * EXAMPLES:
- * ✅ ALLOWED:
+ *  ALLOWED:
  *   - Tier Bronze: Reward A (10%), Reward B (20%)
  *   - Tier Silver: Reward C (10%), Reward D (30%) // Same 10% as Bronze is OK
  * 
- * ❌ NOT ALLOWED:
+ *  NOT ALLOWED:
  *   - Tier Bronze: Reward A (10%), Reward B (10%) // Duplicate 10% in same tier
  *   - Tier Silver: Reward C (60%), Reward D (50%) // Total 110% exceeds 100%
  */

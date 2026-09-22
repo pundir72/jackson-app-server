@@ -7,15 +7,15 @@ const PayoutMethod = require('../models/PayoutMethod');
 const FinancialInsight = require('../models/FinancialInsight');
 const Deals = require('../models/Deals');
 
-// ============================================================================
+
 // ADMIN AUTHENTICATION MIDDLEWARE
-// ============================================================================
+
 
 const { adminAuth } = require('../middleware/adminAuth');
 
-// ============================================================================
+
 // TASK STEP TEMPLATE MANAGEMENT
-// ============================================================================
+
 
 /**
  * Get all task step templates with filtering and pagination
@@ -271,9 +271,9 @@ router.patch('/task-templates/:id/toggle', adminAuth, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // PAYOUT METHOD MANAGEMENT
-// ============================================================================
+
 
 /**
  * Get all payout methods with filtering and pagination
@@ -526,9 +526,9 @@ router.patch('/payout-methods/:id/toggle', adminAuth, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // FINANCIAL INSIGHT MANAGEMENT
-// ============================================================================
+
 
 /**
  * Get all financial insights with filtering and pagination
@@ -785,9 +785,9 @@ router.patch('/financial-insights/:id/toggle', adminAuth, async (req, res) => {
   }
 });
 
-// ============================================================================
+
 // BULK OPERATIONS
-// ============================================================================
+
 
 /**
  * Bulk update task template order
@@ -890,9 +890,9 @@ router.patch('/:type/bulk/toggle', adminAuth, [
   }
 });
 
-// ============================================================================
+
 // ANALYTICS & MONITORING
-// ============================================================================
+
 
 /**
  * Get Cash Coach analytics dashboard

@@ -2,7 +2,7 @@
 // This file controls how OTP is handled in the application
 
 module.exports = {
-  // 🚨 DEVELOPMENT MODE SETTINGS
+  //  DEVELOPMENT MODE SETTINGS
   development: {
     // Set to true to use hardcoded OTP (bypasses Twilio)
     useHardcodedOTP: true,
@@ -18,7 +18,7 @@ module.exports = {
     
   },
   
-  // 🚀 PRODUCTION MODE SETTINGS
+  //  PRODUCTION MODE SETTINGS
   production: {
     // Set to false to use real SMS OTP
     useHardcodedOTP: false,

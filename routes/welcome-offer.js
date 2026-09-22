@@ -1,3 +1,4 @@
+const config = require('../config/config');
 const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
@@ -392,7 +393,7 @@ function getRecommendedGamesForWelcomeOffer(user) {
       timeRequired: '5 min',
       earningPotential: 50,
       description: 'Perfect for beginners - easy to learn, fun to play!',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/puzzle-master.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/puzzle-master.jpg`,
       isNew: false
     },
     {
@@ -404,7 +405,7 @@ function getRecommendedGamesForWelcomeOffer(user) {
       timeRequired: '5 min',
       earningPotential: 40,
       description: 'Train your memory while earning rewards!',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/memory-game.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/memory-game.jpg`,
       isNew: false
     },
     {
@@ -416,7 +417,7 @@ function getRecommendedGamesForWelcomeOffer(user) {
       timeRequired: '10 min',
       earningPotential: 80,
       description: 'Test your vocabulary skills!',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/word-challenge.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/word-challenge.jpg`,
       isNew: true
     },
     {
@@ -428,7 +429,7 @@ function getRecommendedGamesForWelcomeOffer(user) {
       timeRequired: '15 min',
       earningPotential: 150,
       description: 'High-reward action game for experienced players!',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/orbit-fall.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/orbit-fall.jpg`,
       isNew: false
     },
     {
@@ -440,7 +441,7 @@ function getRecommendedGamesForWelcomeOffer(user) {
       timeRequired: '10 min',
       earningPotential: 100,
       description: 'Race to victory and earn big rewards!',
-      imageUrl: 'https://rewardsapi.hireagent.co/uploads/games/speed-racer.jpg',
+      imageUrl: `${config.IMAGE_BASE_URL}/uploads/games/speed-racer.jpg`,
       isNew: true
     }
   ];

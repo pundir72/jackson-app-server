@@ -270,6 +270,8 @@ mongoose
     const integrityRoutes = require("./routes/integrity");
     const googlePlayIAPRoutes = require("./routes/google-play-iap");
     const nonGamingSurveyRoutes = require("./routes/admin-non-gaming-survey");
+    const directGamesRoutes = require("./routes/direct-games");
+    const adminDirectGamesRoutes = require("./routes/admin-direct-games");
 
     // Initialize Firebase Admin SDK (for V2 S2S implementation)
     const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
@@ -379,6 +381,8 @@ mongoose
     app.use("/api/admin/account-overview", adminAccountOverviewRoutes);
     app.use("/api/zoho", zohoRoutes);
     app.use("/api/non-gaming-survey", nonGamingSurveyRoutes);
+    app.use("/api/direct-games", directGamesRoutes);
+    app.use("/api/admin/direct-games", adminDirectGamesRoutes);
 
     // Test route to verify error-tracking wiring end to end (never in production)
     if (process.env.NODE_ENV !== "production") {
@@ -453,6 +457,10 @@ mongoose
     // Start walkathon scheduler
     const walkathonScheduler = require("./utils/walkathonScheduler");
     walkathonScheduler.initializeWalkathonScheduler();
+
+    // Retries and held-event re-checks for client-game (Adjust) milestones
+    const { startDirectGameScheduler } = require("./utils/directGameProcessor");
+    startDirectGameScheduler();
 
     // Export for testing
     module.exports = {

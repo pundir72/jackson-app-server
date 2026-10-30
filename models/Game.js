@@ -167,6 +167,24 @@ const gameSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
+    // Client games (sdkProvider "adjust") are entered by hand and report
+    // milestones through their own Adjust app instead of a partner postback.
+    // Unused by partner games. See utils/directGameProcessor.js.
+    directIntegration: {
+      // Identifies which game an incoming Adjust callback belongs to
+      adjustAppToken: { type: String, trim: true, default: null },
+      // Adjust tracker link the app opens on Play; the launch ticket rides on
+      // it as `label` so Adjust echoes it back on every callback
+      trackerUrl: { type: String, trim: true, default: null },
+      // Kill switch: off stops crediting immediately. Events still arrive and
+      // are queued for review rather than lost.
+      rewardsEnabled: { type: Boolean, default: true },
+      rewardsToggledAt: Date,
+      rewardsToggledBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    },
     deviceType: {
       type: String,
       default: "android",
@@ -307,6 +325,7 @@ gameSchema.post("save", function (doc) {
 // Indexes for efficient queries
 gameSchema.index({ title: 1 });
 gameSchema.index({ sdkProvider: 1, isActive: 1 });
+gameSchema.index({ "directIntegration.adjustAppToken": 1 }, { sparse: true });
 gameSchema.index({ tags: 1 });
 gameSchema.index({ "metadata.genre": 1 });
 gameSchema.index({

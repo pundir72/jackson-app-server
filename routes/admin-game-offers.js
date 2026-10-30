@@ -4066,6 +4066,8 @@ router.get("/master-data/sdk-providers", adminAuth, async (req, res) => {
       { id: "ayet", name: "Ayet Studios" },
       { id: "unity", name: "Unity Ads" },
       { id: "ironsource", name: "IronSource" },
+      // Client games: entered by hand, milestones arrive from Adjust
+      { id: "adjust", name: "Client game (Adjust)" },
     ];
 
     res.json({

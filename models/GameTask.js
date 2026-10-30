@@ -31,7 +31,8 @@ const gameTaskSchema = new mongoose.Schema({
     index: true
   },
   // The provider's own id for this task - BitLabs events[].id, Besitos
-  // goals[].goal_id. Webhooks identify a completed goal by this, so without it
+  // goals[].goal_id, and for client games (sdkProvider "adjust") the Adjust
+  // event token the admin maps the task to. Webhooks identify a completed goal by this, so without it
   // there is no reliable way to match a callback to a task. The Besitos webhook
   // already tried to query `besitosGoalId`, a field this strict schema never
   // defined, so that lookup could never match.
@@ -76,6 +77,12 @@ const gameTaskSchema = new mongoose.Schema({
     type: String,
     // enum: ['free', 'bronze', 'silver', 'gold', 'platinum'],
     default: 'free'
+  },
+  // A task pays once per user unless marked repeatable. Only client games
+  // (Adjust) read this today; partner tasks keep their existing behaviour.
+  isRepeatable: {
+    type: Boolean,
+    default: false
   },
   isOverride: {
     type: Boolean,

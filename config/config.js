@@ -165,6 +165,23 @@ module.exports = {
   ALLOW_LEVEL_SKIPPING: process.env.ALLOW_LEVEL_SKIPPING === "true", // Allow users to skip levels
   ALLOW_ORGANIC_USERS: process.env.ALLOW_ORGANIC_USERS === "true", // Allow organic users (no campaign)
 
+  // Direct (client) game integration - milestone callbacks from the client
+  // games' own Adjust apps. Separate from the Jackson-app Adjust settings above.
+  // Callbacks are rejected outright while the secret is unset.
+  ADJUST_DIRECT_CALLBACK_SECRET: process.env.ADJUST_DIRECT_CALLBACK_SECRET,
+  // Events older than this (event time vs. receipt) go to admin review.
+  DIRECT_GAMES_LATE_EVENT_DAYS:
+    parseInt(process.env.DIRECT_GAMES_LATE_EVENT_DAYS) || 30,
+  // How to treat an event matched to a user only by advertising id, with no
+  // launch ticket: "review" (default) queues it for an admin, "credit" pays it.
+  DIRECT_GAMES_DEVICE_MATCH_MODE:
+    process.env.DIRECT_GAMES_DEVICE_MATCH_MODE === "credit" ? "credit" : "review",
+  // Adjust sandbox events are accepted outside production unless overridden.
+  DIRECT_GAMES_ACCEPT_SANDBOX:
+    process.env.DIRECT_GAMES_ACCEPT_SANDBOX !== undefined
+      ? process.env.DIRECT_GAMES_ACCEPT_SANDBOX === "true"
+      : process.env.NODE_ENV !== "production",
+
   // Error Codes
   ERROR_CODES: {
     INVALID_CREDENTIALS: 401,

@@ -1271,6 +1271,15 @@ const userSchema = new mongoose.Schema({
         }
     }],
 
+    // Client-game (Adjust) events already credited to this user. Crediting
+    // filters on this in the same atomic update that pays, so a retried event
+    // can never pay twice. Never returned in responses.
+    directGameEventIds: {
+        type: [mongoose.Schema.Types.ObjectId],
+        select: false,
+        default: undefined
+    },
+
     // Task Progression Tracking (per game)
     // Maps gameId (string) to progression data
     taskProgression: {

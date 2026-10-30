@@ -216,3 +216,4 @@ PRODUCTION-READINESS-CHECKLIST.md
 diagnose-daily-challenge-pending.js
 fix-pending-daily-challenge-transactions.js
 test-bonus-day-fix.js
+rewards-admin

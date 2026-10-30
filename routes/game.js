@@ -2974,6 +2974,16 @@ router.post("/:gameId/tasks/:taskId/complete", protect, async (req, res) => {
       });
     }
 
+    // Client game milestones are verified by Adjust and credited from its
+    // callback; letting the app report them would bypass that verification.
+    if (game.sdkProvider === "adjust") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This task completes automatically when the game reports the milestone",
+      });
+    }
+
     // Verify task exists and belongs to game
     const task = await GameTask.findOne({
       _id: taskId,
@@ -3768,6 +3778,15 @@ router.post("/:gameId/coin-box/transfer", protect, async (req, res) => {
     });
 
     await Promise.all([user.save(), transaction.save()]);
+
+    // Transferring unlocks the next batch, so client-game milestones that
+    // arrived while those tasks were locked can now be credited
+    if (game.sdkProvider === "adjust") {
+      const {
+        releaseHeldEventsInBackground,
+      } = require("../utils/directGameProcessor");
+      releaseHeldEventsInBackground(user._id, game._id);
+    }
 
     // Successful transfer (previously logged for debugging)
 

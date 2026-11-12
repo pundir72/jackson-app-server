@@ -1,6 +1,7 @@
 const Sentry = require("@sentry/node");
 const dotenv = require("dotenv");
 const { context, trace } = require("@opentelemetry/api");
+const { redactUrl } = require("./utils/redactUrl");
 
 dotenv.config();
 
@@ -20,6 +21,12 @@ if (dsn) {
     skipOpenTelemetrySetup: true,
     sendDefaultPii: false,
     beforeSend(event) {
+      if (event.request) {
+        event.request.url = redactUrl(event.request.url);
+        if (typeof event.request.query_string === "string") {
+          event.request.query_string = redactUrl(`?${event.request.query_string}`).slice(1);
+        }
+      }
       // Correlate Sentry events with OTel traces (viewable in Tempo/Grafana)
       const span = trace.getSpan(context.active());
       if (span) {

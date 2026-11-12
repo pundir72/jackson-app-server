@@ -1,4 +1,5 @@
 const dotenv = require("dotenv");
+const { redactUrl } = require("./utils/redactUrl");
 const { NodeSDK } = require("@opentelemetry/sdk-node");
 const { Resource } = require("@opentelemetry/resources");
 const {
@@ -46,6 +47,17 @@ const sdk = new NodeSDK({
     getNodeAutoInstrumentations({
       "@opentelemetry/instrumentation-http": {
         enabled: true,
+        // Keep callback secrets (?token=) out of exported spans
+        requestHook: (span, request) => {
+          // Incoming requests only (IncomingMessage has url + headers)
+          if (typeof request.url !== "string" || !request.headers) return;
+          const target = redactUrl(request.url);
+          if (target === request.url) return;
+          const scheme = request.socket?.encrypted ? "https" : "http";
+          span.setAttribute("http.target", target);
+          span.setAttribute("url.query", target.slice(target.indexOf("?") + 1));
+          span.setAttribute("http.url", `${scheme}://${request.headers.host}${target}`);
+        },
       },
       "@opentelemetry/instrumentation-express": {
         enabled: true,

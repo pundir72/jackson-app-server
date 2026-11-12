@@ -18,6 +18,7 @@ const {
   requestDurationHistogram,
 } = require("./metrics");
 const logger = require("./utils/logger");
+const { redactUrl } = require("./utils/redactUrl");
 
 // Initialize Redis client
 let redis;
@@ -88,7 +89,7 @@ app.use((req, res, next) => {
     });
     logger.info("http_request", {
       method: req.method,
-      path: req.originalUrl || req.url,
+      path: redactUrl(req.originalUrl || req.url),
       status: res.statusCode,
       duration_ms: durationMs,
       trace_id: traceId,
@@ -401,7 +402,7 @@ mongoose
         }
         scope.setContext("request", {
           method: req.method,
-          path: req.originalUrl || req.url,
+          path: redactUrl(req.originalUrl || req.url),
           ip: req.ip,
           user_agent: req.headers["user-agent"],
         });

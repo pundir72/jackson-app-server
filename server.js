@@ -11,6 +11,7 @@ const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
 const logger = require("./utils/logger");
+const { redactUrl } = require("./utils/redactUrl");
 
 // Initialize Redis client
 let redis;
@@ -63,7 +64,7 @@ app.use((req, res, next) => {
     const durationMs = Date.now() - startTime;
     logger.info("http_request", {
       method: req.method,
-      path: req.originalUrl || req.url,
+      path: redactUrl(req.originalUrl || req.url),
       status: res.statusCode,
       duration_ms: durationMs,
       user_id: req.user?.userId || req.user?.id,
@@ -375,7 +376,7 @@ mongoose
         }
         scope.setContext("request", {
           method: req.method,
-          path: req.originalUrl || req.url,
+          path: redactUrl(req.originalUrl || req.url),
           ip: req.ip,
           user_agent: req.headers["user-agent"],
         });

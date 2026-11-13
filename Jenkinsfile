@@ -8,7 +8,6 @@ pipeline {
         booleanParam(name: 'RUN_AUDIT', defaultValue: true, description: 'Run npm dependency audit')
         booleanParam(name: 'RUN_IMAGE_SCAN', defaultValue: true, description: 'Run container image scan')
         booleanParam(name: 'PUSH_IMAGE', defaultValue: false, description: 'Push image to registry')
-        booleanParam(name: 'RUN_LOAD_TESTS', defaultValue: false, description: 'Run k6 smoke tests')
     }
 
     environment {
@@ -203,16 +202,6 @@ pipeline {
             }
         }
 
-        stage('Load Test (k6)') {
-            when {
-                expression { return params.RUN_LOAD_TESTS }
-            }
-            steps {
-                sh '''
-                BASE_URL="http://localhost:4001" bash scripts/run-k6.sh load-tests/k6-smoke.js
-                '''
-            }
-        }
     }
 
     post {

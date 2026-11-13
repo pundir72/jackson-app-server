@@ -1,6 +1,5 @@
 
 # Self-contained UAT stack: the app and its own Redis on a private network.
-# Nothing here depends on the SRE / observability stack.
 services:
   app:
     build:

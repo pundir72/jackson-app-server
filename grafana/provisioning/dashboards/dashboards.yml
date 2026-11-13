@@ -1,8 +1,0 @@
-apiVersion: 1
-
-providers:
-  - name: "SRE Demo"
-    folder: "SRE Demo"
-    type: file
-    options:
-      path: /var/lib/grafana/dashboards

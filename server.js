@@ -1,4 +1,3 @@
-require("./otel");
 require("dotenv").config();
 const Sentry = require("./instrument");
 const express = require("express");
@@ -11,12 +10,6 @@ const config = require("./config/config");
 const socketIo = require("socket.io");
 const Redis = require("ioredis");
 const passport = require("./config/passport");
-const { context, trace } = require("@opentelemetry/api");
-const {
-  requestCounter,
-  serverRequestCounter,
-  requestDurationHistogram,
-} = require("./metrics");
 const logger = require("./utils/logger");
 
 // Initialize Redis client
@@ -63,35 +56,16 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Structured request logging with trace correlation when available
+// Structured request logging
 app.use((req, res, next) => {
   const startTime = Date.now();
   res.on("finish", () => {
-    const span = trace.getSpan(context.active());
-    const traceId = span ? span.spanContext().traceId : undefined;
-    const route = req.route?.path || req.path;
     const durationMs = Date.now() - startTime;
-    requestCounter.add(1, {
-      method: req.method,
-      route,
-      status: res.statusCode,
-    });
-    serverRequestCounter.add(1, {
-      http_method: req.method,
-      http_route: route,
-      http_status_code: String(res.statusCode),
-    });
-    requestDurationHistogram.record(durationMs, {
-      http_method: req.method,
-      http_route: route,
-      http_status_code: String(res.statusCode),
-    });
     logger.info("http_request", {
       method: req.method,
       path: req.originalUrl || req.url,
       status: res.statusCode,
       duration_ms: durationMs,
-      trace_id: traceId,
       user_id: req.user?.userId || req.user?.id,
       ip: req.ip,
       user_agent: req.headers["user-agent"],

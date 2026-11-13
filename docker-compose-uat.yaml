@@ -1,5 +1,6 @@
-version: '3.8'
 
+# Self-contained UAT stack: the app and its own Redis on a private network.
+# Nothing here depends on the SRE / observability stack.
 services:
   app:
     build:
@@ -8,11 +9,29 @@ services:
     image: jackson-app:uat
     container_name: jackson-app-uat
     restart: always
+    environment:
+      # Overrides any REDIS_URL baked into the image from .env
+      - REDIS_URL=redis://jackson-redis-uat:6379
     ports:
       - "8000:8000"
+    depends_on:
+      - redis
     networks:
-      - sre-net
+      - uat-net
+
+  redis:
+    image: redis:7
+    container_name: jackson-redis-uat
+    restart: always
+    # No host port: only the app container can reach it
+    volumes:
+      - redis-uat-data:/data
+    networks:
+      - uat-net
 
 networks:
-  sre-net:
-    external: true
+  uat-net:
+    driver: bridge
+
+volumes:
+  redis-uat-data:

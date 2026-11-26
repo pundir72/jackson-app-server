@@ -483,4 +483,42 @@ describe('partner flow guard', () => {
     expect(res.status).toBe(403);
     expect(await balanceOf(player)).toBe(0);
   });
+
+  test('the app cannot claim client game coins through /earn', async () => {
+    const res = await request(app)
+      .post('/api/game/earn')
+      .set('Authorization', `Bearer ${tokenFor(player)}`)
+      .send({ gameId: game.gameId, coins: 500, xp: 0, batchNumber: 1, batchesClaimed: 1 });
+    expect(res.status).toBe(403);
+    expect(await balanceOf(player)).toBe(0);
+  });
+});
+
+describe('discover', () => {
+  const discoverIds = async (user) => {
+    const res = await request(app).get('/api/game/discover').set('Authorization', `Bearer ${tokenFor(user)}`);
+    expect(res.status).toBe(200);
+    return (res.body.data || []).map((g) => g.gameId);
+  };
+
+  test('a configured client game is listed, and stays listed after launch', async () => {
+    expect(await discoverIds(player)).toContain('client-game-1');
+
+    await launch(player);
+    expect(await discoverIds(player)).toContain('client-game-1');
+  });
+
+  test('a client game without its Adjust setup is not listed', async () => {
+    await Game.create({
+      gameId: 'client-game-unset',
+      title: 'Client Unset',
+      description: 'Not linked to Adjust yet',
+      sdkProvider: 'adjust',
+      xptrRules: 'none',
+      createdBy: admin._id,
+    });
+    const ids = await discoverIds(player);
+    expect(ids).toContain('client-game-1');
+    expect(ids).not.toContain('client-game-unset');
+  });
 });

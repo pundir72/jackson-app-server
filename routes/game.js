@@ -238,6 +238,11 @@ async function checkGameAvailability(game, userProfile, userId = null, isRetry =
       return await checkBesitosAvailability(game, userProfile, userId);
     } else if (normalizedProvider === "bitlabs") {
       return await checkBitlabsAvailability(game, userProfile, userId);
+    } else if (normalizedProvider === "adjust") {
+      // Client games have no partner feed; they are playable once their
+      // Adjust setup is complete (the same check /direct-games/:id/launch makes)
+      const { adjustAppToken, trackerUrl } = game.directIntegration || {};
+      return Boolean(adjustAppToken && trackerUrl);
     } else {
       return false;
     }
@@ -952,9 +957,17 @@ router.post("/earn", protect, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const gameDoc = await Game.findOne({ gameId: safeGameId }).select("_id").lean();
+    const gameDoc = await Game.findOne({ gameId: safeGameId }).select("_id sdkProvider").lean();
     if (!gameDoc) {
       return res.status(404).json({ success: false, message: "Game not found" });
+    }
+
+    // Client game milestones are credited only from verified Adjust callbacks
+    if (gameDoc.sdkProvider === "adjust") {
+      return res.status(403).json({
+        success: false,
+        message: "This task completes automatically when the game reports the milestone",
+      });
     }
 
     const alreadyClaimed = await checkAlreadyClaimed(user._id, safeGameId, batchNumber, batchesClaimed, safeTaskIds);
@@ -1573,6 +1586,11 @@ router.get("/discover", protect, async (req, res) => {
       if (downloadedGameIds.size > 0 || downloadedGameObjectIds.size > 0) {
         const beforeHideCount = allGames.length;
         allGames = allGames.filter((g) => {
+          // Client (Adjust) games stay listed after launch: My Games only shows
+          // Besitos in-progress games, so this is the player's way back to the
+          // task list
+          if (String(g.sdkProvider || "").toLowerCase() === "adjust") return true;
+
           // Check by gameId (both normalized and original)
           let gameIdMatch = false;
           if (g.gameId) {

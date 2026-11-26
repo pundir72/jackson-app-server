@@ -448,6 +448,82 @@ describe('kill switch and admin review', () => {
   });
 });
 
+describe('client-game task imports', () => {
+  const importRow = (overrides = {}) => ({
+    sourceRow: 2,
+    name: 'Reach level 20',
+    completionRule: 'Complete level 20 in Client Game',
+    externalTaskId: 'ev_level20',
+    rewardType: 'coins',
+    rewardValue: 10,
+    order: 3,
+    isRepeatable: false,
+    isActive: true,
+    eventTypes: ['milestone'],
+    ...overrides,
+  });
+
+  test('previews then applies a new task, and a second import is a no-op', async () => {
+    const tasks = [importRow()];
+    const preview = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/preview`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks });
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.counts).toMatchObject({ create: 1, update: 0, unchanged: 0 });
+
+    const applied = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/apply`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks, previewHash: preview.body.data.hash });
+    expect(applied.status).toBe(200);
+    expect(await GameTask.countDocuments({ gameId: game._id, externalTaskId: 'ev_level20' })).toBe(1);
+
+    const again = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/preview`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks });
+    expect(again.status).toBe(200);
+    expect(again.body.data.counts).toMatchObject({ create: 0, update: 0, unchanged: 1 });
+  });
+
+  test('rejects duplicate tokens before any task is written', async () => {
+    const tasks = [importRow(), importRow({ sourceRow: 3, name: 'Duplicate level', order: 4 })];
+    const res = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/preview`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks });
+    expect(res.status).toBe(400);
+    expect(res.body.errors.some((error) => error.field === 'externalTaskId')).toBe(true);
+    expect(await GameTask.countDocuments({ gameId: game._id, externalTaskId: 'ev_level20' })).toBe(0);
+  });
+
+  test('refuses a stale preview instead of writing a changed import', async () => {
+    const tasks = [importRow()];
+    const preview = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/preview`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks });
+    await GameTask.create({ ...importRow(), gameId: game._id, createdBy: admin._id });
+    const res = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/apply`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks, previewHash: preview.body.data.hash });
+    expect(res.status).toBe(409);
+
+    const updatePreview = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/preview`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks });
+    await GameTask.updateOne({ gameId: game._id, externalTaskId: 'ev_level20' }, { rewardValue: 99, updatedAt: new Date() });
+    const concurrent = await request(app)
+      .post(`/api/admin/direct-games/games/${game._id}/task-import/apply`)
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({ tasks, previewHash: updatePreview.body.data.hash });
+    expect(concurrent.status).toBe(409);
+  });
+});
+
 describe('daily challenge', () => {
   test('a credited milestone counts toward a started "tasks" challenge', async () => {
     const DailyChallenge = require('../models/DailyChallenge');

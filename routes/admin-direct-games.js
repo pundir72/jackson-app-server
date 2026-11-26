@@ -11,6 +11,7 @@
 
 const express = require('express');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const router = express.Router();
 const { adminAuth } = require('../middleware/adminAuth');
 const Game = require('../models/Game');
@@ -35,6 +36,104 @@ async function findClientGame(id) {
   if (!validId(id)) return null;
   const game = await Game.findById(id);
   return game && game.sdkProvider === PROVIDER ? game : null;
+}
+
+const IMPORT_EVENT_TYPES = ['install', 'purchase', 'milestone', 'playtime'];
+const IMPORT_FIELDS = [
+  'name', 'completionRule', 'externalTaskId', 'rewardType', 'rewardValue',
+  'order', 'isRepeatable', 'isActive', 'eventTypes',
+];
+
+const importError = (row, field, message) => ({ row, field, message });
+
+/**
+ * Normalise the reviewed rows sent by the admin UI. CSV parsing is deliberately
+ * client-side; this is the authoritative validation before any task is written.
+ */
+function normaliseImportRows(rows) {
+  const errors = [];
+  if (!Array.isArray(rows) || !rows.length) return { errors: [importError(null, 'tasks', 'At least one task is required')], rows: [] };
+  if (rows.length > 200) return { errors: [importError(null, 'tasks', 'A maximum of 200 tasks may be imported at once')], rows: [] };
+
+  const tokens = new Set();
+  const normalised = rows.map((raw, index) => {
+    const row = Number.isInteger(raw?.sourceRow) ? raw.sourceRow : index + 1;
+    const token = typeof raw?.externalTaskId === 'string' ? raw.externalTaskId.trim() : '';
+    const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
+    const completionRule = typeof raw?.completionRule === 'string' ? raw.completionRule.trim() : '';
+    const rewardValue = Number(raw?.rewardValue);
+    const order = Number(raw?.order);
+    const eventTypes = Array.isArray(raw?.eventTypes) ? [...new Set(raw.eventTypes)] : [];
+
+    if (!token) errors.push(importError(row, 'externalTaskId', 'Adjust event token is required'));
+    else if (tokens.has(token)) errors.push(importError(row, 'externalTaskId', `Duplicate Adjust event token: ${token}`));
+    else tokens.add(token);
+    if (!name) errors.push(importError(row, 'name', 'Task name is required'));
+    if (!completionRule) errors.push(importError(row, 'completionRule', 'Completion rule is required'));
+    if (!['coins', 'xp'].includes(raw?.rewardType)) errors.push(importError(row, 'rewardType', 'Reward type must be coins or xp'));
+    if (!Number.isFinite(rewardValue) || rewardValue < 0) errors.push(importError(row, 'rewardValue', 'Reward value must be zero or greater'));
+    if (!Number.isInteger(order) || order < 1) errors.push(importError(row, 'order', 'Order must be a positive integer'));
+    if (!eventTypes.length) errors.push(importError(row, 'eventTypes', 'At least one event classification is required'));
+    const invalidTypes = eventTypes.filter((type) => !IMPORT_EVENT_TYPES.includes(type));
+    if (invalidTypes.length) errors.push(importError(row, 'eventTypes', `Invalid event classification: ${invalidTypes.join(', ')}`));
+    if (typeof raw?.isRepeatable !== 'boolean') errors.push(importError(row, 'isRepeatable', 'Repeatable must be true or false'));
+    if (typeof raw?.isActive !== 'boolean') errors.push(importError(row, 'isActive', 'Active must be true or false'));
+
+    return {
+      sourceRow: row, name, completionRule, externalTaskId: token,
+      rewardType: raw?.rewardType, rewardValue, order,
+      isRepeatable: raw?.isRepeatable, isActive: raw?.isActive, eventTypes,
+    };
+  });
+  return { errors, rows: normalised };
+}
+
+function taskPayload(row, userId) {
+  return {
+    ...Object.fromEntries(IMPORT_FIELDS.map((field) => [field, row[field]])),
+    classificationSource: 'admin',
+    updatedBy: userId,
+  };
+}
+
+function importHash(rows, actions) {
+  return crypto.createHash('sha256').update(JSON.stringify({ rows, actions })).digest('hex');
+}
+
+function taskFingerprint(task) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    fields: Object.fromEntries(IMPORT_FIELDS.map((field) => [field, task[field]])),
+    classificationSource: task.classificationSource || null,
+    updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : null,
+  })).digest('hex');
+}
+
+async function buildImportPreview(game, rawRows, userId) {
+  const { errors, rows } = normaliseImportRows(rawRows);
+  if (errors.length) return { errors, rows: [], hash: null, counts: {} };
+
+  const existing = await GameTask.find({ gameId: game._id }).lean();
+  const byToken = new Map();
+  for (const task of existing) {
+    if (!task.externalTaskId) continue;
+    byToken.set(task.externalTaskId, [...(byToken.get(task.externalTaskId) || []), task]);
+  }
+  for (const [token, tasks] of byToken) {
+    if (tasks.length > 1 && rows.some((row) => row.externalTaskId === token)) {
+      errors.push(importError(null, 'externalTaskId', `Existing tasks map ${token} more than once; resolve duplicates before importing`));
+    }
+  }
+  if (errors.length) return { errors, rows: [], hash: null, counts: {} };
+
+  const actions = rows.map((row) => {
+    const prior = byToken.get(row.externalTaskId)?.[0];
+    const payload = taskPayload(row, userId);
+    const unchanged = prior && IMPORT_FIELDS.every((field) => JSON.stringify(prior[field]) === JSON.stringify(payload[field]))
+      && prior.classificationSource === 'admin';
+    return { ...row, action: !prior ? 'create' : unchanged ? 'unchanged' : 'update', taskId: prior?._id?.toString() || null, currentFingerprint: prior ? taskFingerprint(prior) : null };
+  });
+  const counts = actions.reduce((all, row) => ({ ...all, [row.action]: (all[row.action] || 0) + 1 }), { create: 0, update: 0, unchanged: 0 });
+  return { errors: [], rows: actions, counts, hash: importHash(rows, actions.map(({ action, taskId, currentFingerprint }) => ({ action, taskId, currentFingerprint }))) };
 }
 
 /** Everything that would stop this game's milestones from being credited. */
@@ -119,6 +218,80 @@ router.get('/games/:id/validation', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to validate game', error: error.message });
+  }
+});
+
+/**
+ * @route POST /api/admin/direct-games/games/:id/task-import/preview
+ * @desc Validate reviewed Adjust event rows and report create/update/no-op work.
+ * @body {Array} tasks - normalised rows from the CSV preview
+ */
+router.post('/games/:id/task-import/preview', async (req, res) => {
+  try {
+    const game = await findClientGame(req.params.id);
+    if (!game) return res.status(404).json({ success: false, message: 'Client game not found' });
+    const preview = await buildImportPreview(game, req.body?.tasks, req.user.userId);
+    if (preview.errors.length) return res.status(400).json({ success: false, message: 'Import validation failed', errors: preview.errors });
+    res.json({ success: true, data: preview });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to preview task import', error: error.message });
+  }
+});
+
+/**
+ * @route POST /api/admin/direct-games/games/:id/task-import/apply
+ * @desc Apply a server-validated preview. A stale preview must be regenerated.
+ * @body {Array} tasks, {String} previewHash
+ */
+router.post('/games/:id/task-import/apply', async (req, res) => {
+  try {
+    const game = await findClientGame(req.params.id);
+    if (!game) return res.status(404).json({ success: false, message: 'Client game not found' });
+    if (typeof req.body?.previewHash !== 'string') {
+      return res.status(400).json({ success: false, message: 'A preview hash is required before applying an import' });
+    }
+    const preview = await buildImportPreview(game, req.body?.tasks, req.user.userId);
+    if (preview.errors.length) return res.status(400).json({ success: false, message: 'Import validation failed', errors: preview.errors });
+    if (preview.hash !== req.body.previewHash) {
+      return res.status(409).json({ success: false, message: 'Import preview is stale. Review the current changes before applying.' });
+    }
+
+    const created = [];
+    const originals = [];
+    const results = [];
+    try {
+      for (const row of preview.rows) {
+        if (row.action === 'unchanged') {
+          results.push({ sourceRow: row.sourceRow, token: row.externalTaskId, action: 'unchanged', taskId: row.taskId });
+          continue;
+        }
+        const payload = taskPayload(row, req.user.userId);
+        if (row.action === 'create') {
+          const task = await GameTask.create({ ...payload, gameId: game._id, createdBy: req.user.userId });
+          created.push(task._id);
+          results.push({ sourceRow: row.sourceRow, token: row.externalTaskId, action: 'created', taskId: task._id });
+        } else {
+          const prior = await GameTask.findOne({ _id: row.taskId, gameId: game._id });
+          if (!prior) throw new Error(`Task for ${row.externalTaskId} changed while this import was being applied`);
+          originals.push(prior.toObject());
+          Object.assign(prior, payload);
+          await prior.save();
+          results.push({ sourceRow: row.sourceRow, token: row.externalTaskId, action: 'updated', taskId: prior._id });
+        }
+      }
+    } catch (writeError) {
+      // Standalone Mongo deployments cannot use transactions. Compensate every
+      // completed write so a failed import never leaves a partial task set.
+      await GameTask.deleteMany({ _id: { $in: created } });
+      for (const original of originals.reverse()) {
+        await GameTask.replaceOne({ _id: original._id }, original, { runValidators: true });
+      }
+      throw writeError;
+    }
+
+    res.json({ success: true, message: 'Task import applied', data: { counts: preview.counts, results } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to apply task import', error: error.message });
   }
 });
 
